@@ -575,7 +575,413 @@ fun ProseAnalysisView(
             }
         }
 
-        // ── 5. Lexical Diversity Card ─────────────────────────────────────────
+        // ── 5. Stylistic & Novel Diagnostics Suite ──────────────────────────
+        // 5a. Passive Voice Scanner
+        if (analysis.passiveVoiceMatches.isNotEmpty()) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    "PASSIVE VOICE SCANNER",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    letterSpacing = 1.sp
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    "${analysis.passiveVoiceMatches.size} passive constructions detected",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFFFF9800).copy(alpha = 0.2f)
+                            ) {
+                                Text(
+                                    "${analysis.passiveVoiceMatches.size} flags",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFE65100),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "Passive voice delays the subject and slows narrative momentum. Converting to active voice creates punchier action.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        Spacer(Modifier.height(10.dp))
+
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            analysis.passiveVoiceMatches.take(8).forEach { match ->
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onJumpToSentence?.invoke(match.sentenceIndex) }
+                                ) {
+                                    Column(Modifier.padding(10.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                "\"${match.text}\"",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFFE65100)
+                                            )
+                                            Text(
+                                                "Sentence ${match.sentenceIndex + 1} ↗",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(
+                                            match.preview,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        if (match.suggestion != null) {
+                                            Spacer(Modifier.height(4.dp))
+                                            Text(
+                                                "💡 ${match.suggestion}",
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5b. Filter Words & Psychological Distance
+        if (analysis.filterWordsMatches.isNotEmpty()) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    "FILTER WORDS & POV DISTANCE",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    letterSpacing = 1.sp
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    "${analysis.filterWordsMatches.size} sensory filters found",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Text(
+                                    "${analysis.filterWordsMatches.size} filters",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "Filter words ('she heard', 'he felt', 'noticed that') place a lens between the reader and the experience. Deleting them creates immediate immersion.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        Spacer(Modifier.height(10.dp))
+
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            analysis.filterWordsMatches.take(8).forEach { match ->
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { onJumpToSentence?.invoke(match.sentenceIndex) }
+                                ) {
+                                    Column(Modifier.padding(10.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                "\"${match.text}\"",
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Text(
+                                                "Sentence ${match.sentenceIndex + 1} ↗",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(
+                                            match.preview,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 2,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        if (match.suggestion != null) {
+                                            Spacer(Modifier.height(4.dp))
+                                            Text(
+                                                "💡 ${match.suggestion}",
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.tertiary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5c. Weak Adverbs Scanner
+        if (analysis.weakAdverbsMatches.isNotEmpty()) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    "WEAK ADVERBS (-LY) INSPECTOR",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    letterSpacing = 1.sp
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    "${analysis.weakAdverbsMatches.size} adverbs flagged",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "Adverbs often prop up weak verbs. Replace 'ran quickly' with 'sprinted', or 'said quietly' with 'whispered'.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        Spacer(Modifier.height(10.dp))
+
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            analysis.weakAdverbsMatches.map { it.text }.distinct().take(16).forEach { adverb ->
+                                Surface(
+                                    shape = RoundedCornerShape(50),
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                                    shadowElevation = 1.dp
+                                ) {
+                                    Text(
+                                        adverb,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 6. Scene Inlays & Chapter Breakdown ───────────────────────────────
+        if (analysis.sceneSections.isNotEmpty()) {
+            item {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    "SCENE INLAYS & TARGETS",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    letterSpacing = 1.sp
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    "${analysis.sceneSections.size} scene sections in chapter",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Icon(
+                                Icons.Outlined.BookmarkBorder,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        Spacer(Modifier.height(12.dp))
+
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            analysis.sceneSections.forEach { scene ->
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(Modifier.weight(1f)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Surface(
+                                                    shape = CircleShape,
+                                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                                    modifier = Modifier.size(22.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Text(
+                                                            "${scene.sceneIndex}",
+                                                            fontSize = 10.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(Modifier.width(8.dp))
+                                                Text(
+                                                    scene.sceneTitle ?: "Scene ${scene.sceneIndex}",
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onSurface
+                                                )
+                                            }
+
+                                            if (scene.povCharacter != null || scene.location != null) {
+                                                Spacer(Modifier.height(4.dp))
+                                                Row(
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    if (scene.povCharacter != null) {
+                                                        Text(
+                                                            "👤 POV: ${scene.povCharacter}",
+                                                            fontSize = 11.sp,
+                                                            color = MaterialTheme.colorScheme.primary
+                                                        )
+                                                    }
+                                                    if (scene.location != null) {
+                                                        Text(
+                                                            "📍 ${scene.location}",
+                                                            fontSize = 11.sp,
+                                                            color = MaterialTheme.colorScheme.outline
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Inlay Hint Badge: [1,420 words · 5 min read]
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = MaterialTheme.colorScheme.surfaceVariant
+                                        ) {
+                                            Text(
+                                                "[ ${scene.wordCount} words · ${formatDuration(scene.readingTimeMinutes)} ]",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 7. Lexical Diversity Card ─────────────────────────────────────────
         item {
             Card(
                 shape = RoundedCornerShape(16.dp),
