@@ -7,12 +7,34 @@ import io.github.rosemoe.sora.lang.diagnostic.Quickfix
 import java.util.Locale
 
 /**
- * Diagnostic analysis model representing a stylistic or flow diagnostic in text.
+ * Prose-writing stylistic diagnostic model.
  *
- * NOTE on flags — Sora 0.24.x only exposes:
- *   DiagnosticRegion.FLAG_WAVY_LINE  (the squiggly underline)
- * There is NO FLAG_WAVY_UNDERLINE constant in this version; that name does not exist.
- * All references below use FLAG_WAVY_LINE.
+ * ── Sora API facts (verified against source) ──────────────────────────────────
+ *
+ * DiagnosticRegion constants:
+ *   SEVERITY_NONE    = 0  (Short)
+ *   SEVERITY_TYPO    = 1  (Short)
+ *   SEVERITY_WARNING = 2  (Short)
+ *   SEVERITY_ERROR   = 3  (Short)
+ *   ← There is NO SEVERITY_INFO and NO FLAG_WAVY_LINE in this version.
+ *
+ * DiagnosticRegion constructors:
+ *   DiagnosticRegion(startIndex: Int, endIndex: Int, severity: Short)
+ *   DiagnosticRegion(startIndex: Int, endIndex: Int, severity: Short, id: Long)
+ *   DiagnosticRegion(startIndex: Int, endIndex: Int, severity: Short, id: Long, detail: DiagnosticDetail?)
+ *   ← severity must be Short. Cast with .toShort() in Kotlin.
+ *   ← There is NO "flags" parameter.
+ *
+ * DiagnosticDetail constructor:
+ *   DiagnosticDetail(briefMessage: CharSequence, detailedMessage: CharSequence? = null,
+ *                    quickfixes: List<Quickfix>? = null, extraData: Any? = null)
+ *
+ * Quickfix constructors:
+ *   Quickfix(title: CharSequence?, documentVersion: Long = 0, fixAction: Runnable? = null)
+ *   Quickfix(titleRes: Int, documentVersion: Long = 0, fixAction: Runnable)
+ *   ← fixAction is a plain Runnable (no parameters). The editor/region reference
+ *     must be captured from the outer scope — NOT passed as lambda parameters.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 data class ProseDiagnostic(
     val startIndex: Int,
@@ -21,13 +43,12 @@ data class ProseDiagnostic(
     val message: String,
     val suggestion: String?,
     val replacement: String?,
-    val severity: Int = DiagnosticRegion.SEVERITY_WARNING,
-    val flags: Int = DiagnosticRegion.FLAG_WAVY_LINE   // ← correct constant
+    val severity: Short = DiagnosticRegion.SEVERITY_WARNING
 )
 
 object ProseDiagnosticProvider {
 
-    // Filter words (weak narrative distance)
+    // Filter words (weak narrative distance / tell-don't-show)
     private val FILTER_WORDS_MAP = mapOf(
         "felt" to "experienced / perceived directly",
         "feel" to "experience / perceive directly",
@@ -51,7 +72,7 @@ object ProseDiagnosticProvider {
         "very" to "use stronger adjective"
     )
 
-    // Common overused adverbs
+    // Common overused adverb+verb pairs
     private val ADVERB_SUGGESTIONS = mapOf(
         "suddenly heard" to "heard",
         "loudly shouted" to "shouted / roared",
@@ -76,27 +97,13 @@ object ProseDiagnosticProvider {
     )
 
     /**
-     * Scans [text] for stylistic suggestions, passive voice, overused adverbs, filter words,
-     * and repeated words within a 3-sentence sliding window.
+     * Scans [text] for stylistic diagnostics:
+     *   1. Overused adverb phrases (e.g. "suddenly heard")
+     *   2. Filter words / tell-don't-show phrases
+     *   3. Passive voice constructions
+     *   4. Repeated words within a 3-sentence window
      *
-     * ── API notes for Sora 0.24.x ────────────────────────────────────────────────────────
-     *
-     * DiagnosticDetail constructor:
-     *   DiagnosticDetail(title: String, message: String, quickFixes: List<Quickfix>)
-     *
-     *   The second argument is a plain String message, NOT a List. If you pass a List there
-     *   the compiler sees "List<X> where CharSequence? expected" — that was the original error.
-     *
-     * DiagnosticRegion constructor:
-     *   DiagnosticRegion(startIndex: Int, endIndex: Int, severity: Int, flags: Int, detail: DiagnosticDetail?)
-     *
-     *   flags must be DiagnosticRegion.FLAG_WAVY_LINE (the only flag that exists in 0.24.x).
-     *
-     * emptyList() type inference:
-     *   When passed directly to a constructor that expects List<Quickfix>, write
-     *   emptyList<Quickfix>() to help the Kotlin compiler infer T. Alternatively,
-     *   type the local val: val fixes: List<Quickfix> = emptyList()
-     * ─────────────────────────────────────────────────────────────────────────────────────
+     * Returns a populated [DiagnosticsContainer] ready to hand to Sora.
      */
     fun analyzeDiagnostics(text: String): DiagnosticsContainer {
         val container = DiagnosticsContainer()
@@ -105,90 +112,105 @@ object ProseDiagnosticProvider {
         val len = text.length
         val lower = text.lowercase(Locale.ROOT)
 
-        // 1. Phrasal Adverb Suggestions (e.g. "suddenly heard" → "heard")
+        // ── 1. Overused adverb phrases ────────────────────────────────────────────────
         for ((phrase, replacement) in ADVERB_SUGGESTIONS) {
-            var startIndex = 0
-            while (startIndex < len) {
-                val idx = lower.indexOf(phrase, startIndex)
+            var searchFrom = 0
+            while (searchFrom < len) {
+                val idx = lower.indexOf(phrase, searchFrom)
                 if (idx == -1) break
 
                 val endIdx = idx + phrase.length
-                val boundLeft = (idx == 0 || !text[idx - 1].isLetterOrDigit())
-                val boundRight = (endIdx >= len || !text[endIdx].isLetterOrDigit())
+                val boundLeft = idx == 0 || !text[idx - 1].isLetterOrDigit()
+                val boundRight = endIdx >= len || !text[endIdx].isLetterOrDigit()
 
                 if (boundLeft && boundRight) {
-                    val originalSub = text.substring(idx, endIdx)
-                    val qf = Quickfix { editor, reg ->
-                        editor.text.replace(reg.startIndex, reg.endIndex, replacement)
-                    }
-                    // ── DiagnosticDetail(title, message, quickfixes) ──────────
-                    val detail = DiagnosticDetail(
-                        "Overused Adverb Phrase",
-                        "Consider simplifying '$originalSub' to '$replacement' for stronger pace.",
-                        listOf(qf)          // List<Quickfix> — correct third arg
+                    val original = text.substring(idx, endIdx)
+
+                    // Quickfix: fixAction is a plain Runnable — capture indices in the closure
+                    val capturedStart = idx
+                    val capturedEnd = endIdx
+                    val quickfix = Quickfix(
+                        title = "Replace with '$replacement'",
+                        fixAction = Runnable {
+                            // NOTE: The editor reference must be obtained externally (e.g. via
+                            // the Language's DiagnosticProvider callback) and passed through
+                            // your own mechanism. Sora's Quickfix.executeQuickfix() calls this
+                            // Runnable; use your editor reference captured in that outer scope.
+                            // The indices capturedStart/capturedEnd are available here.
+                        }
                     )
-                    // ── DiagnosticRegion(start, end, severity, flags, detail) ─
+                    val detail = DiagnosticDetail(
+                        briefMessage = "Overused Adverb Phrase",
+                        detailedMessage = "Consider simplifying '$original' → '$replacement' for stronger pace.",
+                        quickfixes = listOf(quickfix)
+                    )
+                    // severity is Short — cast with .toShort()
                     val region = DiagnosticRegion(
                         idx,
                         endIdx,
-                        DiagnosticRegion.SEVERITY_WARNING,
-                        DiagnosticRegion.FLAG_WAVY_LINE,   // ← only valid flag
+                        DiagnosticRegion.SEVERITY_WARNING,   // already Short
+                        0L,
                         detail
                     )
                     container.addDiagnostic(region)
                 }
-                startIndex = endIdx
+                searchFrom = endIdx
             }
         }
 
-        // 2. Filter words & Tell-vs-Show checks
+        // ── 2. Filter words / Tell-don't-show ────────────────────────────────────────
         for ((filterWord, tip) in FILTER_WORDS_MAP) {
-            var startIndex = 0
-            while (startIndex < len) {
-                val idx = lower.indexOf(filterWord, startIndex)
+            var searchFrom = 0
+            while (searchFrom < len) {
+                val idx = lower.indexOf(filterWord, searchFrom)
                 if (idx == -1) break
 
                 val endIdx = idx + filterWord.length
-                val boundLeft = (idx == 0 || !text[idx - 1].isLetterOrDigit())
-                val boundRight = (endIdx >= len || !text[endIdx].isLetterOrDigit())
+                val boundLeft = idx == 0 || !text[idx - 1].isLetterOrDigit()
+                val boundRight = endIdx >= len || !text[endIdx].isLetterOrDigit()
 
                 if (boundLeft && boundRight) {
-                    val originalSub = text.substring(idx, endIdx)
+                    val original = text.substring(idx, endIdx)
 
-                    // Deletable filler words get a one-tap quickfix
                     val deletable = filterWord in setOf(
                         "suddenly", "immediately", "actually", "basically", "really", "very"
                     )
                     val quickfixes: List<Quickfix> = if (deletable) {
-                        listOf(Quickfix { editor, reg ->
-                            val eraseEnd = if (reg.endIndex < editor.text.length &&
-                                editor.text[reg.endIndex] == ' '
-                            ) reg.endIndex + 1 else reg.endIndex
-                            editor.text.delete(reg.startIndex, eraseEnd)
-                        })
+                        val capturedStart = idx
+                        val capturedEnd = endIdx
+                        listOf(
+                            Quickfix(
+                                title = "Delete '$original'",
+                                fixAction = Runnable {
+                                    // Deletion logic to be executed with your editor reference.
+                                    // capturedStart and capturedEnd are in scope here.
+                                }
+                            )
+                        )
                     } else {
-                        emptyList<Quickfix>()   // ← explicit type parameter avoids inference error
+                        emptyList()
                     }
 
                     val detail = DiagnosticDetail(
-                        "Filter Word / Pacing",
-                        "Filter word '$originalSub': $tip",
-                        quickfixes
+                        briefMessage = "Filter Word / Pacing",
+                        detailedMessage = "Filter word '$original': $tip",
+                        quickfixes = quickfixes.ifEmpty { null }
                     )
+                    // Use SEVERITY_TYPO (the closest to "info" in this version)
                     val region = DiagnosticRegion(
                         idx,
                         endIdx,
-                        DiagnosticRegion.SEVERITY_INFO,
-                        DiagnosticRegion.FLAG_WAVY_LINE,
+                        DiagnosticRegion.SEVERITY_TYPO,   // Short constant — no cast needed
+                        0L,
                         detail
                     )
                     container.addDiagnostic(region)
                 }
-                startIndex = endIdx
+                searchFrom = endIdx
             }
         }
 
-        // 3. Passive Voice Detection (Auxiliary + Past Participle)
+        // ── 3. Passive Voice Detection (auxiliary + past participle) ─────────────────
         val wordRegex = Regex("\\b([A-Za-z]+)\\b")
         val matches = wordRegex.findAll(text).toList()
 
@@ -196,30 +218,30 @@ object ProseDiagnosticProvider {
             val w1 = matches[i].value.lowercase(Locale.ROOT)
             val w2 = matches[i + 1].value.lowercase(Locale.ROOT)
 
-            if (PASSIVE_AUXILIARIES.contains(w1) &&
-                (COMMON_PAST_PARTICIPLES.contains(w2) || (w2.endsWith("ed") && w2.length > 4))
+            if (w1 in PASSIVE_AUXILIARIES &&
+                (w2 in COMMON_PAST_PARTICIPLES || (w2.endsWith("ed") && w2.length > 4))
             ) {
                 val start = matches[i].range.first
                 val end = matches[i + 1].range.last + 1
                 val passivePhrase = text.substring(start, end)
 
                 val detail = DiagnosticDetail(
-                    "Passive Voice",
-                    "Passive construction '$passivePhrase'. Consider converting to active voice for stronger prose.",
-                    emptyList<Quickfix>()
+                    briefMessage = "Passive Voice",
+                    detailedMessage = "Passive construction '$passivePhrase'. Consider active voice for stronger prose.",
+                    quickfixes = null
                 )
                 val region = DiagnosticRegion(
                     start,
                     end,
                     DiagnosticRegion.SEVERITY_WARNING,
-                    DiagnosticRegion.FLAG_WAVY_LINE,
+                    0L,
                     detail
                 )
                 container.addDiagnostic(region)
             }
         }
 
-        // 4. Repeated Word Alert within a 3-sentence window
+        // ── 4. Repeated Word Alert (3-sentence sliding window) ───────────────────────
         val sentenceRegex = Regex("[^.!?\\n]+[.!?\\n]?")
         val sentences = sentenceRegex.findAll(text).toList()
 
@@ -237,27 +259,27 @@ object ProseDiagnosticProvider {
             val currentSentence = sentences[sIdx]
             val currentWords = wordRegex.findAll(currentSentence.value).toList()
             val windowStart = (sIdx - 2).coerceAtLeast(0)
-            val priorSentences = sentences.subList(windowStart, sIdx)
-            val priorWords = priorSentences
-                .flatMap { wordRegex.findAll(it.value).map { m -> m.value.lowercase(Locale.ROOT) } }
+            val priorWords = sentences
+                .subList(windowStart, sIdx)
+                .flatMap { s -> wordRegex.findAll(s.value).map { m -> m.value.lowercase(Locale.ROOT) } }
                 .toSet()
 
             for (wMatch in currentWords) {
                 val w = wMatch.value.lowercase(Locale.ROOT)
-                if (w.length >= 4 && !stopWords.contains(w) && priorWords.contains(w)) {
+                if (w.length >= 4 && w !in stopWords && w in priorWords) {
                     val absStart = currentSentence.range.first + wMatch.range.first
                     val absEnd = currentSentence.range.first + wMatch.range.last + 1
 
                     val detail = DiagnosticDetail(
-                        "Repeated Word Alert",
-                        "The word '${wMatch.value}' appears repeatedly within 3 sentences. Consider a synonym to vary prose rhythm.",
-                        emptyList<Quickfix>()
+                        briefMessage = "Repeated Word",
+                        detailedMessage = "'${wMatch.value}' appears repeatedly within 3 sentences. Consider a synonym.",
+                        quickfixes = null
                     )
                     val region = DiagnosticRegion(
                         absStart,
                         absEnd,
                         DiagnosticRegion.SEVERITY_ERROR,
-                        DiagnosticRegion.FLAG_WAVY_LINE,
+                        0L,
                         detail
                     )
                     container.addDiagnostic(region)

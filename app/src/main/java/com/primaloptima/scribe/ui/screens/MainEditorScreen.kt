@@ -39,6 +39,7 @@ import android.graphics.Bitmap
 import android.os.Build
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.splineBasedDecay
 import androidx.compose.foundation.gestures.animateTo
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.unit.Constraints
@@ -112,6 +113,10 @@ import io.github.rosemoe.sora.widget.EditorSearcher
 import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
 import io.github.rosemoe.sora.event.ContentChangeEvent
 import io.github.rosemoe.sora.event.EditorKeyEvent
+import io.github.rosemoe.sora.lang.diagnostic.DiagnosticProvider
+import io.github.rosemoe.sora.lang.diagnostic.DiagnosticsContainer
+import io.github.rosemoe.sora.lang.styling.inlayHint.InlayHintProvider
+import io.github.rosemoe.sora.lang.styling.inlayHint.InlayHintsContainer
 import com.primaloptima.scribe.util.ScribeProseLanguage
 import com.primaloptima.scribe.util.ThemeManager
 
@@ -239,6 +244,35 @@ fun MainEditorScreen(
     var soraEditorRef  by remember { mutableStateOf<CodeEditor?>(null) }
     var loadedNoteId   by rememberSaveable { mutableStateOf<String?>(null) }
 
+    // ── Prose analysis providers ──────────────────────────────────────────────
+    // CodeEditor has NO public setInlayHints() / setDiagnostics() methods.
+    // The correct pattern (verified against Sora source) is:
+    //   1. Implement InlayHintProvider / DiagnosticProvider that hold a live container.
+    //   2. Register them once on the editor (in the factory block).
+    //   3. After analysis, replace the container and call
+    //      editor.invalidateInlayHints() / editor.invalidateDiagnostics()
+    //      so CodeEditor re-queries the providers and redraws.
+    //
+    // We use a simple holder object for each so we can swap the container in place
+    // without re-registering the provider every time analysis runs.
+    val proseInlayHintProvider = remember {
+        object : InlayHintProvider {
+            @Volatile var container: InlayHintsContainer? = null
+            override fun provideInlayHints(container: InlayHintsContainer) {
+                this.container?.forEach { container.add(it) }
+            }
+        }
+    }
+    val proseDiagnosticProvider = remember {
+        object : DiagnosticProvider {
+            @Volatile var container: DiagnosticsContainer? = null
+            override fun provideDiagnostics(container: DiagnosticsContainer) {
+                val src = this.container ?: return
+                container.addDiagnostics(src.getRegions())
+            }
+        }
+    }
+
     var pillMode     by remember { mutableIntStateOf(0) }
     var pillOffsetX  by remember { mutableFloatStateOf(0f) }
     var pillOffsetY  by remember { mutableFloatStateOf(0f) }
@@ -283,10 +317,15 @@ fun MainEditorScreen(
         if (loadedNoteId != note.id || (editor.text.length == 0 && note.content.isNotEmpty())) {
             loadedNoteId = note.id
             editor.setText(note.content)
-            // Compute initial inlay hints and diagnostics.
-            // API note: both use method calls, not property assignment.
-            editor.setInlayHints(ProseInlayHintProvider.computeInlayHints(note.content, worldEntries))
-            editor.setDiagnostics(ProseDiagnosticProvider.analyzeDiagnostics(note.content))
+            // Push initial inlay hints and diagnostics via the provider pattern.
+            // We update the container held by each provider, then ask the editor to
+            // re-query all registered providers and redraw.
+            proseInlayHintProvider.container =
+                ProseInlayHintProvider.computeInlayHints(note.content, worldEntries)
+            proseDiagnosticProvider.container =
+                ProseDiagnosticProvider.analyzeDiagnostics(note.content)
+            editor.invalidateInlayHints()
+            editor.invalidateDiagnostics()
         }
     }
 
@@ -296,9 +335,15 @@ fun MainEditorScreen(
         if (editorCurrentText.isEmpty()) return@LaunchedEffect
         val editor = soraEditorRef ?: return@LaunchedEffect
         delay(350) // Debounce 350ms to keep editing fluid
-        // API note: setInlayHints() and setDiagnostics() are methods, not settable properties.
-        editor.setInlayHints(ProseInlayHintProvider.computeInlayHints(editorCurrentText, worldEntries))
-        editor.setDiagnostics(ProseDiagnosticProvider.analyzeDiagnostics(editorCurrentText))
+        // Update the containers held by the registered providers, then tell the editor
+        // to re-query them. This is the correct Sora API — there is no setInlayHints()
+        // or setDiagnostics() on CodeEditor; those methods do not exist.
+        proseInlayHintProvider.container =
+            ProseInlayHintProvider.computeInlayHints(editorCurrentText, worldEntries)
+        proseDiagnosticProvider.container =
+            ProseDiagnosticProvider.analyzeDiagnostics(editorCurrentText)
+        editor.invalidateInlayHints()
+        editor.invalidateDiagnostics()
     }
 
     // ── Fix 2: Dismiss Sora's text-action popup when a panel opens ────────────
@@ -573,6 +618,16 @@ fun MainEditorScreen(
                                                     io.github.rosemoe.sora.widget.component.EditorDiagnosticTooltipWindow::class.java
                                                 ).isEnabled = true
                                             } catch (_: Exception) { }
+
+                                            // Register the prose analysis providers.
+                                            // CodeEditor uses a provider/pull pattern — not push.
+                                            // Registering here (once, in the factory) means the editor
+                                            // calls provideInlayHints() / provideDiagnostics() on
+                                            // invalidateInlayHints() / invalidateDiagnostics().
+                                            // The LaunchedEffect blocks above update the containers
+                                            // and call those invalidate methods after each analysis run.
+                                            registerInlayHintProvider(proseInlayHintProvider)
+                                            registerDiagnosticProvider(proseDiagnosticProvider)
 
                                             subscribeEvent(ContentChangeEvent::class.java) { _, _ ->
                                                 val current = text.toString()

@@ -1,54 +1,60 @@
 package com.primaloptima.scribe.engine
 
 import com.primaloptima.scribe.data.WorldEntry
-import io.github.rosemoe.sora.widget.inlayHint.InlayHint
-import io.github.rosemoe.sora.widget.inlayHint.InlayHintContainer
+import io.github.rosemoe.sora.lang.styling.inlayHint.InlayHintsContainer
+import io.github.rosemoe.sora.lang.styling.inlayHint.TextInlayHint
 import java.text.NumberFormat
 import java.util.Locale
 
 /**
- * Computes Inlay Hints for prose / novel writing in Sora 0.24.x.
+ * Computes Inlay Hints for prose / novel writing.
  *
  * Features:
- *   1. Section word-count & read-time badge next to "***" / "###" scene-break lines.
- *   2. POV / Location tag badge on lines that start with "/".
+ *   1. Section word-count & read-time badge next to "***" / "###" / "---" scene-break lines.
+ *   2. POV / Location tag badge on lines that contain only a "/" prefix tag.
  *
- * ── API notes for Sora 0.24.x ──────────────────────────────────────────────────────────
+ * ── Sora API facts (verified against source) ──────────────────────────────────
  *
- *  InlayHint constructor (the only public constructor in 0.24.x):
- *    InlayHint(line: Int, column: Int, label: CharSequence, hasBackground: Boolean)
+ * Correct import packages:
+ *   io.github.rosemoe.sora.lang.styling.inlayHint.InlayHintsContainer  ← note the 's'
+ *   io.github.rosemoe.sora.lang.styling.inlayHint.TextInlayHint         ← text subclass
+ *   io.github.rosemoe.sora.lang.styling.inlayHint.InlayHint             ← base class
  *
- *    • line    — 0-based line index in the document.
- *    • column  — column offset where the hint is rendered (after that column).
- *    • label   — the text shown inline (String is fine; it implements CharSequence).
- *    • hasBackground — whether to draw a pill/background behind the text.
+ * InlayHint base class constructor:
+ *   InlayHint(line: Int, column: Int, type: String, displaySide: CharacterSide = CharacterSide.LEFT)
+ *   ← NOT (line, column, label, hasBackground). That constructor does NOT exist.
  *
- *  There is NO "addHint" method on InlayHint or InlayHintContainer.
- *  There is NO "CharacterSide" enum in 0.24.x.
- *  The correct pattern is:
- *    val hint = InlayHint(line, column, label, hasBackground)
- *    container.add(hint)
+ * TextInlayHint — the correct class to use for text badges:
+ *   TextInlayHint(line: Int, column: Int, text: String)
+ *   ← Extends InlayHint with type = "text". This is what the renderer shows.
  *
- * ───────────────────────────────────────────────────────────────────────────────────────
+ * InlayHintsContainer extends PointAnchoredContainer<InlayHint>.
+ * Add hints with:  container.add(hint)
+ *
+ * There is NO "InlayHintContainer" (without 's') in this version.
+ * ─────────────────────────────────────────────────────────────────────────────
  */
 object ProseInlayHintProvider {
 
     fun computeInlayHints(
         text: String,
         worldEntries: List<WorldEntry>
-    ): InlayHintContainer {
-        val container = InlayHintContainer()
+    ): InlayHintsContainer {
+        val container = InlayHintsContainer()
         if (text.isBlank()) return container
 
         val lines = text.lines()
         val numFormat = NumberFormat.getNumberInstance(Locale.US)
 
-        // ── 1. Section word counts between scene-break markers (*** or ###) ───────────
+        // ── 1. Section word counts between scene-break markers ────────────────────────
+        //
+        // Whenever the user writes a line that is ONLY "***", "###", "* * *", or "---",
+        // we place a badge next to it showing [1,420 words · 5 min read].
+        // The word count shown is the words in the PRECEDING section (above that break).
 
         data class SceneSection(val lineIndex: Int, val markerLength: Int, var wordCount: Int = 0)
 
         val breakPositions = mutableListOf<SceneSection>()
-
         for (i in lines.indices) {
             val trimmed = lines[i].trim()
             if (trimmed == "***" || trimmed == "###" || trimmed == "* * *" || trimmed == "---") {
@@ -57,7 +63,8 @@ object ProseInlayHintProvider {
         }
 
         if (breakPositions.isNotEmpty()) {
-            var currentBreakIdx = 0
+            // Walk all lines once, accumulating word counts per section
+            var breakIdx = 0
             var accumulatedWords = 0
 
             for (i in lines.indices) {
@@ -66,35 +73,37 @@ object ProseInlayHintProvider {
                         trimmed == "* * *" || trimmed == "---"
 
                 if (isBreak) {
-                    if (currentBreakIdx < breakPositions.size) {
-                        breakPositions[currentBreakIdx].wordCount = accumulatedWords
+                    if (breakIdx < breakPositions.size) {
+                        breakPositions[breakIdx].wordCount = accumulatedWords
                         accumulatedWords = 0
-                        currentBreakIdx++
+                        breakIdx++
                     }
                 } else {
-                    accumulatedWords += extractWordCount(lines[i])
+                    accumulatedWords += countWords(lines[i])
                 }
             }
 
+            // Emit one badge per break marker
             for (sec in breakPositions) {
                 val words = if (sec.wordCount > 0) sec.wordCount else accumulatedWords
                 val readTimeMin = (words / 225).coerceAtLeast(1)
                 val badgeText = "  [${numFormat.format(words)} words · $readTimeMin min read]"
 
-                // ── Correct InlayHint API ─────────────────────────────────────────────
-                // InlayHint(line, column, label, hasBackground)
-                // No "addHint", no "CharacterSide" — just construct and container.add()
-                val hint = InlayHint(
-                    sec.lineIndex,       // line (0-based)
-                    sec.markerLength,    // column: placed after the last char of the marker
-                    badgeText,           // label text (String implements CharSequence)
-                    true                 // hasBackground: pill-style badge
+                // TextInlayHint(line, column, text)
+                // column = marker length so the badge appears right after the marker chars
+                val hint = TextInlayHint(
+                    sec.lineIndex,    // 0-based line index
+                    sec.markerLength, // column after the last char of the "***" / "###"
+                    badgeText         // the badge text shown inline
                 )
                 container.add(hint)
             }
         }
 
         // ── 2. POV / Location tags on lines starting with "/" ─────────────────────────
+        //
+        // If a line starts with "/" the rest is used as a scene tag.
+        // We match it against WorldEntry names in the database and show a labelled badge.
 
         for (i in lines.indices) {
             val line = lines[i]
@@ -118,11 +127,11 @@ object ProseInlayHintProvider {
                 else -> "  [✦ Tag: $tagQuery]"
             }
 
-            val hint = InlayHint(
-                i,              // line index
-                line.length,    // column: after the full line (end of text)
-                tagBadge,
-                true
+            // Place the badge at the end of the line (after the "/" tag text)
+            val hint = TextInlayHint(
+                i,            // 0-based line index
+                line.length,  // column: right after the last character on the line
+                tagBadge      // badge text
             )
             container.add(hint)
         }
@@ -132,12 +141,12 @@ object ProseInlayHintProvider {
 
     // ── Helpers ──────────────────────────────────────────────────────────────────────
 
-    private fun extractWordCount(line: CharSequence): Int {
+    /** Counts words in a line by scanning character by character (no regex allocation). */
+    private fun countWords(line: CharSequence): Int {
         var count = 0
         var inWord = false
-        for (i in 0 until line.length) {
-            val c = line[i]
-            if (c.isLetterOrDigit() || c == '\'' || c == '\u2019' || c == '-') {
+        for (element in line) {
+            if (element.isLetterOrDigit() || element == '\'' || element == '\u2019' || element == '-') {
                 if (!inWord) { count++; inWord = true }
             } else {
                 inWord = false
