@@ -45,6 +45,32 @@ class ScribeColorScheme(theme: AppTheme) : EditorColorScheme() {
         // Note: TEXT_SELECTED is not a valid constant in Sora 0.24.x.
         // Sora renders selected text using TEXT_NORMAL automatically.
 
+        // ── Novel / Prose Lexer Tokens ─────────────────────────────────────────
+        // Spoken dialogue color: Warm tone tinted towards accent or amber/gold contrast
+        val dialogueColor = if (accent != text) {
+            Color.argb(
+                255,
+                ((Color.red(text) * 0.4f) + (Color.red(accent) * 0.6f)).toInt().coerceIn(0, 255),
+                ((Color.green(text) * 0.4f) + (Color.green(accent) * 0.6f)).toInt().coerceIn(0, 255),
+                ((Color.blue(text) * 0.4f) + (Color.blue(accent) * 0.6f)).toInt().coerceIn(0, 255)
+            )
+        } else {
+            Color.argb(255, 235, 175, 110)
+        }
+        setColor(LITERAL,                  dialogueColor)
+
+        // Thought / Internal Monologue color: Soft subtle opacity of primary text
+        val thoughtColor = withAlpha(text, 185)
+        setColor(COMMENT,                  thoughtColor)
+
+        // Headings / Scene Breaks: Accent highlight
+        setColor(KEYWORD,                  accent)
+
+        // ── Diagnostic Colors ──────────────────────────────────────────────────
+        setColor(DIAGNOSTIC_WARNING,       Color.argb(255, 245, 175, 45))  // Yellow/Amber wave
+        setColor(DIAGNOSTIC_INFO,          Color.argb(255, 140, 120, 240)) // Subtle Purple wave for filter words
+        setColor(DIAGNOSTIC_ERROR,         Color.argb(255, 80, 160, 240))  // Blue wave for repeated words / adverbs
+
         // ── Current line (very subtle) ────────────────────────────────────────
         val currentLineTint = Color.argb(18,
             Color.red(text), Color.green(text), Color.blue(text))
