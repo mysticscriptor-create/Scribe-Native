@@ -155,7 +155,18 @@ fun ProseAnalysisView(
                     ) {
                         MetricSmallItem("Flesch Ease", "${analysis.fleschReadingEase.roundToInt()} (${analysis.fleschReadingEaseLabel})")
                         MetricSmallItem("Gunning Fog", "%.1f".format(analysis.gunningFogIndex))
+                        MetricSmallItem("Coleman-Liau", "%.1f".format(analysis.colemanLiauIndex))
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         MetricSmallItem("Avg Sentence", "%.1f words".format(analysis.avgSentenceLength))
+                        MetricSmallItem("Avg Word", "%.1f chars".format(analysis.avgWordLength))
+                        MetricSmallItem("Avg Syllables", "%.2f / word".format(analysis.avgSyllablesPerWord))
                     }
                 }
             }
@@ -223,6 +234,29 @@ fun ProseAnalysisView(
                                 Spacer(Modifier.height(4.dp))
                                 Text(
                                     formatDuration(analysis.speakingTimeMinutes),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
+                                .padding(10.dp)
+                        ) {
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Outlined.FormatAlignLeft, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Paragraphs", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "${analysis.paragraphCount}",
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
@@ -326,6 +360,76 @@ fun ProseAnalysisView(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                        }
+                    }
+
+                    // Sentence rhythm chart
+                    if (analysis.sentenceLengths.isNotEmpty()) {
+                        Spacer(Modifier.height(14.dp))
+                        Text(
+                            "Rhythm Visualizer",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            "Each bar = one sentence. Height = word count.",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        Spacer(Modifier.height(8.dp))
+
+                        val maxLen = analysis.sentenceLengths.max().coerceAtLeast(1)
+                        val primary = MaterialTheme.colorScheme.primary
+                        val tertiary = MaterialTheme.colorScheme.tertiary
+                        val surface = MaterialTheme.colorScheme.surface
+
+                        // Show up to 120 sentences to keep chart compact
+                        val displayLengths = if (analysis.sentenceLengths.size > 120)
+                            analysis.sentenceLengths.takeLast(120) else analysis.sentenceLengths
+
+                        androidx.compose.foundation.Canvas(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(64.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(surface.copy(alpha = 0.5f))
+                                .padding(horizontal = 6.dp, vertical = 6.dp)
+                        ) {
+                            val barCount = displayLengths.size
+                            val totalWidth = size.width
+                            val totalHeight = size.height
+                            val gap = (totalWidth * 0.15f / barCount).coerceAtMost(2f)
+                            val barWidth = ((totalWidth - gap * (barCount - 1)) / barCount).coerceAtLeast(1f)
+
+                            displayLengths.forEachIndexed { i, len ->
+                                val fraction = len.toFloat() / maxLen
+                                val barHeight = (fraction * totalHeight).coerceAtLeast(2f)
+                                val x = i * (barWidth + gap)
+                                val color = when {
+                                    len < 10  -> tertiary.copy(alpha = 0.7f)
+                                    len <= 20 -> primary.copy(alpha = 0.75f)
+                                    len <= 35 -> primary.copy(alpha = 0.9f)
+                                    else      -> androidx.compose.ui.graphics.Color(0xFFE91E63).copy(alpha = 0.85f)
+                                }
+                                drawRoundRect(
+                                    color = color,
+                                    topLeft = androidx.compose.ui.geometry.Offset(x, totalHeight - barHeight),
+                                    size = androidx.compose.ui.geometry.Size(barWidth, barHeight),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(2f)
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            RhythmLegendDot(tertiary.copy(alpha = 0.7f), "Short")
+                            RhythmLegendDot(primary.copy(alpha = 0.75f), "Medium")
+                            RhythmLegendDot(primary.copy(alpha = 0.9f), "Long")
+                            RhythmLegendDot(androidx.compose.ui.graphics.Color(0xFFE91E63).copy(alpha = 0.85f), "Very long")
                         }
                     }
                 }
@@ -543,6 +647,20 @@ private fun PacingCategoryBox(label: String, count: Int, modifier: Modifier = Mo
             Spacer(Modifier.height(2.dp))
             Text("$count", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
         }
+    }
+}
+
+@Composable
+private fun RhythmLegendDot(color: androidx.compose.ui.graphics.Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(color)
+        )
+        Spacer(Modifier.width(3.dp))
+        Text(label, fontSize = 9.sp, color = MaterialTheme.colorScheme.outline)
     }
 }
 
