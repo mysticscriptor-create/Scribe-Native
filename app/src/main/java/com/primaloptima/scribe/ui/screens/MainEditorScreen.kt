@@ -70,7 +70,14 @@ import androidx.compose.ui.layout.ContentScale
 import coil3.compose.AsyncImage
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -150,35 +157,10 @@ fun MainEditorScreen(
     val isLeftDrawerOpen = panelState.targetValue == PanelState.LeftOpen
     val isRightPanelOpen = panelState.targetValue == PanelState.RightOpen
 
-    // ── Gesture conflict fix: NestedScrollConnection ──────────────────────────
-    // anchoredDraggable alone consumes every horizontal pixel, including slightly-angled
-    // vertical scrolls in the Sora editor. The connection sits in onPreScroll and only
-    // forwards a delta to panelState when the horizontal component clearly dominates (2:1
-    // ratio). Pure or near-vertical scrolls return Offset.Zero so the editor handles them.
-    // onPostFling snaps the panel to whichever anchor it is already targeting — we do NOT
-    // call settle(velocity) because that signature no longer accepts a velocity parameter
-    // in the Foundation version shipped with BOM 2026.08.00.
-    val panelScrollConnection = remember(panelState) {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                val absX = abs(available.x)
-                val absY = abs(available.y)
-                // Only intercept when horizontal dominates AND the keyboard is not up
-                // AND the panel is not already locked to an edge that blocks this direction.
-                if (absX < absY * 2f) return Offset.Zero
-                val consumed = panelState.dispatchRawDelta(available.x)
-                return Offset(consumed, 0f)
-            }
-
-            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                // Snap to the nearest anchor the state already decided on during the drag.
-                // animateTo(targetValue) is safe here; if the state is already settled it
-                // is a no-op.
-                scope.launch { panelState.animateTo(panelState.targetValue) }
-                return Velocity.Zero
-            }
-        }
-    }
+    val localConfiguration = LocalConfiguration.current
+    val screenWidthPx = with(localDensity) { localConfiguration.screenWidthDp.dp.toPx() }
+    val drawerWidthPx = with(localDensity) { 300.dp.toPx() }
+    val velocityThresholdPx = with(localDensity) { 125.dp.toPx() }
 
     // ── Frosted-glass blur bitmaps (pre-API-31 fallback) ─────────────────────
     val view         = LocalView.current
@@ -702,16 +684,100 @@ fun MainEditorScreen(
             }, // end Layout content lambda
             modifier = Modifier
                 .fillMaxSize()
-                // nestedScroll must be applied before anchoredDraggable so the connection
-                // sees raw deltas first and can gate what anchoredDraggable receives.
-                // When the keyboard is visible we skip both — the user is typing and panel
-                // swipes should be completely disabled to prevent accidental navigation.
                 .then(
-                    if (!isKeyboardVisible)
-                        Modifier
-                            .nestedScroll(panelScrollConnection)
-                            .anchoredDraggable(panelState, Orientation.Horizontal)
-                    else Modifier
+                    if (!isKeyboardVisible) {
+                        Modifier.pointerInput(
+                            soraEditorRef,
+                            isLeftDrawerOpen,
+                            isRightPanelOpen,
+                            drawerWidthPx,
+                            screenWidthPx,
+                            velocityThresholdPx
+                        ) {
+                            val touchSlop = viewConfiguration.touchSlop
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                val velocityTracker = VelocityTracker()
+                                velocityTracker.addPosition(down.uptimeMillis, down.position)
+
+                                var isDragging = false
+                                var isDisallowed = false
+                                var totalDx = 0f
+                                var totalDy = 0f
+
+                                val isEditorSelected = soraEditorRef?.cursor?.isSelected == true
+                                val isPanelCurrentlyOpen = panelState.currentValue != PanelState.Center || panelState.targetValue != PanelState.Center
+
+                                // If text is currently selected in Sora editor and panels are closed,
+                                // do not intercept horizontal gestures so the user can freely drag selection handles!
+                                if (isEditorSelected && !isPanelCurrentlyOpen) {
+                                    isDisallowed = true
+                                }
+
+                                while (true) {
+                                    val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                                    val pointerChange = event.changes.firstOrNull { it.id == down.id } ?: break
+
+                                    if (pointerChange.changedToUp()) {
+                                        if (isDragging) {
+                                            pointerChange.consume()
+                                            val velocity = velocityTracker.calculateVelocity().x
+                                            scope.launch {
+                                                settlePanelState(
+                                                    panelState = panelState,
+                                                    velocityX = velocity,
+                                                    velocityThresholdPx = velocityThresholdPx,
+                                                    drawerWidthPx = drawerWidthPx,
+                                                    screenWidthPx = screenWidthPx
+                                                )
+                                            }
+                                        }
+                                        break
+                                    }
+
+                                    if (pointerChange.isConsumed && !isDragging) {
+                                        isDisallowed = true
+                                    }
+
+                                    if (isDisallowed) {
+                                        continue
+                                    }
+
+                                    velocityTracker.addPosition(pointerChange.uptimeMillis, pointerChange.position)
+                                    val dragAmount = pointerChange.positionChange()
+                                    totalDx += dragAmount.x
+                                    totalDy += dragAmount.y
+
+                                    val absX = abs(totalDx)
+                                    val absY = abs(totalDy)
+
+                                    if (!isDragging) {
+                                        if (absX > touchSlop || absY > touchSlop) {
+                                            // 2D Directional Angle-Slop Disambiguation:
+                                            // If vertical movement dominates (or equals horizontal),
+                                            // or horizontal movement has not crossed touch slop with 1.5x ratio,
+                                            // yield completely to child views (Sora CodeEditor vertical scroll).
+                                            if (absY >= absX || absX < touchSlop) {
+                                                isDisallowed = true
+                                            } else if (absX > touchSlop && absX > absY * 1.5f) {
+                                                // Confirmed horizontal swipe intent!
+                                                if (soraEditorRef?.cursor?.isSelected == true && !isPanelCurrentlyOpen) {
+                                                    isDisallowed = true
+                                                } else {
+                                                    isDragging = true
+                                                    pointerChange.consume()
+                                                    panelState.dispatchRawDelta(dragAmount.x)
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        pointerChange.consume()
+                                        panelState.dispatchRawDelta(dragAmount.x)
+                                    }
+                                }
+                            }
+                        }
+                    } else Modifier
                 )
         ) { measurables, constraints ->
             val drawerWidthPx = (300 * density).toInt()
@@ -1164,3 +1230,35 @@ private fun CodeEditor.insertAtCursor(str: String) {
 private fun parseComposeColor(hex: String, fallback: Color): Color = try {
     Color(android.graphics.Color.parseColor(hex))
 } catch (_: Exception) { fallback }
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+private suspend fun settlePanelState(
+    panelState: AnchoredDraggableState<PanelState>,
+    velocityX: Float,
+    velocityThresholdPx: Float,
+    drawerWidthPx: Float,
+    screenWidthPx: Float
+) {
+    val currentOffset = runCatching { panelState.requireOffset() }.getOrDefault(0f)
+    val targetAnchor = when {
+        currentOffset > 0f -> {
+            when {
+                velocityX > velocityThresholdPx -> PanelState.LeftOpen
+                velocityX < -velocityThresholdPx -> PanelState.Center
+                currentOffset > drawerWidthPx * 0.4f -> PanelState.LeftOpen
+                else -> PanelState.Center
+            }
+        }
+        currentOffset < 0f -> {
+            when {
+                velocityX < -velocityThresholdPx -> PanelState.RightOpen
+                velocityX > velocityThresholdPx -> PanelState.Center
+                abs(currentOffset) > screenWidthPx * 0.4f -> PanelState.RightOpen
+                else -> PanelState.Center
+            }
+        }
+        else -> PanelState.Center
+    }
+    panelState.animateTo(targetAnchor)
+}
+
