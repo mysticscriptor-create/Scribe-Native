@@ -38,16 +38,27 @@ import com.primaloptima.scribe.util.model.AppTheme
  *  - SEARCH_RESULT_BACKGROUND is not a valid constant; search highlights are
  *    handled by MATCHED_TEXT_BACKGROUND (29).
  */
-class ScribeColorScheme(private val theme: AppTheme) : EditorColorScheme() {
+class ScribeColorScheme(private var theme: AppTheme? = null) : EditorColorScheme(theme?.isDark ?: false) {
+
+    init {
+        theme?.let { applyTheme(it) }
+    }
 
     override fun applyDefault() {
         // Always populate parent defaults first so every color ID is valid.
         super.applyDefault()
 
-        val bg     = parse(theme.colors.background)
-        val text   = parse(theme.colors.text)
-        val accent = parse(theme.colors.accent)
-        val sel    = parse(theme.colors.selection)
+        // During super constructor call, properties of this class are not yet initialized (theme is null in bytecode)
+        val currentTheme = theme ?: return
+        applyTheme(currentTheme)
+    }
+
+    fun applyTheme(appTheme: AppTheme) {
+        this.theme = appTheme
+        val bg     = parse(appTheme.colors.background)
+        val text   = parse(appTheme.colors.text)
+        val accent = parse(appTheme.colors.accent)
+        val sel    = parse(appTheme.colors.selection)
 
         // ── Background ────────────────────────────────────────────────────────
         setColor(WHOLE_BACKGROUND,         bg)
