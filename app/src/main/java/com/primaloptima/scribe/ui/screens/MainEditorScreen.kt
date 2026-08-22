@@ -686,14 +686,12 @@ fun MainEditorScreen(
                 .fillMaxSize()
                 .then(
                     if (!isKeyboardVisible) {
-                        Modifier.pointerInput(
-                            soraEditorRef,
-                            isLeftDrawerOpen,
-                            isRightPanelOpen,
-                            drawerWidthPx,
-                            screenWidthPx,
-                            velocityThresholdPx
-                        ) {
+                        val currentSoraEditorRef by rememberUpdatedState(soraEditorRef)
+                        val currentDrawerWidthPx by rememberUpdatedState(drawerWidthPx)
+                        val currentScreenWidthPx by rememberUpdatedState(screenWidthPx)
+                        val currentVelocityThresholdPx by rememberUpdatedState(velocityThresholdPx)
+
+                        Modifier.pointerInput(panelState) {
                             val touchSlop = viewConfiguration.touchSlop
                             awaitEachGesture {
                                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -704,8 +702,9 @@ fun MainEditorScreen(
                                 var isDisallowed = false
                                 var totalDx = 0f
                                 var totalDy = 0f
+                                var lastTrackedVelocity = 0f
 
-                                val isEditorSelected = soraEditorRef?.cursor?.isSelected == true
+                                val isEditorSelected = currentSoraEditorRef?.cursor?.isSelected == true
                                 val isPanelCurrentlyOpen = panelState.currentValue != PanelState.Center || panelState.targetValue != PanelState.Center
 
                                 // If text is currently selected in Sora editor and panels are closed,
@@ -714,65 +713,76 @@ fun MainEditorScreen(
                                     isDisallowed = true
                                 }
 
-                                while (true) {
-                                    val event = awaitPointerEvent(pass = PointerEventPass.Initial)
-                                    val pointerChange = event.changes.firstOrNull { it.id == down.id } ?: break
+                                try {
+                                    while (true) {
+                                        val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                                        val pointerChange = event.changes.firstOrNull { it.id == down.id } ?: break
 
-                                    if (pointerChange.changedToUp()) {
-                                        if (isDragging) {
-                                            pointerChange.consume()
-                                            val velocity = velocityTracker.calculateVelocity().x
-                                            scope.launch {
-                                                settlePanelState(
-                                                    panelState = panelState,
-                                                    velocityX = velocity,
-                                                    velocityThresholdPx = velocityThresholdPx,
-                                                    drawerWidthPx = drawerWidthPx,
-                                                    screenWidthPx = screenWidthPx
-                                                )
+                                        if (pointerChange.changedToUp()) {
+                                            if (isDragging) {
+                                                pointerChange.consume()
+                                                val velocity = velocityTracker.calculateVelocity().x
+                                                lastTrackedVelocity = velocity
                                             }
+                                            break
                                         }
-                                        break
-                                    }
 
-                                    if (pointerChange.isConsumed && !isDragging) {
-                                        isDisallowed = true
-                                    }
+                                        if (pointerChange.isConsumed && !isDragging) {
+                                            isDisallowed = true
+                                        }
 
-                                    if (isDisallowed) {
-                                        continue
-                                    }
+                                        if (isDisallowed) {
+                                            continue
+                                        }
 
-                                    velocityTracker.addPosition(pointerChange.uptimeMillis, pointerChange.position)
-                                    val dragAmount = pointerChange.positionChange()
-                                    totalDx += dragAmount.x
-                                    totalDy += dragAmount.y
+                                        velocityTracker.addPosition(pointerChange.uptimeMillis, pointerChange.position)
+                                        val dragAmount = pointerChange.positionChange()
+                                        totalDx += dragAmount.x
+                                        totalDy += dragAmount.y
 
-                                    val absX = abs(totalDx)
-                                    val absY = abs(totalDy)
+                                        val absX = abs(totalDx)
+                                        val absY = abs(totalDy)
 
-                                    if (!isDragging) {
-                                        if (absX > touchSlop || absY > touchSlop) {
-                                            // 2D Directional Angle-Slop Disambiguation:
-                                            // If vertical movement dominates (or equals horizontal),
-                                            // or horizontal movement has not crossed touch slop with 1.5x ratio,
-                                            // yield completely to child views (Sora CodeEditor vertical scroll).
-                                            if (absY >= absX || absX < touchSlop) {
-                                                isDisallowed = true
-                                            } else if (absX > touchSlop && absX > absY * 1.5f) {
-                                                // Confirmed horizontal swipe intent!
-                                                if (soraEditorRef?.cursor?.isSelected == true && !isPanelCurrentlyOpen) {
+                                        if (!isDragging) {
+                                            if (absX > touchSlop || absY > touchSlop) {
+                                                // 2D Directional Angle-Slop Disambiguation:
+                                                // If vertical movement dominates (or equals horizontal),
+                                                // or horizontal movement has not crossed touch slop with 1.5x ratio,
+                                                // yield completely to child views (Sora CodeEditor vertical scroll).
+                                                if (absY >= absX || absX < touchSlop) {
                                                     isDisallowed = true
-                                                } else {
-                                                    isDragging = true
-                                                    pointerChange.consume()
-                                                    panelState.dispatchRawDelta(dragAmount.x)
+                                                } else if (absX > touchSlop && absX > absY * 1.5f) {
+                                                    // Confirmed horizontal swipe intent!
+                                                    if (currentSoraEditorRef?.cursor?.isSelected == true && !isPanelCurrentlyOpen) {
+                                                        isDisallowed = true
+                                                    } else {
+                                                        isDragging = true
+                                                        pointerChange.consume()
+                                                        panelState.dispatchRawDelta(dragAmount.x)
+                                                    }
                                                 }
                                             }
+                                        } else {
+                                            pointerChange.consume()
+                                            panelState.dispatchRawDelta(dragAmount.x)
                                         }
-                                    } else {
-                                        pointerChange.consume()
-                                        panelState.dispatchRawDelta(dragAmount.x)
+                                    }
+                                } finally {
+                                    if (isDragging) {
+                                        val velocity = if (lastTrackedVelocity != 0f) {
+                                            lastTrackedVelocity
+                                        } else {
+                                            velocityTracker.calculateVelocity().x
+                                        }
+                                        scope.launch {
+                                            settlePanelState(
+                                                panelState = panelState,
+                                                velocityX = velocity,
+                                                velocityThresholdPx = currentVelocityThresholdPx,
+                                                drawerWidthPx = currentDrawerWidthPx,
+                                                screenWidthPx = currentScreenWidthPx
+                                            )
+                                        }
                                     }
                                 }
                             }
