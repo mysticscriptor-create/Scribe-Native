@@ -35,6 +35,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.primaloptima.scribe.R
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.data.WorldEntry
+import com.primaloptima.scribe.engine.ProseAnalysisResult
+import com.primaloptima.scribe.ui.components.ProseAnalysisView
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.ScribeColorScheme
 import com.primaloptima.scribe.ui.theme.frostedBar
@@ -57,6 +59,7 @@ fun EditorRightPanel(
     worldEntries        : List<WorldEntry>,
     outline             : List<OutlineEntry>,
     activeTheme         : AppTheme?,
+    proseAnalysis       : ProseAnalysisResult,
     soraEditorRef       : CodeEditor?,
     tabBarAtBottom      : Boolean,
     splitHorizontal     : Boolean,
@@ -91,6 +94,7 @@ fun EditorRightPanel(
             Row(modifier = Modifier.padding(3.dp)) {
                 PillTab(label = "Pinned",  selected = rightPanelTab == 0, onClick = { onTabChange(0) })
                 PillTab(label = "Outline", selected = rightPanelTab == 1, onClick = { onTabChange(1) })
+                PillTab(label = "Prose",   selected = rightPanelTab == 2, onClick = { onTabChange(2) })
             }
         }
     }
@@ -359,6 +363,12 @@ fun EditorRightPanel(
                                     }
                                 }
                             }
+                        }
+                        2 -> {
+                            ProseAnalysisView(
+                                analysis = proseAnalysis,
+                                modifier = Modifier.fillMaxSize(),
+                            )
                         }
                     }
                 }

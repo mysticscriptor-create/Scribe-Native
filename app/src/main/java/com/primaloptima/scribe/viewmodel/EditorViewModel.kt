@@ -18,6 +18,8 @@ import com.primaloptima.scribe.util.model.ExternalRoot
 import kotlinx.serialization.decodeFromString
 import com.primaloptima.scribe.util.model.FloatingWindow
 import com.primaloptima.scribe.util.model.OutlineEntry
+import com.primaloptima.scribe.engine.ProseAnalysisEngine
+import com.primaloptima.scribe.engine.ProseAnalysisResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -237,6 +239,10 @@ class EditorViewModel(
     private val _charCount = MutableStateFlow(0)
     val charCount: StateFlow<Int> = _charCount.asStateFlow()
 
+    private val _proseAnalysis = MutableStateFlow(ProseAnalysisResult())
+    val proseAnalysis: StateFlow<ProseAnalysisResult> = _proseAnalysis.asStateFlow()
+    private var proseJob: Job? = null
+
     private val _readingTime = MutableStateFlow(0)
     val readingTime: StateFlow<Int> = _readingTime.asStateFlow()
 
@@ -389,6 +395,7 @@ class EditorViewModel(
         _wordCount.value = 0
         _charCount.value = 0
         _readingTime.value = 0
+        _proseAnalysis.value = ProseAnalysisResult()
         _goalProgress.value = 0f
         _recoveryAvailable.value = false
         lastSavedContent = ""
@@ -429,7 +436,17 @@ class EditorViewModel(
             }
         }
 
-        // 3. Recovery write — Bug 4: debounced at 2s (was firing on every keystroke,
+        // 3. Prose analysis — debounced at 700ms on Default dispatcher (CPU-heavy NLP)
+        proseJob?.cancel()
+        proseJob = viewModelScope.launch {
+            delay(700)
+            val result = withContext(Dispatchers.Default) {
+                ProseAnalysisEngine.analyze(content)
+            }
+            _proseAnalysis.value = result
+        }
+
+        // 4. Recovery write — Bug 4: debounced at 2s (was firing on every keystroke,
         // causing excessive SharedPreferences I/O on older devices).
         val noteId = _activeNote.value?.id ?: return
         recoveryJob?.cancel()

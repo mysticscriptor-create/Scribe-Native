@@ -165,7 +165,7 @@ fun MainEditorScreen(
                 val absY = abs(available.y)
                 // Only intercept when horizontal dominates AND the keyboard is not up
                 // AND the panel is not already locked to an edge that blocks this direction.
-                if (absX < absY * 5f) return Offset.Zero
+                if (absX < absY * 2f) return Offset.Zero
                 val consumed = panelState.dispatchRawDelta(available.x)
                 return Offset(consumed, 0f)
             }
@@ -195,6 +195,7 @@ fun MainEditorScreen(
     val wordCount      by editorVm.wordCount.collectAsStateWithLifecycle()
     val charCount      by editorVm.charCount.collectAsStateWithLifecycle()
     val outline        by editorVm.outline.collectAsStateWithLifecycle()
+    val proseAnalysis  by editorVm.proseAnalysis.collectAsStateWithLifecycle()
     val zenMode        by editorVm.zenMode.collectAsStateWithLifecycle()
     val activeTheme    by editorVm.theme.collectAsStateWithLifecycle()
     val goalProgress   by editorVm.goalProgress.collectAsStateWithLifecycle()
@@ -674,6 +675,7 @@ fun MainEditorScreen(
                     worldEntries          = worldEntries,
                     outline               = outline,
                     activeTheme           = activeTheme,
+                    proseAnalysis         = proseAnalysis,
                     soraEditorRef         = soraEditorRef,
                     tabBarAtBottom        = companionTabBarBottom,
                     splitHorizontal       = companionSplitHorizontal,
