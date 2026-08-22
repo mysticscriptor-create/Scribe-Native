@@ -6,6 +6,7 @@ import io.github.rosemoe.sora.lang.analysis.AnalyzeManager
 import io.github.rosemoe.sora.lang.analysis.IncrementalAnalyzeManager
 import io.github.rosemoe.sora.lang.styling.CodeBlock
 import io.github.rosemoe.sora.lang.styling.Span
+import io.github.rosemoe.sora.lang.styling.SpanFactory
 import io.github.rosemoe.sora.lang.styling.TextStyle
 import io.github.rosemoe.sora.text.Content
 import io.github.rosemoe.sora.widget.SymbolPairMatch
@@ -22,24 +23,18 @@ import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
  *
  * generateSpansForLine signature (from IncrementalAnalyzeManager interface):
  *   fun generateSpansForLine(tokens: LineTokenizeResult<S, T>): List<Span>
- *   ← parameter name is "tokens" (the result object), return type is List<Span> (not MutableList).
+ *   ← parameter name is "tokens" (the result object), return type is List<Span>.
  *
  * computeBlocks signature (from AsyncIncrementalAnalyzeManager abstract method):
  *   abstract fun computeBlocks(text: Content, delegate: CodeBlockAnalyzeDelegate): List<CodeBlock>
  *   ← CodeBlockAnalyzeDelegate is an INNER class of AsyncIncrementalAnalyzeManager.
- *   ← It has NO generic type parameters — do NOT write CodeBlockAnalyzeDelegate<S, T>.
- *
- * typealias:
- *   Kotlin does NOT allow 'typealias' inside a class body. It must be top-level or
- *   declared in a companion object. We avoid it here and use the full qualified name
- *   inline, which is cleaner for this use case.
  * ─────────────────────────────────────────────────────────────────────────────
  *
  * Custom Sora language for rich novel and prose writing.
  *
  * Incremental tokenization features:
- *   1. Spoken Dialogue — text inside "...", "...", «...» shown in dialogue color.
- *   2. Thoughts / Internal Monologue — text in *asterisks* or 'typographic single quotes'
+ *   1. Spoken Dialogue — text inside "...", “...”, «...» shown in dialogue color.
+ *   2. Thoughts / Internal Monologue — text in *asterisks* or ‘typographic single quotes’
  *      shown in comment/italic color.
  *   3. Markdown Formatting:
  *      - Lines starting with "#" → bold heading color.
@@ -59,8 +54,8 @@ class ScribeProseLanguage : EmptyLanguage() {
         putPair('`', SymbolPairMatch.SymbolPair("`", "`"))
         putPair('"', SymbolPairMatch.SymbolPair("\"", "\""))
         putPair('\'', SymbolPairMatch.SymbolPair("'", "'"))
-        putPair('\u201C', SymbolPairMatch.SymbolPair("\u201C", "\u201D"))  // " "
-        putPair('\u2018', SymbolPairMatch.SymbolPair("\u2018", "\u2019"))  // ' '
+        putPair('\u201C', SymbolPairMatch.SymbolPair("\u201C", "\u201D"))  // “ ”
+        putPair('\u2018', SymbolPairMatch.SymbolPair("\u2018", "\u2019"))  // ‘ ’
         putPair('\u00AB', SymbolPairMatch.SymbolPair("\u00AB", "\u00BB"))  // « »
     }
 
@@ -68,13 +63,8 @@ class ScribeProseLanguage : EmptyLanguage() {
 
     // ── Analyze manager ───────────────────────────────────────────────────────────────
 
-    /**
-     * We use List<Span> as our token type T.
-     * tokenizeLine builds the spans directly and stores them as tokens.
-     * generateSpansForLine then simply returns them, avoiding a second pass.
-     */
     private val analyzeManager =
-        object : AsyncIncrementalAnalyzeManager<ProseState, List<Span>>() {
+        object : AsyncIncrementalAnalyzeManager<ProseState, Span>() {
 
             // ── Required abstract overrides ───────────────────────────────────────────
 
@@ -92,31 +82,22 @@ class ScribeProseLanguage : EmptyLanguage() {
 
             // ── Core tokenizer ────────────────────────────────────────────────────────
 
-            /**
-             * Tokenizes one line of prose into a list of [Span] objects.
-             *
-             * The spans are stored as the "token" payload (type T = List<Span>) so
-             * [generateSpansForLine] can return them directly without a second scan.
-             *
-             * State carry-over: [ProseState] tracks whether we are currently inside
-             * an open dialogue quote or open thought marker across line boundaries.
-             */
             override fun tokenizeLine(
                 line: CharSequence,
                 state: ProseState?,
                 lineIndex: Int
-            ): IncrementalAnalyzeManager.LineTokenizeResult<ProseState, List<Span>> {
+            ): IncrementalAnalyzeManager.LineTokenizeResult<ProseState, Span> {
 
-                val spans = mutableListOf<Span>()
+                val spans = ArrayList<Span>()
                 var inDialogue = state?.inDialogue ?: false
                 var inThoughtQuote = state?.inThoughtQuote ?: false
                 val len = line.length
 
                 // Empty line — just carry state forward
                 if (len == 0) {
-                    spans.add(Span.obtain(0, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)))
+                    spans.add(SpanFactory.obtain(0, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)))
                     return IncrementalAnalyzeManager.LineTokenizeResult(
-                        ProseState(inDialogue, inThoughtQuote), spans
+                        ProseState(inDialogue, inThoughtQuote), spans, spans
                     )
                 }
 
@@ -134,14 +115,14 @@ class ScribeProseLanguage : EmptyLanguage() {
 
                 if (isHeading || isSceneBreak) {
                     spans.add(
-                        Span.obtain(
+                        SpanFactory.obtain(
                             0,
                             TextStyle.makeStyle(EditorColorScheme.KEYWORD, 0, true, false, false)
                         )
                     )
                     // Scene breaks and headings always reset dialogue/thought carry state
                     return IncrementalAnalyzeManager.LineTokenizeResult(
-                        ProseState(inDialogue = false, inThoughtQuote = false), spans
+                        ProseState(inDialogue = false, inThoughtQuote = false), spans, spans
                     )
                 }
 
@@ -152,7 +133,7 @@ class ScribeProseLanguage : EmptyLanguage() {
 
                 fun addSpan(col: Int, style: Long) {
                     if (style != lastSpanStyle) {
-                        spans.add(Span.obtain(col, style))
+                        spans.add(SpanFactory.obtain(col, style))
                         lastSpanStyle = style
                     }
                 }
@@ -171,7 +152,7 @@ class ScribeProseLanguage : EmptyLanguage() {
                 while (i < len) {
                     val c = line[i]
 
-                    // 1. Spoken dialogue: " " " «  »
+                    // 1. Spoken dialogue: " “ ” « »
                     if (c == '"' || c == '\u201C' || c == '\u201D' || c == '\u00AB' || c == '\u00BB') {
                         when (c) {
                             '"', '\u00AB', '\u00BB' -> inDialogue = !inDialogue
@@ -228,7 +209,7 @@ class ScribeProseLanguage : EmptyLanguage() {
                         }
                     }
 
-                    // 5. Typographical single-quote monologue: 'thought'
+                    // 5. Typographical single-quote monologue: ‘thought’
                     if (c == '\u2018' && !inDialogue) {
                         val closingIndex = line.indexOf('\u2019', i + 1)
                         if (closingIndex != -1) {
@@ -247,29 +228,17 @@ class ScribeProseLanguage : EmptyLanguage() {
 
                 return IncrementalAnalyzeManager.LineTokenizeResult(
                     ProseState(inDialogue = inDialogue, inThoughtQuote = inThoughtQuote),
+                    spans,
                     spans
                 )
             }
 
-            /**
-             * Our token payload IS already a List<Span>, so we return it directly.
-             *
-             * ← Return type is List<Span> (not MutableList), matching the interface.
-             * ← Parameter name is "tokens" (the LineTokenizeResult), matching the interface.
-             */
             override fun generateSpansForLine(
-                tokens: IncrementalAnalyzeManager.LineTokenizeResult<ProseState, List<Span>>
+                tokens: IncrementalAnalyzeManager.LineTokenizeResult<ProseState, Span>
             ): List<Span> {
-                return tokens.tokens ?: emptyList()
+                return tokens.spans ?: tokens.tokens ?: emptyList()
             }
 
-            /**
-             * Prose has no block structure (no braces / brackets to fold).
-             * Returns an empty list — delegate is never used.
-             *
-             * ← CodeBlockAnalyzeDelegate has NO generic parameters in this version.
-             *   Write it as just "CodeBlockAnalyzeDelegate", not "CodeBlockAnalyzeDelegate<S, T>".
-             */
             override fun computeBlocks(
                 text: Content,
                 delegate: CodeBlockAnalyzeDelegate
