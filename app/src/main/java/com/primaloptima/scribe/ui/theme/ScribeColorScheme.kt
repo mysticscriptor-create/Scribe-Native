@@ -8,31 +8,46 @@ import com.primaloptima.scribe.util.model.AppTheme
 /**
  * Maps Scribe's [AppTheme] onto Sora 0.24.6's [EditorColorScheme] token set.
  *
- * Construction is cheap (just int assignments); call [ScribeColorScheme(theme)]
- * whenever the active theme changes and assign it to [editor.colorScheme].
- * Sora will redraw automatically on assignment.
+ * Extends [EditorColorScheme] by overriding [applyDefault], which is called by
+ * the parent constructor. Sora calls applyDefault() to populate the color map;
+ * we call super first to ensure all IDs have safe fallbacks, then override the
+ * ones we care about. Assign a fresh instance to [CodeEditor.colorScheme] via
+ * [editor.colorScheme = ScribeColorScheme(theme)] — Sora redraws automatically.
  *
  * Tokens covered:
  *  - Background / gutter (hidden)
- *  - Normal text
+ *  - Normal text + selected-text foreground
  *  - Current-line highlight (subtle, ~7% opacity of text colour)
  *  - Selection background + handles + insert cursor line
+ *  - Novel / Prose Lexer Tokens (LITERAL → dialogue, COMMENT → thoughts, KEYWORD → headings)
+ *  - Diagnostic underline colors (PROBLEM_WARNING / PROBLEM_TYPO / PROBLEM_ERROR)
+ *  - Inlay hint foreground / background
  *  - Matched-bracket highlight
  *  - Scroll bar thumb/track
  *
- * Note: SEARCH_RESULT_BACKGROUND is not a valid constant in Sora 0.24.x —
- * search highlight colours are managed internally by the editor.
- *
- * Removed: TEXT_SELECTED — not a valid EditorColorScheme constant in Sora 0.24.x;
- * Sora reuses TEXT_NORMAL for selected-text rendering automatically.
+ * API notes for Sora 0.24.6:
+ *  - Diagnostic color constants are PROBLEM_ERROR (35), PROBLEM_WARNING (36),
+ *    PROBLEM_TYPO (37). The names DIAGNOSTIC_WARNING / DIAGNOSTIC_INFO /
+ *    DIAGNOSTIC_ERROR do NOT exist and will cause a compile error.
+ *  - TEXT_SELECTED (30) exists and controls selected-text foreground.
+ *    Pass 0 (fully transparent) to leave selected text color unchanged.
+ *  - SELECTION_INSERT (7) is the cursor bar (caret) color — valid.
+ *  - TEXT_INLAY_HINT_FOREGROUND (50) and TEXT_INLAY_HINT_BACKGROUND (49)
+ *    control inline hint badges.
+ *  - HIGHLIGHTED_DELIMITERS_UNDERLINE (40) exists in 0.24.x — included here.
+ *  - SEARCH_RESULT_BACKGROUND is not a valid constant; search highlights are
+ *    handled by MATCHED_TEXT_BACKGROUND (29).
  */
-class ScribeColorScheme(theme: AppTheme) : EditorColorScheme() {
+class ScribeColorScheme(private val theme: AppTheme) : EditorColorScheme() {
 
-    init {
-        val bg      = parse(theme.colors.background)
-        val text    = parse(theme.colors.text)
-        val accent  = parse(theme.colors.accent)
-        val sel     = parse(theme.colors.selection)
+    override fun applyDefault() {
+        // Always populate parent defaults first so every color ID is valid.
+        super.applyDefault()
+
+        val bg     = parse(theme.colors.background)
+        val text   = parse(theme.colors.text)
+        val accent = parse(theme.colors.accent)
+        val sel    = parse(theme.colors.selection)
 
         // ── Background ────────────────────────────────────────────────────────
         setColor(WHOLE_BACKGROUND,         bg)
@@ -42,8 +57,9 @@ class ScribeColorScheme(theme: AppTheme) : EditorColorScheme() {
 
         // ── Text ──────────────────────────────────────────────────────────────
         setColor(TEXT_NORMAL,              text)
-        // Note: TEXT_SELECTED is not a valid constant in Sora 0.24.x.
-        // Sora renders selected text using TEXT_NORMAL automatically.
+        // TEXT_SELECTED (30): 0 = no change (Sora keeps selected text same color
+        // as TEXT_NORMAL). Set to 0 so selection highlight comes from background.
+        setColor(TEXT_SELECTED,            0)
 
         // ── Novel / Prose Lexer Tokens ─────────────────────────────────────────
         // Spoken dialogue color: Warm tone tinted towards accent or amber/gold contrast
@@ -66,6 +82,22 @@ class ScribeColorScheme(theme: AppTheme) : EditorColorScheme() {
         // Headings / Scene Breaks: Accent highlight
         setColor(KEYWORD,                  accent)
 
+        // ── Diagnostic Colors ──────────────────────────────────────────────────
+        // Correct constant names for Sora 0.24.x:
+        //   PROBLEM_WARNING (36) → passive voice / adverb phrases  (amber wave)
+        //   PROBLEM_TYPO    (37) → filter words                     (purple wave)
+        //   PROBLEM_ERROR   (35) → repeated words / hard adverbs    (blue wave)
+        // DiagnosticRegion severity shorts (1=error, 2=warning, 3=typo) map to
+        // these color constants automatically in EditorRenderer.
+        setColor(PROBLEM_WARNING,          Color.argb(255, 245, 175,  45))  // Amber wave
+        setColor(PROBLEM_TYPO,             Color.argb(255, 140, 120, 240))  // Purple wave
+        setColor(PROBLEM_ERROR,            Color.argb(255,  80, 160, 240))  // Blue wave
+
+        // ── Inlay Hints ───────────────────────────────────────────────────────
+        // Scene word-count badges and POV tags rendered by ProseInlayHintProvider.
+        setColor(TEXT_INLAY_HINT_FOREGROUND, withAlpha(text,   140))
+        setColor(TEXT_INLAY_HINT_BACKGROUND, withAlpha(accent,  30))
+
         // ── Current line (very subtle) ────────────────────────────────────────
         val currentLineTint = Color.argb(18,
             Color.red(text), Color.green(text), Color.blue(text))
@@ -74,13 +106,12 @@ class ScribeColorScheme(theme: AppTheme) : EditorColorScheme() {
         // ── Selection ─────────────────────────────────────────────────────────
         setColor(SELECTED_TEXT_BACKGROUND, withAlpha(sel, 160))
         setColor(SELECTION_HANDLE,         accent)
-        setColor(SELECTION_INSERT,         accent)  // cursor bar colour
+        setColor(SELECTION_INSERT,         accent)  // cursor / caret bar colour
 
         // ── Matched bracket ───────────────────────────────────────────────────
         setColor(HIGHLIGHTED_DELIMITERS_FOREGROUND, text)
         setColor(HIGHLIGHTED_DELIMITERS_BACKGROUND, withAlpha(accent, 60))
-        // HIGHLIGHTED_DELIMITERS_UNDERLINE may not exist in all 0.24.x builds —
-        // omitted to avoid a silent no-op or runtime crash on older patch versions.
+        setColor(HIGHLIGHTED_DELIMITERS_UNDERLINE,  withAlpha(accent, 80))
 
         // ── Scroll indicators (keep neutral) ──────────────────────────────────
         setColor(SCROLL_BAR_THUMB,         withAlpha(text, 60))

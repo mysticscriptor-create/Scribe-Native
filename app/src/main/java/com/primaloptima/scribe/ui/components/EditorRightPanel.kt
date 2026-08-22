@@ -366,8 +366,42 @@ fun EditorRightPanel(
                         }
                         2 -> {
                             ProseAnalysisView(
-                                analysis = proseAnalysis,
-                                modifier = Modifier.fillMaxSize(),
+                                analysis         = proseAnalysis,
+                                modifier         = Modifier.fillMaxSize(),
+                                onJumpToSentence = { sentenceIndex ->
+                                    soraEditorRef?.let { editor ->
+                                        // Build a flat list of sentence start offsets by scanning
+                                        // the editor content for sentence-ending punctuation,
+                                        // then jump to the character offset of the target sentence.
+                                        val content = editor.text.toString()
+                                        val offsets = mutableListOf<Int>()
+                                        offsets.add(0)
+                                        var i = 0
+                                        while (i < content.length) {
+                                            val c = content[i]
+                                            if (c == '.' || c == '!' || c == '?') {
+                                                // Skip abbreviations: "Mr.", "e.g.", digits
+                                                val nextIsWordChar = i + 1 < content.length &&
+                                                        content[i + 1].isLetterOrDigit()
+                                                if (!nextIsWordChar) {
+                                                    // Advance past trailing whitespace to the
+                                                    // first char of the next sentence
+                                                    var next = i + 1
+                                                    while (next < content.length && content[next].isWhitespace()) next++
+                                                    if (next < content.length) offsets.add(next)
+                                                }
+                                            }
+                                            i++
+                                        }
+                                        val targetOffset = offsets.getOrElse(sentenceIndex) { 0 }
+                                        try {
+                                            val line = editor.text.indexer.getCharLine(targetOffset)
+                                            val col  = editor.text.indexer.getCharColumn(targetOffset)
+                                            editor.cursor.set(line, col)
+                                            editor.ensurePositionVisible(line, col)
+                                        } catch (_: Exception) { }
+                                    }
+                                }
                             )
                         }
                     }
