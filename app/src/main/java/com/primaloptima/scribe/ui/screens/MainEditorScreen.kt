@@ -165,7 +165,7 @@ fun MainEditorScreen(
                 val absY = abs(available.y)
                 // Only intercept when horizontal dominates AND the keyboard is not up
                 // AND the panel is not already locked to an edge that blocks this direction.
-                if (absX < absY * 2f) return Offset.Zero
+                if (absX < absY * 5f) return Offset.Zero
                 val consumed = panelState.dispatchRawDelta(available.x)
                 return Offset(consumed, 0f)
             }
