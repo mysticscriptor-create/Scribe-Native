@@ -58,8 +58,6 @@ import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.frostedContainerColor
 import com.primaloptima.scribe.ui.theme.LocalAppTheme
 import com.primaloptima.scribe.ui.theme.ScribeColorScheme
-import com.primaloptima.scribe.engine.ProseDiagnosticProvider
-import com.primaloptima.scribe.engine.ProseInlayHintProvider
 import com.primaloptima.scribe.util.BitmapBlur
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -283,20 +281,7 @@ fun MainEditorScreen(
         if (loadedNoteId != note.id || (editor.text.length == 0 && note.content.isNotEmpty())) {
             loadedNoteId = note.id
             editor.setText(note.content)
-            // Compute initial inlay hints and diagnostics
-            editor.inlayHints = ProseInlayHintProvider.computeInlayHints(note.content, worldEntries)
-            editor.diagnostics = ProseDiagnosticProvider.analyzeDiagnostics(note.content)
         }
-    }
-
-    // Debounced analysis for Inlay Hints (Scene word counts & POV tags) and Diagnostics (Passives, Adverbs, Repetitions)
-    var editorCurrentText by remember { mutableStateOf("") }
-    LaunchedEffect(editorCurrentText, worldEntries) {
-        if (editorCurrentText.isEmpty()) return@LaunchedEffect
-        val editor = soraEditorRef ?: return@LaunchedEffect
-        delay(350) // Debounce 350ms to keep editing fluid
-        editor.inlayHints = ProseInlayHintProvider.computeInlayHints(editorCurrentText, worldEntries)
-        editor.diagnostics = ProseDiagnosticProvider.analyzeDiagnostics(editorCurrentText)
     }
 
     // ── Fix 2: Dismiss Sora's text-action popup when a panel opens ────────────
@@ -564,18 +549,9 @@ fun MainEditorScreen(
                                                 ).isEnabled = false
                                             } catch (_: Exception) { }
 
-                                            // Enable Diagnostic tooltip window for interactive prose feedback & quick fixes
-                                            try {
-                                                getComponent(
-                                                    io.github.rosemoe.sora.widget.component.EditorDiagnosticsTooltipWindow::class.java
-                                                ).isEnabled = true
-                                            } catch (_: Exception) { }
-
                                             subscribeEvent(ContentChangeEvent::class.java) { _, _ ->
-                                                val current = text.toString()
-                                                editorCurrentText = current
                                                 if (loadedNoteId != null)
-                                                    editorVm.onContentChanged(current)
+                                                    editorVm.onContentChanged(text.toString())
                                             }
                                             subscribeEvent(EditorKeyEvent::class.java) { event, _ ->
                                                 if (event.action != android.view.KeyEvent.ACTION_DOWN) return@subscribeEvent

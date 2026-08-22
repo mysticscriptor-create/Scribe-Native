@@ -66,11 +66,6 @@ class ScribeColorScheme(theme: AppTheme) : EditorColorScheme() {
         // Headings / Scene Breaks: Accent highlight
         setColor(KEYWORD,                  accent)
 
-        // ── Diagnostic Colors ──────────────────────────────────────────────────
-        setColor(DIAGNOSTIC_WARNING,       Color.argb(255, 245, 175, 45))  // Yellow/Amber wave
-        setColor(DIAGNOSTIC_INFO,          Color.argb(255, 140, 120, 240)) // Subtle Purple wave for filter words
-        setColor(DIAGNOSTIC_ERROR,         Color.argb(255, 80, 160, 240))  // Blue wave for repeated words / adverbs
-
         // ── Current line (very subtle) ────────────────────────────────────────
         val currentLineTint = Color.argb(18,
             Color.red(text), Color.green(text), Color.blue(text))
