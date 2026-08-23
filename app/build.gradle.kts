@@ -124,6 +124,9 @@ dependencies {
     implementation("androidx.navigation3:navigation3-ui:1.1.6")
     implementation("androidx.lifecycle:lifecycle-viewmodel-navigation3:2.11.0")
     // Phase 3: two-pane adaptive layout (tablet/foldable)
+    implementation("androidx.compose.material3.adaptive:adaptive:1.1.0")
+    implementation("androidx.compose.material3.adaptive:adaptive-layout:1.1.0")
+    implementation("androidx.compose.material3.adaptive:adaptive-navigation:1.1.0")
     implementation("androidx.compose.material3.adaptive:adaptive-navigation3:1.3.0")
 
     // Kotlin serialization runtime (required for type-safe nav routes)

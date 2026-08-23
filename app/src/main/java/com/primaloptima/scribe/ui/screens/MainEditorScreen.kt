@@ -40,6 +40,13 @@ import android.os.Build
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.gestures.animateTo
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
+import androidx.compose.material3.adaptive.layout.AnimatedPane
+import androidx.compose.material3.adaptive.layout.SupportingPaneScaffold
+import androidx.compose.material3.adaptive.layout.ThreePaneScaffoldRole
+import androidx.compose.material3.adaptive.layout.PaneAdaptedValue
+import androidx.compose.material3.adaptive.navigation.rememberSupportingPaneScaffoldNavigator
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.unit.Constraints
 import com.primaloptima.scribe.ui.theme.LocalBarBlurBitmap
@@ -120,10 +127,9 @@ import com.primaloptima.scribe.util.ScribeProseLanguage
 import com.primaloptima.scribe.util.ThemeManager
 
 
-private enum class PanelState { LeftOpen, Center, RightOpen }
-
 @OptIn(
     ExperimentalMaterial3Api::class,
+    ExperimentalMaterial3AdaptiveApi::class,
     androidx.compose.foundation.ExperimentalFoundationApi::class,
     androidx.compose.foundation.layout.ExperimentalLayoutApi::class
 )
@@ -143,30 +149,22 @@ fun MainEditorScreen(
 ) {
     val context = LocalContext.current
     val scope   = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
 
-    // ── Panel gesture state ───────────────────────────────────────────────────
-    // NOTE: The 5-arg AnchoredDraggableState constructor is deprecated in Compose 1.8,
-    // but the suggested replacement (anchoredDraggableFlingBehavior) is marked internal
-    // and cannot be called from app code. Keeping the original constructor until Google
-    // provides a public migration path. Suppress the deprecation warning instead.
-    val localDensity = LocalDensity.current
-    @Suppress("DEPRECATION")
-    val panelState = remember {
-        AnchoredDraggableState(
-            initialValue        = PanelState.Center,
-            positionalThreshold = { distance: Float -> distance * 0.4f },
-            velocityThreshold   = { with(localDensity) { 125.dp.toPx() } },
-            snapAnimationSpec   = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
-            decayAnimationSpec  = splineBasedDecay(localDensity)
-        )
+    // ── Material 3 Adaptive Navigator & Drawer State ──────────────────────────
+    val navigator = rememberSupportingPaneScaffoldNavigator()
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val isLeftDrawerOpen = drawerState.isOpen
+    val isRightPanelOpen = navigator.scaffoldValue[ThreePaneScaffoldRole.Secondary] == PaneAdaptedValue.Expanded
+
+    // Integrated Android Hardware / Predictive Back Handler
+    BackHandler(enabled = drawerState.isOpen || navigator.canNavigateBack()) {
+        if (drawerState.isOpen) {
+            scope.launch { drawerState.close() }
+        } else if (navigator.canNavigateBack()) {
+            scope.launch { navigator.navigateBack() }
+        }
     }
-    val isLeftDrawerOpen = panelState.targetValue == PanelState.LeftOpen
-    val isRightPanelOpen = panelState.targetValue == PanelState.RightOpen
-
-    val localConfiguration = LocalConfiguration.current
-    val screenWidthPx = with(localDensity) { localConfiguration.screenWidthDp.dp.toPx() }
-    val drawerWidthPx = with(localDensity) { 300.dp.toPx() }
-    val velocityThresholdPx = with(localDensity) { 125.dp.toPx() }
 
     // ── Frosted-glass blur bitmaps (pre-API-31 fallback) ─────────────────────
     val view         = LocalView.current
@@ -392,471 +390,414 @@ fun MainEditorScreen(
             Box(Modifier.fillMaxSize().background(themeBgColor.copy(alpha = bgOpacity)))
         }
 
-        // ── Custom push-drawer Layout ─────────────────────────────────────────
-        // Three children: left drawer (300dp), editor (full), right panel (full).
-        // panelState.offset drives all positions: +drawerW=LeftOpen, 0=Center, -screenW=RightOpen.
-        Layout(
-            content = {
-                // Child 0: Left drawer (300dp wide)
-                Box(modifier = Modifier.fillMaxHeight().width(300.dp)) {
-                    EditorLeftDrawer(
-                        leftDrawerMode   = leftDrawerMode,
-                        onModeChange     = { leftDrawerMode = it },
-                        currentBookNotes = currentBookNotes,
-                        allNotes         = allNotes,
-                        activeNoteId     = activeNote?.id,
-                        onNoteClick      = { id ->
-                            editorVm.loadNote(id)
-                            scope.launch { panelState.animateTo(PanelState.Center) }
-                        },
-                        onAddNote        = { scope.launch { captureForDialog { showCreateNoteDialog = true } } },
-                        hazeState        = hazeState,
-                        barBlurBitmap    = barBlurBitmap,
-                    )
-                }
-
-                // Child 1: Main editor (full screen, pushed right when drawer opens)
-                Scaffold(
-                    containerColor      = Color.Transparent,
-                    contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime),
-                    topBar = {
-                        EditorTopBarWithMenu(
-                            activeNote        = activeNote,
-                            zenMode           = zenMode,
-                            goalProgress      = goalProgress,
-                            isLeftDrawerOpen  = isLeftDrawerOpen,
-                            soraEditorRef     = soraEditorRef,
-                            onNavClick        = { scope.launch { panelState.animateTo(if (isLeftDrawerOpen) PanelState.Center else PanelState.LeftOpen) } },
-                            onTitleClick      = { if (activeNote != null) scope.launch { captureForDialog { showRenameDialog = true } } },
-                            onOpenRightPanel  = { scope.launch { panelState.animateTo(PanelState.RightOpen) } },
-                            onToggleFind      = { showFindBar = !showFindBar },
-                            onSaveCheckpoint  = {
-                                editorVm.saveManualSnapshot(soraEditorRef?.text?.toString() ?: "")
-                                Toast.makeText(context, "Checkpoint saved", Toast.LENGTH_SHORT).show()
+        // ── Material 3 Adaptive SupportingPaneScaffold + ModalNavigationDrawer ──
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            drawerContent = {
+                CompositionLocalProvider(LocalOneShotBitmap provides LocalBarBlurBitmap.current) {
+                    ModalDrawerSheet(
+                        drawerContainerColor = Color.Transparent,
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .widthIn(max = 320.dp)
+                            .frostedPanel(hazeState)
+                    ) {
+                        EditorLeftDrawer(
+                            leftDrawerMode   = leftDrawerMode,
+                            onModeChange     = { leftDrawerMode = it },
+                            currentBookNotes = currentBookNotes,
+                            allNotes         = allNotes,
+                            activeNoteId     = activeNote?.id,
+                            onNoteClick      = { id ->
+                                editorVm.loadNote(id)
+                                scope.launch { drawerState.close() }
                             },
-                            onEnterZen        = { editorVm.setZen(true) },
-                            onOpenFloating    = { activeNote?.let { editorVm.openFloatingWindow(it.id) } },
-                            onExport          = { fmt -> activeNote?.let { ExportHelper.shareNote(context, it, fmt) } },
-                            onVersionHistory  = { editorVm.flushContent(soraEditorRef?.text?.toString() ?: ""); onOpenHistory() },
-                            onShortcuts       = onOpenShortcuts,
-                            onGuide           = onOpenGuide,
-                            onSettings        = onOpenSettings,
+                            onAddNote        = { scope.launch { captureForDialog { showCreateNoteDialog = true } } },
+                            hazeState        = hazeState,
+                            barBlurBitmap    = barBlurBitmap,
                         )
-                    },
-                    bottomBar = {
-                        // FIX 5: Removed the shadowed isKeyboardVisible redeclaration that was
-                        // inside bottomBar. Now uses the one declared at screen scope (line ~274).
-                        CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
-                            AnimatedVisibility(
-                                visible = isKeyboardVisible,
-                                enter   = slideInVertically(initialOffsetY = { it }),
-                                exit    = slideOutVertically(targetOffsetY = { it })
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .frostedBar(hazeState)
-                                        .imePadding()
-                                        .horizontalScroll(rememberScrollState())
-                                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                    verticalAlignment     = Alignment.CenterVertically
-                                ) {
-                                    shortcuts.forEach { shortcut ->
-                                        FormatButton(label = shortcut.label) {
-                                            when (shortcut.kind) {
-                                                "wrap" -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: shortcut.payload)
-                                                "pair" -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: "")
-                                                else   -> soraEditorRef?.insertAtCursor(shortcut.payload)
+                    }
+                }
+            }
+        ) {
+            SupportingPaneScaffold(
+                directive = navigator.scaffoldDirective,
+                value = navigator.scaffoldValue,
+                mainPane = {
+                    AnimatedPane(modifier = Modifier.fillMaxSize()) {
+                        Scaffold(
+                            containerColor      = Color.Transparent,
+                            contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime),
+                            topBar = {
+                                EditorTopBarWithMenu(
+                                    activeNote        = activeNote,
+                                    zenMode           = zenMode,
+                                    goalProgress      = goalProgress,
+                                    isLeftDrawerOpen  = isLeftDrawerOpen,
+                                    soraEditorRef     = soraEditorRef,
+                                    onNavClick        = { scope.launch { if (drawerState.isOpen) drawerState.close() else drawerState.open() } },
+                                    onTitleClick      = { if (activeNote != null) scope.launch { captureForDialog { showRenameDialog = true } } },
+                                    onOpenRightPanel  = { scope.launch { navigator.navigateTo(ThreePaneScaffoldRole.Secondary) } },
+                                    onToggleFind      = { showFindBar = !showFindBar },
+                                    onSaveCheckpoint  = {
+                                        editorVm.saveManualSnapshot(soraEditorRef?.text?.toString() ?: "")
+                                        Toast.makeText(context, "Checkpoint saved", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onEnterZen        = { editorVm.setZen(true) },
+                                    onOpenFloating    = { activeNote?.let { editorVm.openFloatingWindow(it.id) } },
+                                    onExport          = { fmt -> activeNote?.let { ExportHelper.shareNote(context, it, fmt) } },
+                                    onVersionHistory  = { editorVm.flushContent(soraEditorRef?.text?.toString() ?: ""); onOpenHistory() },
+                                    onShortcuts       = onOpenShortcuts,
+                                    onGuide           = onOpenGuide,
+                                    onSettings        = onOpenSettings,
+                                )
+                            },
+                            bottomBar = {
+                                CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
+                                    AnimatedVisibility(
+                                        visible = isKeyboardVisible,
+                                        enter   = slideInVertically(initialOffsetY = { it }),
+                                        exit    = slideOutVertically(targetOffsetY = { it })
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .frostedBar(hazeState)
+                                                .imePadding()
+                                                .horizontalScroll(rememberScrollState())
+                                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment     = Alignment.CenterVertically
+                                        ) {
+                                            shortcuts.forEach { shortcut ->
+                                                FormatButton(label = shortcut.label) {
+                                                    when (shortcut.kind) {
+                                                        "wrap" -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: shortcut.payload)
+                                                        "pair" -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: "")
+                                                        else   -> soraEditorRef?.insertAtCursor(shortcut.payload)
+                                                    }
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
-                    }
-                ) { padding ->
-                    Box(Modifier.fillMaxSize().padding(padding)) {
-                        Column(Modifier.fillMaxSize()) {
+                        ) { padding ->
+                            Box(Modifier.fillMaxSize().padding(padding)) {
+                                Column(Modifier.fillMaxSize()) {
 
-                            // ── Find/Replace bar ──────────────────────────────
-                            FindReplaceBar(
-                                visible       = showFindBar,
-                                findQuery     = findQuery,
-                                replaceQuery  = replaceQuery,
-                                onFindChange  = { findQuery = it },
-                                onReplaceChange = { replaceQuery = it },
-                                onPrevious    = { soraEditorRef?.searcher?.gotoPrevious() },
-                                onNext        = { soraEditorRef?.searcher?.gotoNext() },
-                                onReplaceAll  = {
-                                    val editor = soraEditorRef ?: return@FindReplaceBar
-                                    if (findQuery.isNotEmpty()) {
-                                        editor.searcher.replaceAll(replaceQuery)
-                                        editorVm.onContentChanged(editor.text.toString())
-                                    }
-                                },
-                                onClose       = { showFindBar = false }
-                            )
-
-                            // Drive Sora's searcher from find state
-                            LaunchedEffect(findQuery, showFindBar) {
-                                val editor = soraEditorRef ?: return@LaunchedEffect
-                                if (showFindBar && findQuery.isNotEmpty()) {
-                                    editor.searcher.search(findQuery, EditorSearcher.SearchOptions(true, false))
-                                } else {
-                                    editor.searcher.stopSearch()
-                                }
-                            }
-
-                            // ── Sora CodeEditor ───────────────────────────────
-                            // FIX 6: Extracted expensive theme-derived values that were being
-                            // recomputed inside the AndroidView update block. These are now
-                            // stable remembered values, so the update block only runs when
-                            // activeTheme actually changes — not on every recomposition.
-                            val hasBgImageLocal     = !activeTheme?.backgroundImageUri.isNullOrEmpty()
-                            val currentThemeBg      = MaterialTheme.colorScheme.background
-                            val editorTextSizeSp    = remember(activeTheme?.fontSize) {
-                                (activeTheme?.fontSize ?: 18).toFloat()
-                            }
-                            val editorTypeface      = remember(activeTheme?.fontFamily) {
-                                activeTheme?.fontFamily?.let { ThemeManager.resolveTypeface(context, it) }
-                            }
-                            val bgArgb              = remember(hasBgImageLocal, currentThemeBg) {
-                                if (hasBgImageLocal) android.graphics.Color.TRANSPARENT
-                                else currentThemeBg.toArgb()
-                            }
-                            // FIX 6 cont: The popup background drawables are expensive to
-                            // build (GradientDrawable + LayerDrawable + reflection walk).
-                            // Cache them keyed on the two colors that drive them so they
-                            // are only rebuilt when the theme's accent/surface actually changes.
-                            val popupBgDrawable = remember(activeTheme?.colors?.accent, activeTheme?.colors?.surface) {
-                                val density    = context.resources.displayMetrics.density
-                                val cornerPx   = 24f * density
-                                val accentHex  = activeTheme?.colors?.accent ?: "#000000"
-                                val surfaceHex = activeTheme?.colors?.surface ?: "#FFFFFF"
-                                val accentArgb  = runCatching { android.graphics.Color.parseColor(accentHex) }.getOrDefault(android.graphics.Color.BLACK)
-                                val surfaceArgb = runCatching { android.graphics.Color.parseColor(surfaceHex) }.getOrDefault(android.graphics.Color.WHITE)
-                                val fill = android.graphics.drawable.GradientDrawable().apply {
-                                    setColor(surfaceArgb); cornerRadius = cornerPx
-                                }
-                                val overlay = android.graphics.drawable.GradientDrawable(
-                                    android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                                    intArrayOf(
-                                        android.graphics.Color.argb(
-                                            71,
-                                            android.graphics.Color.red(accentArgb),
-                                            android.graphics.Color.green(accentArgb),
-                                            android.graphics.Color.blue(accentArgb)
-                                        ),
-                                        android.graphics.Color.TRANSPARENT
+                                    // ── Find/Replace bar ──────────────────────────────
+                                    FindReplaceBar(
+                                        visible       = showFindBar,
+                                        findQuery     = findQuery,
+                                        replaceQuery  = replaceQuery,
+                                        onFindChange  = { findQuery = it },
+                                        onReplaceChange = { replaceQuery = it },
+                                        onPrevious    = { soraEditorRef?.searcher?.gotoPrevious() },
+                                        onNext        = { soraEditorRef?.searcher?.gotoNext() },
+                                        onReplaceAll  = {
+                                            val editor = soraEditorRef ?: return@FindReplaceBar
+                                            if (findQuery.isNotEmpty()) {
+                                                editor.searcher.replaceAll(replaceQuery)
+                                                editorVm.onContentChanged(editor.text.toString())
+                                            }
+                                        },
+                                        onClose       = { showFindBar = false }
                                     )
-                                ).apply { cornerRadius = cornerPx }
-                                android.graphics.drawable.LayerDrawable(arrayOf(fill, overlay))
-                            }
 
-                            Box(Modifier.fillMaxSize()) {
-                                AndroidView(
-                                    factory = { ctx ->
-                                        CodeEditor(ctx).apply {
-                                            isLineNumberEnabled    = false
-                                            isHighlightCurrentLine = false
-                                            isWordwrap             = true
-                                            // Register the built-in text renderer so the editor
-                                            // actually paints TextInlayHint objects. Without this,
-                                            // setInlayHints() stores the container but nothing is drawn
-                                            // because the inlayHintRendererMap has no entry for "text".
-                                            registerInlayHintRenderer(
-                                                io.github.rosemoe.sora.graphics.inlayHint.TextInlayHintRenderer()
+                                    // Drive Sora's searcher from find state
+                                    LaunchedEffect(findQuery, showFindBar) {
+                                        val editor = soraEditorRef ?: return@LaunchedEffect
+                                        if (showFindBar && findQuery.isNotEmpty()) {
+                                            editor.searcher.search(findQuery, EditorSearcher.SearchOptions(true, false))
+                                        } else {
+                                            editor.searcher.stopSearch()
+                                        }
+                                    }
+
+                                    // ── Sora CodeEditor ───────────────────────────────
+                                    val hasBgImageLocal     = !activeTheme?.backgroundImageUri.isNullOrEmpty()
+                                    val currentThemeBg      = MaterialTheme.colorScheme.background
+                                    val editorTextSizeSp    = remember(activeTheme?.fontSize) {
+                                        (activeTheme?.fontSize ?: 18).toFloat()
+                                    }
+                                    val editorTypeface      = remember(activeTheme?.fontFamily) {
+                                        activeTheme?.fontFamily?.let { ThemeManager.resolveTypeface(context, it) }
+                                    }
+                                    val bgArgb              = remember(hasBgImageLocal, currentThemeBg) {
+                                        if (hasBgImageLocal) android.graphics.Color.TRANSPARENT
+                                        else currentThemeBg.toArgb()
+                                    }
+                                    val popupBgDrawable = remember(activeTheme?.colors?.accent, activeTheme?.colors?.surface) {
+                                        val density    = context.resources.displayMetrics.density
+                                        val cornerPx   = 24f * density
+                                        val accentHex  = activeTheme?.colors?.accent ?: "#000000"
+                                        val surfaceHex = activeTheme?.colors?.surface ?: "#FFFFFF"
+                                        val accentArgb  = runCatching { android.graphics.Color.parseColor(accentHex) }.getOrDefault(android.graphics.Color.BLACK)
+                                        val surfaceArgb = runCatching { android.graphics.Color.parseColor(surfaceHex) }.getOrDefault(android.graphics.Color.WHITE)
+                                        val fill = android.graphics.drawable.GradientDrawable().apply {
+                                            setColor(surfaceArgb); cornerRadius = cornerPx
+                                        }
+                                        val overlay = android.graphics.drawable.GradientDrawable(
+                                            android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                                            intArrayOf(
+                                                android.graphics.Color.argb(
+                                                    71,
+                                                    android.graphics.Color.red(accentArgb),
+                                                    android.graphics.Color.green(accentArgb),
+                                                    android.graphics.Color.blue(accentArgb)
+                                                ),
+                                                android.graphics.Color.TRANSPARENT
                                             )
-                                            setEditorLanguage(ScribeProseLanguage())
+                                        ).apply { cornerRadius = cornerPx }
+                                        android.graphics.drawable.LayerDrawable(arrayOf(fill, overlay))
+                                    }
 
-                                            // Fix 3a: Allow Sora's scroll events to bubble up
-                                            // through the Compose nestedScroll chain so the
-                                            // NestedScrollConnection on the Layout can receive them.
-                                            isNestedScrollingEnabled = true
+                                    Box(Modifier.fillMaxSize()) {
+                                        AndroidView(
+                                            factory = { ctx ->
+                                                CodeEditor(ctx).apply {
+                                                    isLineNumberEnabled    = false
+                                                    isHighlightCurrentLine = false
+                                                    isWordwrap             = true
+                                                    registerInlayHintRenderer(
+                                                        io.github.rosemoe.sora.graphics.inlayHint.TextInlayHintRenderer()
+                                                    )
+                                                    setEditorLanguage(ScribeProseLanguage())
+                                                    isNestedScrollingEnabled = true
+                                                    try {
+                                                        getComponent(
+                                                            io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
+                                                        ).isEnabled = false
+                                                    } catch (_: Exception) { }
 
-                                            // Fix 3b: Disable the built-in EditorTextActionWindow
-                                            // in the factory (one-time setup) so it never shows.
-                                            // We rely on Fix 2's LaunchedEffect as a safety net for
-                                            // any edge cases, but disabling here is the primary guard.
-                                            try {
-                                                getComponent(
-                                                    io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
-                                                ).isEnabled = false
-                                            } catch (_: Exception) { }
+                                                    try {
+                                                        getComponent(
+                                                            io.github.rosemoe.sora.widget.component.EditorDiagnosticTooltipWindow::class.java
+                                                        ).isEnabled = true
+                                                    } catch (_: Exception) { }
 
-                                            // Enable Diagnostic tooltip window for interactive prose feedback & quick fixes.
-                                            // API note: class is EditorDiagnosticTooltipWindow (singular), not EditorDiagnosticsTooltipWindow.
-                                            try {
-                                                getComponent(
-                                                    io.github.rosemoe.sora.widget.component.EditorDiagnosticTooltipWindow::class.java
-                                                ).isEnabled = true
-                                            } catch (_: Exception) { }
-
-                                            subscribeEvent(ContentChangeEvent::class.java) { _, _ ->
-                                                val current = text.toString()
-                                                editorCurrentText = current
-                                                if (loadedNoteId != null)
-                                                    editorVm.onContentChanged(current)
-                                            }
-                                            subscribeEvent(EditorKeyEvent::class.java) { event, _ ->
-                                                if (event.action != android.view.KeyEvent.ACTION_DOWN) return@subscribeEvent
-                                                if (event.keyCode != android.view.KeyEvent.KEYCODE_ENTER) return@subscribeEvent
-                                                val cur = this.cursor
-                                                if (cur.isSelected) return@subscribeEvent
-                                                val line = this.text.getLine(cur.leftLine)
-                                                val col  = cur.leftColumn
-                                                val closeChars = setOf(')', ']', '}', '`', '"', '\'', '\u201D', '\u2019', '\u00BB')
-                                                if (col < line.length && line[col] in closeChars) {
-                                                    setSelection(cur.leftLine, col + 1)
-                                                    event.intercept()
-                                                }
-                                            }
-                                        }.also { soraEditorRef = it }
-                                    },
-                                    update = { editor ->
-                                        // FIX 6 cont: update block is now cheap — all expensive
-                                        // objects were built in remembered blocks above and are
-                                        // only passed in here. No allocations happen per-frame.
-                                        editor.setTextSize(editorTextSizeSp)
-                                        editorTypeface?.let { editor.typefaceText = it }
-                                        editor.setBackgroundColor(bgArgb)
-                                        activeTheme?.let { theme ->
-                                            val scheme = ScribeColorScheme(theme)
-                                            scheme.setColor(EditorColorScheme.WHOLE_BACKGROUND,       bgArgb)
-                                            scheme.setColor(EditorColorScheme.LINE_NUMBER_BACKGROUND, bgArgb)
-                                            scheme.setColor(EditorColorScheme.LINE_NUMBER,            bgArgb)
-                                            editor.colorScheme = scheme
-                                            // Apply the cached popup background via reflection.
-                                            // The reflection walk only happens here (theme change),
-                                            // not on every recomposition.
-                                            try {
-                                                val aw = editor.getComponent(
-                                                    io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
-                                                )
-                                                var popup: android.widget.PopupWindow? = null
-                                                var cls: Class<*>? = aw.javaClass
-                                                outer@ while (cls != null && cls != Any::class.java) {
-                                                    for (f in cls.declaredFields) {
-                                                        if (android.widget.PopupWindow::class.java.isAssignableFrom(f.type)) {
-                                                            f.isAccessible = true
-                                                            popup = f.get(aw) as? android.widget.PopupWindow
-                                                            break@outer
+                                                    subscribeEvent(ContentChangeEvent::class.java) { _, _ ->
+                                                        val current = text.toString()
+                                                        editorCurrentText = current
+                                                        if (loadedNoteId != null)
+                                                            editorVm.onContentChanged(current)
+                                                    }
+                                                    subscribeEvent(EditorKeyEvent::class.java) { event, _ ->
+                                                        if (event.action != android.view.KeyEvent.ACTION_DOWN) return@subscribeEvent
+                                                        if (event.keyCode != android.view.KeyEvent.KEYCODE_ENTER) return@subscribeEvent
+                                                        val cur = this.cursor
+                                                        if (cur.isSelected) return@subscribeEvent
+                                                        val line = this.text.getLine(cur.leftLine)
+                                                        val col  = cur.leftColumn
+                                                        val closeChars = setOf(')', ']', '}', '`', '"', '\'', '\u201D', '\u2019', '\u00BB')
+                                                        if (col < line.length && line[col] in closeChars) {
+                                                            setSelection(cur.leftLine, col + 1)
+                                                            event.intercept()
                                                         }
                                                     }
-                                                    cls = cls.superclass
+                                                }.also { soraEditorRef = it }
+                                            },
+                                            update = { editor ->
+                                                editor.setTextSize(editorTextSizeSp)
+                                                editorTypeface?.let { editor.typefaceText = it }
+                                                editor.setBackgroundColor(bgArgb)
+                                                activeTheme?.let { theme ->
+                                                    val scheme = ScribeColorScheme(theme)
+                                                    scheme.setColor(EditorColorScheme.WHOLE_BACKGROUND,       bgArgb)
+                                                    scheme.setColor(EditorColorScheme.LINE_NUMBER_BACKGROUND, bgArgb)
+                                                    scheme.setColor(EditorColorScheme.LINE_NUMBER,            bgArgb)
+                                                    editor.colorScheme = scheme
+                                                    try {
+                                                        val aw = editor.getComponent(
+                                                            io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
+                                                        )
+                                                        var popup: android.widget.PopupWindow? = null
+                                                        var cls: Class<*>? = aw.javaClass
+                                                        outer@ while (cls != null && cls != Any::class.java) {
+                                                            for (f in cls.declaredFields) {
+                                                                if (android.widget.PopupWindow::class.java.isAssignableFrom(f.type)) {
+                                                                    f.isAccessible = true
+                                                                    popup = f.get(aw) as? android.widget.PopupWindow
+                                                                    break@outer
+                                                                }
+                                                            }
+                                                            cls = cls.superclass
+                                                        }
+                                                        popup?.setBackgroundDrawable(popupBgDrawable)
+                                                    } catch (_: Exception) { }
                                                 }
-                                                popup?.setBackgroundDrawable(popupBgDrawable)
-                                            } catch (_: Exception) { }
-                                        }
-                                    },
-                                    // FIX 7: Added onRelease to properly tear down the CodeEditor
-                                    // when it leaves composition. Without this, Sora holds onto
-                                    // language server references, event subscriptions, and internal
-                                    // handlers indefinitely — a genuine resource leak.
-                                    onRelease = { editor ->
-                                        soraEditorRef = null
-                                        ProseDiagnosticProvider.attachEditor(null)
-                                        editor.release()
-                                    },
-                                    modifier = Modifier.fillMaxSize()
-                                )
-
-                                // Word-count pill
-                                CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
-                                    WordCountPill(
-                                        modifier        = Modifier.align(Alignment.TopEnd),
-                                        pillOffsetX     = pillOffsetX,
-                                        pillOffsetY     = pillOffsetY,
-                                        onOffsetChange  = { dx, dy -> pillOffsetX += dx; pillOffsetY += dy },
-                                        pillMode        = pillMode,
-                                        onModeClick     = { pillMode = (pillMode + 1) % 3 },
-                                        wordCount       = wordCount,
-                                        charCount       = charCount,
-                                        deltaText       = deltaText,
-                                        isPositiveDelta = isPositiveDelta,
-                                        hazeState       = LocalHazeState.current,
-                                    )
-
-                                    if (zenMode) {
-                                        ScribeSingleFab(
-                                            icon               = Icons.Default.FullscreenExit,
-                                            contentDescription = "Exit Zen",
-                                            modifier           = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-                                            onClick            = { editorVm.setZen(false) }
+                                            },
+                                            onRelease = { editor ->
+                                                soraEditorRef = null
+                                                ProseDiagnosticProvider.attachEditor(null)
+                                                editor.release()
+                                            },
+                                            modifier = Modifier.fillMaxSize()
                                         )
+
+                                        // Word-count pill
+                                        CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
+                                            WordCountPill(
+                                                modifier        = Modifier.align(Alignment.TopEnd),
+                                                pillOffsetX     = pillOffsetX,
+                                                pillOffsetY     = pillOffsetY,
+                                                onOffsetChange  = { dx, dy -> pillOffsetX += dx; pillOffsetY += dy },
+                                                pillMode        = pillMode,
+                                                onModeClick     = { pillMode = (pillMode + 1) % 3 },
+                                                wordCount       = wordCount,
+                                                charCount       = charCount,
+                                                deltaText       = deltaText,
+                                                isPositiveDelta = isPositiveDelta,
+                                                hazeState       = LocalHazeState.current,
+                                            )
+
+                                            if (zenMode) {
+                                                ScribeSingleFab(
+                                                    icon               = Icons.Default.FullscreenExit,
+                                                    contentDescription = "Exit Zen",
+                                                    modifier           = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                                                    onClick            = { editorVm.setZen(false) }
+                                                )
+                                            }
+                                        }
+                                    } // end editor Box
+                                }
+                            }
+                        } // end Scaffold
+                    }
+                },
+                supportingPane = {
+                    AnimatedPane(modifier = Modifier.fillMaxSize()) {
+                        EditorRightPanel(
+                            rightPanelTab         = rightPanelTab,
+                            onTabChange           = { rightPanelTab = it },
+                            pinnedTopNotes        = pinnedTopNotes,
+                            pinnedTopIndex        = pinnedTopIndex,
+                            pinnedBottomNotes     = pinnedBottomNotes,
+                            pinnedBottomIndex     = pinnedBottomIndex,
+                            allNotes              = allNotes,
+                            worldEntries          = worldEntries,
+                            outline               = outline,
+                            activeTheme           = activeTheme,
+                            proseAnalysis         = proseAnalysis,
+                            soraEditorRef         = soraEditorRef,
+                            tabBarAtBottom        = companionTabBarBottom,
+                            splitHorizontal       = companionSplitHorizontal,
+                            onToggleTabBarPos     = { editorVm.setCompanionTabBarBottom(!companionTabBarBottom) },
+                            onToggleSplitLayout   = { editorVm.setCompanionSplitHorizontal(!companionSplitHorizontal) },
+                            onSwapSlots           = { editorVm.swapPinnedSlots() },
+                            onPrevTop             = { editorVm.prevPinnedTop() },
+                            onNextTop             = { editorVm.nextPinnedTop() },
+                            onSwitchTop           = { scope.launch { captureForDialog { filePickerTargetSlot = "top" } } },
+                            onEditTop             = { id -> editorVm.loadNote(id) },
+                            onRemoveTop           = { id -> editorVm.removePinnedTop(id) },
+                            onPrevBottom          = { editorVm.prevPinnedBottom() },
+                            onNextBottom          = { editorVm.nextPinnedBottom() },
+                            onSwitchBottom        = { scope.launch { captureForDialog { filePickerTargetSlot = "bottom" } } },
+                            onEditBottom          = { id -> editorVm.loadNote(id) },
+                            onRemoveBottom        = { id -> editorVm.removePinnedBottom(id) },
+                            onPickTop             = { scope.launch { captureForDialog { filePickerTargetSlot = "top" } } },
+                            onPickBottom          = { scope.launch { captureForDialog { filePickerTargetSlot = "bottom" } } },
+                            onClose               = {
+                                scope.launch {
+                                    if (navigator.canNavigateBack()) {
+                                        navigator.navigateBack()
+                                    } else {
+                                        navigator.navigateTo(ThreePaneScaffoldRole.Primary)
                                     }
                                 }
-                            } // end editor Box
-                        }
+                            },
+                            barBlurBitmap         = barBlurBitmap,
+                            hazeState             = hazeState,
+                        )
                     }
-                } // end Scaffold
+                },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (!isKeyboardVisible) {
+                            val currentSoraEditorRef by rememberUpdatedState(soraEditorRef)
+                            val currentDrawerOpen by rememberUpdatedState(drawerState.isOpen)
 
-                // Child 2: Right companion panel (full screen, slides in from right)
-                EditorRightPanel(
-                    rightPanelTab         = rightPanelTab,
-                    onTabChange           = { rightPanelTab = it },
-                    pinnedTopNotes        = pinnedTopNotes,
-                    pinnedTopIndex        = pinnedTopIndex,
-                    pinnedBottomNotes     = pinnedBottomNotes,
-                    pinnedBottomIndex     = pinnedBottomIndex,
-                    allNotes              = allNotes,
-                    worldEntries          = worldEntries,
-                    outline               = outline,
-                    activeTheme           = activeTheme,
-                    proseAnalysis         = proseAnalysis,
-                    soraEditorRef         = soraEditorRef,
-                    tabBarAtBottom        = companionTabBarBottom,
-                    splitHorizontal       = companionSplitHorizontal,
-                    onToggleTabBarPos     = { editorVm.setCompanionTabBarBottom(!companionTabBarBottom) },
-                    onToggleSplitLayout   = { editorVm.setCompanionSplitHorizontal(!companionSplitHorizontal) },
-                    onSwapSlots           = { editorVm.swapPinnedSlots() },
-                    onPrevTop             = { editorVm.prevPinnedTop() },
-                    onNextTop             = { editorVm.nextPinnedTop() },
-                    onSwitchTop           = { scope.launch { captureForDialog { filePickerTargetSlot = "top" } } },
-                    onEditTop             = { id -> editorVm.loadNote(id) },
-                    onRemoveTop           = { id -> editorVm.removePinnedTop(id) },
-                    onPrevBottom          = { editorVm.prevPinnedBottom() },
-                    onNextBottom          = { editorVm.nextPinnedBottom() },
-                    // FIX 8: Was "top" — copy-paste bug. Bottom switch must target "bottom".
-                    onSwitchBottom        = { scope.launch { captureForDialog { filePickerTargetSlot = "bottom" } } },
-                    onEditBottom          = { id -> editorVm.loadNote(id) },
-                    onRemoveBottom        = { id -> editorVm.removePinnedBottom(id) },
-                    onPickTop             = { scope.launch { captureForDialog { filePickerTargetSlot = "top" } } },
-                    onPickBottom          = { scope.launch { captureForDialog { filePickerTargetSlot = "bottom" } } },
-                    onClose               = { scope.launch { panelState.animateTo(PanelState.Center) } },
-                    barBlurBitmap         = barBlurBitmap,
-                    hazeState             = hazeState,
-                )
-            }, // end Layout content lambda
-            modifier = Modifier
-                .fillMaxSize()
-                .then(
-                    if (!isKeyboardVisible) {
-                        val currentSoraEditorRef by rememberUpdatedState(soraEditorRef)
-                        val currentDrawerWidthPx by rememberUpdatedState(drawerWidthPx)
-                        val currentScreenWidthPx by rememberUpdatedState(screenWidthPx)
-                        val currentVelocityThresholdPx by rememberUpdatedState(velocityThresholdPx)
+                            Modifier.pointerInput(currentDrawerOpen) {
+                                val touchSlop = viewConfiguration.touchSlop
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                                    var isDragging = false
+                                    var isDisallowed = false
+                                    var totalDx = 0f
+                                    var totalDy = 0f
 
-                        Modifier.pointerInput(panelState) {
-                            val touchSlop = viewConfiguration.touchSlop
-                            awaitEachGesture {
-                                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                                val velocityTracker = VelocityTracker()
-                                velocityTracker.addPosition(down.uptimeMillis, down.position)
+                                    val isEditorSelected = currentSoraEditorRef?.cursor?.isSelected == true
+                                    if (isEditorSelected && !currentDrawerOpen) {
+                                        isDisallowed = true
+                                    }
 
-                                var isDragging = false
-                                var isDisallowed = false
-                                var totalDx = 0f
-                                var totalDy = 0f
-                                var lastTrackedVelocity = 0f
-
-                                val isEditorSelected = currentSoraEditorRef?.cursor?.isSelected == true
-                                val isPanelCurrentlyOpen = panelState.currentValue != PanelState.Center || panelState.targetValue != PanelState.Center
-
-                                // If text is currently selected in Sora editor and panels are closed,
-                                // do not intercept horizontal gestures so the user can freely drag selection handles!
-                                if (isEditorSelected && !isPanelCurrentlyOpen) {
-                                    isDisallowed = true
-                                }
-
-                                try {
                                     while (true) {
                                         val event = awaitPointerEvent(pass = PointerEventPass.Initial)
                                         val pointerChange = event.changes.firstOrNull { it.id == down.id } ?: break
 
                                         if (pointerChange.changedToUp()) {
-                                            if (isDragging) {
-                                                pointerChange.consume()
-                                                val velocity = velocityTracker.calculateVelocity().x
-                                                lastTrackedVelocity = velocity
-                                            }
+                                            if (isDragging) pointerChange.consume()
                                             break
                                         }
 
                                         if (pointerChange.isConsumed && !isDragging) {
                                             isDisallowed = true
                                         }
+                                        if (isDisallowed) continue
 
-                                        if (isDisallowed) {
-                                            continue
-                                        }
-
-                                        velocityTracker.addPosition(pointerChange.uptimeMillis, pointerChange.position)
                                         val dragAmount = pointerChange.positionChange()
                                         totalDx += dragAmount.x
                                         totalDy += dragAmount.y
-
                                         val absX = abs(totalDx)
                                         val absY = abs(totalDy)
 
                                         if (!isDragging) {
                                             if (absX > touchSlop || absY > touchSlop) {
-                                                // 2D Directional Angle-Slop Disambiguation:
-                                                // If vertical movement dominates (or equals horizontal),
-                                                // or horizontal movement has not crossed touch slop with 1.5x ratio,
-                                                // yield completely to child views (Sora CodeEditor vertical scroll).
                                                 if (absY >= absX || absX < touchSlop) {
                                                     isDisallowed = true
                                                 } else if (absX > touchSlop && absX > absY * 1.5f) {
-                                                    // Confirmed horizontal swipe intent!
-                                                    if (currentSoraEditorRef?.cursor?.isSelected == true && !isPanelCurrentlyOpen) {
+                                                    if (currentSoraEditorRef?.cursor?.isSelected == true && !currentDrawerOpen) {
                                                         isDisallowed = true
                                                     } else {
                                                         isDragging = true
                                                         pointerChange.consume()
-                                                        panelState.dispatchRawDelta(dragAmount.x)
+                                                        focusManager.clearFocus()
                                                     }
                                                 }
                                             }
                                         } else {
                                             pointerChange.consume()
-                                            panelState.dispatchRawDelta(dragAmount.x)
                                         }
                                     }
-                                } finally {
+
                                     if (isDragging) {
-                                        val velocity = if (lastTrackedVelocity != 0f) {
-                                            lastTrackedVelocity
-                                        } else {
-                                            velocityTracker.calculateVelocity().x
-                                        }
-                                        scope.launch {
-                                            settlePanelState(
-                                                panelState = panelState,
-                                                velocityX = velocity,
-                                                velocityThresholdPx = currentVelocityThresholdPx,
-                                                drawerWidthPx = currentDrawerWidthPx,
-                                                screenWidthPx = currentScreenWidthPx
-                                            )
+                                        if (totalDx > 0) {
+                                            scope.launch {
+                                                if (navigator.canNavigateBack()) {
+                                                    navigator.navigateBack()
+                                                } else {
+                                                    drawerState.open()
+                                                }
+                                            }
+                                        } else if (totalDx < 0) {
+                                            scope.launch {
+                                                if (drawerState.isOpen) {
+                                                    drawerState.close()
+                                                } else {
+                                                    navigator.navigateTo(ThreePaneScaffoldRole.Secondary)
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                    } else Modifier
-                )
-        ) { measurables, constraints ->
-            val drawerWidthPx = (300 * density).toInt()
-            val screenWidth   = constraints.maxWidth
-            val screenHeight  = constraints.maxHeight
-
-            val drawerPlaceable = measurables[0].measure(Constraints.fixed(drawerWidthPx, screenHeight))
-            val editorPlaceable = measurables[1].measure(Constraints.fixed(screenWidth, screenHeight))
-            val rightPlaceable  = measurables[2].measure(Constraints.fixed(screenWidth, screenHeight))
-
-            layout(screenWidth, screenHeight) {
-                panelState.updateAnchors(DraggableAnchors {
-                    PanelState.LeftOpen  at drawerWidthPx.toFloat()
-                    PanelState.Center    at 0f
-                    PanelState.RightOpen at -screenWidth.toFloat()
-                })
-                val offset = panelState.requireOffset()
-                drawerPlaceable.placeRelative(x = (offset - drawerWidthPx).roundToInt(), y = 0)
-                editorPlaceable.placeRelative(x = offset.roundToInt(), y = 0)
-                rightPlaceable.placeRelative(x = (screenWidth + offset).roundToInt(), y = 0)
-            }
-        } // end Layout
+                        } else Modifier
+                    )
+            )
+        }
 
         // ── Floating Windows Overlay ──────────────────────────────────────────
         val mappedNotes = remember(currentBookNotes, worldEntries) {
@@ -1287,35 +1228,4 @@ private fun CodeEditor.insertAtCursor(str: String) {
 private fun parseComposeColor(hex: String, fallback: Color): Color = try {
     Color(android.graphics.Color.parseColor(hex))
 } catch (_: Exception) { fallback }
-
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
-private suspend fun settlePanelState(
-    panelState: AnchoredDraggableState<PanelState>,
-    velocityX: Float,
-    velocityThresholdPx: Float,
-    drawerWidthPx: Float,
-    screenWidthPx: Float
-) {
-    val currentOffset = runCatching { panelState.requireOffset() }.getOrDefault(0f)
-    val targetAnchor = when {
-        currentOffset > 0f -> {
-            when {
-                velocityX > velocityThresholdPx -> PanelState.LeftOpen
-                velocityX < -velocityThresholdPx -> PanelState.Center
-                currentOffset > drawerWidthPx * 0.4f -> PanelState.LeftOpen
-                else -> PanelState.Center
-            }
-        }
-        currentOffset < 0f -> {
-            when {
-                velocityX < -velocityThresholdPx -> PanelState.RightOpen
-                velocityX > velocityThresholdPx -> PanelState.Center
-                abs(currentOffset) > screenWidthPx * 0.4f -> PanelState.RightOpen
-                else -> PanelState.Center
-            }
-        }
-        else -> PanelState.Center
-    }
-    panelState.animateTo(targetAnchor)
-}
 

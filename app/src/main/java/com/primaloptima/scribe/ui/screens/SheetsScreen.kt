@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -21,6 +22,11 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
+import androidx.compose.material3.adaptive.layout.AnimatedPane
+import androidx.compose.material3.adaptive.layout.ListDetailPaneScaffold
+import androidx.compose.material3.adaptive.layout.ListDetailPaneScaffoldRole
+import androidx.compose.material3.adaptive.navigation.rememberListDetailPaneScaffoldNavigator
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,7 +81,7 @@ private fun timeAgo(millis: Long): String {
 
 // ── Main Sheets Screen ────────────────────────────────────────────────────────
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 fun SheetsScreen(
     vm: SheetsViewModel,
@@ -83,6 +89,7 @@ fun SheetsScreen(
     openCreateOnLaunch: Boolean = false
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val allEntries by vm.allEntries.collectAsStateWithLifecycle()
 
     val categoryKeys = listOf("All", "character", "location", "faction", "item", "lore", "timeline")
@@ -97,15 +104,15 @@ fun SheetsScreen(
 
     LaunchedEffect(Unit) { if (openCreateOnLaunch) showCreateSheet = true }
 
-    var entryToDetail by remember { mutableStateOf<WorldEntry?>(null) }
+    val navigator = rememberListDetailPaneScaffoldNavigator<String>()
+    var selectedEntryId by remember { mutableStateOf<String?>(null) }
     var entryToEdit by remember { mutableStateOf<WorldEntry?>(null) }
     var fullScreenImageUri by remember { mutableStateOf<String?>(null) }
     var fullScreenImageTitle by remember { mutableStateOf("") }
 
-    // Keep entryToDetail up-to-date with latest DB state when allEntries change
-    LaunchedEffect(allEntries, entryToDetail?.id) {
-        val currentId = entryToDetail?.id ?: return@LaunchedEffect
-        entryToDetail = allEntries.find { it.id == currentId }
+    // Predictive / Android Hardware Back Handler for Adaptive Scaffold
+    BackHandler(enabled = navigator.canNavigateBack()) {
+        scope.launch { navigator.navigateBack() }
     }
 
     // Extract all unique tags with usage count across all sheets
@@ -177,31 +184,12 @@ fun SheetsScreen(
 
     val hazeState = LocalHazeState.current
 
-    // If viewing a detail entry in full screen
-    entryToDetail?.let { currentEntry ->
-        WorldEntryDetailScreen(
-            entry = currentEntry,
-            onBack = { entryToDetail = null },
-            onEdit = {
-                entryToEdit = currentEntry
-            },
-            onDuplicate = {
-                vm.duplicateEntry(currentEntry.id)
-                Toast.makeText(context, "Duplicated ${currentEntry.name}", Toast.LENGTH_SHORT).show()
-            },
-            onDelete = {
-                vm.deleteEntry(currentEntry.id)
-                entryToDetail = null
-                Toast.makeText(context, "Deleted sheet", Toast.LENGTH_SHORT).show()
-            },
-            onFieldsReordered = { updatedFields ->
-                vm.updateEntryFields(currentEntry, updatedFields)
-            }
-        )
-        return
-    }
-
-    Scaffold(
+    ListDetailPaneScaffold(
+        directive = navigator.scaffoldDirective,
+        value = navigator.scaffoldValue,
+        listPane = {
+            AnimatedPane(modifier = Modifier.fillMaxSize()) {
+                Scaffold(
         contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime),
         topBar = {
             ScribeTopBar(
@@ -437,13 +425,17 @@ fun SheetsScreen(
                     items(filteredAndSortedEntries, key = { it.id }) { entry ->
                         WorldEntryCard(
                             entry       = entry,
-                            onClick     = { entryToDetail = entry },
+                            onClick     = {
+                                selectedEntryId = entry.id
+                                scope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, entry.id) }
+                            },
                             onImageClick = {
                                 if (!entry.imageUri.isNullOrEmpty()) {
                                     fullScreenImageUri = entry.imageUri
                                     fullScreenImageTitle = entry.name
                                 } else {
-                                    entryToDetail = entry
+                                    selectedEntryId = entry.id
+                                    scope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, entry.id) }
                                 }
                             },
                             onEdit      = { entryToEdit   = entry },
@@ -453,6 +445,9 @@ fun SheetsScreen(
                             },
                             onDelete    = {
                                 vm.deleteEntry(entry.id)
+                                if (selectedEntryId == entry.id) {
+                                    selectedEntryId = null
+                                }
                                 Toast.makeText(context, "Deleted sheet", Toast.LENGTH_SHORT).show()
                             }
                         )
@@ -460,7 +455,75 @@ fun SheetsScreen(
                 }
             }
         }
-    }
+            }
+        },
+        detailPane = {
+            AnimatedPane(modifier = Modifier.fillMaxSize()) {
+                val currentEntry = allEntries.find { it.id == selectedEntryId }
+                if (currentEntry != null) {
+                    WorldEntryDetailScreen(
+                        entry = currentEntry,
+                        onBack = {
+                            scope.launch {
+                                if (navigator.canNavigateBack()) {
+                                    navigator.navigateBack()
+                                } else {
+                                    selectedEntryId = null
+                                }
+                            }
+                        },
+                        onEdit = {
+                            entryToEdit = currentEntry
+                        },
+                        onDuplicate = {
+                            vm.duplicateEntry(currentEntry.id)
+                            Toast.makeText(context, "Duplicated ${currentEntry.name}", Toast.LENGTH_SHORT).show()
+                        },
+                        onDelete = {
+                            vm.deleteEntry(currentEntry.id)
+                            scope.launch {
+                                if (navigator.canNavigateBack()) {
+                                    navigator.navigateBack()
+                                } else {
+                                    selectedEntryId = null
+                                }
+                            }
+                            Toast.makeText(context, "Deleted sheet", Toast.LENGTH_SHORT).show()
+                        },
+                        onFieldsReordered = { updatedFields ->
+                            vm.updateEntryFields(currentEntry, updatedFields)
+                        }
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                                contentDescription = null,
+                                modifier = Modifier.size(56.dp),
+                                tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "Select a sheet to view details",
+                                color = MaterialTheme.colorScheme.outline,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    )
 
     // ── Create World Sheet Bottom Sheet ───────────────────────────────────────
     if (showCreateSheet) {
@@ -484,8 +547,8 @@ fun SheetsScreen(
             onSave    = { updated ->
                 vm.updateEntry(updated)
                 entryToEdit = null
-                if (entryToDetail?.id == updated.id) {
-                    entryToDetail = updated
+                if (selectedEntryId == updated.id) {
+                    selectedEntryId = updated.id
                 }
                 Toast.makeText(context, "Saved changes", Toast.LENGTH_SHORT).show()
             }

@@ -1,6 +1,7 @@
 package com.primaloptima.scribe.ui.screens
 
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -24,6 +25,11 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
+import androidx.compose.material3.adaptive.layout.AnimatedPane
+import androidx.compose.material3.adaptive.layout.SupportingPaneScaffold
+import androidx.compose.material3.adaptive.layout.SupportingPaneScaffoldRole
+import androidx.compose.material3.adaptive.navigation.rememberSupportingPaneScaffoldNavigator
 import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
@@ -111,7 +117,7 @@ private class HideOnScrollConnection(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalSharedTransitionApi::class, ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 fun BookScreen(
     vm: BookViewModel,
@@ -121,7 +127,13 @@ fun BookScreen(
 ) {
     val context = LocalContext.current
     val scope   = rememberCoroutineScope()
+    val navigator = rememberSupportingPaneScaffoldNavigator()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+
+    BackHandler(enabled = navigator.canNavigateBack()) {
+        scope.launch { navigator.navigateBack() }
+    }
+
     // Snap to Closed on first composition — prevents 1-frame drawer flash during
     // NavDisplay slide-in transition (drawer Animatable initialises at offset 0
     // before it clamps to the closed position).
@@ -237,9 +249,14 @@ fun BookScreen(
     val hazeState = LocalHazeState.current
 
     CompositionLocalProvider(LocalOneShotBitmap provides oneShotBitmap) {
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = {
+    SupportingPaneScaffold(
+        directive = navigator.scaffoldDirective,
+        value = navigator.scaffoldValue,
+        mainPane = {
+            AnimatedPane(modifier = Modifier.fillMaxSize()) {
+                ModalNavigationDrawer(
+                    drawerState = drawerState,
+                    drawerContent = {
             CompositionLocalProvider(LocalOneShotBitmap provides LocalBarBlurBitmap.current) {
             ModalDrawerSheet(
                 drawerContainerColor = Color.Transparent,
@@ -322,7 +339,16 @@ fun BookScreen(
                             )
                         },
                         actions = listOf(
-                            ScribeBarAction(Icons.Default.Folder,      "Folders")     { scope.launch { drawerState.open() } },
+                            ScribeBarAction(Icons.Default.Folder,      "Folders")     {
+                                scope.launch {
+                                    if (navigator.canNavigateBack()) {
+                                        navigator.navigateBack()
+                                    } else {
+                                        drawerState.open()
+                                        navigator.navigateTo(SupportingPaneScaffoldRole.Supporting)
+                                    }
+                                }
+                            },
                             ScribeBarAction(
                                 if (viewMode == BookViewModel.ViewMode.LIST) Icons.Default.ViewStream else Icons.Default.AccountTree,
                                 "Toggle Mode"
@@ -674,6 +700,67 @@ fun BookScreen(
             }
         }
     }
+            }
+        },
+        supportingPane = {
+            AnimatedPane(modifier = Modifier.fillMaxSize()) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp)
+                    ) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text       = book?.title ?: "Book Folders",
+                            fontSize   = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier   = Modifier.padding(horizontal = 8.dp, vertical = 12.dp)
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        NavigationDrawerItem(
+                            icon     = { Icon(Icons.Default.Folder, contentDescription = null) },
+                            label    = { Text("Main") },
+                            selected = selectedFolderPath == "/",
+                            onClick  = {
+                                selectedFolderPath = "/"
+                                scope.launch {
+                                    if (navigator.canNavigateBack()) navigator.navigateBack()
+                                }
+                            },
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                        folders.filter { it.path != "/" }.forEach { folder ->
+                            NavigationDrawerItem(
+                                icon     = { Icon(Icons.Default.FolderOpen, contentDescription = null) },
+                                label    = { Text(folder.path) },
+                                selected = selectedFolderPath == folder.path,
+                                onClick  = {
+                                    selectedFolderPath = folder.path
+                                    scope.launch {
+                                        if (navigator.canNavigateBack()) navigator.navigateBack()
+                                    }
+                                },
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
+                        OutlinedButton(
+                            onClick  = { scope.launch { captureForDialog { showCreateFolderDialog = true } } },
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp)
+                        ) {
+                            Icon(Icons.Default.CreateNewFolder, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("New Folder")
+                        }
+                    }
+                }
+            }
+        }
+    )
 
     // ── Dialogs ───────────────────────────────────────────────────────────────
     CompositionLocalProvider(LocalOneShotBitmap provides dialogOneShotBitmap) {
