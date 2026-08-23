@@ -552,6 +552,13 @@ fun MainEditorScreen(
                                             isLineNumberEnabled    = false
                                             isHighlightCurrentLine = false
                                             isWordwrap             = true
+                                            // Register the built-in text renderer so the editor
+                                            // actually paints TextInlayHint objects. Without this,
+                                            // setInlayHints() stores the container but nothing is drawn
+                                            // because the inlayHintRendererMap has no entry for "text".
+                                            registerInlayHintRenderer(
+                                                io.github.rosemoe.sora.graphics.inlayHint.TextInlayHintRenderer(this)
+                                            )
                                             setEditorLanguage(ScribeProseLanguage())
 
                                             // Fix 3a: Allow Sora's scroll events to bubble up
