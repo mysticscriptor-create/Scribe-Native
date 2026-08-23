@@ -22,19 +22,18 @@ import java.util.Locale
  *
  * InlayHint base class constructor:
  *   InlayHint(line: Int, column: Int, type: String, displaySide: CharacterSide = CharacterSide.LEFT)
- *   ← NOT (line, column, label, hasBackground). That constructor does NOT exist.
  *
- * TextInlayHint — the correct class to use for text badges:
+ * TextInlayHint:
  *   TextInlayHint(line: Int, column: Int, text: String)
  *   ← Extends InlayHint with type = "text". This is what the renderer shows.
  *
  * InlayHintsContainer extends PointAnchoredContainer<InlayHint>.
  * Add hints with:  container.add(hint)
- *
- * There is NO "InlayHintContainer" (without 's') in this version.
  * ─────────────────────────────────────────────────────────────────────────────
  */
 object ProseInlayHintProvider {
+
+    private const val MAX_INLAY_HINTS = 100
 
     fun computeInlayHints(
         text: String,
@@ -45,13 +44,9 @@ object ProseInlayHintProvider {
 
         val lines = text.lines()
         val numFormat = NumberFormat.getNumberInstance(Locale.US)
+        var totalHints = 0
 
         // ── 1. Section word counts between scene-break markers ────────────────────────
-        //
-        // Whenever the user writes a line that is ONLY "***", "###", "* * *", or "---",
-        // we place a badge next to it showing [1,420 words · 5 min read].
-        // The word count shown is the words in the PRECEDING section (above that break).
-
         data class SceneSection(val lineIndex: Int, val markerLength: Int, var wordCount: Int = 0)
 
         val breakPositions = mutableListOf<SceneSection>()
@@ -63,7 +58,6 @@ object ProseInlayHintProvider {
         }
 
         if (breakPositions.isNotEmpty()) {
-            // Walk all lines once, accumulating word counts per section
             var breakIdx = 0
             var accumulatedWords = 0
 
@@ -83,29 +77,26 @@ object ProseInlayHintProvider {
                 }
             }
 
-            // Emit one badge per break marker
+            // Emit badges per break marker
             for (sec in breakPositions) {
+                if (totalHints >= MAX_INLAY_HINTS) break
                 val words = if (sec.wordCount > 0) sec.wordCount else accumulatedWords
                 val readTimeMin = (words / 225).coerceAtLeast(1)
                 val badgeText = "  [${numFormat.format(words)} words · $readTimeMin min read]"
 
-                // TextInlayHint(line, column, text)
-                // column = marker length so the badge appears right after the marker chars
                 val hint = TextInlayHint(
                     sec.lineIndex,    // 0-based line index
                     sec.markerLength, // column after the last char of the "***" / "###"
                     badgeText         // the badge text shown inline
                 )
                 container.add(hint)
+                totalHints++
             }
         }
 
         // ── 2. POV / Location tags on lines starting with "/" ─────────────────────────
-        //
-        // If a line starts with "/" the rest is used as a scene tag.
-        // We match it against WorldEntry names in the database and show a labelled badge.
-
         for (i in lines.indices) {
+            if (totalHints >= MAX_INLAY_HINTS) break
             val line = lines[i]
             val trimmed = line.trim()
             if (!trimmed.startsWith("/")) continue
@@ -127,26 +118,26 @@ object ProseInlayHintProvider {
                 else -> "  [✦ Tag: $tagQuery]"
             }
 
-            // Place the badge at the end of the line (after the "/" tag text)
             val hint = TextInlayHint(
                 i,            // 0-based line index
                 line.length,  // column: right after the last character on the line
                 tagBadge      // badge text
             )
             container.add(hint)
+            totalHints++
         }
 
         return container
     }
 
-    // ── Helpers ──────────────────────────────────────────────────────────────────────
-
-    /** Counts words in a line by scanning character by character (no regex allocation). */
+    /** Counts words in a line by scanning character by character (zero regex allocation). */
     private fun countWords(line: CharSequence): Int {
         var count = 0
         var inWord = false
-        for (element in line) {
-            if (element.isLetterOrDigit() || element == '\'' || element == '\u2019' || element == '-') {
+        val len = line.length
+        for (i in 0 until len) {
+            val c = line[i]
+            if (c.isLetterOrDigit() || c == '\'' || c == '\u2019' || c == '-') {
                 if (!inWord) { count++; inWord = true }
             } else {
                 inWord = false

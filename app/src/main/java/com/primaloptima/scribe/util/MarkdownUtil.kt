@@ -51,10 +51,26 @@ object MarkdownUtil {
 
     // ── Word / char counting ─────────────────────────────────────────────────
 
-    fun countWords(text: String): Int {
-        if (text.isBlank()) return 0
-        return text.trim().split(Regex("\\s+")).count { it.isNotBlank() }
+    fun countWords(text: CharSequence?): Int {
+        if (text == null || text.isEmpty()) return 0
+        var count = 0
+        var inWord = false
+        val len = text.length
+        for (i in 0 until len) {
+            val c = text[i]
+            if (!c.isWhitespace()) {
+                if (!inWord) {
+                    count++
+                    inWord = true
+                }
+            } else {
+                inWord = false
+            }
+        }
+        return count
     }
+
+    fun countWords(text: String): Int = countWords(text as CharSequence)
 
     fun countChars(text: String): Int = text.length
 

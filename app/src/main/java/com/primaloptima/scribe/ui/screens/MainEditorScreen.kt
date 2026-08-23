@@ -95,8 +95,10 @@ import com.primaloptima.scribe.viewmodel.BookViewModel
 import com.primaloptima.scribe.viewmodel.EditorViewModel
 import com.primaloptima.scribe.viewmodel.NoteListViewModel
 import com.primaloptima.scribe.viewmodel.ShortcutsViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import androidx.compose.ui.geometry.Offset
@@ -285,8 +287,12 @@ fun MainEditorScreen(
         if (loadedNoteId != note.id || (editor.text.length == 0 && note.content.isNotEmpty())) {
             loadedNoteId = note.id
             editor.setText(note.content)
-            val hints = ProseInlayHintProvider.computeInlayHints(note.content, worldEntries)
-            val diagnostics = ProseDiagnosticProvider.analyzeDiagnostics(note.content)
+            ProseDiagnosticProvider.attachEditor(editor)
+            val (hints, diagnostics) = withContext(Dispatchers.Default) {
+                val h = ProseInlayHintProvider.computeInlayHints(note.content, worldEntries)
+                val d = ProseDiagnosticProvider.analyzeDiagnostics(note.content)
+                h to d
+            }
             editor.setInlayHints(hints)
             editor.setDiagnostics(diagnostics)
         }
@@ -297,9 +303,12 @@ fun MainEditorScreen(
     LaunchedEffect(editorCurrentText, worldEntries) {
         if (editorCurrentText.isEmpty()) return@LaunchedEffect
         val editor = soraEditorRef ?: return@LaunchedEffect
-        delay(350) // Debounce 350ms to keep editing fluid
-        val hints = ProseInlayHintProvider.computeInlayHints(editorCurrentText, worldEntries)
-        val diagnostics = ProseDiagnosticProvider.analyzeDiagnostics(editorCurrentText)
+        delay(400) // Debounce 400ms to keep editing fluid
+        val (hints, diagnostics) = withContext(Dispatchers.Default) {
+            val h = ProseInlayHintProvider.computeInlayHints(editorCurrentText, worldEntries)
+            val d = ProseDiagnosticProvider.analyzeDiagnostics(editorCurrentText)
+            h to d
+        }
         editor.setInlayHints(hints)
         editor.setDiagnostics(diagnostics)
     }
@@ -647,6 +656,7 @@ fun MainEditorScreen(
                                     // handlers indefinitely — a genuine resource leak.
                                     onRelease = { editor ->
                                         soraEditorRef = null
+                                        ProseDiagnosticProvider.attachEditor(null)
                                         editor.release()
                                     },
                                     modifier = Modifier.fillMaxSize()

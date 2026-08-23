@@ -41,10 +41,8 @@ class EditorViewModel(
 ) : AndroidViewModel(application) {
 
     private companion object {
-        const val KEY_LAST_SAVED_CONTENT = "last_saved_content"
         const val KEY_LAST_WORD_COUNT    = "last_word_count"
         const val KEY_LAST_SNAPSHOT_WC   = "last_snapshot_word_count"
-        const val KEY_PENDING_CONTENT    = "pending_content"
     }
 
     private val app = application as ScribeApp
@@ -278,12 +276,11 @@ class EditorViewModel(
     // Bug 4: debounce RecoveryManager writes (was firing on every keystroke).
     private var recoveryJob: Job? = null
 
-    // Bug 3: Back these four fields with SavedStateHandle so they survive
-    // process death. All existing reads/writes use the same property names —
-    // the backing change is fully transparent to the rest of the class.
-    private var lastSavedContent: String
-        get() = savedState[KEY_LAST_SAVED_CONTENT] ?: ""
-        set(v) { savedState[KEY_LAST_SAVED_CONTENT] = v }
+    // In-memory text buffers for active session. Large text content must NEVER be
+    // saved into SavedStateHandle as it exceeds the 1MB Android IPC Binder buffer limit.
+    // Document content is already durably persisted in Room database & flat recovery files.
+    private var lastSavedContent: String = ""
+    private var pendingContent: String = ""
 
     private var lastWordCount: Int
         get() = savedState[KEY_LAST_WORD_COUNT] ?: 0
@@ -293,12 +290,6 @@ class EditorViewModel(
     private var lastSnapshotWordCount: Int
         get() = savedState[KEY_LAST_SNAPSHOT_WC] ?: 0
         set(v) { savedState[KEY_LAST_SNAPSHOT_WC] = v }
-
-    // Bug 1: track latest content so flushPendingContent() can flush without
-    // needing the text passed in from ScribeActivity.
-    private var pendingContent: String
-        get() = savedState[KEY_PENDING_CONTENT] ?: ""
-        set(v) { savedState[KEY_PENDING_CONTENT] = v }
 
     private val AUTOSAVE_DEBOUNCE_MS = 500L
     private val STATS_DEBOUNCE_MS    = 300L
