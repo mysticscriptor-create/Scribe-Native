@@ -354,16 +354,6 @@ fun MainEditorScreen(
         noteListVm.connectExternalFolder(uri, name)
     }
 
-    // ── Back-press handlers ───────────────────────────────────────────────────
-    if (isLeftDrawerOpen || isRightPanelOpen) {
-        BackHandler {
-            scope.launch {
-                isLeftDrawerOpen = false
-                isRightPanelOpen = false
-            }
-        }
-    }
-
     val isKeyboardVisible = WindowInsets.isImeVisible
 
     Box(modifier = Modifier.fillMaxSize()) {
