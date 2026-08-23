@@ -33,8 +33,6 @@ import java.util.Locale
  */
 object ProseInlayHintProvider {
 
-    private const val MAX_INLAY_HINTS = 100
-
     fun computeInlayHints(
         text: String,
         worldEntries: List<WorldEntry>
@@ -44,7 +42,6 @@ object ProseInlayHintProvider {
 
         val lines = text.lines()
         val numFormat = NumberFormat.getNumberInstance(Locale.US)
-        var totalHints = 0
 
         // ── 1. Section word counts between scene-break markers ────────────────────────
         data class SceneSection(val lineIndex: Int, val markerLength: Int, var wordCount: Int = 0)
@@ -79,7 +76,6 @@ object ProseInlayHintProvider {
 
             // Emit badges per break marker
             for (sec in breakPositions) {
-                if (totalHints >= MAX_INLAY_HINTS) break
                 val words = if (sec.wordCount > 0) sec.wordCount else accumulatedWords
                 val readTimeMin = (words / 225).coerceAtLeast(1)
                 val badgeText = "  [${numFormat.format(words)} words · $readTimeMin min read]"
@@ -90,13 +86,11 @@ object ProseInlayHintProvider {
                     badgeText         // the badge text shown inline
                 )
                 container.add(hint)
-                totalHints++
             }
         }
 
         // ── 2. POV / Location tags on lines starting with "/" ─────────────────────────
         for (i in lines.indices) {
-            if (totalHints >= MAX_INLAY_HINTS) break
             val line = lines[i]
             val trimmed = line.trim()
             if (!trimmed.startsWith("/")) continue
@@ -124,7 +118,6 @@ object ProseInlayHintProvider {
                 tagBadge      // badge text
             )
             container.add(hint)
-            totalHints++
         }
 
         return container

@@ -22,8 +22,8 @@ import java.util.Locale
  * 2. High-Performance Tokenizer & Analysis:
  *    - Scans words, sentences, and patterns in a single linear O(N) pass.
  *    - Avoids quadratic regex allocations and millions of intermediate substrings.
- *    - Caps maximum diagnostics (MAX_DIAGNOSTICS = 150) so Sora Editor's rendering
- *      loop remains locked at 60/120 FPS even on 100,000+ word manuscripts.
+ *    - Executes asynchronously off the main thread; Sora Editor virtualizes viewport
+ *      rendering to paint only visible squiggly underlines.
  *
  * 3. Interactive Quickfix Support:
  *    - Integrated with Sora Editor's DiagnosticTooltipWindow.
@@ -41,8 +41,6 @@ data class ProseDiagnostic(
 )
 
 object ProseDiagnosticProvider {
-
-    private const val MAX_DIAGNOSTICS = 150
 
     private var activeEditorRef: WeakReference<CodeEditor>? = null
 
@@ -122,25 +120,21 @@ object ProseDiagnosticProvider {
     )
 
     /**
-     * Highly optimized O(N) prose diagnostic scanner:
+     * Highly optimized O(N) prose diagnostic scanner across full document:
      *   1. Overused adverb phrases
      *   2. Filter words / Tell-don't-show phrases
      *   3. Passive voice constructions
      *   4. Repeated words within a 3-sentence sliding window
-     *
-     * Caps output at [MAX_DIAGNOSTICS] to maintain buttery smooth editing and avoid GC churn.
      */
     fun analyzeDiagnostics(text: String): DiagnosticsContainer {
         val container = DiagnosticsContainer()
         if (text.isBlank()) return container
 
-        var diagnosticCount = 0
         val len = text.length
         val lower = text.lowercase(Locale.ROOT)
 
         // ── 1. Overused adverb phrases ────────────────────────────────────────────────
         for ((phrase, replacement) in ADVERB_SUGGESTIONS) {
-            if (diagnosticCount >= MAX_DIAGNOSTICS) break
             var searchFrom = 0
             while (searchFrom < len) {
                 val idx = lower.indexOf(phrase, searchFrom)
@@ -177,8 +171,6 @@ object ProseDiagnosticProvider {
                         detail
                     )
                     container.addDiagnostic(region)
-                    diagnosticCount++
-                    if (diagnosticCount >= MAX_DIAGNOSTICS) break
                 }
                 searchFrom = endIdx
             }
@@ -186,7 +178,6 @@ object ProseDiagnosticProvider {
 
         // ── 2. Filter words / Tell-don't-show ────────────────────────────────────────
         for ((filterWord, tip) in FILTER_WORDS_MAP) {
-            if (diagnosticCount >= MAX_DIAGNOSTICS) break
             var searchFrom = 0
             while (searchFrom < len) {
                 val idx = lower.indexOf(filterWord, searchFrom)
@@ -233,8 +224,6 @@ object ProseDiagnosticProvider {
                         detail
                     )
                     container.addDiagnostic(region)
-                    diagnosticCount++
-                    if (diagnosticCount >= MAX_DIAGNOSTICS) break
                 }
                 searchFrom = endIdx
             }
@@ -278,7 +267,6 @@ object ProseDiagnosticProvider {
 
         // ── 3. Passive Voice Detection via Token Pairs ───────────────────────────────
         for (s in sentences) {
-            if (diagnosticCount >= MAX_DIAGNOSTICS) break
             val sTokens = s.tokens
             for (i in 0 until sTokens.size - 1) {
                 val t1 = sTokens[i]
@@ -305,8 +293,6 @@ object ProseDiagnosticProvider {
                         detail
                     )
                     container.addDiagnostic(region)
-                    diagnosticCount++
-                    if (diagnosticCount >= MAX_DIAGNOSTICS) break
                 }
             }
         }
@@ -324,7 +310,6 @@ object ProseDiagnosticProvider {
         }
 
         for (sIdx in sentences.indices) {
-            if (diagnosticCount >= MAX_DIAGNOSTICS) break
             val s = sentences[sIdx]
             val wStart = (sIdx - 2).coerceAtLeast(0)
 
@@ -354,8 +339,6 @@ object ProseDiagnosticProvider {
                         detail
                     )
                     container.addDiagnostic(region)
-                    diagnosticCount++
-                    if (diagnosticCount >= MAX_DIAGNOSTICS) break
                 }
             }
         }
