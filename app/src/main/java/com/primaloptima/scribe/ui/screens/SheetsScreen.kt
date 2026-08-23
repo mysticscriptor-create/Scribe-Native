@@ -4,8 +4,9 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,136 +14,114 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.primaloptima.scribe.data.WorldEntry
-import com.primaloptima.scribe.util.AppJson
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.decodeFromString
+import com.primaloptima.scribe.ui.components.FullScreenImageViewer
 import com.primaloptima.scribe.ui.components.ScribeCard
 import com.primaloptima.scribe.ui.components.ScribeSingleFab
 import com.primaloptima.scribe.ui.components.ScribeTopBar
-import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
-import com.primaloptima.scribe.ui.theme.frostedContainerColor
+import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.util.BitmapBlur
+import com.primaloptima.scribe.util.WorldImageUtil
 import com.primaloptima.scribe.viewmodel.SheetsViewModel
 import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.decodeFromString
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
-
-// ── Category metadata ─────────────────────────────────────────────────────────
-
-private data class CategoryMeta(
-    val key: String,
-    val label: String,
-    val icon: ImageVector,
-    val color: Color
-)
-
-private val CATEGORY_META = listOf(
-    CategoryMeta("All",      "All",       Icons.Default.GridView,                    Color(0xFF9E9E9E)),
-    CategoryMeta("character","Characters", Icons.Default.Person,                      Color(0xFF5C9EF0)),
-    CategoryMeta("location", "Locations",  Icons.Default.Place,                       Color(0xFF4CAF82)),
-    CategoryMeta("faction",  "Factions",   Icons.Default.Group,                       Color(0xFFE07B54)),
-    CategoryMeta("item",     "Items",      Icons.Default.Category,                    Color(0xFFB07FD4)),
-    CategoryMeta("lore",     "Lore",       Icons.AutoMirrored.Filled.MenuBook,        Color(0xFFD4A74A)),
-    CategoryMeta("timeline", "Timeline",   Icons.Default.Timeline,                    Color(0xFF4AB8D4)),
-)
-
-private fun categoryMeta(key: String): CategoryMeta =
-    CATEGORY_META.find { it.key.equals(key, ignoreCase = true) } ?: CATEGORY_META[0]
 
 // ── Time-ago helper ───────────────────────────────────────────────────────────
 
 private fun timeAgo(millis: Long): String {
     val diff = System.currentTimeMillis() - millis
     val minutes = TimeUnit.MILLISECONDS.toMinutes(diff)
-    val hours   = TimeUnit.MILLISECONDS.toHours(diff)
-    val days    = TimeUnit.MILLISECONDS.toDays(diff)
+    val hours = TimeUnit.MILLISECONDS.toHours(diff)
+    val days = TimeUnit.MILLISECONDS.toDays(diff)
     return when {
-        minutes < 1  -> "just now"
+        minutes < 1 -> "just now"
         minutes < 60 -> "$minutes min ago"
-        hours   < 24 -> "$hours h ago"
-        days    < 7  -> "$days day${if (days > 1) "s" else ""} ago"
-        else         -> SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(millis))
+        hours < 24 -> "$hours h ago"
+        days < 7 -> "$days day${if (days > 1) "s" else ""} ago"
+        else -> SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(millis))
     }
 }
 
-// ── Screen ────────────────────────────────────────────────────────────────────
+// ── Main Sheets Screen ────────────────────────────────────────────────────────
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SheetsScreen(
     vm: SheetsViewModel,
     onBack: () -> Unit,
     openCreateOnLaunch: Boolean = false
 ) {
-    val context    = LocalContext.current
+    val context = LocalContext.current
     val allEntries by vm.allEntries.collectAsStateWithLifecycle()
 
     val categoryKeys = listOf("All", "character", "location", "faction", "item", "lore", "timeline")
     var selectedCategory by remember { mutableStateOf("All") }
-    var searchQuery      by remember { mutableStateOf("") }
-    var showCreateDialog by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedSort by remember { mutableStateOf(SheetsViewModel.SortOption.UPDATED_DESC) }
+    var selectedTags by remember { mutableStateOf(emptySet<String>()) }
 
-    LaunchedEffect(Unit) { if (openCreateOnLaunch) showCreateDialog = true }
+    var showCreateSheet by remember { mutableStateOf(false) }
+    var showTagFilterSheet by remember { mutableStateOf(false) }
+    var sortMenuExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) { if (openCreateOnLaunch) showCreateSheet = true }
 
     var entryToDetail by remember { mutableStateOf<WorldEntry?>(null) }
-    var entryToEdit   by remember { mutableStateOf<WorldEntry?>(null) }
-    var entryToDelete by remember { mutableStateOf<WorldEntry?>(null) }
+    var entryToEdit by remember { mutableStateOf<WorldEntry?>(null) }
+    var fullScreenImageUri by remember { mutableStateOf<String?>(null) }
+    var fullScreenImageTitle by remember { mutableStateOf("") }
 
-    // Pre-API-31 one-shot blur for dialogs
-    val view         = LocalView.current
-    val blurRadiusPx = com.primaloptima.scribe.ui.theme.LocalFrostedBlurRadius.current.toInt().coerceIn(1, 25)
-    val hazeState    = LocalHazeState.current
-    var dialogOneShotBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var dialogCaptured      by remember { mutableStateOf(false) }
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-        val anyDialogOpen = showCreateDialog || entryToDetail != null ||
-                entryToEdit != null || entryToDelete != null
-        LaunchedEffect(anyDialogOpen) {
-            if (anyDialogOpen && !dialogCaptured) {
-                dialogCaptured = true
-                val raw = BitmapBlur.captureOnly(view)
-                dialogOneShotBitmap = withContext(Dispatchers.IO) {
-                    raw?.let { BitmapBlur.blurBitmap(it, radius = blurRadiusPx) }
+    // Keep entryToDetail up-to-date with latest DB state when allEntries change
+    LaunchedEffect(allEntries, entryToDetail?.id) {
+        val currentId = entryToDetail?.id ?: return@LaunchedEffect
+        entryToDetail = allEntries.find { it.id == currentId }
+    }
+
+    // Extract all unique tags with usage count across all sheets
+    val allTagsWithCount = remember(allEntries) {
+        val map = mutableMapOf<String, Int>()
+        allEntries.forEach { entry ->
+            try {
+                val tags: List<String> = AppJson.decodeFromString(entry.tagsJson)
+                tags.forEach { tag ->
+                    if (tag.isNotBlank()) {
+                        map[tag] = (map[tag] ?: 0) + 1
+                    }
                 }
-            } else if (!anyDialogOpen) {
-                dialogCaptured      = false
-                dialogOneShotBitmap = null
-            }
+            } catch (_: Exception) {}
         }
+        map
     }
 
     // Count per category for chip badges
@@ -150,17 +129,76 @@ fun SheetsScreen(
         allEntries.groupingBy { it.type.lowercase() }.eachCount()
     }
 
-    val filteredEntries = remember(allEntries, selectedCategory, searchQuery) {
-        allEntries.filter { entry ->
+    // Filter and Sort entries
+    val filteredAndSortedEntries = remember(
+        allEntries,
+        selectedCategory,
+        searchQuery,
+        selectedTags,
+        selectedSort
+    ) {
+        val filtered = allEntries.filter { entry ->
+            // Category filter
             val matchesCategory = selectedCategory == "All" ||
                     entry.type.equals(selectedCategory, ignoreCase = true)
-            val matchesQuery = searchQuery.isBlank() ||
-                    entry.name.contains(searchQuery, ignoreCase = true) ||
-                    entry.summary.contains(searchQuery, ignoreCase = true) ||
-                    entry.fieldsJson.contains(searchQuery, ignoreCase = true) ||
-                    entry.tagsJson.contains(searchQuery, ignoreCase = true)
-            matchesCategory && matchesQuery
+
+            // Tags filter
+            val matchesTags = if (selectedTags.isEmpty()) true else {
+                try {
+                    val entryTags: List<String> = AppJson.decodeFromString(entry.tagsJson)
+                    selectedTags.all { reqTag -> entryTags.any { it.equals(reqTag, ignoreCase = true) } }
+                } catch (_: Exception) {
+                    false
+                }
+            }
+
+            // Search query filter (matches name, summary, tags, and field values)
+            val matchesQuery = if (searchQuery.isBlank()) true else {
+                entry.name.contains(searchQuery, ignoreCase = true) ||
+                entry.summary.contains(searchQuery, ignoreCase = true) ||
+                entry.tagsJson.contains(searchQuery, ignoreCase = true) ||
+                entry.fieldsJson.contains(searchQuery, ignoreCase = true)
+            }
+
+            matchesCategory && matchesTags && matchesQuery
         }
+
+        // Apply Sorting
+        when (selectedSort) {
+            SheetsViewModel.SortOption.UPDATED_DESC -> filtered.sortedByDescending { it.updatedAt }
+            SheetsViewModel.SortOption.UPDATED_ASC  -> filtered.sortedBy { it.updatedAt }
+            SheetsViewModel.SortOption.CREATED_DESC -> filtered.sortedByDescending { it.createdAt }
+            SheetsViewModel.SortOption.CREATED_ASC  -> filtered.sortedBy { it.createdAt }
+            SheetsViewModel.SortOption.NAME_ASC     -> filtered.sortedBy { it.name.lowercase() }
+            SheetsViewModel.SortOption.NAME_DESC    -> filtered.sortedByDescending { it.name.lowercase() }
+            SheetsViewModel.SortOption.TYPE         -> filtered.sortedWith(compareBy({ it.type }, { it.name.lowercase() }))
+        }
+    }
+
+    val hazeState = LocalHazeState.current
+
+    // If viewing a detail entry in full screen
+    entryToDetail?.let { currentEntry ->
+        WorldEntryDetailScreen(
+            entry = currentEntry,
+            onBack = { entryToDetail = null },
+            onEdit = {
+                entryToEdit = currentEntry
+            },
+            onDuplicate = {
+                vm.duplicateEntry(currentEntry.id)
+                Toast.makeText(context, "Duplicated ${currentEntry.name}", Toast.LENGTH_SHORT).show()
+            },
+            onDelete = {
+                vm.deleteEntry(currentEntry.id)
+                entryToDetail = null
+                Toast.makeText(context, "Deleted sheet", Toast.LENGTH_SHORT).show()
+            },
+            onFieldsReordered = { updatedFields ->
+                vm.updateEntryFields(currentEntry, updatedFields)
+            }
+        )
+        return
     }
 
     Scaffold(
@@ -176,7 +214,7 @@ fun SheetsScreen(
             ScribeSingleFab(
                 icon               = Icons.Default.Add,
                 contentDescription = "Add Entry",
-                onClick            = { showCreateDialog = true }
+                onClick            = { showCreateSheet = true }
             )
         }
     ) { padding ->
@@ -185,30 +223,115 @@ fun SheetsScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // ── Search bar ────────────────────────────────────────────────────
-            OutlinedTextField(
-                value         = searchQuery,
-                onValueChange = { searchQuery = it },
-                placeholder   = { Text("Search names, details, tags…") },
-                singleLine    = true,
-                leadingIcon   = { Icon(Icons.Default.Search, contentDescription = null) },
-                trailingIcon  = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchQuery = "" }) {
-                            Icon(Icons.Default.Clear, contentDescription = "Clear")
-                        }
-                    }
-                },
+            // ── Search & Sort Row ─────────────────────────────────────────────
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-
-            // ── Category filter chips with counts ─────────────────────────────
-            LazyRow(
-                contentPadding      = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                OutlinedTextField(
+                    value         = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder   = { Text("Search sheets, attributes, tags…", fontSize = 13.sp) },
+                    singleLine    = true,
+                    leadingIcon   = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp)) },
+                    trailingIcon  = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear", modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                // Sort Chip Button
+                Box {
+                    FilterChip(
+                        selected = selectedSort != SheetsViewModel.SortOption.UPDATED_DESC,
+                        onClick = { sortMenuExpanded = true },
+                        label = {
+                            Text(
+                                text = selectedSort.shortLabel,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Sort,
+                                contentDescription = "Sort",
+                                modifier = Modifier.size(16.dp)
+                            )
+                        },
+                        shape = RoundedCornerShape(12.dp)
+                    )
+
+                    DropdownMenu(
+                        expanded = sortMenuExpanded,
+                        onDismissRequest = { sortMenuExpanded = false }
+                    ) {
+                        SheetsViewModel.SortOption.entries.forEach { option ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = option.label,
+                                        fontWeight = if (selectedSort == option) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (selectedSort == option) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                },
+                                leadingIcon = {
+                                    if (selectedSort == option) {
+                                        Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    } else {
+                                        Spacer(modifier = Modifier.size(24.dp))
+                                    }
+                                },
+                                onClick = {
+                                    selectedSort = option
+                                    sortMenuExpanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ── Category & Tags Filter Chips Row ──────────────────────────────
+            LazyRow(
+                contentPadding      = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Tag Drawer Trigger Chip
+                item(key = "tag_filter_trigger") {
+                    val hasTagFilters = selectedTags.isNotEmpty()
+                    FilterChip(
+                        selected = hasTagFilters,
+                        onClick = { showTagFilterSheet = true },
+                        label = {
+                            Text(
+                                text = if (hasTagFilters) "Tags (${selectedTags.size})" else "Tags",
+                                fontWeight = if (hasTagFilters) FontWeight.Bold else FontWeight.Normal
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.LocalOffer,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp),
+                                tint = if (hasTagFilters) MaterialTheme.colorScheme.onSecondaryContainer
+                                else MaterialTheme.colorScheme.primary
+                            )
+                        },
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                }
+
+                // Category chips
                 items(categoryKeys, key = { it }) { key ->
                     val meta  = categoryMeta(key)
                     val count = if (key == "All") allEntries.size
@@ -231,32 +354,75 @@ fun SheetsScreen(
                                 tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
                                        else meta.color
                             )
-                        }
+                        },
+                        shape = RoundedCornerShape(12.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            // ── Active Tag Filter Strip (if tags selected) ────────────────────
+            if (selectedTags.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        selectedTags.forEach { tag ->
+                            InputChip(
+                                selected = true,
+                                onClick = {},
+                                label = { Text("#$tag", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                                trailingIcon = {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Remove tag",
+                                        modifier = Modifier
+                                            .size(14.dp)
+                                            .clickable { selectedTags = selectedTags - tag }
+                                    )
+                                },
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                        }
 
-            // ── List or empty state ───────────────────────────────────────────
-            if (filteredEntries.isEmpty()) {
+                        TextButton(
+                            onClick = { selectedTags = emptySet() },
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                        ) {
+                            Text("Clear all", fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // ── World Entries List or Empty State ─────────────────────────────
+            if (filteredAndSortedEntries.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
                         Icon(
-                            imageVector        = if (searchQuery.isNotBlank()) Icons.Default.SearchOff
+                            imageVector        = if (searchQuery.isNotBlank() || selectedTags.isNotEmpty()) Icons.Default.SearchOff
                                                  else categoryMeta(selectedCategory).icon,
                             contentDescription = null,
-                            modifier           = Modifier.size(48.dp),
+                            modifier           = Modifier.size(52.dp),
                             tint               = MaterialTheme.colorScheme.outline
                         )
-                        Spacer(modifier = Modifier.height(12.dp))
+                        Spacer(modifier = Modifier.height(14.dp))
                         Text(
-                            text  = if (searchQuery.isNotBlank())
-                                        "No results for \"$searchQuery\""
+                            text  = if (searchQuery.isNotBlank() || selectedTags.isNotEmpty())
+                                        "No world sheets matching your filters."
                                     else
-                                        "No ${categoryMeta(selectedCategory).label.lowercase()} yet.\nTap + to create one.",
+                                        "No ${categoryMeta(selectedCategory).label.lowercase()} yet.\nTap + to create your first sheet.",
                             color = MaterialTheme.colorScheme.outline,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            lineHeight = 20.sp
                         )
                     }
                 }
@@ -268,13 +434,27 @@ fun SheetsScreen(
                         .fillMaxSize()
                         .then(if (hazeState != null) Modifier.hazeSource(hazeState) else Modifier)
                 ) {
-                    items(filteredEntries, key = { it.id }) { entry ->
+                    items(filteredAndSortedEntries, key = { it.id }) { entry ->
                         WorldEntryCard(
-                            entry     = entry,
-                            onClick   = { entryToDetail = entry },
-                            onEdit    = { entryToEdit   = entry },
-                            onDuplicate = { vm.duplicateEntry(entry.id) },
-                            onDelete  = { entryToDelete = entry }
+                            entry       = entry,
+                            onClick     = { entryToDetail = entry },
+                            onImageClick = {
+                                if (!entry.imageUri.isNullOrEmpty()) {
+                                    fullScreenImageUri = entry.imageUri
+                                    fullScreenImageTitle = entry.name
+                                } else {
+                                    entryToDetail = entry
+                                }
+                            },
+                            onEdit      = { entryToEdit   = entry },
+                            onDuplicate = {
+                                vm.duplicateEntry(entry.id)
+                                Toast.makeText(context, "Duplicated ${entry.name}", Toast.LENGTH_SHORT).show()
+                            },
+                            onDelete    = {
+                                vm.deleteEntry(entry.id)
+                                Toast.makeText(context, "Deleted sheet", Toast.LENGTH_SHORT).show()
+                            }
                         )
                     }
                 }
@@ -282,678 +462,249 @@ fun SheetsScreen(
         }
     }
 
-    // ── Dialogs ───────────────────────────────────────────────────────────────
-    CompositionLocalProvider(LocalOneShotBitmap provides dialogOneShotBitmap) {
-
-        if (showCreateDialog) {
-            CreateEntryDialog(
-                selectedCategory = selectedCategory,
-                onDismiss        = { showCreateDialog = false },
-                onConfirm        = { name, type ->
-                    vm.createEntry(type, name) { created ->
-                        showCreateDialog = false
-                        entryToEdit      = created
-                    }
+    // ── Create World Sheet Bottom Sheet ───────────────────────────────────────
+    if (showCreateSheet) {
+        CreateWorldEntrySheet(
+            selectedCategory = selectedCategory,
+            onDismiss        = { showCreateSheet = false },
+            onConfirm        = { name, type ->
+                vm.createEntry(type, name) { created ->
+                    showCreateSheet = false
+                    entryToEdit      = created
                 }
-            )
-        }
+            }
+        )
+    }
 
-        entryToDetail?.let { entry ->
-            WorldEntryDetailDialog(
-                entry     = entry,
-                onDismiss = { entryToDetail = null },
-                onEdit    = {
-                    entryToEdit   = entry
-                    entryToDetail = null
+    // ── Edit World Sheet Bottom Sheet ─────────────────────────────────────────
+    entryToEdit?.let { editTarget ->
+        EditWorldEntrySheet(
+            entry     = editTarget,
+            onDismiss = { entryToEdit = null },
+            onSave    = { updated ->
+                vm.updateEntry(updated)
+                entryToEdit = null
+                if (entryToDetail?.id == updated.id) {
+                    entryToDetail = updated
                 }
-            )
-        }
+                Toast.makeText(context, "Saved changes", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
 
-        entryToEdit?.let { entry ->
-            EditWorldEntryDialog(
-                entry     = entry,
-                onDismiss = { entryToEdit = null },
-                onSave    = { updated ->
-                    vm.updateEntry(updated)
-                    entryToEdit = null
-                }
-            )
-        }
+    // ── Tag Filter Sheet Drawer ───────────────────────────────────────────────
+    if (showTagFilterSheet) {
+        TagFilterSheet(
+            allTagsWithCount     = allTagsWithCount,
+            initiallySelectedTags = selectedTags,
+            onDismiss            = { showTagFilterSheet = false },
+            onApply              = { newSelected ->
+                selectedTags = newSelected
+                showTagFilterSheet = false
+            }
+        )
+    }
 
-        entryToDelete?.let { entry ->
-            FrostedDialog(
-                onDismissRequest = { entryToDelete = null },
-                title            = { Text("Delete Entry?") },
-                text             = { Text("This will permanently delete \"${entry.name}\".") },
-                confirmButton    = {
-                    TextButton(onClick = {
-                        vm.deleteEntry(entry.id)
-                        entryToDelete = null
-                    }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
-                },
-                dismissButton    = {
-                    TextButton(onClick = { entryToDelete = null }) { Text("Cancel") }
-                }
-            )
-        }
+    // ── Full-Screen Image Viewer Modal ────────────────────────────────────────
+    fullScreenImageUri?.let { uri ->
+        FullScreenImageViewer(
+            imageUri = uri,
+            title = fullScreenImageTitle,
+            onDismiss = { fullScreenImageUri = null }
+        )
     }
 }
 
-// ── World entry card ──────────────────────────────────────────────────────────
+// ── World Entry Card Component ────────────────────────────────────────────────
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun WorldEntryCard(
-    entry:       WorldEntry,
-    onClick:     () -> Unit,
-    onEdit:      () -> Unit,
+    entry: WorldEntry,
+    onClick: () -> Unit,
+    onImageClick: () -> Unit,
+    onEdit: () -> Unit,
     onDuplicate: () -> Unit,
-    onDelete:    () -> Unit
+    onDelete: () -> Unit
 ) {
-    var showMenu by remember { mutableStateOf(false) }
     val meta = categoryMeta(entry.type)
+    val tags: List<String> = remember(entry.tagsJson) {
+        try { AppJson.decodeFromString(entry.tagsJson) } catch (_: Exception) { emptyList() }
+    }
 
-    ScribeCard(onClick = onClick) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
+    ScribeCard(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
         Row(
-            modifier          = Modifier
-                .padding(14.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            // Avatar
+            // Fixed Image / Icon Thumbnail on the left
             if (!entry.imageUri.isNullOrEmpty()) {
-                AsyncImage(
-                    model              = entry.imageUri,
-                    contentDescription = null,
-                    contentScale       = ContentScale.Crop,
-                    modifier           = Modifier
-                        .size(52.dp)
-                        .clip(CircleShape)
-                        .border(1.5.dp, meta.color.copy(alpha = 0.6f), CircleShape)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(width = 58.dp, height = 70.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .border(1.5.dp, meta.color.copy(alpha = 0.8f), RoundedCornerShape(10.dp))
+                        .clickable { onImageClick() }
+                ) {
+                    AsyncImage(
+                        model = entry.imageUri,
+                        contentDescription = entry.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             } else {
                 Box(
-                    modifier         = Modifier
-                        .size(52.dp)
-                        .clip(CircleShape)
-                        .background(meta.color.copy(alpha = 0.15f)),
+                    modifier = Modifier
+                        .size(width = 58.dp, height = 70.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(meta.color.copy(alpha = 0.15f))
+                        .border(1.dp, meta.color.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector        = meta.icon,
+                        imageVector = meta.icon,
                         contentDescription = null,
-                        tint               = meta.color,
-                        modifier           = Modifier.size(26.dp)
+                        tint = meta.color,
+                        modifier = Modifier.size(28.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.width(14.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                // Name + type dot on same row
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text       = entry.name,
-                        fontWeight = FontWeight.Bold,
-                        fontSize   = 15.sp,
-                        maxLines   = 1,
-                        overflow   = TextOverflow.Ellipsis,
-                        modifier   = Modifier.weight(1f, fill = false)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
+            // Body info
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     Box(
                         modifier = Modifier
-                            .size(8.dp)
+                            .size(7.dp)
                             .clip(CircleShape)
                             .background(meta.color)
                     )
+                    Text(
+                        text = meta.label.dropLast(1).ifEmpty { meta.label }.uppercase(),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = meta.color
+                    )
+                    Text(
+                        text = "· ${timeAgo(entry.updatedAt)}",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.outline
+                    )
                 }
 
-                // Type label
                 Text(
-                    text      = meta.label.dropLast(1).ifEmpty { meta.label }, // "Characters" → "Character"
-                    fontSize  = 11.sp,
-                    color     = meta.color,
-                    fontWeight = FontWeight.SemiBold
+                    text = entry.name,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
 
-                // Summary
                 if (entry.summary.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(3.dp))
                     Text(
-                        text     = entry.summary,
+                        text = entry.summary,
                         fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        color    = MaterialTheme.colorScheme.onSurfaceVariant
+                        lineHeight = 16.sp
                     )
                 }
 
-                // Updated timestamp
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text     = "Updated ${timeAgo(entry.updatedAt)}",
-                    fontSize = 10.sp,
-                    color    = MaterialTheme.colorScheme.outline
-                )
+                // Tags preview pills
+                if (tags.isNotEmpty()) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.padding(top = 2.dp)
+                    ) {
+                        tags.take(3).forEach { tag ->
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = meta.color.copy(alpha = 0.10f),
+                                border = androidx.compose.foundation.BorderStroke(0.5.dp, meta.color.copy(alpha = 0.25f))
+                            ) {
+                                Text(
+                                    text = "#$tag",
+                                    fontSize = 10.sp,
+                                    color = meta.color,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        if (tags.size > 3) {
+                            Text(
+                                text = "+${tags.size - 3}",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.align(Alignment.CenterVertically)
+                            )
+                        }
+                    }
+                }
             }
 
-            // Menu
+            // More Options Dropdown
             Box {
-                IconButton(onClick = { showMenu = true }) {
-                    Icon(Icons.Default.MoreVert, contentDescription = null)
+                IconButton(
+                    onClick = { menuExpanded = true },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        Icons.Default.MoreVert,
+                        contentDescription = "Options",
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
+
                 DropdownMenu(
-                    expanded          = showMenu,
-                    onDismissRequest  = { showMenu = false },
-                    containerColor    = LocalSolidSurface.current
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false }
                 ) {
                     DropdownMenuItem(
-                        text    = { Text("View") },
-                        onClick = { showMenu = false; onClick() }
+                        text = { Text("Edit Sheet") },
+                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                        onClick = {
+                            menuExpanded = false
+                            onEdit()
+                        }
                     )
                     DropdownMenuItem(
-                        text    = { Text("Edit") },
-                        onClick = { showMenu = false; onEdit() }   // goes straight to edit
-                    )
-                    DropdownMenuItem(
-                        text    = { Text("Duplicate") },
-                        onClick = { showMenu = false; onDuplicate() }
+                        text = { Text("Duplicate") },
+                        leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
+                        onClick = {
+                            menuExpanded = false
+                            onDuplicate()
+                        }
                     )
                     HorizontalDivider()
                     DropdownMenuItem(
-                        text    = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                        onClick = { showMenu = false; onDelete() }
+                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                        onClick = {
+                            menuExpanded = false
+                            onDelete()
+                        }
                     )
                 }
             }
         }
     }
-}
-
-// ── Create entry dialog ───────────────────────────────────────────────────────
-
-@Composable
-private fun CreateEntryDialog(
-    selectedCategory: String,
-    onDismiss:        () -> Unit,
-    onConfirm:        (name: String, type: String) -> Unit
-) {
-    var name by remember { mutableStateOf("") }
-    var type by remember {
-        mutableStateOf(if (selectedCategory == "All") "character" else selectedCategory)
-    }
-    val typeKeys = listOf("character", "location", "faction", "item", "lore", "timeline")
-
-    FrostedDialog(
-        onDismissRequest = onDismiss,
-        title            = { Text("New World Sheet") },
-        text             = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                OutlinedTextField(
-                    value         = name,
-                    onValueChange = { name = it },
-                    label         = { Text("Name / Title") },
-                    singleLine    = true,
-                    modifier      = Modifier.fillMaxWidth()
-                )
-
-                Text("Type", fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                     color = MaterialTheme.colorScheme.onSurfaceVariant)
-
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(typeKeys, key = { it }) { key ->
-                        val meta     = categoryMeta(key)
-                        val selected = type == key
-                        FilterChip(
-                            selected    = selected,
-                            onClick     = { type = key },
-                            label       = { Text(meta.label.dropLast(1).ifEmpty { meta.label }) },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector        = meta.icon,
-                                    contentDescription = null,
-                                    modifier           = Modifier.size(14.dp),
-                                    tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
-                                           else meta.color
-                                )
-                            }
-                        )
-                    }
-                }
-
-                // Preview what fields will be created
-                val previewFields = when (type) {
-                    "character" -> SheetsViewModel.CHARACTER_FIELDS
-                    "location"  -> SheetsViewModel.LOCATION_FIELDS
-                    "faction"   -> SheetsViewModel.FACTION_FIELDS
-                    "item"      -> SheetsViewModel.ITEM_FIELDS
-                    "lore"      -> SheetsViewModel.LORE_FIELDS
-                    "timeline"  -> SheetsViewModel.TIMELINE_FIELDS
-                    else        -> SheetsViewModel.GENERAL_FIELDS
-                }
-                Text(
-                    text  = "Will create: ${previewFields.joinToString(" · ") { it.label }}",
-                    fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.outline,
-                    lineHeight = 16.sp
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(name, type) }) { Text("Create") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
-}
-
-// ── Edit entry dialog ─────────────────────────────────────────────────────────
-
-@Composable
-private fun EditWorldEntryDialog(
-    entry:    WorldEntry,
-    onDismiss: () -> Unit,
-    onSave:   (WorldEntry) -> Unit
-) {
-    val initialFields: List<SheetsViewModel.Companion.Field> = remember(entry) {
-        try { AppJson.decodeFromString(entry.fieldsJson) } catch (_: Exception) { emptyList() }
-    }
-    val initialTags: List<String> = remember(entry) {
-        try { AppJson.decodeFromString(entry.tagsJson) } catch (_: Exception) { emptyList() }
-    }
-
-    var name     by remember { mutableStateOf(entry.name) }
-    var summary  by remember { mutableStateOf(entry.summary) }
-    var imageUri by remember { mutableStateOf(entry.imageUri) }
-    var fields   by remember { mutableStateOf(initialFields) }
-    var tags     by remember { mutableStateOf(initialTags) }
-    var newTag   by remember { mutableStateOf("") }
-
-    val imagePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri: Uri? -> uri?.let { imageUri = it.toString() } }
-
-    FrostedDialog(
-        onDismissRequest = onDismiss,
-        title            = { Text("Edit ${entry.name}") },
-        text             = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 460.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Image picker
-                Row(
-                    verticalAlignment      = Alignment.CenterVertically,
-                    horizontalArrangement  = Arrangement.spacedBy(12.dp)
-                ) {
-                    if (!imageUri.isNullOrEmpty()) {
-                        AsyncImage(
-                            model              = imageUri,
-                            contentDescription = null,
-                            contentScale       = ContentScale.Crop,
-                            modifier           = Modifier.size(56.dp).clip(CircleShape)
-                        )
-                    }
-                    Column {
-                        OutlinedButton(onClick = { imagePicker.launch("image/*") }) {
-                            Icon(Icons.Default.Image, contentDescription = null)
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(if (imageUri.isNullOrEmpty()) "Pick Photo" else "Change Photo")
-                        }
-                        if (!imageUri.isNullOrEmpty()) {
-                            TextButton(onClick = { imageUri = null }) {
-                                Text("Remove", color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
-                            }
-                        }
-                    }
-                }
-
-                // Name
-                OutlinedTextField(
-                    value         = name,
-                    onValueChange = { name = it },
-                    label         = { Text("Name") },
-                    singleLine    = true,
-                    modifier      = Modifier.fillMaxWidth()
-                )
-
-                // Summary
-                OutlinedTextField(
-                    value         = summary,
-                    onValueChange = { summary = it },
-                    label         = { Text("Summary / Overview") },
-                    maxLines      = 4,
-                    modifier      = Modifier.fillMaxWidth()
-                )
-
-                // Tags
-                HorizontalDivider()
-                Text("Tags", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-
-                // Existing tags as removable chips
-                if (tags.isNotEmpty()) {
-                    androidx.compose.foundation.layout.FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement   = Arrangement.spacedBy(4.dp)
-                    ) {
-                        tags.forEach { tag ->
-                            InputChip(
-                                selected = false,
-                                onClick  = {},
-                                label    = { Text(tag, fontSize = 12.sp) },
-                                trailingIcon = {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "Remove tag",
-                                        modifier           = Modifier
-                                            .size(14.dp)
-                                            .clickable { tags = tags - tag }
-                                    )
-                                }
-                            )
-                        }
-                    }
-                }
-
-                // Add tag input
-                Row(
-                    verticalAlignment     = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    OutlinedTextField(
-                        value         = newTag,
-                        onValueChange = { newTag = it },
-                        placeholder   = { Text("Add tag…") },
-                        singleLine    = true,
-                        modifier      = Modifier.weight(1f)
-                    )
-                    IconButton(
-                        onClick  = {
-                            val trimmed = newTag.trim()
-                            if (trimmed.isNotEmpty() && !tags.contains(trimmed)) {
-                                tags   = tags + trimmed
-                                newTag = ""
-                            }
-                        },
-                        enabled = newTag.trim().isNotEmpty()
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "Add tag")
-                    }
-                }
-
-                // Fields / Attributes
-                HorizontalDivider()
-                Row(
-                    modifier              = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment     = Alignment.CenterVertically
-                ) {
-                    Text("Attributes & Details", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    IconButton(onClick = {
-                        fields = fields + SheetsViewModel.Companion.Field("New Attribute")
-                    }) {
-                        Icon(Icons.Default.Add, contentDescription = "Add Attribute")
-                    }
-                }
-
-                fields.forEachIndexed { index, field ->
-                    Row(
-                        verticalAlignment      = Alignment.CenterVertically,
-                        horizontalArrangement  = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            OutlinedTextField(
-                                value         = field.label,
-                                onValueChange = { newLabel ->
-                                    val list = fields.toMutableList()
-                                    list[index] = field.copy(label = newLabel)
-                                    fields = list
-                                },
-                                label     = { Text("Label") },
-                                singleLine = true,
-                                modifier  = Modifier.fillMaxWidth()
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            OutlinedTextField(
-                                value         = field.value,
-                                onValueChange = { newVal ->
-                                    val list = fields.toMutableList()
-                                    list[index] = field.copy(value = newVal)
-                                    fields = list
-                                },
-                                label    = { Text("Value") },
-                                maxLines = 3,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                        IconButton(onClick = {
-                            val list = fields.toMutableList()
-                            list.removeAt(index)
-                            fields = list
-                        }) {
-                            Icon(
-                                Icons.Default.Delete,
-                                contentDescription = "Remove",
-                                tint               = MaterialTheme.colorScheme.error
-                            )
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                onSave(entry.copy(
-                    name      = name,
-                    summary   = summary,
-                    imageUri  = imageUri,
-                    fieldsJson = AppJson.encodeToString(fields),
-                    tagsJson   = AppJson.encodeToString(tags)
-                ))
-            }) { Text("Save") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        }
-    )
-}
-
-// ── Detail dialog ─────────────────────────────────────────────────────────────
-
-@Composable
-private fun WorldEntryDetailDialog(
-    entry:    WorldEntry,
-    onDismiss: () -> Unit,
-    onEdit:   () -> Unit
-) {
-    val context   = LocalContext.current
-    val clipboard = LocalClipboardManager.current
-    val meta      = categoryMeta(entry.type)
-
-    val fields: List<SheetsViewModel.Companion.Field> = remember(entry) {
-        try { AppJson.decodeFromString(entry.fieldsJson) } catch (_: Exception) { emptyList() }
-    }
-    val tags: List<String> = remember(entry) {
-        try { AppJson.decodeFromString(entry.tagsJson) } catch (_: Exception) { emptyList() }
-    }
-
-    FrostedDialog(
-        onDismissRequest = onDismiss,
-        title            = null,
-        text             = {
-            Column(
-                modifier            = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 520.dp)
-                    .verticalScroll(rememberScrollState()),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // Avatar
-                if (!entry.imageUri.isNullOrEmpty()) {
-                    AsyncImage(
-                        model              = entry.imageUri,
-                        contentDescription = null,
-                        contentScale       = ContentScale.Crop,
-                        modifier           = Modifier
-                            .size(110.dp)
-                            .clip(CircleShape)
-                            .border(2.dp, meta.color, CircleShape)
-                    )
-                } else {
-                    Box(
-                        modifier         = Modifier
-                            .size(100.dp)
-                            .clip(CircleShape)
-                            .background(meta.color.copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector        = meta.icon,
-                            contentDescription = null,
-                            tint               = meta.color,
-                            modifier           = Modifier.size(50.dp)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text       = entry.name,
-                    fontSize   = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign  = androidx.compose.ui.text.style.TextAlign.Center
-                )
-
-                Spacer(modifier = Modifier.height(6.dp))
-
-                // Type badge with category color
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = meta.color.copy(alpha = 0.18f)
-                ) {
-                    Text(
-                        text       = meta.label.dropLast(1).ifEmpty { meta.label },
-                        fontSize   = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color      = meta.color,
-                        modifier   = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)
-                    )
-                }
-
-                // Tags
-                if (tags.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(10.dp))
-                    androidx.compose.foundation.layout.FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-                        verticalArrangement   = Arrangement.spacedBy(4.dp)
-                    ) {
-                        tags.forEach { tag ->
-                            SuggestionChip(
-                                onClick = {},
-                                label   = { Text(tag, fontSize = 11.sp) }
-                            )
-                        }
-                    }
-                }
-
-                // Updated time
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text     = "Updated ${timeAgo(entry.updatedAt)}",
-                    fontSize = 10.sp,
-                    color    = MaterialTheme.colorScheme.outline
-                )
-
-                // Summary
-                if (entry.summary.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape    = RoundedCornerShape(12.dp),
-                        colors   = CardDefaults.cardColors(
-                            containerColor = LocalSolidSurface.current.copy(alpha = 0.6f)
-                        )
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Text("Overview", fontSize = 11.sp, fontWeight = FontWeight.Bold,
-                                 color = meta.color)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(entry.summary, fontSize = 14.sp)
-                        }
-                    }
-                }
-
-                // Fields — each value tappable to copy
-                if (fields.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape    = RoundedCornerShape(12.dp),
-                        colors   = CardDefaults.cardColors(
-                            containerColor = LocalSolidSurface.current.copy(alpha = 0.6f)
-                        )
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            fields.forEachIndexed { idx, field ->
-                                if (idx > 0) HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
-                                Column(modifier = Modifier.fillMaxWidth()) {
-                                    Text(
-                                        text       = field.label,
-                                        fontSize   = 11.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color      = meta.color
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    // Tappable value → copies to clipboard
-                                    Row(
-                                        modifier          = Modifier
-                                            .fillMaxWidth()
-                                            .clickable(enabled = field.value.isNotBlank()) {
-                                                clipboard.setText(AnnotatedString(field.value))
-                                                Toast.makeText(context, "Copied!", Toast.LENGTH_SHORT).show()
-                                            },
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment     = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text     = field.value.ifBlank { "—" },
-                                            fontSize = 14.sp,
-                                            modifier = Modifier.weight(1f),
-                                            color    = if (field.value.isBlank())
-                                                           MaterialTheme.colorScheme.outline
-                                                       else MaterialTheme.colorScheme.onSurface
-                                        )
-                                        if (field.value.isNotBlank()) {
-                                            Icon(
-                                                Icons.Default.ContentCopy,
-                                                contentDescription = "Copy",
-                                                modifier           = Modifier.size(14.dp),
-                                                tint               = MaterialTheme.colorScheme.outline
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Button(onClick = onEdit) {
-                Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Edit")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
-        }
-    )
 }

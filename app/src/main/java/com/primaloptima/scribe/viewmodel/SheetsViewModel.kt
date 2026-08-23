@@ -4,15 +4,16 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.primaloptima.scribe.ScribeApp
-import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.data.WorldEntry
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
+import com.primaloptima.scribe.util.AppJson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 
 class SheetsViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -58,7 +59,7 @@ class SheetsViewModel(application: Application) : AndroidViewModel(application) 
             updatedAt  = System.currentTimeMillis()
         )
         viewModelScope.launch {
-            kotlinx.coroutines.withContext(Dispatchers.IO) { db.worldEntryDao().insert(entry) }
+            withContext(Dispatchers.IO) { db.worldEntryDao().insert(entry) }
             onCreated(entry)
         }
     }
@@ -69,13 +70,23 @@ class SheetsViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    fun updateEntryFields(entry: WorldEntry, fields: List<Field>) {
+        val updated = entry.copy(
+            fieldsJson = AppJson.encodeToString(fields),
+            updatedAt  = System.currentTimeMillis()
+        )
+        viewModelScope.launch(Dispatchers.IO) {
+            db.worldEntryDao().update(updated)
+        }
+    }
+
     fun deleteEntry(id: String) {
         viewModelScope.launch(Dispatchers.IO) { db.worldEntryDao().deleteById(id) }
     }
 
     fun duplicateEntry(id: String) {
         viewModelScope.launch {
-            val source = kotlinx.coroutines.withContext(Dispatchers.IO) {
+            val source = withContext(Dispatchers.IO) {
                 db.worldEntryDao().getById(id)
             } ?: return@launch
             val copy = source.copy(
@@ -84,80 +95,99 @@ class SheetsViewModel(application: Application) : AndroidViewModel(application) 
                 createdAt = System.currentTimeMillis(),
                 updatedAt = System.currentTimeMillis()
             )
-            kotlinx.coroutines.withContext(Dispatchers.IO) { db.worldEntryDao().insert(copy) }
+            withContext(Dispatchers.IO) { db.worldEntryDao().insert(copy) }
         }
+    }
+
+    enum class SortOption(val label: String, val shortLabel: String) {
+        UPDATED_DESC("Recently Updated", "Updated ↓"),
+        UPDATED_ASC("Oldest Updated", "Updated ↑"),
+        CREATED_DESC("Recently Created", "Created ↓"),
+        CREATED_ASC("Oldest Created", "Created ↑"),
+        NAME_ASC("Name (A → Z)", "Name A-Z"),
+        NAME_DESC("Name (Z → A)", "Name Z-A"),
+        TYPE("Category / Type", "Category")
     }
 
     companion object {
 
         @Serializable
-        data class Field(val label: String, val value: String = "")
+        data class Field(
+            val label: String,
+            val value: String = ""
+        )
 
         val CHARACTER_FIELDS = listOf(
-            Field("Role"),
+            Field("Role", "Protagonist"),
+            Field("Aliases / Titles"),
+            Field("Species / Race"),
+            Field("Arc Status", "Alive"),
+            Field("Abilities / Powers"),
             Field("Age"),
             Field("Appearance"),
-            Field("Personality"),
+            Field("Personality & Quirks"),
             Field("Goal / Motivation"),
-            Field("Backstory"),
+            Field("Backstory & Origin"),
             Field("Strengths"),
-            Field("Weaknesses"),
-            Field("Relationships")
+            Field("Weaknesses & Flaws"),
+            Field("Relationships & Affiliations"),
+            Field("Key Equipment & Items")
         )
 
         val LOCATION_FIELDS = listOf(
-            Field("Region / World"),
-            Field("Atmosphere"),
-            Field("Key Details"),
-            Field("History"),
-            Field("Who lives here"),
-            Field("Significance to story")
+            Field("Region / Realm"),
+            Field("Climate & Atmosphere"),
+            Field("Inhabitants & Factions"),
+            Field("Key Landmarks & POIs"),
+            Field("History & Lore"),
+            Field("Hazards & Magic Anomalies"),
+            Field("Significance to Story")
         )
 
         val FACTION_FIELDS = listOf(
-            Field("Leader"),
-            Field("Allegiance"),
-            Field("Size / Reach"),
-            Field("Goal"),
-            Field("Base of Operations"),
-            Field("Rivals / Enemies"),
-            Field("Resources"),
-            Field("Secrets")
+            Field("Leaders & Key Figures"),
+            Field("Core Ideology & Goal"),
+            Field("Headquarters & Territory"),
+            Field("Allies & Rivals"),
+            Field("Military & Resources"),
+            Field("Secrets & Weaknesses"),
+            Field("Known Influence / Reach")
         )
 
         val ITEM_FIELDS = listOf(
-            Field("Type"),
-            Field("Appearance"),
-            Field("Origin / Creator"),
-            Field("Powers / Properties"),
-            Field("Current Owner"),
-            Field("History"),
-            Field("Value / Rarity")
+            Field("Item Classification"),
+            Field("Origin & Creator"),
+            Field("Powers & Enchantments"),
+            Field("Current Possessor / Location"),
+            Field("Lore & Legends"),
+            Field("Value & Rarity"),
+            Field("Curse / Cost / Danger")
         )
 
         val LORE_FIELDS = listOf(
-            Field("Era / Period"),
-            Field("Key Figures"),
-            Field("What Happened"),
-            Field("Cause"),
-            Field("Consequence"),
-            Field("Who Knows About This"),
-            Field("Impact on Present Story")
+            Field("Era & Age"),
+            Field("Key Figures & Deities"),
+            Field("The Legend / True History"),
+            Field("Cataclysm & Cause"),
+            Field("Consequences"),
+            Field("Present Day Cultural Impact"),
+            Field("Forbidden Knowledge")
         )
 
         val TIMELINE_FIELDS = listOf(
-            Field("Date / Era"),
-            Field("Event"),
-            Field("Location"),
-            Field("Who Was Involved"),
-            Field("Outcome"),
-            Field("Impact on Story"),
-            Field("Connected Events")
+            Field("Date / Year / Epoch"),
+            Field("Location & Realm"),
+            Field("Key Participants & Factions"),
+            Field("What Transpired"),
+            Field("Casualties & Outcome"),
+            Field("Impact on Present Arc"),
+            Field("Connected Foreshadowing")
         )
 
         val GENERAL_FIELDS = listOf(
             Field("Description"),
-            Field("Notes")
+            Field("Key Details"),
+            Field("Notes & References")
         )
     }
 }
