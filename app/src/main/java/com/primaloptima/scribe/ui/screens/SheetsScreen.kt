@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.primaloptima.scribe.data.WorldEntry
+import kotlinx.coroutines.launch
 import com.primaloptima.scribe.ui.components.FullScreenImageViewer
 import com.primaloptima.scribe.ui.components.ScribeCard
 import com.primaloptima.scribe.ui.components.ScribeSingleFab
@@ -455,9 +456,10 @@ fun SheetsScreen(
                 }
             }
         }
-            }
-        },
-        detailPane = {
+    }
+}
+},
+detailPane = {
             AnimatedPane(modifier = Modifier.fillMaxSize()) {
                 val currentEntry = allEntries.find { it.id == selectedEntryId }
                 if (currentEntry != null) {

@@ -356,7 +356,12 @@ fun MainEditorScreen(
 
     // ── Back-press handlers ───────────────────────────────────────────────────
     if (isLeftDrawerOpen || isRightPanelOpen) {
-        BackHandler { scope.launch { panelState.animateTo(PanelState.Center) } }
+        BackHandler {
+            scope.launch {
+                isLeftDrawerOpen = false
+                isRightPanelOpen = false
+            }
+        }
     }
 
     val isKeyboardVisible = WindowInsets.isImeVisible
