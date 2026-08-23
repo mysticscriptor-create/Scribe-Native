@@ -557,7 +557,7 @@ fun MainEditorScreen(
                                             // setInlayHints() stores the container but nothing is drawn
                                             // because the inlayHintRendererMap has no entry for "text".
                                             registerInlayHintRenderer(
-                                                io.github.rosemoe.sora.graphics.inlayHint.TextInlayHintRenderer(this)
+                                                io.github.rosemoe.sora.graphics.inlayHint.TextInlayHintRenderer()
                                             )
                                             setEditorLanguage(ScribeProseLanguage())
 
