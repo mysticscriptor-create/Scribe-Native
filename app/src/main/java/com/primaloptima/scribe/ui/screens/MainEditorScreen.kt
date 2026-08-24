@@ -105,6 +105,17 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.Velocity
 
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.material3.adaptive.ExperimentalMaterial3AdaptiveApi
+import androidx.compose.material3.adaptive.layout.AnimatedPane
+import androidx.compose.material3.adaptive.layout.SupportingPaneScaffold
+import androidx.compose.material3.adaptive.layout.SupportingPaneScaffoldRole
+import androidx.compose.material3.adaptive.layout.ThreePaneScaffoldRole
+import androidx.compose.material3.adaptive.layout.PaneAdaptedValue
+import androidx.compose.material3.adaptive.navigation.rememberSupportingPaneScaffoldNavigator
+import androidx.window.core.layout.WindowWidthSizeClass
+import dev.chrisbanes.haze.HazeState
+
 // ── Sora Editor imports ───────────────────────────────────────────────────────
 import androidx.compose.ui.viewinterop.AndroidView
 import io.github.rosemoe.sora.widget.CodeEditor
@@ -142,8 +153,9 @@ fun MainEditorScreen(
     val scope   = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
 
-    // ── Unified 3-Pane Gesture State ──────────────────────────────────────────
-    val currentOffset = remember { Animatable(0f) }
+    // ── Adaptive Window Size Class ────────────────────────────────────────────
+    val adaptiveInfo = currentWindowAdaptiveInfo()
+    val isCompact = adaptiveInfo.windowSizeClass.windowWidthSizeClass == WindowWidthSizeClass.COMPACT
 
     // ── Frosted-glass blur bitmaps (pre-API-31 fallback) ─────────────────────
     val view         = LocalView.current
@@ -332,29 +344,9 @@ fun MainEditorScreen(
     }
 
     val isKeyboardVisible = WindowInsets.isImeVisible
+    val hazeState = LocalHazeState.current ?: dev.chrisbanes.haze.HazeState()
 
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val density = LocalDensity.current
-        val screenWidthPx = constraints.maxWidth.toFloat()
-        val drawerWidthPx = with(density) { 320.dp.toPx() }.coerceAtMost(screenWidthPx * 0.82f)
-        val drawerWidthDp = with(density) { drawerWidthPx.toDp() }
-        val panelWidthPx  = screenWidthPx
-
-        val isLeftDrawerOpen = currentOffset.value > drawerWidthPx * 0.5f
-        val isRightPanelOpen = currentOffset.value < -panelWidthPx * 0.5f
-
-        // Integrated Android Hardware / Predictive Back Handler
-        BackHandler(enabled = isLeftDrawerOpen || isRightPanelOpen) {
-            scope.launch {
-                currentOffset.animateTo(
-                    0f,
-                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
-                )
-            }
-        }
-
-        val hazeState = LocalHazeState.current ?: dev.chrisbanes.haze.HazeState()
-
+    Box(modifier = Modifier.fillMaxSize()) {
         // ── Editor-only background image ──────────────────────────────────────
         if (isEditorOnlyBg) {
             AsyncImage(
@@ -368,7 +360,7 @@ fun MainEditorScreen(
                             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
                             blurIntensity > 0f
                         ) Modifier.graphicsLayer {
-                            val r = blurIntensity * density.density
+                            val r = blurIntensity * LocalDensity.current.density
                             if (r > 0f) renderEffect = android.graphics.RenderEffect
                                 .createBlurEffect(r, r, android.graphics.Shader.TileMode.CLAMP)
                                 .asComposeRenderEffect()
@@ -381,178 +373,40 @@ fun MainEditorScreen(
             Box(Modifier.fillMaxSize().background(themeBgColor.copy(alpha = bgOpacity)))
         }
 
-        // ── Unified 3-Pane Gesture Engine ─────────────────────────────────────
-        val currentSoraEditorRef by rememberUpdatedState(soraEditorRef)
-
-        val gestureModifier = if (!isKeyboardVisible) {
-            Modifier.pointerInput(drawerWidthPx, panelWidthPx) {
-                val touchSlop = viewConfiguration.touchSlop
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Main)
-                    val velocityTracker = VelocityTracker()
-                    velocityTracker.addPosition(down.uptimeMillis, down.position)
-
-                    var isDragging = false
-                    var isDisallowed = false
-                    var totalDx = 0f
-                    var totalDy = 0f
-                    val startOffset = currentOffset.value
-
-                    // If editor is active & centered, check if text selection is active
-                    val isEditorSelected = currentSoraEditorRef?.cursor?.isSelected == true
-                    if (abs(startOffset) < 1f && isEditorSelected) {
-                        isDisallowed = true
-                    }
-
-                    while (true) {
-                        val event = awaitPointerEvent(pass = PointerEventPass.Main)
-                        val pointerChange = event.changes.firstOrNull { it.id == down.id } ?: break
-
-                        if (pointerChange.changedToUp()) {
-                            if (isDragging) {
-                                pointerChange.consume()
-                                val vx = velocityTracker.calculateVelocity().x
-                                val cur = currentOffset.value
-
-                                val target = when {
-                                    startOffset > drawerWidthPx * 0.5f -> {
-                                        // Starting from Left Drawer: swipe left to close
-                                        if (vx < -500f || cur < drawerWidthPx * 0.7f) 0f else drawerWidthPx
-                                    }
-                                    startOffset < -panelWidthPx * 0.5f -> {
-                                        // Starting from Right Panel: swipe right to close
-                                        if (vx > 500f || cur > -panelWidthPx * 0.7f) 0f else -panelWidthPx
-                                    }
-                                    else -> {
-                                        // Starting from Editor: swipe right for Left Drawer, swipe left for Right Panel
-                                        if (vx > 600f || cur > drawerWidthPx * 0.35f) drawerWidthPx
-                                        else if (vx < -600f || cur < -panelWidthPx * 0.35f) -panelWidthPx
-                                        else 0f
-                                    }
-                                }
-                                scope.launch {
-                                    currentOffset.animateTo(
-                                        targetValue = target,
-                                        animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f),
-                                        initialVelocity = vx
-                                    )
-                                }
-                            }
-                            break
-                        }
-
-                        velocityTracker.addPosition(pointerChange.uptimeMillis, pointerChange.position)
-
-                        if (pointerChange.isConsumed && !isDragging) {
-                            isDisallowed = true
-                        }
-                        if (isDisallowed) continue
-
-                        val dragAmount = pointerChange.positionChange()
-                        totalDx += dragAmount.x
-                        totalDy += dragAmount.y
-                        val absX = abs(totalDx)
-                        val absY = abs(totalDy)
-
-                        if (!isDragging) {
-                            if (absX > touchSlop || absY > touchSlop) {
-                                if (absY >= absX || absX < touchSlop) {
-                                    // Dominantly vertical movement -> yield to editor/list scroll
-                                    isDisallowed = true
-                                } else if (absX > touchSlop && absX > absY * 1.35f) {
-                                    // Dominantly horizontal movement!
-                                    isDragging = true
-                                    pointerChange.consume()
-                                    if (abs(startOffset) < 1f) {
-                                        focusManager.clearFocus()
-                                    }
-                                }
-                            }
-                        } else {
-                            pointerChange.consume()
-                            val proposed = startOffset + totalDx
-                            val clamped = when {
-                                startOffset > drawerWidthPx * 0.5f -> {
-                                    // Left drawer open: allow moving left to close (down to 0f), clamp right past drawerWidthPx
-                                    proposed.coerceIn(0f, drawerWidthPx + (proposed - drawerWidthPx).coerceAtLeast(0f) * 0.15f)
-                                }
-                                startOffset < -panelWidthPx * 0.5f -> {
-                                    // Right panel open: allow moving right to close (up to 0f), clamp left past -panelWidthPx
-                                    proposed.coerceIn(-panelWidthPx - (-proposed - panelWidthPx).coerceAtLeast(0f) * 0.15f, 0f)
-                                }
-                                else -> {
-                                    // Editor open: allow moving right to open Left Drawer or left to open Right Panel
-                                    proposed.coerceIn(-panelWidthPx, drawerWidthPx)
-                                }
-                            }
-                            scope.launch {
-                                currentOffset.snapTo(clamped)
-                            }
-                        }
-                    }
-                }
-            }
-        } else Modifier
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(gestureModifier)
-        ) {
-            // ── Layer 1: Editor Main Pane (Fixed Width = 100% stable, zero reflow) ──
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        translationX = currentOffset.value * 0.18f
-                    }
-            ) {
-                Scaffold(
-                    containerColor      = Color.Transparent,
-                    contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime),
-                    topBar = {
-                        EditorTopBarWithMenu(
-                            activeNote        = activeNote,
-                            zenMode           = zenMode,
-                            goalProgress      = goalProgress,
-                            isLeftDrawerOpen  = isLeftDrawerOpen,
-                            soraEditorRef     = soraEditorRef,
-                            onNavClick        = {
-                                scope.launch {
-                                    if (currentOffset.value > drawerWidthPx * 0.5f) {
-                                        currentOffset.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 420f))
-                                    } else {
-                                        focusManager.clearFocus()
-                                        currentOffset.animateTo(drawerWidthPx, spring(dampingRatio = 0.85f, stiffness = 420f))
-                                    }
-                                }
-                            },
-                            onTitleClick      = { if (activeNote != null) scope.launch { captureForDialog { showRenameDialog = true } } },
-                            onOpenRightPanel  = {
-                                scope.launch {
-                                    if (currentOffset.value < -panelWidthPx * 0.5f) {
-                                        currentOffset.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 420f))
-                                    } else {
-                                        focusManager.clearFocus()
-                                        currentOffset.animateTo(-panelWidthPx, spring(dampingRatio = 0.85f, stiffness = 420f))
-                                    }
-                                }
-                            },
-                            onToggleFind      = { showFindBar = !showFindBar },
-                            onSaveCheckpoint  = {
-                                editorVm.saveManualSnapshot(soraEditorRef?.text?.toString() ?: "")
-                                Toast.makeText(context, "Checkpoint saved", Toast.LENGTH_SHORT).show()
-                            },
-                            onEnterZen        = { editorVm.setZen(true) },
-                            onOpenFloating    = { activeNote?.let { editorVm.openFloatingWindow(it.id) } },
-                            onExport          = { fmt -> activeNote?.let { ExportHelper.shareNote(context, it, fmt) } },
-                            onVersionHistory  = { editorVm.flushContent(soraEditorRef?.text?.toString() ?: ""); onOpenHistory() },
-                            onShortcuts       = onOpenShortcuts,
-                            onGuide           = onOpenGuide,
-                            onSettings        = onOpenSettings,
-                        )
-                    },
-                            bottomBar = {
+        // ── Reusable Component Renderers ──────────────────────────────────────
+        val renderEditorScaffold: @Composable (
+            onNavClick: () -> Unit,
+            onOpenRightPanel: () -> Unit,
+            isLeftDrawerOpen: Boolean
+        ) -> Unit = { onNavClick, onOpenRightPanel, isLeftDrawerOpen ->
+            Scaffold(
+                containerColor      = Color.Transparent,
+                contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime),
+                topBar = {
+                    EditorTopBarWithMenu(
+                        activeNote        = activeNote,
+                        zenMode           = zenMode,
+                        goalProgress      = goalProgress,
+                        isLeftDrawerOpen  = isLeftDrawerOpen,
+                        soraEditorRef     = soraEditorRef,
+                        onNavClick        = onNavClick,
+                        onTitleClick      = { if (activeNote != null) scope.launch { captureForDialog { showRenameDialog = true } } },
+                        onOpenRightPanel  = onOpenRightPanel,
+                        onToggleFind      = { showFindBar = !showFindBar },
+                        onSaveCheckpoint  = {
+                            editorVm.saveManualSnapshot(soraEditorRef?.text?.toString() ?: "")
+                            Toast.makeText(context, "Checkpoint saved", Toast.LENGTH_SHORT).show()
+                        },
+                        onEnterZen        = { editorVm.setZen(true) },
+                        onOpenFloating    = { activeNote?.let { editorVm.openFloatingWindow(it.id) } },
+                        onExport          = { fmt -> activeNote?.let { ExportHelper.shareNote(context, it, fmt) } },
+                        onVersionHistory  = { editorVm.flushContent(soraEditorRef?.text?.toString() ?: ""); onOpenHistory() },
+                        onShortcuts       = onOpenShortcuts,
+                        onGuide           = onOpenGuide,
+                        onSettings        = onOpenSettings,
+                    )
+                },
+                bottomBar = {
                                 CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
                                     AnimatedVisibility(
                                         visible = isKeyboardVisible,
@@ -765,119 +619,84 @@ fun MainEditorScreen(
                                 }
                             }
                         } // end Scaffold
-            } // end Layer 1 (Editor Main Pane)
+        }
 
-            // ── Layer 2: Dim / Scrim Backdrop Overlay ──
-            val scrimAlpha = when {
-                currentOffset.value > 0f -> (currentOffset.value / drawerWidthPx).coerceIn(0f, 1f) * 0.45f
-                currentOffset.value < 0f -> (abs(currentOffset.value) / panelWidthPx).coerceIn(0f, 1f) * 0.45f
-                else -> 0f
-            }
-            if (scrimAlpha > 0.001f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { alpha = scrimAlpha }
-                        .background(Color.Black)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            scope.launch {
-                                currentOffset.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 420f))
-                            }
-                        }
-                )
-            }
+        val renderLeftDrawer: @Composable (onClose: () -> Unit) -> Unit = { onClose ->
+            EditorLeftDrawer(
+                leftDrawerMode   = leftDrawerMode,
+                onModeChange     = { leftDrawerMode = it },
+                currentBookNotes = currentBookNotes,
+                allNotes         = allNotes,
+                activeNoteId     = activeNote?.id,
+                onNoteClick      = { id ->
+                    editorVm.loadNote(id)
+                    onClose()
+                },
+                onAddNote        = { scope.launch { captureForDialog { showCreateNoteDialog = true } } },
+                hazeState        = hazeState,
+                barBlurBitmap    = barBlurBitmap,
+            )
+        }
 
-            // ── Layer 3: Left Drawer ──
-            if (currentOffset.value > 0.5f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .width(drawerWidthDp)
-                        .graphicsLayer {
-                            translationX = -drawerWidthPx + currentOffset.value.coerceIn(0f, drawerWidthPx + 50f)
-                        }
-                ) {
-                    CompositionLocalProvider(LocalOneShotBitmap provides LocalBarBlurBitmap.current) {
-                        ModalDrawerSheet(
-                            drawerContainerColor = Color.Transparent,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .frostedPanel(hazeState)
-                        ) {
-                            EditorLeftDrawer(
-                                leftDrawerMode   = leftDrawerMode,
-                                onModeChange     = { leftDrawerMode = it },
-                                currentBookNotes = currentBookNotes,
-                                allNotes         = allNotes,
-                                activeNoteId     = activeNote?.id,
-                                onNoteClick      = { id ->
-                                    editorVm.loadNote(id)
-                                    scope.launch {
-                                        currentOffset.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 420f))
-                                    }
-                                },
-                                onAddNote        = { scope.launch { captureForDialog { showCreateNoteDialog = true } } },
-                                hazeState        = hazeState,
-                                barBlurBitmap    = barBlurBitmap,
-                            )
-                        }
-                    }
-                }
-            }
+        val renderRightPanel: @Composable (onClose: () -> Unit) -> Unit = { onClose ->
+            EditorRightPanel(
+                rightPanelTab         = rightPanelTab,
+                onTabChange           = { rightPanelTab = it },
+                pinnedTopNotes        = pinnedTopNotes,
+                pinnedTopIndex        = pinnedTopIndex,
+                pinnedBottomNotes     = pinnedBottomNotes,
+                pinnedBottomIndex     = pinnedBottomIndex,
+                allNotes              = allNotes,
+                worldEntries          = worldEntries,
+                outline               = outline,
+                activeTheme           = activeTheme,
+                proseAnalysis         = proseAnalysis,
+                soraEditorRef         = soraEditorRef,
+                tabBarAtBottom        = companionTabBarBottom,
+                splitHorizontal       = companionSplitHorizontal,
+                onToggleTabBarPos     = { editorVm.setCompanionTabBarBottom(!companionTabBarBottom) },
+                onToggleSplitLayout   = { editorVm.setCompanionSplitHorizontal(!companionSplitHorizontal) },
+                onSwapSlots           = { editorVm.swapPinnedSlots() },
+                onPrevTop             = { editorVm.prevPinnedTop() },
+                onNextTop             = { editorVm.nextPinnedTop() },
+                onSwitchTop           = { scope.launch { captureForDialog { filePickerTargetSlot = "top" } } },
+                onEditTop             = { id -> editorVm.loadNote(id) },
+                onRemoveTop           = { id -> editorVm.removePinnedTop(id) },
+                onPrevBottom          = { editorVm.prevPinnedBottom() },
+                onNextBottom          = { editorVm.nextPinnedBottom() },
+                onSwitchBottom        = { scope.launch { captureForDialog { filePickerTargetSlot = "bottom" } } },
+                onEditBottom          = { id -> editorVm.loadNote(id) },
+                onRemoveBottom        = { id -> editorVm.removePinnedBottom(id) },
+                onPickTop             = { scope.launch { captureForDialog { filePickerTargetSlot = "top" } } },
+                onPickBottom          = { scope.launch { captureForDialog { filePickerTargetSlot = "bottom" } } },
+                onClose               = onClose,
+                barBlurBitmap         = barBlurBitmap,
+                hazeState             = hazeState,
+            )
+        }
 
-            // ── Layer 4: Right Panel ──
-            if (currentOffset.value < -0.5f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            translationX = screenWidthPx + currentOffset.value.coerceIn(-panelWidthPx - 50f, 0f)
-                        }
-                ) {
-                    EditorRightPanel(
-                        rightPanelTab         = rightPanelTab,
-                        onTabChange           = { rightPanelTab = it },
-                        pinnedTopNotes        = pinnedTopNotes,
-                        pinnedTopIndex        = pinnedTopIndex,
-                        pinnedBottomNotes     = pinnedBottomNotes,
-                        pinnedBottomIndex     = pinnedBottomIndex,
-                        allNotes              = allNotes,
-                        worldEntries          = worldEntries,
-                        outline               = outline,
-                        activeTheme           = activeTheme,
-                        proseAnalysis         = proseAnalysis,
-                        soraEditorRef         = soraEditorRef,
-                        tabBarAtBottom        = companionTabBarBottom,
-                        splitHorizontal       = companionSplitHorizontal,
-                        onToggleTabBarPos     = { editorVm.setCompanionTabBarBottom(!companionTabBarBottom) },
-                        onToggleSplitLayout   = { editorVm.setCompanionSplitHorizontal(!companionSplitHorizontal) },
-                        onSwapSlots           = { editorVm.swapPinnedSlots() },
-                        onPrevTop             = { editorVm.prevPinnedTop() },
-                        onNextTop             = { editorVm.nextPinnedTop() },
-                        onSwitchTop           = { scope.launch { captureForDialog { filePickerTargetSlot = "top" } } },
-                        onEditTop             = { id -> editorVm.loadNote(id) },
-                        onRemoveTop           = { id -> editorVm.removePinnedTop(id) },
-                        onPrevBottom          = { editorVm.prevPinnedBottom() },
-                        onNextBottom          = { editorVm.nextPinnedBottom() },
-                        onSwitchBottom        = { scope.launch { captureForDialog { filePickerTargetSlot = "bottom" } } },
-                        onEditBottom          = { id -> editorVm.loadNote(id) },
-                        onRemoveBottom        = { id -> editorVm.removePinnedBottom(id) },
-                        onPickTop             = { scope.launch { captureForDialog { filePickerTargetSlot = "top" } } },
-                        onPickBottom          = { scope.launch { captureForDialog { filePickerTargetSlot = "bottom" } } },
-                        onClose               = {
-                            scope.launch {
-                                currentOffset.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 420f))
-                            }
-                        },
-                        barBlurBitmap         = barBlurBitmap,
-                        hazeState             = hazeState,
-                    )
-                }
-            }
-        } // end gesture Box
+        // ── Adaptive Layout Branching ─────────────────────────────────────────
+        if (isCompact) {
+            CompactEditorLayout(
+                hazeState          = hazeState,
+                barBlurBitmap      = barBlurBitmap,
+                isKeyboardVisible  = isKeyboardVisible,
+                soraEditorRef      = soraEditorRef,
+                focusManager       = focusManager,
+                editorContent      = renderEditorScaffold,
+                leftDrawerContent  = renderLeftDrawer,
+                rightPanelContent  = renderRightPanel,
+            )
+        } else {
+            ExpandedEditorLayout(
+                hazeState          = hazeState,
+                barBlurBitmap      = barBlurBitmap,
+                soraEditorRef      = soraEditorRef,
+                editorContent      = renderEditorScaffold,
+                leftDrawerContent  = renderLeftDrawer,
+                rightPanelContent  = renderRightPanel,
+            )
+        }
 
         // ── Floating Windows Overlay ──────────────────────────────────────────
         val mappedNotes = remember(currentBookNotes, worldEntries) {
