@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -84,6 +85,23 @@ fun CompactEditorLayout(
                     0f,
                     spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
                 )
+            }
+        }
+
+        // Dismiss Sora's text-action popup when a panel opens
+        val isPanelOpen = abs(currentOffset.value) > 20f
+        LaunchedEffect(isPanelOpen) {
+            if (isPanelOpen) {
+                soraEditorRef?.let { editor ->
+                    if (editor.cursor.isSelected) {
+                        editor.setSelection(editor.cursor.leftLine, editor.cursor.leftColumn)
+                    }
+                    try {
+                        editor.getComponent(
+                            io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
+                        ).dismiss()
+                    } catch (_: Exception) { }
+                }
             }
         }
 
@@ -211,7 +229,7 @@ fun CompactEditorLayout(
                     }
             ) {
                 editorContent(
-                    onNavClick = {
+                    {
                         scope.launch {
                             if (currentOffset.value > drawerWidthPx * 0.5f) {
                                 currentOffset.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 420f))
@@ -221,7 +239,7 @@ fun CompactEditorLayout(
                             }
                         }
                     },
-                    onOpenRightPanel = {
+                    {
                         scope.launch {
                             if (currentOffset.value < -panelWidthPx * 0.5f) {
                                 currentOffset.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 420f))
@@ -231,7 +249,7 @@ fun CompactEditorLayout(
                             }
                         }
                     },
-                    isLeftDrawerOpen = isLeftDrawerOpen
+                    isLeftDrawerOpen
                 )
             }
 

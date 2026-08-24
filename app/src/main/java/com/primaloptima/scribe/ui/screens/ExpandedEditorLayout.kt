@@ -16,6 +16,7 @@ import androidx.compose.material3.adaptive.navigation.rememberSupportingPaneScaf
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -54,6 +55,23 @@ fun ExpandedEditorLayout(
     val isSupportingPaneOpen =
         navigator.scaffoldValue[SupportingPaneScaffoldRole.Supporting] == PaneAdaptedValue.Expanded
 
+    // Dismiss Sora's text-action popup when a drawer or supporting pane opens
+    val isAnyPanelOpen = drawerState.isOpen || isSupportingPaneOpen
+    LaunchedEffect(isAnyPanelOpen) {
+        if (isAnyPanelOpen) {
+            soraEditorRef?.let { editor ->
+                if (editor.cursor.isSelected) {
+                    editor.setSelection(editor.cursor.leftLine, editor.cursor.leftColumn)
+                }
+                try {
+                    editor.getComponent(
+                        io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
+                    ).dismiss()
+                } catch (_: Exception) { }
+            }
+        }
+    }
+
     BackHandler(enabled = drawerState.isOpen) {
         scope.launch { drawerState.close() }
     }
@@ -84,13 +102,13 @@ fun ExpandedEditorLayout(
             mainPane = {
                 AnimatedPane {
                     editorContent(
-                        onNavClick = {
+                        {
                             scope.launch {
                                 if (drawerState.isOpen) drawerState.close()
                                 else drawerState.open()
                             }
                         },
-                        onOpenRightPanel = {
+                        {
                             scope.launch {
                                 if (isSupportingPaneOpen) {
                                     if (navigator.canNavigateBack()) {
@@ -101,7 +119,7 @@ fun ExpandedEditorLayout(
                                 }
                             }
                         },
-                        isLeftDrawerOpen = drawerState.isOpen
+                        drawerState.isOpen
                     )
                 }
             },

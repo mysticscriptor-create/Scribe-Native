@@ -302,27 +302,6 @@ fun MainEditorScreen(
         editor.setDiagnostics(diagnostics)
     }
 
-    // ── Fix 2: Dismiss Sora's text-action popup when a panel opens ────────────
-    // Placed here — after soraEditorRef is declared — so the lambda can reference it.
-    // LaunchedEffect is keyed on isPanelOpen, so it fires as soon as a panel swipe commits.
-    val isPanelOpen = abs(currentOffset.value) > 20f
-    LaunchedEffect(isPanelOpen) {
-        if (isPanelOpen) {
-            soraEditorRef?.let { editor ->
-                // Clear text selection so the popup has no reason to reappear.
-                if (editor.cursor.isSelected) {
-                    editor.setSelection(editor.cursor.leftLine, editor.cursor.leftColumn)
-                }
-                // Dismiss the action window (no-op if already disabled, safe to call).
-                try {
-                    editor.getComponent(
-                        io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
-                    ).dismiss()
-                } catch (_: Exception) { }
-            }
-        }
-    }
-
     val soraEditorForDispose = soraEditorRef
     DisposableEffect(activeNote?.id) {
         onDispose {
@@ -345,6 +324,7 @@ fun MainEditorScreen(
 
     val isKeyboardVisible = WindowInsets.isImeVisible
     val hazeState = LocalHazeState.current ?: dev.chrisbanes.haze.HazeState()
+    val density = LocalDensity.current
 
     Box(modifier = Modifier.fillMaxSize()) {
         // ── Editor-only background image ──────────────────────────────────────
@@ -360,7 +340,7 @@ fun MainEditorScreen(
                             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
                             blurIntensity > 0f
                         ) Modifier.graphicsLayer {
-                            val r = blurIntensity * LocalDensity.current.density
+                            val r = blurIntensity * density.density
                             if (r > 0f) renderEffect = android.graphics.RenderEffect
                                 .createBlurEffect(r, r, android.graphics.Shader.TileMode.CLAMP)
                                 .asComposeRenderEffect()
