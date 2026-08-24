@@ -55,14 +55,10 @@ fun ExpandedEditorLayout(
     val isSupportingPaneOpen =
         navigator.scaffoldValue[SupportingPaneScaffoldRole.Supporting] == PaneAdaptedValue.Expanded
 
-    // Dismiss Sora's text-action popup when a drawer or supporting pane opens
-    val isAnyPanelOpen = drawerState.isOpen || isSupportingPaneOpen
-    LaunchedEffect(isAnyPanelOpen) {
-        if (isAnyPanelOpen) {
+    // Dismiss Sora's text-action popup when modal drawer opens
+    LaunchedEffect(drawerState.isOpen) {
+        if (drawerState.isOpen) {
             soraEditorRef?.let { editor ->
-                if (editor.cursor.isSelected) {
-                    editor.setSelection(editor.cursor.leftLine, editor.cursor.leftColumn)
-                }
                 try {
                     editor.getComponent(
                         io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java

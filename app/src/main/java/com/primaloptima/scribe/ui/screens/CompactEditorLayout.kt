@@ -33,6 +33,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.coerceAtMost
 import androidx.compose.ui.unit.dp
 import com.primaloptima.scribe.ui.theme.LocalBarBlurBitmap
@@ -43,11 +44,19 @@ import io.github.rosemoe.sora.widget.CodeEditor
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
+private enum class ActiveDrawerSide {
+    NONE,
+    LEFT_DRAWER,
+    RIGHT_PANEL
+}
+
 /**
  * Compact layout (Phones):
  * - Fixed 100% viewport width editor pane with zero reflow
  * - Smooth horizontal touch gesture engine opening Left Drawer and Right Panel
- * - Animatable slide-over overlays with scrim backdrops and velocity springs
+ * - Animatable slide-over overlays with scrim backdrops and critically-damped zero-overshoot physics
+ * - Seamless automatic keyboard dismissal on drawer swipe
+ * - Zero-gap flush screen anchoring
  */
 @Composable
 fun CompactEditorLayout(
@@ -67,6 +76,7 @@ fun CompactEditorLayout(
 ) {
     val scope = rememberCoroutineScope()
     val currentOffset = remember { Animatable(0f) }
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val density = LocalDensity.current
@@ -85,17 +95,15 @@ fun CompactEditorLayout(
                     0f,
                     spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
                 )
+                currentOffset.snapTo(0f)
             }
         }
 
-        // Dismiss Sora's text-action popup when a panel opens
+        // Dismiss Sora's text-action popup when a panel is significantly opening/open
         val isPanelOpen = abs(currentOffset.value) > 20f
         LaunchedEffect(isPanelOpen) {
             if (isPanelOpen) {
                 soraEditorRef?.let { editor ->
-                    if (editor.cursor.isSelected) {
-                        editor.setSelection(editor.cursor.leftLine, editor.cursor.leftColumn)
-                    }
                     try {
                         editor.getComponent(
                             io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
@@ -108,112 +116,138 @@ fun CompactEditorLayout(
         // ── Unified 3-Pane Gesture Engine ─────────────────────────────────────
         val currentSoraEditorRef by rememberUpdatedState(soraEditorRef)
 
-        val gestureModifier = if (!isKeyboardVisible) {
-            Modifier.pointerInput(drawerWidthPx, panelWidthPx) {
-                val touchSlop = viewConfiguration.touchSlop
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Main)
-                    val velocityTracker = VelocityTracker()
-                    velocityTracker.addPosition(down.uptimeMillis, down.position)
+        val gestureModifier = Modifier.pointerInput(drawerWidthPx, panelWidthPx) {
+            val touchSlop = viewConfiguration.touchSlop
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                val velocityTracker = VelocityTracker()
+                velocityTracker.addPosition(down.uptimeMillis, down.position)
 
-                    var isDragging = false
-                    var isDisallowed = false
-                    var totalDx = 0f
-                    var totalDy = 0f
-                    val startOffset = currentOffset.value
+                var isDragging = false
+                var isDisallowed = false
+                var totalDx = 0f
+                var totalDy = 0f
+                val startOffset = currentOffset.value
 
-                    // If editor is active & centered, check if text selection is active
-                    val isEditorSelected = currentSoraEditorRef?.cursor?.isSelected == true
-                    if (abs(startOffset) < 1f && isEditorSelected) {
-                        isDisallowed = true
+                var activeSide = when {
+                    startOffset > 10f -> ActiveDrawerSide.LEFT_DRAWER
+                    startOffset < -10f -> ActiveDrawerSide.RIGHT_PANEL
+                    else -> ActiveDrawerSide.NONE
+                }
+
+                while (true) {
+                    val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+                    val pointerChange = event.changes.firstOrNull { it.id == down.id } ?: break
+
+                    if (pointerChange.changedToUp()) {
+                        if (isDragging) {
+                            pointerChange.consume()
+                            val vx = velocityTracker.calculateVelocity().x
+                            val cur = currentOffset.value
+
+                            val target = when (activeSide) {
+                                ActiveDrawerSide.LEFT_DRAWER -> {
+                                    if (vx < -350f) {
+                                        0f
+                                    } else if (vx > 350f) {
+                                        drawerWidthPx
+                                    } else {
+                                        if (cur >= drawerWidthPx * 0.35f) drawerWidthPx else 0f
+                                    }
+                                }
+                                ActiveDrawerSide.RIGHT_PANEL -> {
+                                    if (vx > 350f) {
+                                        0f
+                                    } else if (vx < -350f) {
+                                        -panelWidthPx
+                                    } else {
+                                        if (cur <= -panelWidthPx * 0.35f) -panelWidthPx else 0f
+                                    }
+                                }
+                                ActiveDrawerSide.NONE -> 0f
+                            }
+
+                            scope.launch {
+                                currentOffset.animateTo(
+                                    targetValue = target,
+                                    animationSpec = spring(
+                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                        stiffness = Spring.StiffnessMediumLow
+                                    ),
+                                    initialVelocity = if (target == 0f) {
+                                        if (activeSide == ActiveDrawerSide.LEFT_DRAWER) vx.coerceIn(-1200f, 0f)
+                                        else vx.coerceIn(0f, 1200f)
+                                    } else {
+                                        vx.coerceIn(-2500f, 2500f)
+                                    }
+                                )
+                                if (target == 0f) {
+                                    currentOffset.snapTo(0f)
+                                }
+                            }
+                        }
+                        break
                     }
 
-                    while (true) {
-                        val event = awaitPointerEvent(pass = PointerEventPass.Main)
-                        val pointerChange = event.changes.firstOrNull { it.id == down.id } ?: break
+                    velocityTracker.addPosition(pointerChange.uptimeMillis, pointerChange.position)
 
-                        if (pointerChange.changedToUp()) {
-                            if (isDragging) {
+                    if (isDisallowed) continue
+
+                    val dragAmount = pointerChange.positionChange()
+                    totalDx += dragAmount.x
+                    totalDy += dragAmount.y
+                    val absX = abs(totalDx)
+                    val absY = abs(totalDy)
+
+                    if (!isDragging) {
+                        if (absX > touchSlop || absY > touchSlop) {
+                            if (absY > absX * 1.15f || absX < touchSlop) {
+                                // Dominantly vertical movement -> yield to editor or list vertical scrolling
+                                isDisallowed = true
+                            } else if (absX > touchSlop && absX > absY * 1.15f) {
+                                // Dominantly horizontal movement -> engage drawer drag
+                                isDragging = true
                                 pointerChange.consume()
-                                val vx = velocityTracker.calculateVelocity().x
-                                val cur = currentOffset.value
 
-                                val target = when {
-                                    startOffset > drawerWidthPx * 0.5f -> {
-                                        // Starting from Left Drawer: swipe left to close
-                                        if (vx < -500f || cur < drawerWidthPx * 0.7f) 0f else drawerWidthPx
-                                    }
-                                    startOffset < -panelWidthPx * 0.5f -> {
-                                        // Starting from Right Panel: swipe right to close
-                                        if (vx > 500f || cur > -panelWidthPx * 0.7f) 0f else -panelWidthPx
-                                    }
-                                    else -> {
-                                        // Starting from Editor: swipe right for Left Drawer, swipe left for Right Panel
-                                        if (vx > 600f || cur > drawerWidthPx * 0.35f) drawerWidthPx
-                                        else if (vx < -600f || cur < -panelWidthPx * 0.35f) -panelWidthPx
-                                        else 0f
-                                    }
+                                if (activeSide == ActiveDrawerSide.NONE) {
+                                    activeSide = if (totalDx > 0f) ActiveDrawerSide.LEFT_DRAWER else ActiveDrawerSide.RIGHT_PANEL
                                 }
-                                scope.launch {
-                                    currentOffset.animateTo(
-                                        targetValue = target,
-                                        animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f),
-                                        initialVelocity = vx
-                                    )
-                                }
+
+                                // Close keyboard & clear focus immediately on swipe (Update 4)
+                                focusManager.clearFocus(force = true)
+                                keyboardController?.hide()
+                                try {
+                                    currentSoraEditorRef?.hideSoftInput()
+                                } catch (_: Exception) { }
                             }
-                            break
                         }
-
-                        velocityTracker.addPosition(pointerChange.uptimeMillis, pointerChange.position)
-
-                        if (pointerChange.isConsumed && !isDragging) {
-                            isDisallowed = true
+                    } else {
+                        pointerChange.consume()
+                        val proposed = startOffset + totalDx
+                        val clamped = when (activeSide) {
+                            ActiveDrawerSide.LEFT_DRAWER -> {
+                                if (proposed >= drawerWidthPx) {
+                                    drawerWidthPx + (proposed - drawerWidthPx) * 0.15f
+                                } else {
+                                    proposed.coerceAtLeast(0f)
+                                }
+                            }
+                            ActiveDrawerSide.RIGHT_PANEL -> {
+                                if (proposed <= -panelWidthPx) {
+                                    -panelWidthPx - (-proposed - panelWidthPx) * 0.15f
+                                } else {
+                                    proposed.coerceAtMost(0f)
+                                }
+                            }
+                            ActiveDrawerSide.NONE -> 0f
                         }
-                        if (isDisallowed) continue
-
-                        val dragAmount = pointerChange.positionChange()
-                        totalDx += dragAmount.x
-                        totalDy += dragAmount.y
-                        val absX = abs(totalDx)
-                        val absY = abs(totalDy)
-
-                        if (!isDragging) {
-                            if (absX > touchSlop || absY > touchSlop) {
-                                if (absY >= absX || absX < touchSlop) {
-                                    // Dominantly vertical movement -> yield to editor/list scroll
-                                    isDisallowed = true
-                                } else if (absX > touchSlop && absX > absY * 1.35f) {
-                                    // Dominantly horizontal movement
-                                    isDragging = true
-                                    pointerChange.consume()
-                                    if (abs(startOffset) < 1f) {
-                                        focusManager.clearFocus()
-                                    }
-                                }
-                            }
-                        } else {
-                            pointerChange.consume()
-                            val proposed = startOffset + totalDx
-                            val clamped = when {
-                                startOffset > drawerWidthPx * 0.5f -> {
-                                    proposed.coerceIn(0f, drawerWidthPx + (proposed - drawerWidthPx).coerceAtLeast(0f) * 0.15f)
-                                }
-                                startOffset < -panelWidthPx * 0.5f -> {
-                                    proposed.coerceIn(-panelWidthPx - (-proposed - panelWidthPx).coerceAtLeast(0f) * 0.15f, 0f)
-                                }
-                                else -> {
-                                    proposed.coerceIn(-panelWidthPx, drawerWidthPx)
-                                }
-                            }
-                            scope.launch {
-                                currentOffset.snapTo(clamped)
-                            }
+                        scope.launch {
+                            currentOffset.snapTo(clamped)
                         }
                     }
                 }
             }
-        } else Modifier
+        }
 
         Box(
             modifier = Modifier
@@ -232,20 +266,38 @@ fun CompactEditorLayout(
                     {
                         scope.launch {
                             if (currentOffset.value > drawerWidthPx * 0.5f) {
-                                currentOffset.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 420f))
+                                currentOffset.animateTo(
+                                    0f,
+                                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                )
+                                currentOffset.snapTo(0f)
                             } else {
-                                focusManager.clearFocus()
-                                currentOffset.animateTo(drawerWidthPx, spring(dampingRatio = 0.85f, stiffness = 420f))
+                                focusManager.clearFocus(force = true)
+                                keyboardController?.hide()
+                                try { currentSoraEditorRef?.hideSoftInput() } catch (_: Exception) { }
+                                currentOffset.animateTo(
+                                    drawerWidthPx,
+                                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                )
                             }
                         }
                     },
                     {
                         scope.launch {
                             if (currentOffset.value < -panelWidthPx * 0.5f) {
-                                currentOffset.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 420f))
+                                currentOffset.animateTo(
+                                    0f,
+                                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                )
+                                currentOffset.snapTo(0f)
                             } else {
-                                focusManager.clearFocus()
-                                currentOffset.animateTo(-panelWidthPx, spring(dampingRatio = 0.85f, stiffness = 420f))
+                                focusManager.clearFocus(force = true)
+                                keyboardController?.hide()
+                                try { currentSoraEditorRef?.hideSoftInput() } catch (_: Exception) { }
+                                currentOffset.animateTo(
+                                    -panelWidthPx,
+                                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                )
                             }
                         }
                     },
@@ -270,20 +322,24 @@ fun CompactEditorLayout(
                             indication = null
                         ) {
                             scope.launch {
-                                currentOffset.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 420f))
+                                currentOffset.animateTo(
+                                    0f,
+                                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                )
+                                currentOffset.snapTo(0f)
                             }
                         }
                 )
             }
 
-            // ── Layer 3: Left Drawer (Slides in from Left) ────────────────────
+            // ── Layer 3: Left Drawer (Slides in from Left, Zero-Gap Anchored) ────
             if (currentOffset.value > 0.5f) {
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
                         .width(drawerWidthDp)
                         .graphicsLayer {
-                            translationX = -drawerWidthPx + currentOffset.value.coerceIn(0f, drawerWidthPx + 50f)
+                            translationX = (-drawerWidthPx + currentOffset.value).coerceAtMost(0f)
                         }
                 ) {
                     CompositionLocalProvider(LocalOneShotBitmap provides LocalBarBlurBitmap.current) {
@@ -295,7 +351,11 @@ fun CompactEditorLayout(
                         ) {
                             leftDrawerContent {
                                 scope.launch {
-                                    currentOffset.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 420f))
+                                    currentOffset.animateTo(
+                                        0f,
+                                        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                                    )
+                                    currentOffset.snapTo(0f)
                                 }
                             }
                         }
@@ -303,18 +363,22 @@ fun CompactEditorLayout(
                 }
             }
 
-            // ── Layer 4: Right Panel (Slides in from Right) ───────────────────
+            // ── Layer 4: Right Panel (Slides in from Right, Zero-Gap Anchored) ───
             if (currentOffset.value < -0.5f) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            translationX = screenWidthPx + currentOffset.value.coerceIn(-panelWidthPx - 50f, 0f)
+                            translationX = (screenWidthPx + currentOffset.value).coerceAtLeast(0f)
                         }
                 ) {
                     rightPanelContent {
                         scope.launch {
-                            currentOffset.animateTo(0f, spring(dampingRatio = 0.85f, stiffness = 420f))
+                            currentOffset.animateTo(
+                                0f,
+                                spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
+                            )
+                            currentOffset.snapTo(0f)
                         }
                     }
                 }

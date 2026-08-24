@@ -502,7 +502,7 @@ fun MainEditorScreen(
                                                     try {
                                                         getComponent(
                                                             io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
-                                                        ).isEnabled = false
+                                                        ).isEnabled = true
                                                     } catch (_: Exception) { }
 
                                                     try {
