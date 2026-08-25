@@ -165,21 +165,21 @@ fun CompactEditorLayout(
                             val vx = velocityTracker.calculateVelocity().x
                             val cur = currentOffset.value
 
-                            // 2b: Directional momentum & velocity threshold
+                            // 2b: Directional momentum & velocity threshold (100 px/s)
                             val target = when (activeSide) {
                                 ActiveDrawerSide.LEFT_DRAWER -> {
-                                    if (vx > 180f) {
+                                    if (vx > 100f) {
                                         drawerWidthPx
-                                    } else if (vx < -180f) {
+                                    } else if (vx < -100f) {
                                         0f
                                     } else {
                                         if (cur >= drawerWidthPx * 0.35f) drawerWidthPx else 0f
                                     }
                                 }
                                 ActiveDrawerSide.RIGHT_PANEL -> {
-                                    if (vx < -180f) {
+                                    if (vx < -100f) {
                                         -panelWidthPx
-                                    } else if (vx > 180f) {
+                                    } else if (vx > 100f) {
                                         0f
                                     } else {
                                         if (cur <= -panelWidthPx * 0.35f) -panelWidthPx else 0f
