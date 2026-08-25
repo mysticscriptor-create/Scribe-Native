@@ -50,6 +50,62 @@ import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.sign
 
+private fun isTouchOnSelectionHandle(editor: CodeEditor?, touchX: Float, touchY: Float, density: Float): Boolean {
+    if (editor == null) return false
+    return try {
+        val cursor = editor.cursor
+        if (!cursor.isSelected) return false
+
+        // Fetch layout & scroll offsets
+        val layout = editor.layout ?: return false
+        val textRegionOffset = editor.measureTextRegionOffset()
+        val scrollX = editor.offsetX.toFloat()
+        val scrollY = editor.offsetY.toFloat()
+        val rowHeight = editor.rowHeight.toFloat()
+
+        // Handle hit radius: ~42dp converted to px
+        val hitRadius = 42f * density
+
+        // Left Handle (Start Selection Handle)
+        val leftLine = cursor.leftLine
+        val leftCol = cursor.leftColumn
+        val leftOffset = layout.getCharLayoutOffset(leftLine, leftCol)
+        if (leftOffset != null && leftOffset.size >= 2) {
+            val leftCharX = leftOffset[1] + textRegionOffset - scrollX
+            val leftCharY = leftOffset[0] - scrollY
+            val leftHandleCenterX = leftCharX
+            val leftHandleCenterY = leftCharY + rowHeight + (16f * density)
+
+            val dx = touchX - leftHandleCenterX
+            val dy = touchY - leftHandleCenterY
+            if ((dx * dx + dy * dy) <= (hitRadius * hitRadius)) {
+                return true
+            }
+        }
+
+        // Right Handle (End Selection Handle)
+        val rightLine = cursor.rightLine
+        val rightCol = cursor.rightColumn
+        val rightOffset = layout.getCharLayoutOffset(rightLine, rightCol)
+        if (rightOffset != null && rightOffset.size >= 2) {
+            val rightCharX = rightOffset[1] + textRegionOffset - scrollX
+            val rightCharY = rightOffset[0] - scrollY
+            val rightHandleCenterX = rightCharX
+            val rightHandleCenterY = rightCharY + rowHeight + (16f * density)
+
+            val dx = touchX - rightHandleCenterX
+            val dy = touchY - rightHandleCenterY
+            if ((dx * dx + dy * dy) <= (hitRadius * hitRadius)) {
+                return true
+            }
+        }
+
+        false
+    } catch (_: Exception) {
+        false
+    }
+}
+
 val LocalInteractiveBoundsRegistry = androidx.compose.runtime.compositionLocalOf<(key: String, bounds: Rect?) -> Unit> {
     { _, _ -> }
 }
@@ -201,7 +257,14 @@ fun CompactEditorLayout(
                     rect.contains(down.position)
                 }
 
-                if (isInsideInteractiveArea || currentIsHandleDragging) {
+                val isHittingSelectionHandle = isTouchOnSelectionHandle(
+                    editor = currentSoraEditorRef,
+                    touchX = down.position.x,
+                    touchY = down.position.y,
+                    density = density
+                )
+
+                if (isInsideInteractiveArea || currentIsHandleDragging || isHittingSelectionHandle) {
                     isDisallowed = true
                 }
 
