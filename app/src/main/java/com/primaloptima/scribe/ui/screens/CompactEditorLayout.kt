@@ -26,6 +26,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.changedToUp
@@ -43,6 +44,8 @@ import dev.chrisbanes.haze.HazeState
 import io.github.rosemoe.sora.widget.CodeEditor
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.exp
+import kotlin.math.sign
 
 private enum class ActiveDrawerSide {
     NONE,
@@ -54,7 +57,10 @@ private enum class ActiveDrawerSide {
  * Compact layout (Phones):
  * - Fixed 100% viewport width editor pane with zero reflow
  * - Smooth horizontal touch gesture engine opening Left Drawer and Right Panel
- * - Animatable slide-over overlays with scrim backdrops and critically-damped zero-overshoot physics
+ * - Touch-slop subtraction for continuous, pop-free drag initiation
+ * - Energy & momentum-aware flick detection riding finger throw velocity
+ * - Asymmetric spring physics (fluid settle bounce on open, critically-damped on close)
+ * - Tactile edge-pinned elastic content rubber-band stretching on overdrag
  * - Seamless automatic keyboard dismissal on drawer swipe
  * - Zero-gap flush screen anchoring
  */
@@ -78,6 +84,20 @@ fun CompactEditorLayout(
     val currentOffset = remember { Animatable(0f) }
     val keyboardController = LocalSoftwareKeyboardController.current
 
+    // Spring specs: Asymmetric physics
+    val openSpringSpec = remember {
+        spring<Float>(
+            dampingRatio = 0.82f,
+            stiffness = Spring.StiffnessLow
+        )
+    }
+    val closeSpringSpec = remember {
+        spring<Float>(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        )
+    }
+
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val density = LocalDensity.current
         val screenWidthPx = constraints.maxWidth.toFloat()
@@ -91,10 +111,7 @@ fun CompactEditorLayout(
         // Integrated Android Hardware / Predictive Back Handler
         BackHandler(enabled = isLeftDrawerOpen || isRightPanelOpen) {
             scope.launch {
-                currentOffset.animateTo(
-                    0f,
-                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
-                )
+                currentOffset.animateTo(0f, closeSpringSpec)
                 currentOffset.snapTo(0f)
             }
         }
@@ -139,27 +156,31 @@ fun CompactEditorLayout(
                     val event = awaitPointerEvent(pass = PointerEventPass.Initial)
                     val pointerChange = event.changes.firstOrNull { it.id == down.id } ?: break
 
+                    // 2a: Capture all pointer events (including the up event) into VelocityTracker FIRST
+                    velocityTracker.addPosition(pointerChange.uptimeMillis, pointerChange.position)
+
                     if (pointerChange.changedToUp()) {
                         if (isDragging) {
                             pointerChange.consume()
                             val vx = velocityTracker.calculateVelocity().x
                             val cur = currentOffset.value
 
+                            // 2b: Directional momentum & velocity threshold
                             val target = when (activeSide) {
                                 ActiveDrawerSide.LEFT_DRAWER -> {
-                                    if (vx < -350f) {
-                                        0f
-                                    } else if (vx > 350f) {
+                                    if (vx > 180f) {
                                         drawerWidthPx
+                                    } else if (vx < -180f) {
+                                        0f
                                     } else {
                                         if (cur >= drawerWidthPx * 0.35f) drawerWidthPx else 0f
                                     }
                                 }
                                 ActiveDrawerSide.RIGHT_PANEL -> {
-                                    if (vx > 350f) {
-                                        0f
-                                    } else if (vx < -350f) {
+                                    if (vx < -180f) {
                                         -panelWidthPx
+                                    } else if (vx > 180f) {
+                                        0f
                                     } else {
                                         if (cur <= -panelWidthPx * 0.35f) -panelWidthPx else 0f
                                     }
@@ -168,18 +189,20 @@ fun CompactEditorLayout(
                             }
 
                             scope.launch {
+                                val isOpening = target != 0f
+                                val spec = if (isOpening) openSpringSpec else closeSpringSpec
+                                // 2c: Pass finger release velocity into spring
+                                val initVel = if (isOpening) {
+                                    vx.coerceIn(-3500f, 3500f)
+                                } else {
+                                    if (activeSide == ActiveDrawerSide.LEFT_DRAWER) vx.coerceIn(-2000f, 0f)
+                                    else vx.coerceIn(0f, 2000f)
+                                }
+
                                 currentOffset.animateTo(
                                     targetValue = target,
-                                    animationSpec = spring(
-                                        dampingRatio = Spring.DampingRatioNoBouncy,
-                                        stiffness = Spring.StiffnessMediumLow
-                                    ),
-                                    initialVelocity = if (target == 0f) {
-                                        if (activeSide == ActiveDrawerSide.LEFT_DRAWER) vx.coerceIn(-1200f, 0f)
-                                        else vx.coerceIn(0f, 1200f)
-                                    } else {
-                                        vx.coerceIn(-2500f, 2500f)
-                                    }
+                                    animationSpec = spec,
+                                    initialVelocity = initVel
                                 )
                                 if (target == 0f) {
                                     currentOffset.snapTo(0f)
@@ -188,8 +211,6 @@ fun CompactEditorLayout(
                         }
                         break
                     }
-
-                    velocityTracker.addPosition(pointerChange.uptimeMillis, pointerChange.position)
 
                     if (isDisallowed) continue
 
@@ -223,18 +244,24 @@ fun CompactEditorLayout(
                         }
                     } else {
                         pointerChange.consume()
-                        val proposed = startOffset + totalDx
+                        // 1: Subtract touch slop so drawer moves continuously from 0px without pop/jump
+                        val adjustedDx = totalDx - sign(totalDx) * touchSlop
+                        val proposed = startOffset + adjustedDx
+
+                        // Apply exponential resistance for overdrag past boundaries
                         val clamped = when (activeSide) {
                             ActiveDrawerSide.LEFT_DRAWER -> {
-                                if (proposed >= drawerWidthPx) {
-                                    drawerWidthPx + (proposed - drawerWidthPx) * 0.15f
+                                if (proposed > drawerWidthPx) {
+                                    val over = proposed - drawerWidthPx
+                                    drawerWidthPx + 140f * (1f - exp(-over / 220f))
                                 } else {
                                     proposed.coerceAtLeast(0f)
                                 }
                             }
                             ActiveDrawerSide.RIGHT_PANEL -> {
-                                if (proposed <= -panelWidthPx) {
-                                    -panelWidthPx - (-proposed - panelWidthPx) * 0.15f
+                                if (proposed < -panelWidthPx) {
+                                    val over = -proposed - panelWidthPx
+                                    -panelWidthPx - 140f * (1f - exp(-over / 220f))
                                 } else {
                                     proposed.coerceAtMost(0f)
                                 }
@@ -266,38 +293,26 @@ fun CompactEditorLayout(
                     {
                         scope.launch {
                             if (currentOffset.value > drawerWidthPx * 0.5f) {
-                                currentOffset.animateTo(
-                                    0f,
-                                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
-                                )
+                                currentOffset.animateTo(0f, closeSpringSpec)
                                 currentOffset.snapTo(0f)
                             } else {
                                 focusManager.clearFocus(force = true)
                                 keyboardController?.hide()
                                 try { currentSoraEditorRef?.hideSoftInput() } catch (_: Exception) { }
-                                currentOffset.animateTo(
-                                    drawerWidthPx,
-                                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
-                                )
+                                currentOffset.animateTo(drawerWidthPx, openSpringSpec)
                             }
                         }
                     },
                     {
                         scope.launch {
                             if (currentOffset.value < -panelWidthPx * 0.5f) {
-                                currentOffset.animateTo(
-                                    0f,
-                                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
-                                )
+                                currentOffset.animateTo(0f, closeSpringSpec)
                                 currentOffset.snapTo(0f)
                             } else {
                                 focusManager.clearFocus(force = true)
                                 keyboardController?.hide()
                                 try { currentSoraEditorRef?.hideSoftInput() } catch (_: Exception) { }
-                                currentOffset.animateTo(
-                                    -panelWidthPx,
-                                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
-                                )
+                                currentOffset.animateTo(-panelWidthPx, openSpringSpec)
                             }
                         }
                     },
@@ -322,23 +337,25 @@ fun CompactEditorLayout(
                             indication = null
                         ) {
                             scope.launch {
-                                currentOffset.animateTo(
-                                    0f,
-                                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
-                                )
+                                currentOffset.animateTo(0f, closeSpringSpec)
                                 currentOffset.snapTo(0f)
                             }
                         }
                 )
             }
 
-            // ── Layer 3: Left Drawer (Slides in from Left, Zero-Gap Anchored) ────
+            // ── Layer 3: Left Drawer (Slides in from Left, Zero-Gap Anchored with Elastic Stretch) ────
             if (currentOffset.value > 0.5f) {
+                val overdragPx = (currentOffset.value - drawerWidthPx).coerceAtLeast(0f)
+                val stretchScaleX = 1f + (overdragPx / drawerWidthPx) * 0.12f
+                val stretchTranslationX = overdragPx * 0.18f
+
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
                         .width(drawerWidthDp)
                         .graphicsLayer {
+                            // Background/container strictly anchored to left edge (Zero gaps)
                             translationX = (-drawerWidthPx + currentOffset.value).coerceAtMost(0f)
                         }
                 ) {
@@ -348,13 +365,16 @@ fun CompactEditorLayout(
                             modifier = Modifier
                                 .fillMaxSize()
                                 .frostedPanel(hazeState)
+                                .graphicsLayer {
+                                    // 3: Tactile rubber-band content stretch anchored to left edge
+                                    transformOrigin = TransformOrigin(0f, 0.5f)
+                                    scaleX = stretchScaleX
+                                    translationX = stretchTranslationX
+                                }
                         ) {
                             leftDrawerContent {
                                 scope.launch {
-                                    currentOffset.animateTo(
-                                        0f,
-                                        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
-                                    )
+                                    currentOffset.animateTo(0f, closeSpringSpec)
                                     currentOffset.snapTo(0f)
                                 }
                             }
@@ -363,22 +383,35 @@ fun CompactEditorLayout(
                 }
             }
 
-            // ── Layer 4: Right Panel (Slides in from Right, Zero-Gap Anchored) ───
+            // ── Layer 4: Right Panel (Slides in from Right, Zero-Gap Anchored with Elastic Stretch) ───
             if (currentOffset.value < -0.5f) {
+                val overdragPx = (-panelWidthPx - currentOffset.value).coerceAtLeast(0f)
+                val stretchScaleX = 1f + (overdragPx / panelWidthPx) * 0.12f
+                val stretchTranslationX = -overdragPx * 0.18f
+
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
+                            // Background/container strictly anchored to right edge (Zero gaps)
                             translationX = (screenWidthPx + currentOffset.value).coerceAtLeast(0f)
                         }
                 ) {
-                    rightPanelContent {
-                        scope.launch {
-                            currentOffset.animateTo(
-                                0f,
-                                spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
-                            )
-                            currentOffset.snapTo(0f)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                // 3: Tactile rubber-band content stretch anchored to right edge
+                                transformOrigin = TransformOrigin(1f, 0.5f)
+                                scaleX = stretchScaleX
+                                translationX = stretchTranslationX
+                            }
+                    ) {
+                        rightPanelContent {
+                            scope.launch {
+                                currentOffset.animateTo(0f, closeSpringSpec)
+                                currentOffset.snapTo(0f)
+                            }
                         }
                     }
                 }
