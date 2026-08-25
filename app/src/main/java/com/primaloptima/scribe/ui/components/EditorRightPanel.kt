@@ -55,11 +55,15 @@ import com.primaloptima.scribe.data.WorldEntry
 import com.primaloptima.scribe.engine.ProseAnalysisResult
 import com.primaloptima.scribe.ui.components.ProseAnalysisView
 import com.primaloptima.scribe.ui.screens.LocalInteractiveBoundsRegistry
+import com.primaloptima.scribe.ui.theme.LocalBarBlurBitmap
+import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
+import com.primaloptima.scribe.ui.theme.LocalSolidSurface
 import com.primaloptima.scribe.ui.theme.ScribeColorScheme
 import com.primaloptima.scribe.ui.theme.frostedBar
 import com.primaloptima.scribe.ui.theme.frostedCard
 import com.primaloptima.scribe.ui.theme.frostedPanel
+import com.primaloptima.scribe.ui.theme.localHasBgImage
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.OutlineEntry
 import io.github.rosemoe.sora.widget.CodeEditor
@@ -75,8 +79,10 @@ private enum class SpatialDropZone {
 private data class DetachedDragState(
     val originSlot: String,
     val note: Note,
-    val initialTouchX: Float,
-    val initialTouchY: Float,
+    val initialSlotOriginX: Float,
+    val initialSlotOriginY: Float,
+    val initialTouchInContainerX: Float,
+    val initialTouchInContainerY: Float,
     val currentDragX: Float,
     val currentDragY: Float,
     val initialSlotWidth: Float,
@@ -179,6 +185,10 @@ fun EditorRightPanel(
                     when (rightPanelTab) {
                         0 -> {
                             val gapDp = 3.dp
+                            val solidSurface = LocalSolidSurface.current
+                            val hasBgImage = localHasBgImage()
+                            val registerBounds = LocalInteractiveBoundsRegistry.current
+
                             BoxWithConstraints(Modifier.fillMaxSize()) {
                                 val density = androidx.compose.ui.platform.LocalDensity.current
                                 val totalPxFloat = with(density) {
@@ -187,6 +197,18 @@ fun EditorRightPanel(
 
                                 var dragState by remember { mutableStateOf<DetachedDragState?>(null) }
                                 var activeHoveredZone by remember { mutableStateOf<SpatialDropZone?>(null) }
+                                var containerPositionInRoot by remember { mutableStateOf(Offset.Zero) }
+                                var pinnedContainerBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
+
+                                // Lock swipe navigation ONLY when a pinned note is detached and dragging
+                                DisposableEffect(dragState != null, pinnedContainerBounds) {
+                                    if (dragState != null && pinnedContainerBounds != null) {
+                                        registerBounds?.invoke("pinned_notes_detached_drag", pinnedContainerBounds)
+                                    }
+                                    onDispose {
+                                        registerBounds?.invoke("pinned_notes_detached_drag", null)
+                                    }
+                                }
 
                                 val containerWidthPx = with(density) { maxWidth.toPx() }
                                 val containerHeightPx = with(density) { maxHeight.toPx() }
@@ -210,19 +232,24 @@ fun EditorRightPanel(
                                     }
                                 }
 
-                                val onStartDetachedDrag: (slot: String, note: Note, touchPos: Offset, size: androidx.compose.ui.geometry.Size) -> Unit = { slot, note, touchPos, size ->
+                                val onStartDetachedDrag: (slot: String, note: Note, touchPosInHeader: Offset, size: androidx.compose.ui.geometry.Size, slotPosInRoot: Offset) -> Unit = { slot, note, touchPosInHeader, size, slotPosInRoot ->
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    val slotOriginInContainer = slotPosInRoot - containerPositionInRoot
+                                    val touchInContainer = slotOriginInContainer + touchPosInHeader
+
                                     dragState = DetachedDragState(
                                         originSlot = slot,
                                         note = note,
-                                        initialTouchX = touchPos.x,
-                                        initialTouchY = touchPos.y,
+                                        initialSlotOriginX = slotOriginInContainer.x,
+                                        initialSlotOriginY = slotOriginInContainer.y,
+                                        initialTouchInContainerX = touchInContainer.x,
+                                        initialTouchInContainerY = touchInContainer.y,
                                         currentDragX = 0f,
                                         currentDragY = 0f,
                                         initialSlotWidth = size.width,
                                         initialSlotHeight = size.height,
                                     )
-                                    activeHoveredZone = computeHoveredZone(touchPos.x, touchPos.y)
+                                    activeHoveredZone = computeHoveredZone(touchInContainer.x, touchInContainer.y)
                                 }
 
                                 val onContinueDetachedDrag: (dx: Float, dy: Float) -> Unit = { dx, dy ->
@@ -233,8 +260,8 @@ fun EditorRightPanel(
                                             currentDragX = newDragX,
                                             currentDragY = newDragY
                                         )
-                                        val currentTouchX = current.initialTouchX + newDragX
-                                        val currentTouchY = current.initialTouchY + newDragY
+                                        val currentTouchX = current.initialTouchInContainerX + newDragX
+                                        val currentTouchY = current.initialTouchInContainerY + newDragY
                                         val newZone = computeHoveredZone(currentTouchX, currentTouchY)
                                         if (newZone != activeHoveredZone) {
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -293,7 +320,14 @@ fun EditorRightPanel(
                                     activeHoveredZone = null
                                 }
 
-                                Box(Modifier.fillMaxSize()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .onGloballyPositioned { layoutCoordinates ->
+                                            pinnedContainerBounds = layoutCoordinates.boundsInRoot()
+                                            containerPositionInRoot = layoutCoordinates.positionInRoot()
+                                        }
+                                ) {
                                     if (splitHorizontal) {
                                         Row(
                                             modifier              = Modifier.fillMaxSize().padding(gapDp),
@@ -315,8 +349,8 @@ fun EditorRightPanel(
                                                 onPick              = onPickTop,
                                                 hazeState           = hazeState,
                                                 isDetached          = dragState?.originSlot == "top",
-                                                onStartDetachedDrag = { note, touchPos, size ->
-                                                    onStartDetachedDrag("top", note, touchPos, size)
+                                                onStartDetachedDrag = { note, touchPos, size, slotPosInRoot ->
+                                                    onStartDetachedDrag("top", note, touchPos, size, slotPosInRoot)
                                                 },
                                                 onDetachedDrag      = onContinueDetachedDrag,
                                                 onEndDetachedDrag   = onEndDetachedDrag,
@@ -347,8 +381,8 @@ fun EditorRightPanel(
                                                 onPick              = onPickBottom,
                                                 hazeState           = hazeState,
                                                 isDetached          = dragState?.originSlot == "bottom",
-                                                onStartDetachedDrag = { note, touchPos, size ->
-                                                    onStartDetachedDrag("bottom", note, touchPos, size)
+                                                onStartDetachedDrag = { note, touchPos, size, slotPosInRoot ->
+                                                    onStartDetachedDrag("bottom", note, touchPos, size, slotPosInRoot)
                                                 },
                                                 onDetachedDrag      = onContinueDetachedDrag,
                                                 onEndDetachedDrag   = onEndDetachedDrag,
@@ -376,8 +410,8 @@ fun EditorRightPanel(
                                                 onPick              = onPickTop,
                                                 hazeState           = hazeState,
                                                 isDetached          = dragState?.originSlot == "top",
-                                                onStartDetachedDrag = { note, touchPos, size ->
-                                                    onStartDetachedDrag("top", note, touchPos, size)
+                                                onStartDetachedDrag = { note, touchPos, size, slotPosInRoot ->
+                                                    onStartDetachedDrag("top", note, touchPos, size, slotPosInRoot)
                                                 },
                                                 onDetachedDrag      = onContinueDetachedDrag,
                                                 onEndDetachedDrag   = onEndDetachedDrag,
@@ -408,8 +442,8 @@ fun EditorRightPanel(
                                                 onPick              = onPickBottom,
                                                 hazeState           = hazeState,
                                                 isDetached          = dragState?.originSlot == "bottom",
-                                                onStartDetachedDrag = { note, touchPos, size ->
-                                                    onStartDetachedDrag("bottom", note, touchPos, size)
+                                                onStartDetachedDrag = { note, touchPos, size, slotPosInRoot ->
+                                                    onStartDetachedDrag("bottom", note, touchPos, size, slotPosInRoot)
                                                 },
                                                 onDetachedDrag      = onContinueDetachedDrag,
                                                 onEndDetachedDrag   = onEndDetachedDrag,
@@ -428,10 +462,13 @@ fun EditorRightPanel(
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxSize()
-                                                .background(Color.Black.copy(alpha = 0.28f))
+                                                .background(
+                                                    if (hasBgImage) Color.Black.copy(alpha = 0.32f)
+                                                    else solidSurface.copy(alpha = 0.55f)
+                                                )
                                                 .padding(6.dp)
                                         ) {
-                                            // Vertical Pair (Top / Bottom) - outer bounds
+                                            // Vertical Pair (Top / Bottom)
                                             Column(
                                                 modifier = Modifier.fillMaxSize(),
                                                 verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -452,7 +489,7 @@ fun EditorRightPanel(
                                                 )
                                             }
 
-                                            // Horizontal Pair (Left / Right) - nested inner glass targets
+                                            // Horizontal Pair (Left / Right)
                                             Row(
                                                 modifier = Modifier
                                                     .fillMaxSize()
@@ -480,7 +517,9 @@ fun EditorRightPanel(
                                     // ── Detached Dragging Card Floating Layer ──────
                                     dragState?.let { activeDrag ->
                                         val cardWidthDp = with(density) { (activeDrag.initialSlotWidth.coerceAtLeast(180f)).toDp() }
-                                        val cardHeightDp = with(density) { (activeDrag.initialSlotHeight.coerceIn(120f, 320f)).toDp() }
+                                        val cardHeightDp = with(density) { (activeDrag.initialSlotHeight.coerceIn(100f, 600f)).toDp() }
+                                        val currentCardX = activeDrag.initialSlotOriginX + activeDrag.currentDragX
+                                        val currentCardY = activeDrag.initialSlotOriginY + activeDrag.currentDragY
 
                                         Box(
                                             modifier = Modifier
@@ -492,14 +531,13 @@ fun EditorRightPanel(
                                                     .size(width = cardWidthDp, height = cardHeightDp)
                                                     .offset {
                                                         IntOffset(
-                                                            x = activeDrag.currentDragX.roundToInt(),
-                                                            y = activeDrag.currentDragY.roundToInt()
+                                                            x = currentCardX.roundToInt(),
+                                                            y = currentCardY.roundToInt()
                                                         )
                                                     }
                                                     .graphicsLayer {
-                                                        scaleX = 1.04f
-                                                        scaleY = 1.04f
-                                                        alpha = 0.94f
+                                                        scaleX = 1.03f
+                                                        scaleY = 1.03f
                                                         shadowElevation = 18.dp.toPx()
                                                         transformOrigin = TransformOrigin(0.5f, 0.5f)
                                                     }
@@ -509,15 +547,21 @@ fun EditorRightPanel(
                                                         color = accentColor.copy(alpha = 0.85f),
                                                         shape = RoundedCornerShape(12.dp)
                                                     )
-                                                    .frostedCard(hazeState, RoundedCornerShape(12.dp), applyFallbackBackground = true),
-                                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                                                    .then(
+                                                        if (!hasBgImage) {
+                                                            Modifier.background(solidSurface, RoundedCornerShape(12.dp))
+                                                        } else {
+                                                            Modifier.frostedCard(hazeState, RoundedCornerShape(12.dp), applyFallbackBackground = true)
+                                                        }
+                                                    ),
+                                                color = if (!hasBgImage) solidSurface else Color.Transparent,
                                                 tonalElevation = 8.dp
                                             ) {
                                                 Column(Modifier.fillMaxSize()) {
                                                     Row(
                                                         modifier = Modifier
                                                             .fillMaxWidth()
-                                                            .background(accentColor.copy(alpha = 0.16f))
+                                                            .background(accentColor.copy(alpha = 0.18f))
                                                             .padding(horizontal = 12.dp, vertical = 8.dp),
                                                         verticalAlignment = Alignment.CenterVertically
                                                     ) {
@@ -539,7 +583,7 @@ fun EditorRightPanel(
                                                     Text(
                                                         text = activeDrag.note.content.ifBlank { "(Empty note content)" },
                                                         fontSize = 11.sp,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
                                                         maxLines = 8,
                                                         overflow = TextOverflow.Ellipsis,
                                                         modifier = Modifier.padding(10.dp)
@@ -829,13 +873,23 @@ private fun SpatialDropZoneCard(
     isHighlighted: Boolean,
     accentColor  : Color,
 ) {
+    val solidSurface = LocalSolidSurface.current
+    val hasBgImage = localHasBgImage()
+    val hazeState = LocalHazeState.current
+
     val animatedBorderColor by animateColorAsState(
         targetValue = if (isHighlighted) accentColor else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
         animationSpec = tween(150),
         label = "SpatialDropZoneBorder"
     )
+    val zoneBgColor = when {
+        isHighlighted && !hasBgImage -> accentColor.copy(alpha = 0.18f)
+        isHighlighted && hasBgImage -> accentColor.copy(alpha = 0.28f)
+        !hasBgImage -> solidSurface.copy(alpha = 0.90f)
+        else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.22f)
+    }
     val animatedBgColor by animateColorAsState(
-        targetValue = if (isHighlighted) accentColor.copy(alpha = 0.28f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.22f),
+        targetValue = zoneBgColor,
         animationSpec = tween(150),
         label = "SpatialDropZoneBg"
     )
@@ -856,6 +910,10 @@ private fun SpatialDropZoneCard(
                 width = if (isHighlighted) 2.5.dp else 1.dp,
                 color = animatedBorderColor,
                 shape = RoundedCornerShape(14.dp)
+            )
+            .then(
+                if (hasBgImage) Modifier.frostedCard(hazeState, RoundedCornerShape(14.dp), applyFallbackBackground = false)
+                else Modifier
             ),
         color = animatedBgColor,
         shape = RoundedCornerShape(14.dp),
@@ -871,14 +929,14 @@ private fun SpatialDropZoneCard(
                 Icon(
                     imageVector = icon,
                     contentDescription = label,
-                    tint = if (isHighlighted) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    tint = if (isHighlighted) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     modifier = Modifier.size(28.dp)
                 )
                 Text(
                     text = label,
                     fontSize = 12.sp,
                     fontWeight = if (isHighlighted) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isHighlighted) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    color = if (isHighlighted) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                     textAlign = TextAlign.Center
                 )
             }
@@ -903,7 +961,7 @@ private fun PinnedNoteSlot(
     onPick              : () -> Unit,
     hazeState           : dev.chrisbanes.haze.HazeState,
     isDetached          : Boolean = false,
-    onStartDetachedDrag : ((note: Note, touchPos: Offset, size: androidx.compose.ui.geometry.Size) -> Unit)? = null,
+    onStartDetachedDrag : ((note: Note, touchPos: Offset, size: androidx.compose.ui.geometry.Size, slotPosInRoot: Offset) -> Unit)? = null,
     onDetachedDrag      : ((dx: Float, dy: Float) -> Unit)? = null,
     onEndDetachedDrag   : (() -> Unit)? = null,
     onCancelDetachedDrag: (() -> Unit)? = null,
@@ -916,15 +974,11 @@ private fun PinnedNoteSlot(
             }
     }
 
-    var slotSize by remember { mutableStateOf(androidx.compose.ui.geometry.Size.Zero) }
-    val registerBounds = LocalInteractiveBoundsRegistry.current
-    val boundsKey = remember(slotKey) { "pinned_note_slot_$slotKey" }
+    val solidSurface = LocalSolidSurface.current
+    val hasBgImage = localHasBgImage()
 
-    DisposableEffect(registerBounds, boundsKey) {
-        onDispose {
-            registerBounds?.invoke(boundsKey, null)
-        }
-    }
+    var slotSize by remember { mutableStateOf(androidx.compose.ui.geometry.Size.Zero) }
+    var slotPositionInRoot by remember { mutableStateOf(Offset.Zero) }
 
     Box(
         modifier = modifier
@@ -936,13 +990,16 @@ private fun PinnedNoteSlot(
                 scaleY = if (isDetached) 0.98f else 1f
             }
             .clip(RoundedCornerShape(12.dp))
-            .frostedCard(hazeState, RoundedCornerShape(12.dp), applyFallbackBackground = true)
+            .then(
+                if (!hasBgImage) Modifier.background(solidSurface, RoundedCornerShape(12.dp))
+                else Modifier.frostedCard(hazeState, RoundedCornerShape(12.dp), applyFallbackBackground = true)
+            )
             .onGloballyPositioned { layoutCoordinates ->
                 slotSize = androidx.compose.ui.geometry.Size(
                     layoutCoordinates.size.width.toFloat(),
                     layoutCoordinates.size.height.toFloat()
                 )
-                registerBounds?.invoke(boundsKey, layoutCoordinates.boundsInRoot())
+                slotPositionInRoot = layoutCoordinates.positionInRoot()
             }
     ) {
         if (currentNote == null) {
@@ -974,12 +1031,12 @@ private fun PinnedNoteSlot(
                             else Color.Transparent
                         )
                         .padding(start = 10.dp, end = 4.dp, top = 6.dp, bottom = 4.dp)
-                        .pointerInput(currentNote, slotSize, onStartDetachedDrag, onDetachedDrag, onEndDetachedDrag, onCancelDetachedDrag) {
+                        .pointerInput(currentNote, slotSize, slotPositionInRoot, onStartDetachedDrag, onDetachedDrag, onEndDetachedDrag, onCancelDetachedDrag) {
                             if (onStartDetachedDrag == null) return@pointerInput
                             detectDragGesturesAfterLongPress(
                                 onDragStart = { offset ->
                                     headerDragging = true
-                                    onStartDetachedDrag(currentNote, offset, slotSize)
+                                    onStartDetachedDrag(currentNote, offset, slotSize, slotPositionInRoot)
                                 },
                                 onDragEnd = {
                                     headerDragging = false
