@@ -419,7 +419,7 @@ fun EditorRightPanel(
                                     }
 
                                     // ── Spatial 4-Zone Glass Blueprint Dock Overlay ──
-                                    AnimatedVisibility(
+                                    androidx.compose.animation.AnimatedVisibility(
                                         visible = dragState != null,
                                         enter = fadeIn(tween(180, easing = FastOutSlowInEasing)),
                                         exit = fadeOut(tween(160, easing = FastOutSlowInEasing)),
@@ -917,12 +917,12 @@ private fun PinnedNoteSlot(
     }
 
     var slotSize by remember { mutableStateOf(androidx.compose.ui.geometry.Size.Zero) }
-    val boundsRegistry = LocalInteractiveBoundsRegistry.current
+    val registerBounds = LocalInteractiveBoundsRegistry.current
     val boundsKey = remember(slotKey) { "pinned_note_slot_$slotKey" }
 
-    DisposableEffect(boundsRegistry, boundsKey) {
+    DisposableEffect(registerBounds, boundsKey) {
         onDispose {
-            boundsRegistry?.unregisterBounds(boundsKey)
+            registerBounds?.invoke(boundsKey, null)
         }
     }
 
@@ -942,7 +942,7 @@ private fun PinnedNoteSlot(
                     layoutCoordinates.size.width.toFloat(),
                     layoutCoordinates.size.height.toFloat()
                 )
-                boundsRegistry?.registerBounds(boundsKey, layoutCoordinates.boundsInRoot())
+                registerBounds?.invoke(boundsKey, layoutCoordinates.boundsInRoot())
             }
     ) {
         if (currentNote == null) {
