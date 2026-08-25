@@ -44,6 +44,7 @@ import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.frostedPanel
 import dev.chrisbanes.haze.HazeState
 import io.github.rosemoe.sora.widget.CodeEditor
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -306,7 +307,9 @@ fun CompactEditorLayout(
                 
                 // Stop active animation immediately on touch down
                 runningAnimationJob?.cancel()
-                currentOffset.stop()
+                scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                    currentOffset.stop()
+                }
 
                 val velocityTracker = VelocityTracker()
                 velocityTracker.resetTracking()
@@ -466,7 +469,9 @@ fun CompactEditorLayout(
                                 val adjustedDx = totalDx - sign(totalDx) * touchSlop
                                 val proposed = startOffset + adjustedDx
                                 val clamped = calculateClampedOffset(proposed, activeSide, drawerWidthPx, panelWidthPx)
-                                currentOffset.snapTo(clamped)
+                                scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                                    currentOffset.snapTo(clamped)
+                                }
                             }
                         }
                     } else {
@@ -475,7 +480,9 @@ fun CompactEditorLayout(
                         val adjustedDx = totalDx - sign(totalDx) * touchSlop
                         val proposed = startOffset + adjustedDx
                         val clamped = calculateClampedOffset(proposed, activeSide, drawerWidthPx, panelWidthPx)
-                        currentOffset.snapTo(clamped)
+                        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                            currentOffset.snapTo(clamped)
+                        }
                     }
                 }
             }
