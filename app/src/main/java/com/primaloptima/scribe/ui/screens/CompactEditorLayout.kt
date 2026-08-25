@@ -77,10 +77,12 @@ private fun isTouchOnSelectionHandle(editor: CodeEditor?, touchX: Float, touchY:
             val bulbCenterX = anchorX + bulbOffsetX
 
             // 1. Check Euclidean distance from teardrop bulb center (covers full circular bulb + finger pad)
-            val bulbRadius = 42f * density
+            // Bulb hangs BELOW the anchor, so only count touches at or below the anchor Y
+            val bulbRadius = 24f * density
             val dxBulb = touchX - bulbCenterX
             val dyBulb = touchY - bulbCenterY
-            if ((dxBulb * dxBulb + dyBulb * dyBulb) <= (bulbRadius * bulbRadius)) {
+            if (touchY >= anchorY &&
+                (dxBulb * dxBulb + dyBulb * dyBulb) <= (bulbRadius * bulbRadius)) {
                 return true
             }
 
@@ -428,11 +430,11 @@ fun CompactEditorLayout(
                             continue
                         }
                         if (absX > touchSlop || absY > touchSlop) {
-                            if (absY > absX * 1.15f || absX < touchSlop) {
+                            if (absY > absX * 1.05f) {
                                 // Dominantly vertical movement -> yield to editor or list vertical scrolling
                                 isDisallowed = true
-                            } else if (absX > touchSlop && absX > absY * 1.15f) {
-                                // Dominantly horizontal movement -> engage drawer drag
+                            } else if (absX >= touchSlop) {
+                                // Horizontal movement wins -> engage drawer drag immediately
                                 isDragging = true
                                 pointerChange.consume()
 
@@ -446,18 +448,17 @@ fun CompactEditorLayout(
                                     currentSoraEditorRef?.hideSoftInput()
                                 } catch (_: Exception) { }
 
-                                // 1: Subtract touch slop and immediately update offset on the first frame (zero latency)
-                                val adjustedDx = totalDx - sign(totalDx) * touchSlop
-                                val proposed = startOffset + adjustedDx
+                                // Subtract only the slop distance so the drawer starts from where the finger
+                                // first crossed the threshold, not from however far it accumulated during delay
+                                val proposed = startOffset + sign(totalDx) * (absX - touchSlop)
                                 val clamped = calculateClampedOffset(proposed, activeSide, drawerWidthPx, panelWidthPx)
                                 scope.launch { currentOffset.snapTo(clamped) }
                             }
                         }
                     } else {
                         pointerChange.consume()
-                        // 1: Subtract touch slop so drawer moves continuously from 0px without pop/jump
-                        val adjustedDx = totalDx - sign(totalDx) * touchSlop
-                        val proposed = startOffset + adjustedDx
+                        // Each frame: move exactly as far as the finger has moved past the initial slop
+                        val proposed = startOffset + sign(totalDx) * (absX - touchSlop)
                         val clamped = calculateClampedOffset(proposed, activeSide, drawerWidthPx, panelWidthPx)
                         scope.launch { currentOffset.snapTo(clamped) }
                     }
