@@ -53,50 +53,94 @@ import kotlin.math.sign
 private fun isTouchOnSelectionHandle(editor: CodeEditor?, touchX: Float, touchY: Float, density: Float): Boolean {
     if (editor == null) return false
     return try {
-        val cursor = editor.cursor
-        if (!cursor.isSelected) return false
-
-        // Fetch layout & scroll offsets
+        val cursor = editor.cursor ?: return false
         val layout = editor.layout ?: return false
         val textRegionOffset = editor.measureTextRegionOffset()
         val scrollX = editor.offsetX.toFloat()
         val scrollY = editor.offsetY.toFloat()
         val rowHeight = editor.rowHeight.toFloat()
 
-        // Handle hit radius: ~42dp converted to px
-        val hitRadius = 42f * density
+        /**
+         * Checks if (touchX, touchY) hits a handle anchored at (anchorX, anchorY).
+         * @param handleType -1 for Left/Start handle (teardrop hangs left),
+         *                    1 for Right/End handle (teardrop hangs right),
+         *                    0 for Insertion handle (teardrop centered below cursor)
+         */
+        fun checkHandleHit(anchorX: Float, anchorY: Float, handleType: Int): Boolean {
+            // Teardrop bulb center offset relative to the anchor tip
+            val bulbOffsetX = when (handleType) {
+                -1 -> -16f * density // Bulb hangs down-left
+                1 -> 16f * density  // Bulb hangs down-right
+                else -> 0f          // Bulb hangs directly down
+            }
+            val bulbCenterY = anchorY + (18f * density)
+            val bulbCenterX = anchorX + bulbOffsetX
 
-        // Left Handle (Start Selection Handle)
-        val leftLine = cursor.leftLine
-        val leftCol = cursor.leftColumn
-        val leftOffset = layout.getCharLayoutOffset(leftLine, leftCol)
-        if (leftOffset != null && leftOffset.size >= 2) {
-            val leftCharX = leftOffset[1] + textRegionOffset - scrollX
-            val leftCharY = leftOffset[0] - scrollY
-            val leftHandleCenterX = leftCharX
-            val leftHandleCenterY = leftCharY + rowHeight + (16f * density)
-
-            val dx = touchX - leftHandleCenterX
-            val dy = touchY - leftHandleCenterY
-            if ((dx * dx + dy * dy) <= (hitRadius * hitRadius)) {
+            // 1. Check Euclidean distance from teardrop bulb center (covers full circular bulb + finger pad)
+            val bulbRadius = 42f * density
+            val dxBulb = touchX - bulbCenterX
+            val dyBulb = touchY - bulbCenterY
+            if ((dxBulb * dxBulb + dyBulb * dyBulb) <= (bulbRadius * bulbRadius)) {
                 return true
             }
+
+            // 2. Check Euclidean distance from anchor tip and cursor baseline
+            val anchorRadius = 32f * density
+            val dxAnchor = touchX - anchorX
+            val dyAnchor = touchY - anchorY
+            if ((dxAnchor * dxAnchor + dyAnchor * dyAnchor) <= (anchorRadius * anchorRadius)) {
+                return true
+            }
+
+            // 3. Check composite rectangular bounding box with generous touch padding
+            val minX = when (handleType) {
+                -1 -> anchorX - (52f * density)
+                1 -> anchorX - (24f * density)
+                else -> anchorX - (38f * density)
+            }
+            val maxX = when (handleType) {
+                -1 -> anchorX + (24f * density)
+                1 -> anchorX + (52f * density)
+                else -> anchorX + (38f * density)
+            }
+            val minY = anchorY - rowHeight - (8f * density)
+            val maxY = anchorY + (56f * density)
+
+            return touchX in minX..maxX && touchY in minY..maxY
         }
 
-        // Right Handle (End Selection Handle)
-        val rightLine = cursor.rightLine
-        val rightCol = cursor.rightColumn
-        val rightOffset = layout.getCharLayoutOffset(rightLine, rightCol)
-        if (rightOffset != null && rightOffset.size >= 2) {
-            val rightCharX = rightOffset[1] + textRegionOffset - scrollX
-            val rightCharY = rightOffset[0] - scrollY
-            val rightHandleCenterX = rightCharX
-            val rightHandleCenterY = rightCharY + rowHeight + (16f * density)
+        if (cursor.isSelected) {
+            // Left Handle (Start Selection Handle)
+            val leftOffset = layout.getCharLayoutOffset(cursor.leftLine, cursor.leftColumn)
+            if (leftOffset != null && leftOffset.size >= 2) {
+                val leftCharX = leftOffset[1] + textRegionOffset - scrollX
+                val leftCharY = leftOffset[0] - scrollY
+                val anchorY = leftCharY + rowHeight
+                if (checkHandleHit(leftCharX, anchorY, handleType = -1)) {
+                    return true
+                }
+            }
 
-            val dx = touchX - rightHandleCenterX
-            val dy = touchY - rightHandleCenterY
-            if ((dx * dx + dy * dy) <= (hitRadius * hitRadius)) {
-                return true
+            // Right Handle (End Selection Handle)
+            val rightOffset = layout.getCharLayoutOffset(cursor.rightLine, cursor.rightColumn)
+            if (rightOffset != null && rightOffset.size >= 2) {
+                val rightCharX = rightOffset[1] + textRegionOffset - scrollX
+                val rightCharY = rightOffset[0] - scrollY
+                val anchorY = rightCharY + rowHeight
+                if (checkHandleHit(rightCharX, anchorY, handleType = 1)) {
+                    return true
+                }
+            }
+        } else {
+            // Insertion Handle (Single Cursor)
+            val curOffset = layout.getCharLayoutOffset(cursor.leftLine, cursor.leftColumn)
+            if (curOffset != null && curOffset.size >= 2) {
+                val curCharX = curOffset[1] + textRegionOffset - scrollX
+                val curCharY = curOffset[0] - scrollY
+                val anchorY = curCharY + rowHeight
+                if (checkHandleHit(curCharX, anchorY, handleType = 0)) {
+                    return true
+                }
             }
         }
 
@@ -375,6 +419,10 @@ fun CompactEditorLayout(
                     val absY = abs(totalDy)
 
                     if (!isDragging) {
+                        if (currentIsHandleDragging) {
+                            isDisallowed = true
+                            continue
+                        }
                         if (absX > touchSlop || absY > touchSlop) {
                             if (absY > absX * 1.15f || absX < touchSlop) {
                                 // Dominantly vertical movement -> yield to editor or list vertical scrolling
