@@ -84,15 +84,15 @@ private fun isTouchOnSelectionHandle(editor: CodeEditor?, touchX: Float, touchY:
         fun checkHandleHit(anchorX: Float, anchorY: Float, handleType: Int): Boolean {
             // Teardrop bulb center offset relative to the anchor tip
             val bulbOffsetX = when (handleType) {
-                -1 -> -14f * density // Bulb hangs down-left
-                1 -> 14f * density  // Bulb hangs down-right
+                -1 -> -9f * density  // Bulb hangs down-left
+                1 -> 9f * density   // Bulb hangs down-right
                 else -> 0f          // Bulb hangs directly down
             }
-            val bulbCenterY = anchorY + (16f * density)
+            val bulbCenterY = anchorY + (9f * density)
             val bulbCenterX = anchorX + bulbOffsetX
 
-            // 1. Euclidean distance from teardrop bulb center (covers circular bulb + comfortable touch pad)
-            val bulbRadius = 28f * density
+            // 1. Euclidean distance from teardrop bulb center (tight 14dp radius strictly covering the teardrop handle)
+            val bulbRadius = 14f * density
             val dxBulb = editorTouchX - bulbCenterX
             val dyBulb = editorTouchY - bulbCenterY
             if ((dxBulb * dxBulb + dyBulb * dyBulb) <= (bulbRadius * bulbRadius)) {
@@ -100,28 +100,28 @@ private fun isTouchOnSelectionHandle(editor: CodeEditor?, touchX: Float, touchY:
             }
 
             // 2. Euclidean distance around the anchor tip (bottom of the character)
-            val anchorRadius = 14f * density
+            val anchorRadius = 8f * density
             val dxAnchor = editorTouchX - anchorX
             val dyAnchor = editorTouchY - anchorY
             // Only consider downward/anchor-level touches, never upwards into text lines
-            if (dyAnchor >= -4f * density && (dxAnchor * dxAnchor + dyAnchor * dyAnchor) <= (anchorRadius * anchorRadius)) {
+            if (dyAnchor >= -2f * density && (dxAnchor * dxAnchor + dyAnchor * dyAnchor) <= (anchorRadius * anchorRadius)) {
                 return true
             }
 
-            // 3. Precise bounding box strictly covering the teardrop below the line
+            // 3. Compact bounding box strictly covering the teardrop handle (under 1 line height)
             val minX = when (handleType) {
-                -1 -> anchorX - (36f * density)
-                1 -> anchorX - (10f * density)
-                else -> anchorX - (22f * density)
+                -1 -> anchorX - (20f * density)
+                1 -> anchorX - (4f * density)
+                else -> anchorX - (10f * density)
             }
             val maxX = when (handleType) {
-                -1 -> anchorX + (10f * density)
-                1 -> anchorX + (36f * density)
-                else -> anchorX + (22f * density)
+                -1 -> anchorX + (4f * density)
+                1 -> anchorX + (20f * density)
+                else -> anchorX + (10f * density)
             }
-            // minY starts right at baseline with 4dp tolerance (NEVER multiple lines above)
-            val minY = anchorY - (4f * density)
-            val maxY = anchorY + (42f * density)
+            // minY starts at baseline (-2dp), maxY stays strictly within 18dp below baseline (never reaching 2 lines below)
+            val minY = anchorY - (2f * density)
+            val maxY = anchorY + (18f * density)
 
             return editorTouchX in minX..maxX && editorTouchY in minY..maxY
         }
