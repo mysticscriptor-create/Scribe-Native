@@ -86,18 +86,16 @@ private fun isTouchOnSelectionHandle(editor: CodeEditor?, touchX: Float, touchY:
                 return true
             }
 
-            // 2. Check Euclidean distance from anchor tip and cursor baseline
-            // Radius only goes slightly above the anchor tip, not multiple lines up
+            // 2. Check anchor tip — only touches AT or below the anchor line
             val anchorRadius = 18f * density
             val dxAnchor = touchX - anchorX
             val dyAnchor = touchY - anchorY
-            // Only count hits that are at or below the anchor tip (downward half)
-            if (dyAnchor >= -(anchorRadius * 0.3f) &&
+            if (dyAnchor >= 0f &&
                 (dxAnchor * dxAnchor + dyAnchor * dyAnchor) <= (anchorRadius * anchorRadius)) {
                 return true
             }
 
-            // 3. Check composite rectangular bounding box with generous touch padding
+            // 3. Tight bounding box — starts exactly at the anchor line, never above it
             val minX = when (handleType) {
                 -1 -> anchorX - (52f * density)
                 1 -> anchorX - (24f * density)
@@ -108,8 +106,7 @@ private fun isTouchOnSelectionHandle(editor: CodeEditor?, touchX: Float, touchY:
                 1 -> anchorX + (52f * density)
                 else -> anchorX + (38f * density)
             }
-            // Only reach slightly above the anchor tip, not a full row height above
-            val minY = anchorY - (6f * density)
+            val minY = anchorY  // never above the anchor tip
             val maxY = anchorY + (56f * density)
 
             return touchX in minX..maxX && touchY in minY..maxY
