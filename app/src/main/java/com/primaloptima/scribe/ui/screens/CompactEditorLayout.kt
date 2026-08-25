@@ -44,6 +44,7 @@ import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.frostedPanel
 import dev.chrisbanes.haze.HazeState
 import io.github.rosemoe.sora.widget.CodeEditor
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -303,9 +304,9 @@ fun CompactEditorLayout(
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 
-                // Stop active animation when a new pointer goes down to allow seamless mid-flight touch catch
+                // Stop active animation immediately on touch down
                 runningAnimationJob?.cancel()
-                scope.launch { currentOffset.stop() }
+                currentOffset.stop()
 
                 val velocityTracker = VelocityTracker()
                 velocityTracker.resetTracking()
@@ -453,17 +454,19 @@ fun CompactEditorLayout(
                                     activeSide = if (totalDx > 0f) ActiveDrawerSide.LEFT_DRAWER else ActiveDrawerSide.RIGHT_PANEL
                                 }
 
-                                // Close soft keyboard on swipe while preserving text selection in Sora Editor
-                                keyboardController?.hide()
-                                try {
-                                    currentSoraEditorRef?.hideSoftInput()
-                                } catch (_: Exception) { }
+                                // Close soft keyboard asynchronously without blocking frame execution
+                                scope.launch(Dispatchers.Main) {
+                                    keyboardController?.hide()
+                                    try {
+                                        currentSoraEditorRef?.hideSoftInput()
+                                    } catch (_: Exception) { }
+                                }
 
-                                // 1: Subtract touch slop and immediately update offset on the first frame (zero latency)
+                                // 1: Subtract touch slop and immediately update offset synchronously on the first frame
                                 val adjustedDx = totalDx - sign(totalDx) * touchSlop
                                 val proposed = startOffset + adjustedDx
                                 val clamped = calculateClampedOffset(proposed, activeSide, drawerWidthPx, panelWidthPx)
-                                scope.launch { currentOffset.snapTo(clamped) }
+                                currentOffset.snapTo(clamped)
                             }
                         }
                     } else {
@@ -472,7 +475,7 @@ fun CompactEditorLayout(
                         val adjustedDx = totalDx - sign(totalDx) * touchSlop
                         val proposed = startOffset + adjustedDx
                         val clamped = calculateClampedOffset(proposed, activeSide, drawerWidthPx, panelWidthPx)
-                        scope.launch { currentOffset.snapTo(clamped) }
+                        currentOffset.snapTo(clamped)
                     }
                 }
             }
@@ -548,52 +551,52 @@ fun CompactEditorLayout(
                 }
 
                 // ── Layer 3: Left Drawer (Slides in from Left, Zero-Gap Anchored with Full-Height Elastic Stretch) ────
-                if (currentOffset.value > 0.5f) {
-                    val overdragPx = (currentOffset.value - drawerWidthPx).coerceAtLeast(0f)
-                    val stretchScaleX = 1f + (overdragPx / drawerWidthPx) * 0.12f
+                val isLeftDrawerVisible = currentOffset.value > 0.1f
+                val leftOverdragPx = (currentOffset.value - drawerWidthPx).coerceAtLeast(0f)
+                val leftStretchScaleX = 1f + (leftOverdragPx / drawerWidthPx) * 0.12f
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .width(drawerWidthDp)
-                            .graphicsLayer {
-                                // Background/container strictly anchored to left edge (Zero gaps)
-                                translationX = (-drawerWidthPx + currentOffset.value).coerceAtMost(0f)
-                                // Full-height (including status bar) tactile rubber-band elastic stretch
-                                transformOrigin = TransformOrigin(0f, 0.5f)
-                                scaleX = stretchScaleX
-                            }
-                    ) {
-                        leftDrawerContent {
-                            scope.launch {
-                                currentOffset.animateTo(0f, closeSpringSpec)
-                                currentOffset.snapTo(0f)
-                            }
+                Box(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(drawerWidthDp)
+                        .graphicsLayer {
+                            // Background/container strictly anchored to left edge (Zero gaps)
+                            translationX = (-drawerWidthPx + currentOffset.value).coerceAtMost(0f)
+                            // Full-height (including status bar) tactile rubber-band elastic stretch
+                            transformOrigin = TransformOrigin(0f, 0.5f)
+                            scaleX = leftStretchScaleX
+                            alpha = if (isLeftDrawerVisible) 1f else 0f
+                        }
+                ) {
+                    leftDrawerContent {
+                        scope.launch {
+                            currentOffset.animateTo(0f, closeSpringSpec)
+                            currentOffset.snapTo(0f)
                         }
                     }
                 }
 
                 // ── Layer 4: Right Panel (Slides in from Right, Zero-Gap Anchored with Full-Height Elastic Stretch) ───
-                if (currentOffset.value < -0.5f) {
-                    val overdragPx = (-panelWidthPx - currentOffset.value).coerceAtLeast(0f)
-                    val stretchScaleX = 1f + (overdragPx / panelWidthPx) * 0.12f
+                val isRightPanelVisible = currentOffset.value < -0.1f
+                val rightOverdragPx = (-panelWidthPx - currentOffset.value).coerceAtLeast(0f)
+                val rightStretchScaleX = 1f + (rightOverdragPx / panelWidthPx) * 0.12f
 
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                // Background/container strictly anchored to right edge (Zero gaps)
-                                translationX = (screenWidthPx + currentOffset.value).coerceAtLeast(0f)
-                                // Full-height (including status bar) tactile rubber-band elastic stretch
-                                transformOrigin = TransformOrigin(1f, 0.5f)
-                                scaleX = stretchScaleX
-                            }
-                    ) {
-                        rightPanelContent {
-                            scope.launch {
-                                currentOffset.animateTo(0f, closeSpringSpec)
-                                currentOffset.snapTo(0f)
-                            }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            // Background/container strictly anchored to right edge (Zero gaps)
+                            translationX = (screenWidthPx + currentOffset.value).coerceAtLeast(0f)
+                            // Full-height (including status bar) tactile rubber-band elastic stretch
+                            transformOrigin = TransformOrigin(1f, 0.5f)
+                            scaleX = rightStretchScaleX
+                            alpha = if (isRightPanelVisible) 1f else 0f
+                        }
+                ) {
+                    rightPanelContent {
+                        scope.launch {
+                            currentOffset.animateTo(0f, closeSpringSpec)
+                            currentOffset.snapTo(0f)
                         }
                     }
                 }
