@@ -26,6 +26,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -48,6 +49,10 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.exp
 import kotlin.math.sign
+
+val LocalInteractiveBoundsRegistry = androidx.compose.runtime.compositionLocalOf<(key: String, bounds: Rect?) -> Unit> {
+    { _, _ -> }
+}
 
 private enum class ActiveDrawerSide {
     NONE,
@@ -161,6 +166,16 @@ fun CompactEditorLayout(
 
         // ── Unified 3-Pane Gesture Engine ─────────────────────────────────────
         val currentSoraEditorRef by rememberUpdatedState(soraEditorRef)
+        val interactiveBoundsMap = remember { androidx.compose.runtime.mutableStateMapOf<String, Rect>() }
+        val registerBounds: (String, Rect?) -> Unit = remember {
+            { key, bounds ->
+                if (bounds != null) {
+                    interactiveBoundsMap[key] = bounds
+                } else {
+                    interactiveBoundsMap.remove(key)
+                }
+            }
+        }
 
         val gestureModifier = Modifier.pointerInput(drawerWidthPx, panelWidthPx) {
             val touchSlop = viewConfiguration.touchSlop
@@ -179,6 +194,18 @@ fun CompactEditorLayout(
 
                 var isDragging = false
                 var isDisallowed = false
+
+                val isInsideInteractiveArea = interactiveBoundsMap.values.any { rect ->
+                    rect.contains(down.position)
+                }
+                val isTextSelected = try {
+                    currentSoraEditorRef?.cursor?.isSelected == true
+                } catch (_: Exception) { false }
+
+                if (isInsideInteractiveArea || isTextSelected) {
+                    isDisallowed = true
+                }
+
                 var totalDx = 0f
                 var totalDy = 0f
                 val startOffset = currentOffset.value
@@ -325,129 +352,115 @@ fun CompactEditorLayout(
             }
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(gestureModifier)
+        CompositionLocalProvider(
+            LocalInteractiveBoundsRegistry provides registerBounds
         ) {
-            // ── Layer 1: Editor Main Pane (Fixed Width = 100% stable, zero reflow) ──
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        translationX = currentOffset.value * 0.18f
-                    }
+                    .then(gestureModifier)
             ) {
-                editorContent(
-                    {
-                        scope.launch {
-                            if (currentOffset.value > drawerWidthPx * 0.5f) {
-                                currentOffset.animateTo(0f, closeSpringSpec)
-                                currentOffset.snapTo(0f)
-                            } else {
-                                focusManager.clearFocus(force = true)
-                                keyboardController?.hide()
-                                try { currentSoraEditorRef?.hideSoftInput() } catch (_: Exception) { }
-                                currentOffset.animateTo(drawerWidthPx, openSpringSpec)
-                            }
-                        }
-                    },
-                    {
-                        scope.launch {
-                            if (currentOffset.value < -panelWidthPx * 0.5f) {
-                                currentOffset.animateTo(0f, closeSpringSpec)
-                                currentOffset.snapTo(0f)
-                            } else {
-                                focusManager.clearFocus(force = true)
-                                keyboardController?.hide()
-                                try { currentSoraEditorRef?.hideSoftInput() } catch (_: Exception) { }
-                                currentOffset.animateTo(-panelWidthPx, openSpringSpec)
-                            }
-                        }
-                    },
-                    isLeftDrawerOpen
-                )
-            }
-
-            // ── Layer 2: Dim / Scrim Backdrop Overlay ─────────────────────────
-            val scrimAlpha = when {
-                currentOffset.value > 0f -> (currentOffset.value / drawerWidthPx).coerceIn(0f, 1f) * 0.45f
-                currentOffset.value < 0f -> (abs(currentOffset.value) / panelWidthPx).coerceIn(0f, 1f) * 0.45f
-                else -> 0f
-            }
-            if (scrimAlpha > 0.001f) {
+                // ── Layer 1: Editor Main Pane (Fixed Width = 100% stable, zero reflow) ──
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .graphicsLayer { alpha = scrimAlpha }
-                        .background(Color.Black)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            scope.launch {
-                                currentOffset.animateTo(0f, closeSpringSpec)
-                                currentOffset.snapTo(0f)
-                            }
-                        }
-                )
-            }
-
-            // ── Layer 3: Left Drawer (Slides in from Left, Zero-Gap Anchored with Elastic Stretch) ────
-            if (currentOffset.value > 0.5f) {
-                val overdragPx = (currentOffset.value - drawerWidthPx).coerceAtLeast(0f)
-                val stretchScaleX = 1f + (overdragPx / drawerWidthPx) * 0.12f
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .width(drawerWidthDp)
                         .graphicsLayer {
-                            // Background/container strictly anchored to left edge (Zero gaps)
-                            translationX = (-drawerWidthPx + currentOffset.value).coerceAtMost(0f)
+                            translationX = currentOffset.value * 0.18f
                         }
                 ) {
-                    CompositionLocalProvider(LocalOneShotBitmap provides LocalBarBlurBitmap.current) {
-                        ModalDrawerSheet(
-                            drawerContainerColor = Color.Transparent,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .frostedPanel(hazeState)
-                                .graphicsLayer {
-                                    // 3: Tactile rubber-band content stretch anchored to left edge
-                                    transformOrigin = TransformOrigin(0f, 0.5f)
-                                    scaleX = stretchScaleX
+                    editorContent(
+                        {
+                            scope.launch {
+                                if (currentOffset.value > drawerWidthPx * 0.5f) {
+                                    currentOffset.animateTo(0f, closeSpringSpec)
+                                    currentOffset.snapTo(0f)
+                                } else {
+                                    focusManager.clearFocus(force = true)
+                                    keyboardController?.hide()
+                                    try { currentSoraEditorRef?.hideSoftInput() } catch (_: Exception) { }
+                                    currentOffset.animateTo(drawerWidthPx, openSpringSpec)
                                 }
-                        ) {
-                            leftDrawerContent {
+                            }
+                        },
+                        {
+                            scope.launch {
+                                if (currentOffset.value < -panelWidthPx * 0.5f) {
+                                    currentOffset.animateTo(0f, closeSpringSpec)
+                                    currentOffset.snapTo(0f)
+                                } else {
+                                    focusManager.clearFocus(force = true)
+                                    keyboardController?.hide()
+                                    try { currentSoraEditorRef?.hideSoftInput() } catch (_: Exception) { }
+                                    currentOffset.animateTo(-panelWidthPx, openSpringSpec)
+                                }
+                            }
+                        },
+                        isLeftDrawerOpen
+                    )
+                }
+
+                // ── Layer 2: Dim / Scrim Backdrop Overlay ─────────────────────────
+                val scrimAlpha = when {
+                    currentOffset.value > 0f -> (currentOffset.value / drawerWidthPx).coerceIn(0f, 1f) * 0.45f
+                    currentOffset.value < 0f -> (abs(currentOffset.value) / panelWidthPx).coerceIn(0f, 1f) * 0.45f
+                    else -> 0f
+                }
+                if (scrimAlpha > 0.001f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer { alpha = scrimAlpha }
+                            .background(Color.Black)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
                                 scope.launch {
                                     currentOffset.animateTo(0f, closeSpringSpec)
                                     currentOffset.snapTo(0f)
                                 }
                             }
+                    )
+                }
+
+                // ── Layer 3: Left Drawer (Slides in from Left, Zero-Gap Anchored with Full-Height Elastic Stretch) ────
+                if (currentOffset.value > 0.5f) {
+                    val overdragPx = (currentOffset.value - drawerWidthPx).coerceAtLeast(0f)
+                    val stretchScaleX = 1f + (overdragPx / drawerWidthPx) * 0.12f
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(drawerWidthDp)
+                            .graphicsLayer {
+                                // Background/container strictly anchored to left edge (Zero gaps)
+                                translationX = (-drawerWidthPx + currentOffset.value).coerceAtMost(0f)
+                                // Full-height (including status bar) tactile rubber-band elastic stretch
+                                transformOrigin = TransformOrigin(0f, 0.5f)
+                                scaleX = stretchScaleX
+                            }
+                    ) {
+                        leftDrawerContent {
+                            scope.launch {
+                                currentOffset.animateTo(0f, closeSpringSpec)
+                                currentOffset.snapTo(0f)
+                            }
                         }
                     }
                 }
-            }
 
-            // ── Layer 4: Right Panel (Slides in from Right, Zero-Gap Anchored with Elastic Stretch) ───
-            if (currentOffset.value < -0.5f) {
-                val overdragPx = (-panelWidthPx - currentOffset.value).coerceAtLeast(0f)
-                val stretchScaleX = 1f + (overdragPx / panelWidthPx) * 0.12f
+                // ── Layer 4: Right Panel (Slides in from Right, Zero-Gap Anchored with Full-Height Elastic Stretch) ───
+                if (currentOffset.value < -0.5f) {
+                    val overdragPx = (-panelWidthPx - currentOffset.value).coerceAtLeast(0f)
+                    val stretchScaleX = 1f + (overdragPx / panelWidthPx) * 0.12f
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            // Background/container strictly anchored to right edge (Zero gaps)
-                            translationX = (screenWidthPx + currentOffset.value).coerceAtLeast(0f)
-                        }
-                ) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
-                                // 3: Tactile rubber-band content stretch anchored to right edge
+                                // Background/container strictly anchored to right edge (Zero gaps)
+                                translationX = (screenWidthPx + currentOffset.value).coerceAtLeast(0f)
+                                // Full-height (including status bar) tactile rubber-band elastic stretch
                                 transformOrigin = TransformOrigin(1f, 0.5f)
                                 scaleX = stretchScaleX
                             }

@@ -103,10 +103,13 @@ fun EditorRightPanel(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .safeDrawingPadding()
                 .frostedPanel(hazeState)
         ) {
-            Column(Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .navigationBarsPadding()
+            ) {
 
                 if (!tabBarAtBottom) {
                     TopAppBar(
@@ -130,6 +133,8 @@ fun EditorRightPanel(
                             }
                         }
                     )
+                } else {
+                    Spacer(Modifier.statusBarsPadding())
                 }
 
                 Box(Modifier.weight(1f).fillMaxWidth()) {

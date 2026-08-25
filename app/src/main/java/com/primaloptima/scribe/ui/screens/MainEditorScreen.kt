@@ -39,6 +39,8 @@ import android.graphics.Bitmap
 import android.os.Build
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.Constraints
 import com.primaloptima.scribe.ui.theme.LocalBarBlurBitmap
 import com.primaloptima.scribe.ui.theme.LocalHazeState
@@ -388,6 +390,11 @@ fun MainEditorScreen(
                 },
                 bottomBar = {
                                 CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
+                                    val registerBounds = LocalInteractiveBoundsRegistry.current
+                                    DisposableEffect(isKeyboardVisible) {
+                                        onDispose { registerBounds("shortcut_bar", null) }
+                                    }
+
                                     AnimatedVisibility(
                                         visible = isKeyboardVisible,
                                         enter   = slideInVertically(initialOffsetY = { it }),
@@ -398,6 +405,11 @@ fun MainEditorScreen(
                                                 .fillMaxWidth()
                                                 .frostedBar(hazeState)
                                                 .imePadding()
+                                                .onGloballyPositioned { coords ->
+                                                    if (isKeyboardVisible) {
+                                                        registerBounds("shortcut_bar", coords.boundsInRoot())
+                                                    }
+                                                }
                                                 .horizontalScroll(rememberScrollState())
                                                 .padding(horizontal = 8.dp, vertical = 6.dp),
                                             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -910,10 +922,18 @@ private fun WordCountPill(
     isPositiveDelta : Boolean,
     hazeState       : dev.chrisbanes.haze.HazeState?,
 ) {
+    val registerBounds = LocalInteractiveBoundsRegistry.current
+    DisposableEffect(Unit) {
+        onDispose { registerBounds("word_count_pill", null) }
+    }
+
     Box(
         modifier = modifier
             .offset { IntOffset(pillOffsetX.roundToInt(), pillOffsetY.roundToInt()) }
             .padding(12.dp)
+            .onGloballyPositioned { coords ->
+                registerBounds("word_count_pill", coords.boundsInRoot())
+            }
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             AnimatedVisibility(

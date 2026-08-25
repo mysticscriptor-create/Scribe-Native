@@ -16,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -24,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.ui.screens.LocalInteractiveBoundsRegistry
 import com.primaloptima.scribe.ui.theme.ScribeColorScheme
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.FloatingWindow
@@ -68,6 +71,11 @@ private fun FloatingWindowItem(
     onToggleCollapse: () -> Unit,
     onMove: (Float, Float) -> Unit
 ) {
+    val registerBounds = LocalInteractiveBoundsRegistry.current
+    DisposableEffect(windowState.id) {
+        onDispose { registerBounds("floating_window_${windowState.id}", null) }
+    }
+
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
 
@@ -85,7 +93,10 @@ private fun FloatingWindowItem(
             .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
             .width(windowWidthDp)
             .shadow(12.dp, RoundedCornerShape(12.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp)),
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+            .onGloballyPositioned { coords ->
+                registerBounds("floating_window_${windowState.id}", coords.boundsInRoot())
+            },
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surface
     ) {
