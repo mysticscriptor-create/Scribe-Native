@@ -85,10 +85,13 @@ private fun isTouchOnSelectionHandle(editor: CodeEditor?, touchX: Float, touchY:
             }
 
             // 2. Check Euclidean distance from anchor tip and cursor baseline
-            val anchorRadius = 32f * density
+            // Radius only goes slightly above the anchor tip, not multiple lines up
+            val anchorRadius = 18f * density
             val dxAnchor = touchX - anchorX
             val dyAnchor = touchY - anchorY
-            if ((dxAnchor * dxAnchor + dyAnchor * dyAnchor) <= (anchorRadius * anchorRadius)) {
+            // Only count hits that are at or below the anchor tip (downward half)
+            if (dyAnchor >= -(anchorRadius * 0.3f) &&
+                (dxAnchor * dxAnchor + dyAnchor * dyAnchor) <= (anchorRadius * anchorRadius)) {
                 return true
             }
 
@@ -103,7 +106,8 @@ private fun isTouchOnSelectionHandle(editor: CodeEditor?, touchX: Float, touchY:
                 1 -> anchorX + (52f * density)
                 else -> anchorX + (38f * density)
             }
-            val minY = anchorY - rowHeight - (8f * density)
+            // Only reach slightly above the anchor tip, not a full row height above
+            val minY = anchorY - (6f * density)
             val maxY = anchorY + (56f * density)
 
             return touchX in minX..maxX && touchY in minY..maxY
