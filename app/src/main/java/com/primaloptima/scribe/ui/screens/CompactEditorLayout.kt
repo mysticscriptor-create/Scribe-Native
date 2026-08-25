@@ -261,7 +261,7 @@ fun CompactEditorLayout(
                     editor = currentSoraEditorRef,
                     touchX = down.position.x,
                     touchY = down.position.y,
-                    density = density
+                    density = density.density
                 )
 
                 if (isInsideInteractiveArea || currentIsHandleDragging || isHittingSelectionHandle) {
