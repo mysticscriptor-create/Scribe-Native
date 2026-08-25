@@ -201,9 +201,9 @@ fun EditorRightPanel(
                                 var containerPositionInRoot by remember { mutableStateOf(Offset.Zero) }
                                 var pinnedContainerBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
 
-                                // Lock swipe navigation whenever pinned notes panel is displayed or dragging
-                                DisposableEffect(pinnedContainerBounds) {
-                                    if (pinnedContainerBounds != null) {
+                                // Lock swipe navigation ONLY when a pinned note is actively detached and dragging
+                                DisposableEffect(dragState != null, pinnedContainerBounds) {
+                                    if (dragState != null && pinnedContainerBounds != null) {
                                         registerBounds?.invoke("pinned_notes_detached_drag", pinnedContainerBounds)
                                     }
                                     onDispose {
@@ -219,16 +219,10 @@ fun EditorRightPanel(
                                     val relX = (touchX / containerWidthPx).coerceIn(0f, 1f)
                                     val relY = (touchY / containerHeightPx).coerceIn(0f, 1f)
 
-                                    val distTop = relY
-                                    val distBottom = 1f - relY
-                                    val distLeft = relX
-                                    val distRight = 1f - relX
-
-                                    val minDist = minOf(distTop, distBottom, distLeft, distRight)
-                                    return when (minDist) {
-                                        distTop -> SpatialDropZone.TOP
-                                        distBottom -> SpatialDropZone.BOTTOM
-                                        distLeft -> SpatialDropZone.LEFT
+                                    return when {
+                                        relY < 0.28f -> SpatialDropZone.TOP
+                                        relY > 0.72f -> SpatialDropZone.BOTTOM
+                                        relX < 0.50f -> SpatialDropZone.LEFT
                                         else -> SpatialDropZone.RIGHT
                                     }
                                 }
@@ -464,51 +458,65 @@ fun EditorRightPanel(
                                             modifier = Modifier
                                                 .fillMaxSize()
                                                 .background(
-                                                    if (hasBgImage) Color.Black.copy(alpha = 0.32f)
-                                                    else solidSurface.copy(alpha = 0.55f)
+                                                    if (hasBgImage) Color.Black.copy(alpha = 0.40f)
+                                                    else solidSurface.copy(alpha = 0.65f)
                                                 )
-                                                .padding(6.dp)
+                                                .padding(10.dp)
                                         ) {
-                                            // Vertical Pair (Top / Bottom)
                                             Column(
                                                 modifier = Modifier.fillMaxSize(),
-                                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
                                             ) {
+                                                // 1. Top Slot (Horizontal Split · Top)
                                                 SpatialDropZoneCard(
-                                                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .weight(1f),
                                                     label = "Top Slot",
+                                                    subLabel = "Horizontal split · Top",
                                                     icon = Icons.Outlined.Splitscreen,
                                                     isHighlighted = activeHoveredZone == SpatialDropZone.TOP,
                                                     accentColor = accentColor,
                                                 )
+
+                                                // 2. Middle Row: Left & Right Slots (Vertical Split Side-by-Side)
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .weight(1.2f),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    SpatialDropZoneCard(
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .fillMaxHeight(),
+                                                        label = "Left Slot",
+                                                        subLabel = "Vertical split · Left",
+                                                        icon = Icons.Outlined.VerticalSplit,
+                                                        isHighlighted = activeHoveredZone == SpatialDropZone.LEFT,
+                                                        accentColor = accentColor,
+                                                    )
+                                                    SpatialDropZoneCard(
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .fillMaxHeight(),
+                                                        label = "Right Slot",
+                                                        subLabel = "Vertical split · Right",
+                                                        icon = Icons.Outlined.VerticalSplit,
+                                                        isHighlighted = activeHoveredZone == SpatialDropZone.RIGHT,
+                                                        accentColor = accentColor,
+                                                    )
+                                                }
+
+                                                // 3. Bottom Slot (Horizontal Split · Bottom)
                                                 SpatialDropZoneCard(
-                                                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .weight(1f),
                                                     label = "Bottom Slot",
+                                                    subLabel = "Horizontal split · Bottom",
                                                     icon = Icons.Outlined.Splitscreen,
                                                     isHighlighted = activeHoveredZone == SpatialDropZone.BOTTOM,
-                                                    accentColor = accentColor,
-                                                )
-                                            }
-
-                                            // Horizontal Pair (Left / Right)
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .padding(horizontal = 24.dp, vertical = 32.dp),
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                SpatialDropZoneCard(
-                                                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                                                    label = "Left Slot",
-                                                    icon = Icons.Outlined.VerticalSplit,
-                                                    isHighlighted = activeHoveredZone == SpatialDropZone.LEFT,
-                                                    accentColor = accentColor,
-                                                )
-                                                SpatialDropZoneCard(
-                                                    modifier = Modifier.weight(1f).fillMaxHeight(),
-                                                    label = "Right Slot",
-                                                    icon = Icons.Outlined.VerticalSplit,
-                                                    isHighlighted = activeHoveredZone == SpatialDropZone.RIGHT,
                                                     accentColor = accentColor,
                                                 )
                                             }
@@ -870,6 +878,7 @@ private fun PillTab(label: String, selected: Boolean, onClick: () -> Unit) {
 private fun SpatialDropZoneCard(
     modifier     : Modifier = Modifier,
     label        : String,
+    subLabel     : String,
     icon         : androidx.compose.ui.graphics.vector.ImageVector,
     isHighlighted: Boolean,
     accentColor  : Color,
@@ -879,15 +888,15 @@ private fun SpatialDropZoneCard(
     val hazeState = LocalHazeState.current
 
     val animatedBorderColor by animateColorAsState(
-        targetValue = if (isHighlighted) accentColor else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+        targetValue = if (isHighlighted) accentColor else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.40f),
         animationSpec = tween(150),
         label = "SpatialDropZoneBorder"
     )
     val zoneBgColor = when {
-        isHighlighted && !hasBgImage -> accentColor.copy(alpha = 0.18f)
-        isHighlighted && hasBgImage -> accentColor.copy(alpha = 0.28f)
-        !hasBgImage -> solidSurface.copy(alpha = 0.90f)
-        else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.22f)
+        isHighlighted && !hasBgImage -> accentColor.copy(alpha = 0.20f)
+        isHighlighted && hasBgImage -> accentColor.copy(alpha = 0.32f)
+        !hasBgImage -> solidSurface.copy(alpha = 0.92f)
+        else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.24f)
     }
     val animatedBgColor by animateColorAsState(
         targetValue = zoneBgColor,
@@ -908,7 +917,7 @@ private fun SpatialDropZoneCard(
             }
             .clip(RoundedCornerShape(14.dp))
             .border(
-                width = if (isHighlighted) 2.5.dp else 1.dp,
+                width = if (isHighlighted) 2.dp else 1.dp,
                 color = animatedBorderColor,
                 shape = RoundedCornerShape(14.dp)
             )
@@ -920,24 +929,41 @@ private fun SpatialDropZoneCard(
         shape = RoundedCornerShape(14.dp),
     ) {
         Box(
-            modifier = Modifier.fillMaxSize().padding(12.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
             contentAlignment = Alignment.Center
         ) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = label,
-                    tint = if (isHighlighted) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                    modifier = Modifier.size(28.dp)
-                )
+                Surface(
+                    shape = CircleShape,
+                    color = if (isHighlighted) accentColor.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(34.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = label,
+                            tint = if (isHighlighted) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
                 Text(
                     text = label,
                     fontSize = 12.sp,
-                    fontWeight = if (isHighlighted) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isHighlighted) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                    fontWeight = if (isHighlighted) FontWeight.Bold else FontWeight.SemiBold,
+                    color = if (isHighlighted) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = subLabel,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Normal,
+                    color = if (isHighlighted) accentColor else MaterialTheme.colorScheme.outline,
                     textAlign = TextAlign.Center
                 )
             }
