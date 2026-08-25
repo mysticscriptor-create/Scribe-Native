@@ -201,9 +201,9 @@ fun EditorRightPanel(
                                 var containerPositionInRoot by remember { mutableStateOf(Offset.Zero) }
                                 var pinnedContainerBounds by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
 
-                                // Lock swipe navigation ONLY when a pinned note is detached and dragging
-                                DisposableEffect(dragState != null, pinnedContainerBounds) {
-                                    if (dragState != null && pinnedContainerBounds != null) {
+                                // Lock swipe navigation whenever pinned notes panel is displayed or dragging
+                                DisposableEffect(pinnedContainerBounds) {
+                                    if (pinnedContainerBounds != null) {
                                         registerBounds?.invoke("pinned_notes_detached_drag", pinnedContainerBounds)
                                     }
                                     onDispose {
@@ -1022,6 +1022,14 @@ private fun PinnedNoteSlot(
                 Text("Tap to browse your vault", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
             }
         } else {
+            val currentNoteState by rememberUpdatedState(currentNote)
+            val currentSlotSize by rememberUpdatedState(slotSize)
+            val currentSlotPosition by rememberUpdatedState(slotPositionInRoot)
+            val currentOnStartDetachedDrag by rememberUpdatedState(onStartDetachedDrag)
+            val currentOnDetachedDrag by rememberUpdatedState(onDetachedDrag)
+            val currentOnEndDetachedDrag by rememberUpdatedState(onEndDetachedDrag)
+            val currentOnCancelDetachedDrag by rememberUpdatedState(onCancelDetachedDrag)
+
             Column(Modifier.fillMaxSize()) {
                 var headerDragging by remember { mutableStateOf(false) }
                 Row(
@@ -1032,24 +1040,25 @@ private fun PinnedNoteSlot(
                             else Color.Transparent
                         )
                         .padding(start = 10.dp, end = 4.dp, top = 6.dp, bottom = 4.dp)
-                        .pointerInput(currentNote, slotSize, slotPositionInRoot, onStartDetachedDrag, onDetachedDrag, onEndDetachedDrag, onCancelDetachedDrag) {
-                            if (onStartDetachedDrag == null) return@pointerInput
+                        .pointerInput(Unit) {
                             detectDragGesturesAfterLongPress(
                                 onDragStart = { offset ->
+                                    val note = currentNoteState ?: return@detectDragGesturesAfterLongPress
+                                    val onStart = currentOnStartDetachedDrag ?: return@detectDragGesturesAfterLongPress
                                     headerDragging = true
-                                    onStartDetachedDrag(currentNote, offset, slotSize, slotPositionInRoot)
+                                    onStart(note, offset, currentSlotSize, currentSlotPosition)
                                 },
                                 onDragEnd = {
                                     headerDragging = false
-                                    onEndDetachedDrag?.invoke()
+                                    currentOnEndDetachedDrag?.invoke()
                                 },
                                 onDragCancel = {
                                     headerDragging = false
-                                    onCancelDetachedDrag?.invoke()
+                                    currentOnCancelDetachedDrag?.invoke()
                                 },
                                 onDrag = { change, dragAmount ->
                                     change.consume()
-                                    onDetachedDrag?.invoke(dragAmount.x, dragAmount.y)
+                                    currentOnDetachedDrag?.invoke(dragAmount.x, dragAmount.y)
                                 }
                             )
                         },
