@@ -171,7 +171,7 @@ fun CompactEditorLayout(
                 
                 // Stop active animation when a new pointer goes down to allow seamless mid-flight touch catch
                 runningAnimationJob?.cancel()
-                currentOffset.stop()
+                scope.launch { currentOffset.stop() }
 
                 val velocityTracker = VelocityTracker()
                 velocityTracker.resetTracking()
@@ -310,7 +310,7 @@ fun CompactEditorLayout(
                                 val adjustedDx = totalDx - sign(totalDx) * touchSlop
                                 val proposed = startOffset + adjustedDx
                                 val clamped = calculateClampedOffset(proposed, activeSide, drawerWidthPx, panelWidthPx)
-                                currentOffset.snapTo(clamped)
+                                scope.launch { currentOffset.snapTo(clamped) }
                             }
                         }
                     } else {
@@ -319,7 +319,7 @@ fun CompactEditorLayout(
                         val adjustedDx = totalDx - sign(totalDx) * touchSlop
                         val proposed = startOffset + adjustedDx
                         val clamped = calculateClampedOffset(proposed, activeSide, drawerWidthPx, panelWidthPx)
-                        currentOffset.snapTo(clamped)
+                        scope.launch { currentOffset.snapTo(clamped) }
                     }
                 }
             }
