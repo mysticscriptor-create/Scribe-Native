@@ -104,6 +104,7 @@ fun CompactEditorLayout(
     barBlurBitmap: Bitmap?,
     isKeyboardVisible: Boolean,
     soraEditorRef: CodeEditor?,
+    isHandleDragging: Boolean = false,
     focusManager: FocusManager,
     editorContent: @Composable (
         onNavClick: () -> Unit,
@@ -166,6 +167,7 @@ fun CompactEditorLayout(
 
         // ── Unified 3-Pane Gesture Engine ─────────────────────────────────────
         val currentSoraEditorRef by rememberUpdatedState(soraEditorRef)
+        val currentIsHandleDragging by rememberUpdatedState(isHandleDragging)
         val interactiveBoundsMap = remember { androidx.compose.runtime.mutableStateMapOf<String, Rect>() }
         val registerBounds: (String, Rect?) -> Unit = remember {
             { key, bounds ->
@@ -198,11 +200,8 @@ fun CompactEditorLayout(
                 val isInsideInteractiveArea = interactiveBoundsMap.values.any { rect ->
                     rect.contains(down.position)
                 }
-                val isTextSelected = try {
-                    currentSoraEditorRef?.cursor?.isSelected == true
-                } catch (_: Exception) { false }
 
-                if (isInsideInteractiveArea || isTextSelected) {
+                if (isInsideInteractiveArea || currentIsHandleDragging) {
                     isDisallowed = true
                 }
 
@@ -326,8 +325,7 @@ fun CompactEditorLayout(
                                     activeSide = if (totalDx > 0f) ActiveDrawerSide.LEFT_DRAWER else ActiveDrawerSide.RIGHT_PANEL
                                 }
 
-                                // Close keyboard & clear focus immediately on swipe
-                                focusManager.clearFocus(force = true)
+                                // Close soft keyboard on swipe while preserving text selection in Sora Editor
                                 keyboardController?.hide()
                                 try {
                                     currentSoraEditorRef?.hideSoftInput()
@@ -375,7 +373,6 @@ fun CompactEditorLayout(
                                     currentOffset.animateTo(0f, closeSpringSpec)
                                     currentOffset.snapTo(0f)
                                 } else {
-                                    focusManager.clearFocus(force = true)
                                     keyboardController?.hide()
                                     try { currentSoraEditorRef?.hideSoftInput() } catch (_: Exception) { }
                                     currentOffset.animateTo(drawerWidthPx, openSpringSpec)
@@ -388,7 +385,6 @@ fun CompactEditorLayout(
                                     currentOffset.animateTo(0f, closeSpringSpec)
                                     currentOffset.snapTo(0f)
                                 } else {
-                                    focusManager.clearFocus(force = true)
                                     keyboardController?.hide()
                                     try { currentSoraEditorRef?.hideSoftInput() } catch (_: Exception) { }
                                     currentOffset.animateTo(-panelWidthPx, openSpringSpec)

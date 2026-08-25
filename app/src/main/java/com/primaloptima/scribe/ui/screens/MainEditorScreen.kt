@@ -231,8 +231,9 @@ fun MainEditorScreen(
     }
 
     // ── Sora CodeEditor state ─────────────────────────────────────────────────
-    var soraEditorRef  by remember { mutableStateOf<CodeEditor?>(null) }
-    var loadedNoteId   by rememberSaveable { mutableStateOf<String?>(null) }
+    var soraEditorRef      by remember { mutableStateOf<CodeEditor?>(null) }
+    var isHandleDragging   by remember { mutableStateOf(false) }
+    var loadedNoteId       by rememberSaveable { mutableStateOf<String?>(null) }
 
     var pillMode     by remember { mutableIntStateOf(0) }
     var pillOffsetX  by remember { mutableFloatStateOf(0f) }
@@ -529,6 +530,11 @@ fun MainEditorScreen(
                                                         if (loadedNoteId != null)
                                                             editorVm.onContentChanged(current)
                                                     }
+                                                    try {
+                                                        subscribeEvent(io.github.rosemoe.sora.event.HandleStateChangeEvent::class.java) { event, _ ->
+                                                            isHandleDragging = event.isHeld
+                                                        }
+                                                    } catch (_: Throwable) { }
                                                     subscribeEvent(EditorKeyEvent::class.java) { event, _ ->
                                                         if (event.action != android.view.KeyEvent.ACTION_DOWN) return@subscribeEvent
                                                         if (event.keyCode != android.view.KeyEvent.KEYCODE_ENTER) return@subscribeEvent
@@ -674,6 +680,7 @@ fun MainEditorScreen(
                 barBlurBitmap      = barBlurBitmap,
                 isKeyboardVisible  = isKeyboardVisible,
                 soraEditorRef      = soraEditorRef,
+                isHandleDragging   = isHandleDragging,
                 focusManager       = focusManager,
                 editorContent      = renderEditorScaffold,
                 leftDrawerContent  = renderLeftDrawer,
