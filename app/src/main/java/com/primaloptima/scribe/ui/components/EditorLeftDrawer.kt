@@ -22,6 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.frostedPanel
 
@@ -35,7 +36,7 @@ fun EditorLeftDrawer(
     activeNoteId     : String?,
     onNoteClick      : (String) -> Unit,
     onAddNote        : () -> Unit,
-    hazeState        : dev.chrisbanes.haze.HazeState,
+    hazeState        : dev.chrisbanes.haze.HazeState? = LocalHazeState.current,
     barBlurBitmap    : Bitmap?,
 ) {
     var leftPanelTab by remember { mutableIntStateOf(0) }

@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
 import com.primaloptima.scribe.ui.theme.frostedCard
 import com.primaloptima.scribe.ui.theme.localHasBgImage
@@ -47,7 +48,7 @@ fun SectionOverflowMenu(
     onAppearance : () -> Unit,
     onScope      : () -> Unit,
     onMinimize   : () -> Unit,
-    hazeState    : dev.chrisbanes.haze.HazeState,
+    hazeState    : dev.chrisbanes.haze.HazeState? = LocalHazeState.current,
 ) {
     val solidSurface = LocalSolidSurface.current
     val hasBgImage = localHasBgImage()

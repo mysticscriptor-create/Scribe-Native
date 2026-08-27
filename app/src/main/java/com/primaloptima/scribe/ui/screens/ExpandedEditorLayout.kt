@@ -21,6 +21,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.primaloptima.scribe.ui.theme.LocalBarBlurBitmap
+import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.frostedPanel
 import dev.chrisbanes.haze.HazeState
@@ -36,7 +37,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3AdaptiveApi::class)
 @Composable
 fun ExpandedEditorLayout(
-    hazeState: HazeState,
+    hazeState: HazeState? = LocalHazeState.current,
     barBlurBitmap: Bitmap?,
     soraEditorRef: CodeEditor?,
     editorContent: @Composable (

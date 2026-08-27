@@ -28,7 +28,7 @@ fun WorkbenchSplitDivider(
     onDrag      : (Float) -> Unit,
     onSwap      : () -> Unit,
     accentColor : Color,
-    hazeState   : dev.chrisbanes.haze.HazeState,
+    hazeState   : dev.chrisbanes.haze.HazeState? = null,
     modifier    : Modifier = Modifier
 ) {
     var isDragging by remember { mutableStateOf(false) }

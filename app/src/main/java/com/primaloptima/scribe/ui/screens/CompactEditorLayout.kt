@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.coerceAtMost
 import androidx.compose.ui.unit.dp
 import com.primaloptima.scribe.ui.theme.LocalBarBlurBitmap
+import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.frostedPanel
 import dev.chrisbanes.haze.HazeState
@@ -219,7 +220,7 @@ private fun calculateClampedOffset(
  */
 @Composable
 fun CompactEditorLayout(
-    hazeState: HazeState,
+    hazeState: HazeState? = LocalHazeState.current,
     barBlurBitmap: Bitmap?,
     isKeyboardVisible: Boolean,
     soraEditorRef: CodeEditor?,
