@@ -58,6 +58,7 @@ import com.primaloptima.scribe.ui.components.NewNoteDialog
 import com.primaloptima.scribe.ui.components.SectionAppearanceSheet
 import com.primaloptima.scribe.ui.components.SectionOverflowMenu
 import com.primaloptima.scribe.ui.components.SectionScopeSheet
+import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
 import com.primaloptima.scribe.ui.theme.ScribeColorScheme
@@ -613,7 +614,7 @@ fun WorkbenchCard(
 
     // ── References Switcher Overlay Dialog ─────────────────────────────────────
     if (showReferencesOverlay) {
-        AlertDialog(
+        FrostedDialog(
             onDismissRequest = { showReferencesOverlay = false },
             title = {
                 Row(
@@ -748,7 +749,7 @@ fun WorkbenchCard(
     // ── Unpin Confirmation Dialog (3c) ────────────────────────────────────────
     if (unpinCandidateNoteId != null) {
         val noteIdToUnpin = unpinCandidateNoteId!!
-        AlertDialog(
+        FrostedDialog(
             onDismissRequest = { unpinCandidateNoteId = null },
             title = { Text("Unpin this reference?") },
             text = { Text("It will be removed from this section. The original file won't be deleted.") },

@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.primaloptima.scribe.ui.components.FrostedBottomSheet
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
 import com.primaloptima.scribe.viewmodel.SheetsViewModel
 
@@ -42,35 +43,20 @@ val CATEGORY_META = listOf(
 fun categoryMeta(key: String): CategoryMeta =
     CATEGORY_META.find { it.key.equals(key, ignoreCase = true) } ?: CATEGORY_META[0]
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CreateWorldEntrySheet(
     selectedCategory: String,
     onDismiss: () -> Unit,
     onConfirm: (name: String, type: String) -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val solidSurface = LocalSolidSurface.current
-
     var name by remember { mutableStateOf("") }
     var type by remember {
         mutableStateOf(if (selectedCategory == "All") "character" else selectedCategory)
     }
     val typeKeys = listOf("character", "location", "faction", "item", "lore", "timeline")
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = solidSurface,
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(top = 12.dp, bottom = 8.dp)
-                    .size(width = 38.dp, height = 4.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
-            )
-        }
+    FrostedBottomSheet(
+        onDismissRequest = onDismiss
     ) {
         Column(
             modifier = Modifier

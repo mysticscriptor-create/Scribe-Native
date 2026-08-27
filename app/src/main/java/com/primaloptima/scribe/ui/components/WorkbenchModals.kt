@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.data.WorldEntry
@@ -47,10 +48,8 @@ fun AddReferenceChoiceSheet(
     onPickAddFile: () -> Unit,
     onPickAddWorldSheet: () -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface,
+    FrostedBottomSheet(
+        onDismissRequest = onDismiss
     ) {
         Column(
             modifier = Modifier
@@ -169,28 +168,20 @@ fun NewNoteDialog(
     var title by remember { mutableStateOf("") }
     var content by remember { mutableStateOf("") }
 
-    Dialog(onDismissRequest = onDismiss) {
-        Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(8.dp)
-        ) {
+    FrostedDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "New Reference Note",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        },
+        text = {
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp)
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    text = "New Reference Note",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Spacer(Modifier.height(16.dp))
-
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
@@ -211,30 +202,24 @@ fun NewNoteDialog(
                     maxLines = 10,
                     modifier = Modifier.fillMaxWidth()
                 )
-
-                Spacer(Modifier.height(20.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    TextButton(onClick = onDismiss) {
-                        Text("Cancel")
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Button(
-                        onClick = {
-                            onSave(title.ifBlank { "Untitled" }, content)
-                            onDismiss()
-                        }
-                    ) {
-                        Text("Create & Pin")
-                    }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onSave(title.ifBlank { "Untitled" }, content)
+                    onDismiss()
                 }
+            ) {
+                Text("Create & Pin")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
             }
         }
-    }
+    )
 }
 
 // ── 3. Add File Sheet (Notes Multi-Select) ────────────────────────────────────
@@ -266,10 +251,8 @@ fun AddFileSheet(
         }
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface
+    FrostedBottomSheet(
+        onDismissRequest = onDismiss
     ) {
         Column(
             modifier = Modifier
@@ -453,10 +436,8 @@ fun AddWorldSheetModal(
         }
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface
+    FrostedBottomSheet(
+        onDismissRequest = onDismiss
     ) {
         Column(
             modifier = Modifier
@@ -639,10 +620,8 @@ fun SectionAppearanceSheet(
     onDismiss: () -> Unit,
     onUpdatePane: (transform: (PaneConfig) -> PaneConfig) -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface
+    FrostedBottomSheet(
+        onDismissRequest = onDismiss
     ) {
         Column(
             modifier = Modifier
@@ -844,10 +823,8 @@ fun SectionScopeSheet(
 
     var showAddSecondary by remember { mutableStateOf(false) }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface
+    FrostedBottomSheet(
+        onDismissRequest = onDismiss
     ) {
         Column(
             modifier = Modifier
@@ -1046,10 +1023,8 @@ fun AddSectionSheet(
         Triple("Current Note", "Scoped exclusively to this note", fileScope),
     )
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface,
+    FrostedBottomSheet(
+        onDismissRequest = onDismiss
     ) {
         Column(
             modifier = Modifier
@@ -1103,10 +1078,8 @@ fun WorkbenchSettingsSheet(
     onDismiss: () -> Unit,
     onUpdateWorkbench: ((com.primaloptima.scribe.util.model.WorkbenchState) -> com.primaloptima.scribe.util.model.WorkbenchState) -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface,
+    FrostedBottomSheet(
+        onDismissRequest = onDismiss
     ) {
         Column(
             modifier = Modifier
@@ -1230,10 +1203,8 @@ fun OutOfScopeRestoreSheet(
     onJustSession: () -> Unit,
     onAlwaysAdd: () -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surface,
+    FrostedBottomSheet(
+        onDismissRequest = onDismiss
     ) {
         Column(
             modifier = Modifier

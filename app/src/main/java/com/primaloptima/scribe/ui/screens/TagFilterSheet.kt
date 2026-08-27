@@ -21,9 +21,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.primaloptima.scribe.ui.components.FrostedBottomSheet
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun TagFilterSheet(
     allTagsWithCount: Map<String, Int>,
@@ -31,8 +32,6 @@ fun TagFilterSheet(
     onDismiss: () -> Unit,
     onApply: (Set<String>) -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val solidSurface = LocalSolidSurface.current
     var selectedTags by remember { mutableStateOf(initiallySelectedTags) }
     var tagSearchQuery by remember { mutableStateOf("") }
 
@@ -46,19 +45,8 @@ fun TagFilterSheet(
         }
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = solidSurface,
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(top = 12.dp, bottom = 8.dp)
-                    .size(width = 38.dp, height = 4.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
-            )
-        }
+    FrostedBottomSheet(
+        onDismissRequest = onDismiss
     ) {
         Column(
             modifier = Modifier

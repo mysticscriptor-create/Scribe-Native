@@ -1108,7 +1108,6 @@ private fun CompactChapterRow(
 
 // ── Goal Setting Bottom Sheet ─────────────────────────────────────────────────
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GoalSettingSheet(
     bookId: String?,
@@ -1117,27 +1116,13 @@ private fun GoalSettingSheet(
     accentColor: Color,
     onDismiss: () -> Unit
 ) {
-    val sheetState   = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val solidSurface = LocalSolidSurface.current
-
     var dailyWords   by remember { mutableStateOf(currentGoal.dailyWords.toFloat()) }
     var totalTarget  by remember { mutableStateOf(currentGoal.totalTarget) }
 
     val targetOptions = listOf(50_000, 80_000, 100_000, 120_000, 200_000)
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState       = sheetState,
-        containerColor   = solidSurface,
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(top = 12.dp, bottom = 8.dp)
-                    .size(width = 36.dp, height = 4.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
-            )
-        }
+    FrostedBottomSheet(
+        onDismissRequest = onDismiss
     ) {
         Column(
             modifier = Modifier
@@ -1270,7 +1255,6 @@ private fun GoalSettingSheet(
 
 // ── Book picker bottom sheet ──────────────────────────────────────────────────
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BookPickerSheet(
     books: List<Book>,
@@ -1279,23 +1263,8 @@ private fun BookPickerSheet(
     onSelect: (Book) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val sheetState   = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val solidSurface = LocalSolidSurface.current
-    val context      = LocalContext.current
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState       = sheetState,
-        containerColor   = solidSurface,
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(top = 12.dp, bottom = 8.dp)
-                    .size(width = 36.dp, height = 4.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
-            )
-        }
+    FrostedBottomSheet(
+        onDismissRequest = onDismiss
     ) {
         Column(
             modifier = Modifier

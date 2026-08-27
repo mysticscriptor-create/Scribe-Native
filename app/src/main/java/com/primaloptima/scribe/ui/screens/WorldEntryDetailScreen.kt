@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.primaloptima.scribe.data.WorldEntry
 import com.primaloptima.scribe.ui.components.FullScreenImageViewer
+import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.util.WorldImageUtil
@@ -496,7 +497,7 @@ fun WorldEntryDetailScreen(
 
     // Delete Confirmation Dialog
     if (showDeleteConfirm) {
-        AlertDialog(
+        FrostedDialog(
             onDismissRequest = { showDeleteConfirm = false },
             title = { Text("Delete World Sheet?") },
             text = { Text("Are you sure you want to delete \"${entry.name}\"? This action cannot be undone.") },

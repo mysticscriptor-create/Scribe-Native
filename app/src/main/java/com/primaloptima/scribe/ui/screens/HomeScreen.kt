@@ -222,18 +222,8 @@ fun HomeScreen(
         }
     }
 
-    // Helper: capture → blur → store, then execute the lambda that opens the dialog.
-    // All of this happens before the dialog composable ever enters the tree.
     val captureForDialog: suspend (() -> Unit) -> Unit = { openDialog ->
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            // captureOnly uses view.rootView.draw() which requires the Main thread.
-            // scope.launch / LaunchedEffect both run on Main by default, so this is safe.
-            val raw = BitmapBlur.captureOnly(view)
-            dialogOneShotBitmap = withContext(Dispatchers.IO) {
-                raw?.let { BitmapBlur.blurBitmap(it, radius = blurRadiusPx) }
-            }
-        }
-        openDialog()   // NOW set the flag — dialog renders with bitmap already in place
+        openDialog()
     }
 
     val coverPickerLauncher = rememberLauncherForActivityResult(

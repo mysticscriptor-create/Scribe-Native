@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.primaloptima.scribe.data.WorldEntry
+import com.primaloptima.scribe.ui.components.FrostedBottomSheet
 import com.primaloptima.scribe.ui.components.FullScreenImageViewer
 import com.primaloptima.scribe.ui.components.ImageCropperDialog
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
@@ -42,7 +43,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun EditWorldEntrySheet(
     entry: WorldEntry,
@@ -51,8 +52,6 @@ fun EditWorldEntrySheet(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val solidSurface = LocalSolidSurface.current
     val meta = categoryMeta(entry.type)
 
     val initialFields: List<SheetsViewModel.Companion.Field> = remember(entry) {
@@ -91,19 +90,8 @@ fun EditWorldEntrySheet(
         }
     }
 
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = solidSurface,
-        dragHandle = {
-            Box(
-                modifier = Modifier
-                    .padding(top = 12.dp, bottom = 8.dp)
-                    .size(width = 38.dp, height = 4.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f))
-            )
-        }
+    FrostedBottomSheet(
+        onDismissRequest = onDismiss
     ) {
         Column(
             modifier = Modifier

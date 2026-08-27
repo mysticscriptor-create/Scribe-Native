@@ -54,6 +54,7 @@ import com.primaloptima.scribe.ui.components.AddSectionSheet
 import com.primaloptima.scribe.ui.components.OutOfScopeRestoreSheet
 import com.primaloptima.scribe.ui.components.WorkbenchSettingsSheet
 import com.primaloptima.scribe.ui.screens.LocalInteractiveBoundsRegistry
+import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
 import com.primaloptima.scribe.ui.theme.ScribeColorScheme
@@ -1405,7 +1406,7 @@ fun Workbench(
                 }
 
                 if (showDiscardDialog) {
-                    AlertDialog(
+                    FrostedDialog(
                         onDismissRequest = { showDiscardDialog = false },
                         title = { Text("Discard changes?") },
                         text = { Text("You have unsaved changes in focus mode.") },
@@ -1480,7 +1481,7 @@ fun Workbench(
 
         if (slotSwapReplaceTarget != null) {
             val incoming = slotSwapReplaceTarget!!
-            AlertDialog(
+            FrostedDialog(
                 onDismissRequest = { slotSwapReplaceTarget = null },
                 title = { Text("Workbench Full (${workbenchState.maxSlots}/${workbenchState.maxSlots})") },
                 text = {
@@ -1539,7 +1540,7 @@ fun Workbench(
 
         if (removeCandidatePane != null) {
             val paneToRemove = removeCandidatePane!!
-            AlertDialog(
+            FrostedDialog(
                 onDismissRequest = { removeCandidatePane = null },
                 icon = { Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
                 title = { Text("Remove Section?") },
@@ -1567,7 +1568,7 @@ fun Workbench(
 
         if (edgeTabLongPressPane != null) {
             val p = edgeTabLongPressPane!!
-            AlertDialog(
+            FrostedDialog(
                 onDismissRequest = { edgeTabLongPressPane = null },
                 title = { Text(p.label) },
                 text = {
@@ -1621,7 +1622,7 @@ fun Workbench(
 
         if (showEdgeTabGroupPopup != null) {
             val groupPanes = showEdgeTabGroupPopup!!
-            AlertDialog(
+            FrostedDialog(
                 onDismissRequest = { showEdgeTabGroupPopup = null },
                 title = { Text("Minimized Sections (${groupPanes.size})") },
                 text = {

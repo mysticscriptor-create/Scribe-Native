@@ -57,6 +57,13 @@ import com.primaloptima.scribe.ScribeApp
 import com.primaloptima.scribe.util.ScribeDataStore
 import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.util.model.AppTheme
+import androidx.compose.foundation.border
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Dp
+import androidx.compose.material3.ProvideTextStyle
+import androidx.activity.compose.BackHandler
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.hazeEffect
@@ -208,44 +215,76 @@ fun localHasBgImage(): Boolean {
             frostedGlass
 }
 
+/**
+ * Directional specular rim lighting.
+ * Simulates physical overhead light catch via a vertical linear gradient.
+ */
+fun Modifier.specularGlassBorder(
+    shape: Shape,
+    isDark: Boolean,
+    strokeWidth: Dp = 1.dp
+): Modifier = this.border(
+    width = strokeWidth,
+    brush = Brush.verticalGradient(
+        colors = if (isDark) {
+            listOf(
+                Color.White.copy(alpha = 0.22f), // Overhead light reflection
+                Color.White.copy(alpha = 0.08f),
+                Color.White.copy(alpha = 0.02f)  // Ambient bottom falloff
+            )
+        } else {
+            listOf(
+                Color.White.copy(alpha = 0.70f), // Crisp light sheen
+                Color.White.copy(alpha = 0.25f),
+                Color.Black.copy(alpha = 0.06f)
+            )
+        }
+    ),
+    shape = shape
+)
+
 @Composable
-fun Modifier.frostedBar(hazeState: HazeState?): Modifier {
+fun Modifier.frostedBar(
+    hazeState: HazeState?,
+    shape: Shape = RectangleShape,
+    isDark: Boolean = LocalAppTheme.current?.isDark == true
+): Modifier {
     val solidSurface = LocalSolidSurface.current
-    val barBlurBitmap = LocalBarBlurBitmap.current   // pre-blurred wallpaper, for bars/FABs
     val hasBgImage = localHasBgImage()
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
     val tintColor = if (tintEnabled) solidSurface.copy(alpha = 0.35f) else Color.Transparent
     return if (!hasBgImage) {
-        this.background(solidSurface)
+        this.background(solidSurface, shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
-        this.hazeEffect(
-            state = hazeState,
-            style = HazeStyle(blurRadius = blurRadius.dp, tint = HazeTint(tintColor), noiseFactor = 0f)
-        )
-    } else if (barBlurBitmap != null) {
-        // Use the pre-blurred wallpaper bitmap — already has applyFrostedGlassLook applied
-        this.drawWithOneShotBitmap(barBlurBitmap, tintColor)
+        this
+            .clip(shape)
+            .hazeEffect(
+                state = hazeState,
+                style = HazeStyle(blurRadius = blurRadius.dp, tint = HazeTint(tintColor), noiseFactor = 0f)
+            )
+            .specularGlassBorder(shape, isDark)
     } else {
-        // Bitmap still loading — show transparent so the background image shows through
-        // cleanly with a light tint, avoiding the opaque-then-blur snap.
-        this.background(tintColor)
+        // Zero-allocation acrylic surface fallback with specular rim
+        this
+            .clip(shape)
+            .background(solidSurface.copy(alpha = 0.92f), shape = shape)
+            .specularGlassBorder(shape, isDark)
     }
 }
 
 /**
- * Applies a frosted-glass effect to a FAB (or any component) when a whole-app
- * background image is active.  On Android 12+ this is a real GPU blur via Haze;
- * on older devices it falls back to a semi-transparent surface tint.
- * When there is no background image the modifier is a no-op.
+ * Applies a frosted-glass effect to a FAB (or any floating circular button).
+ * On Android 12+ this is a real GPU blur via Haze with specular rim border;
+ * on older devices it falls back to a high-density acrylic surface tint.
  */
 @Composable
 fun Modifier.frostedFab(
     hazeState: HazeState?,
-    shape: androidx.compose.ui.graphics.Shape = androidx.compose.foundation.shape.CircleShape
+    shape: Shape = androidx.compose.foundation.shape.CircleShape,
+    isDark: Boolean = LocalAppTheme.current?.isDark == true
 ): Modifier {
     val solidSurface = LocalSolidSurface.current
-    val barBlurBitmap = LocalBarBlurBitmap.current   // pre-blurred wallpaper, for bars/FABs
     val hasBgImage = localHasBgImage()
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
@@ -259,90 +298,63 @@ fun Modifier.frostedFab(
                 state = hazeState,
                 style = HazeStyle(blurRadius = blurRadius.dp, tint = HazeTint(tintColor), noiseFactor = 0f)
             )
-    } else if (barBlurBitmap != null) {
+            .specularGlassBorder(shape, isDark)
+    } else {
         this
             .clip(shape)
-            .drawWithOneShotBitmap(barBlurBitmap, tintColor)
-    } else {
-        // Bitmap still loading — transparent tint so image shows through without snap
-        this.background(tintColor, shape = shape)
+            .background(solidSurface.copy(alpha = 0.90f), shape = shape)
+            .specularGlassBorder(shape, isDark)
     }
 }
 
 /**
- * Applies a frosted-glass effect to side panels, navigation drawers, and any
- * overlay that should feel "elevated glass" over the content behind it.
- *
- * When a background image is active:
- *   - API 31+ : real GPU blur via Haze (hazeChild with a regular material)
- *   - API < 31: high-opacity solid surface tint using the theme's actual surface
- *               colour so the fallback blends naturally on every theme
- *
- * When there is no background image the modifier is a no-op (the drawer's own
- * containerColor provides the background).
- *
- * Usage: Set `drawerContainerColor = Color.Transparent` on the drawer/sheet
- * and add `.frostedPanel(hazeState)` to its `modifier`.
+ * Applies a frosted-glass effect to side panels, navigation drawers, and bottom sheets.
  */
 @Composable
-fun Modifier.frostedPanel(hazeState: HazeState?): Modifier {
+fun Modifier.frostedPanel(
+    hazeState: HazeState?,
+    shape: Shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+    isDark: Boolean = LocalAppTheme.current?.isDark == true
+): Modifier {
     val solidSurface = LocalSolidSurface.current
-    val oneShotBitmap = LocalOneShotBitmap.current
-    val barBlurBitmap = LocalBarBlurBitmap.current
     val hasBgImage = localHasBgImage()
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
     val tintColor = if (tintEnabled) solidSurface.copy(alpha = 0.25f) else Color.Transparent
     return if (!hasBgImage) {
-        this.background(solidSurface)
+        this.clip(shape).background(solidSurface, shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
-        this.hazeEffect(
-            state = hazeState,
-            style = HazeStyle(blurRadius = blurRadius.dp, tint = HazeTint(tintColor), noiseFactor = 0f)
-        )
-    } else if (oneShotBitmap != null) {
-        // Real screen capture is ready — use it for pixel-perfect frosted look.
-        this.drawWithOneShotBitmap(oneShotBitmap, tintColor)
-    } else if (barBlurBitmap != null) {
-        // oneShotBitmap not yet ready (capture still in flight) — use the
-        // pre-blurred wallpaper bitmap as an instant placeholder. This covers
-        // the first frames while the async capture completes, so the panel is
-        // never blank or solid-tinted on pre-API-31 devices.
-        this.drawWithOneShotBitmap(barBlurBitmap, tintColor)
+        this
+            .clip(shape)
+            .hazeEffect(
+                state = hazeState,
+                style = HazeStyle(blurRadius = blurRadius.dp, tint = HazeTint(tintColor), noiseFactor = 0f)
+            )
+            .specularGlassBorder(shape, isDark)
     } else {
-        this.background(solidSurface.copy(alpha = 0.95f))
+        this
+            .clip(shape)
+            .background(solidSurface.copy(alpha = 0.94f), shape = shape)
+            .specularGlassBorder(shape, isDark)
     }
 }
 
 /**
- * Frosted glass for Card composables (ElevatedCard, Card, etc).
- * When a background image is active this clips to [shape] and applies hazeEffect.
- * When no background image is active it returns the card's normal solid surface color,
- * so on plain-color themes the cards look identical to before.
- *
- * Usage:
- *   ElevatedCard(
- *       colors = CardDefaults.elevatedCardColors(
- *           containerColor = if (hasBgImage) Color.Transparent else surface.copy(alpha = 0.92f)
- *       ),
- *       modifier = Modifier.frostedCard(hazeState)
- *   )
+ * Frosted glass for contextual dropdowns, anchored popovers, and overflow menus.
  */
 @Composable
-fun Modifier.frostedCard(
+fun Modifier.frostedMenu(
     hazeState: HazeState?,
-    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(16.dp),
-    solidAlpha: Float = 0.92f,
-    applyFallbackBackground: Boolean = false
+    shape: Shape = RoundedCornerShape(14.dp),
+    isDark: Boolean = LocalAppTheme.current?.isDark == true
 ): Modifier {
     val solidSurface = LocalSolidSurface.current
     val hasBgImage = localHasBgImage()
-    val oneShotBitmap = LocalOneShotBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
     val tintColor = if (tintEnabled) solidSurface.copy(alpha = 0.25f) else Color.Transparent
     return if (!hasBgImage || hazeState == null) {
-        this
+        this.clip(shape).background(solidSurface, shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         this
             .clip(shape)
@@ -350,14 +362,50 @@ fun Modifier.frostedCard(
                 state = hazeState,
                 style = HazeStyle(blurRadius = blurRadius.dp, tint = HazeTint(tintColor), noiseFactor = 0f)
             )
-    } else if (oneShotBitmap != null) {
-        this
-            .clip(shape)
-            .drawWithOneShotBitmap(oneShotBitmap, tintColor)
+            .specularGlassBorder(shape, isDark)
     } else {
         this
             .clip(shape)
-            .background(solidSurface.copy(alpha = solidAlpha))
+            .background(solidSurface.copy(alpha = 0.94f), shape = shape)
+            .specularGlassBorder(shape, isDark)
+    }
+}
+
+/**
+ * Frosted glass for Card composables (ElevatedCard, Card, etc).
+ */
+@Composable
+fun Modifier.frostedCard(
+    hazeState: HazeState?,
+    shape: Shape = RoundedCornerShape(16.dp),
+    isDark: Boolean = LocalAppTheme.current?.isDark == true,
+    solidAlpha: Float = 0.92f,
+    applyFallbackBackground: Boolean = false
+): Modifier {
+    val solidSurface = LocalSolidSurface.current
+    val hasBgImage = localHasBgImage()
+    val tintEnabled = LocalFrostedTint.current
+    val blurRadius = LocalFrostedBlurRadius.current
+    val tintColor = if (tintEnabled) solidSurface.copy(alpha = 0.25f) else Color.Transparent
+    return if (!hasBgImage || hazeState == null) {
+        if (applyFallbackBackground) {
+            this.clip(shape).background(solidSurface.copy(alpha = solidAlpha), shape = shape)
+        } else {
+            this
+        }
+    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        this
+            .clip(shape)
+            .hazeEffect(
+                state = hazeState,
+                style = HazeStyle(blurRadius = blurRadius.dp, tint = HazeTint(tintColor), noiseFactor = 0f)
+            )
+            .specularGlassBorder(shape, isDark)
+    } else {
+        this
+            .clip(shape)
+            .background(solidSurface.copy(alpha = solidAlpha), shape = shape)
+            .specularGlassBorder(shape, isDark)
     }
 }
 
@@ -437,7 +485,7 @@ fun FrostedCardContent(content: @Composable () -> Unit) {
  *
  * When no background image is active the dialog looks identical to a standard M3 AlertDialog
  * because it uses the solid surface color. When a background image IS active, the dialog
- * surface itself gets the frosted blur via hazeEffect.
+ * surface itself gets the frosted blur via hazeEffect with directional specular rim lighting.
  */
 @Composable
 fun FrostedDialog(
@@ -449,76 +497,60 @@ fun FrostedDialog(
 ) {
     val hazeState = LocalHazeState.current
     val solidSurface = LocalSolidSurface.current
-    val oneShotBitmap = LocalOneShotBitmap.current
-    val hasBgImage = localHasBgImage()
-    val shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)
+    val isDark = LocalAppTheme.current?.isDark == true
+    val shape = RoundedCornerShape(28.dp)
+
+    BackHandler { onDismissRequest() }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.45f))
+            .background(Color.Black.copy(alpha = 0.50f))
             .clickable(
                 indication = null,
                 interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
             ) { onDismissRequest() },
         contentAlignment = Alignment.Center
     ) {
-        val containerModifier = when {
-            hasBgImage && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null -> {
-                val tintEnabled = LocalFrostedTint.current
-                val blurRadius = LocalFrostedBlurRadius.current
-                val tintColor = if (tintEnabled) solidSurface.copy(alpha = 0.25f) else Color.Transparent
-                Modifier.clip(shape).hazeEffect(
-                    state = hazeState,
-                    style = HazeStyle(blurRadius = blurRadius.dp, tint = HazeTint(tintColor), noiseFactor = 0f)
-                )
-            }
-            hasBgImage && oneShotBitmap != null -> {
-                val tintEnabled = LocalFrostedTint.current
-                val tintColor = if (tintEnabled) solidSurface.copy(alpha = 0.25f) else Color.Transparent
-                Modifier.clip(shape).drawWithOneShotBitmap(oneShotBitmap, tintColor)
-            }
-            else ->
-                Modifier.background(solidSurface, shape = shape)
-        }
-
         val dialogContentColor = autoTextColor(solidSurface)
         CompositionLocalProvider(LocalContentColor provides dialogContentColor) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth(0.85f)
-                .then(containerModifier)
-                .clickable(
-                    indication = null,
-                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                ) { /* consume so taps inside don't dismiss */ }
-                .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            title?.let {
-                androidx.compose.runtime.CompositionLocalProvider {
-                    androidx.compose.material3.ProvideTextStyle(
-                        value = androidx.compose.material3.MaterialTheme.typography.headlineSmall
-                    ) { it() }
-                }
-            }
-            text?.let {
-                androidx.compose.runtime.CompositionLocalProvider {
-                    androidx.compose.material3.ProvideTextStyle(
-                        value = androidx.compose.material3.MaterialTheme.typography.bodyMedium
-                    ) { it() }
-                }
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth(0.88f)
+                    .clip(shape)
+                    .frostedCard(
+                        hazeState = hazeState,
+                        shape = shape,
+                        isDark = isDark,
+                        solidAlpha = 0.96f
+                    )
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                    ) { /* consume so taps inside don't dismiss */ }
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                dismissButton?.invoke()
-                confirmButton()
+                title?.let {
+                    ProvideTextStyle(
+                        value = MaterialTheme.typography.headlineSmall
+                    ) { it() }
+                }
+                text?.let {
+                    ProvideTextStyle(
+                        value = MaterialTheme.typography.bodyMedium
+                    ) { it() }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    dismissButton?.invoke()
+                    confirmButton()
+                }
             }
         }
-        } // end CompositionLocalProvider(LocalContentColor for dialog)
     }
 }
 
@@ -526,88 +558,27 @@ fun FrostedDialog(
  * Returns the correct containerColor for a Card or FAB when frosted glass is active.
  * When a background image is set and blur is allowed, returns [Color.Transparent] so
  * hazeEffect shows through. Otherwise returns [fallback].
- *
- * Usage:
- *   ElevatedCard(
- *       colors = CardDefaults.elevatedCardColors(
- *           containerColor = frostedContainerColor(fallback = surface.copy(alpha = 0.92f))
- *       ),
- *       modifier = Modifier.frostedCard(hazeState)
- *   )
  */
 @Composable
 fun frostedContainerColor(fallback: Color): Color {
     val hazeState = LocalHazeState.current
-    val oneShotBitmap = LocalOneShotBitmap.current
-    val barBlurBitmap = LocalBarBlurBitmap.current
     val hasBgImage = localHasBgImage()
-    // Transparent so the frosted modifier (hazeEffect or one-shot bitmap) shows through.
-    // Check barBlurBitmap too — FABs and bars use it instead of oneShotBitmap on API < 31.
-    val legacyReady = Build.VERSION.SDK_INT < Build.VERSION_CODES.S &&
-            (oneShotBitmap != null || barBlurBitmap != null)
-    val modernReady = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null
-    return if (hasBgImage && (modernReady || legacyReady)) Color.Transparent else fallback
+    return if (hasBgImage && hazeState != null) Color.Transparent else fallback
 }
 
 /**
- * Draws the [bitmap] as a tiled/stretched background behind this composable,
- * then overlays [tint] on top to achieve the frosted glass look.
- * The bitmap is the one-shot blurred screen capture taken just before the
- * panel/dialog opened, so it shows the actual UI content blurred behind it.
- *
- * Must be @Composable so [remember] keeps screenOffset/rootSize stable across
- * recompositions — plain `fun` would recreate them on every recompose, causing
- * rootSize to always read as Zero and squashing the whole bitmap into the bar.
+ * Backward-compatible bridge for legacy drawWithOneShotBitmap.
+ * Automatically delegates to modern frostedCard without blocking main-thread software captures.
  */
 @Composable
-fun Modifier.drawWithOneShotBitmap(bitmap: Bitmap, tint: Color): Modifier {
-    // Track this composable's position on screen so we can crop the correct
-    // slice of the blurred screenshot — making it look like frosted glass
-    // over whatever was physically behind this panel, not a scaled copy of the whole image.
-    var screenOffset by remember { mutableStateOf(androidx.compose.ui.unit.IntOffset.Zero) }
-    var rootSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
-    return this
-        .onGloballyPositioned { coords ->
-            screenOffset = coords.positionInRoot().let {
-                androidx.compose.ui.unit.IntOffset(it.x.toInt(), it.y.toInt())
-            }
-            // Walk up to the root to get the full screen dimensions
-            var root = coords
-            while (root.parentCoordinates != null) root = root.parentCoordinates!!
-            rootSize = root.size
-        }
-        .drawWithContent {
-            val bitmapW = bitmap.width.toFloat()
-            val bitmapH = bitmap.height.toFloat()
-            // Use root (screen) dimensions for correct coordinate mapping.
-            // Fall back to the bitmap's own dimensions on the first frame before
-            // onGloballyPositioned fires — avoids squashing the whole image into the bar.
-            val screenW = if (rootSize.width > 0) rootSize.width.toFloat() else bitmapW
-            val screenH = if (rootSize.height > 0) rootSize.height.toFloat() else bitmapH
-
-            // Source rect: the slice of the full blurred bitmap that sits behind this composable
-            val srcLeft   = (screenOffset.x.toFloat() / screenW * bitmapW).coerceIn(0f, bitmapW)
-            val srcTop    = (screenOffset.y.toFloat() / screenH * bitmapH).coerceIn(0f, bitmapH)
-            val srcRight  = ((screenOffset.x + size.width)  / screenW * bitmapW).coerceIn(0f, bitmapW)
-            val srcBottom = ((screenOffset.y + size.height) / screenH * bitmapH).coerceIn(0f, bitmapH)
-
-            if (srcRight > srcLeft && srcBottom > srcTop) {
-                drawImage(
-                    image = bitmap.asImageBitmap(),
-                    srcOffset = androidx.compose.ui.unit.IntOffset(srcLeft.toInt(), srcTop.toInt()),
-                    srcSize   = androidx.compose.ui.unit.IntSize(
-                        (srcRight - srcLeft).toInt().coerceAtLeast(1),
-                        (srcBottom - srcTop).toInt().coerceAtLeast(1)
-                    ),
-                    dstOffset = androidx.compose.ui.unit.IntOffset.Zero,
-                    dstSize   = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt())
-                )
-            }
-            // Tint overlay — gives the surface colour bleed that makes it feel glassy
-            drawRect(tint)
-            // Draw the composable's own content on top (text, icons etc.)
-            drawContent()
-        }
+fun Modifier.drawWithOneShotBitmap(bitmap: Bitmap?, tint: Color): Modifier {
+    val hazeState = LocalHazeState.current
+    val isDark = LocalAppTheme.current?.isDark == true
+    return if (bitmap != null) {
+        this.frostedCard(hazeState = hazeState, isDark = isDark)
+    } else {
+        this.background(tint)
+    }
 }
 
 fun parseComposeColor(hex: String, fallback: Color = Color.Black): Color {

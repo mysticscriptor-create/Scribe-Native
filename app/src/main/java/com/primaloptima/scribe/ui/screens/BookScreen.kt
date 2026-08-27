@@ -182,12 +182,6 @@ fun BookScreen(
     }
 
     val captureForDialog: suspend (() -> Unit) -> Unit = { openDialog ->
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            val raw = BitmapBlur.captureOnly(view)
-            dialogOneShotBitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                raw?.let { BitmapBlur.blurBitmap(it, radius = blurRadiusPx) }
-            }
-        }
         openDialog()
     }
 
