@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.data.WorldEntry
 import com.primaloptima.scribe.util.model.PaneAccentColor
@@ -243,10 +244,12 @@ fun NewNoteDialog(
 fun AddFileSheet(
     allNotes: List<Note>,
     currentBookId: String? = null,
+    books: List<Book> = emptyList(),
     onDismiss: () -> Unit,
     onConfirm: (selectedIds: List<String>) -> Unit,
 ) {
     var searchQuery by remember { mutableStateOf("") }
+    val bookTitleMap = remember(books) { books.associate { it.id to it.title } }
     val bookIds = remember(allNotes) {
         listOf("ALL") + allNotes.map { it.bookId }.distinct()
     }
@@ -319,10 +322,11 @@ fun AddFileSheet(
                 ) {
                     items(bookIds) { bId ->
                         val isSelected = selectedBookFilter == bId
+                        val chipLabel = if (bId == "ALL") "All Books" else (bookTitleMap[bId] ?: if (bId == Note.DEFAULT_BOOK_ID) "Main Book" else bId.take(12))
                         FilterChip(
                             selected = isSelected,
                             onClick = { selectedBookFilter = bId },
-                            label = { Text(if (bId == "ALL") "All Books" else bId.take(12)) }
+                            label = { Text(chipLabel) }
                         )
                     }
                 }

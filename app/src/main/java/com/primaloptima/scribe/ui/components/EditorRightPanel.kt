@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.data.WorldEntry
 import com.primaloptima.scribe.engine.ProseAnalysisResult
@@ -46,6 +47,7 @@ fun EditorRightPanel(
     workbenchState      : WorkbenchState = WorkbenchState(),
     allNotes            : List<Note>,
     worldEntries        : List<WorldEntry>,
+    books               : List<Book> = emptyList(),
     outline             : List<OutlineEntry>,
     activeTheme         : AppTheme?,
     activeNote          : Note? = null,
@@ -127,6 +129,7 @@ fun EditorRightPanel(
                             workbenchState      = workbenchState,
                             allNotes            = allNotes,
                             worldEntries        = worldEntries,
+                            books               = books,
                             activeTheme         = activeTheme,
                             activeNote          = activeNote,
                             onUpdatePane        = onUpdatePane,

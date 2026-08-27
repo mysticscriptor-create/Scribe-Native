@@ -10,8 +10,10 @@ import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.data.WorldEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -20,6 +22,9 @@ class BookViewModel(application: Application) : AndroidViewModel(application) {
 
     private val app = application as ScribeApp
     private val db = app.database
+
+    val allBooks: StateFlow<List<Book>> = db.bookDao().observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Set by BookActivity after creation
     var bookId: String = Note.DEFAULT_BOOK_ID

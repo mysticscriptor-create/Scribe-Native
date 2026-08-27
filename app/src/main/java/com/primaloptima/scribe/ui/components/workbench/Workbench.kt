@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
+import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.data.WorldEntry
 import com.primaloptima.scribe.ui.components.AddSectionSheet
@@ -89,6 +90,7 @@ fun Workbench(
     workbenchState      : WorkbenchState = WorkbenchState(),
     allNotes            : List<Note>,
     worldEntries        : List<WorldEntry>,
+    books               : List<Book> = emptyList(),
     activeTheme         : AppTheme?,
     activeNote          : Note? = null,
     onUpdatePane        : (paneId: String, transform: (PaneConfig) -> PaneConfig) -> Unit = { _, _ -> },

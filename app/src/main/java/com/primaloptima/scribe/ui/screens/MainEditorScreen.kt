@@ -190,6 +190,7 @@ fun MainEditorScreen(
     val currentBookNotes   by bookVm.notes.collectAsStateWithLifecycle()
     val currentBookFolders by bookVm.folders.collectAsStateWithLifecycle()
     val worldEntries       by bookVm.worldEntries.collectAsStateWithLifecycle()
+    val allBooks           by bookVm.allBooks.collectAsStateWithLifecycle()
 
     val allNotes   by noteListVm.notes.collectAsStateWithLifecycle()
     val allFolders by noteListVm.folders.collectAsStateWithLifecycle()
@@ -639,6 +640,7 @@ fun MainEditorScreen(
                 workbenchState        = workbenchState,
                 allNotes              = allNotes,
                 worldEntries          = worldEntries,
+                books                 = allBooks,
                 outline               = outline,
                 activeTheme           = activeTheme,
                 activeNote            = activeNote,

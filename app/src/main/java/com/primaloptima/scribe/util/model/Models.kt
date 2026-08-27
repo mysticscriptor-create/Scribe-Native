@@ -257,6 +257,10 @@ data class PaneConfig(
     val isMinimized     : Boolean = false,
     val minimizedBy     : MinimizedBy? = null,
     val showFooterPills : Boolean = true,
+    val showWordCountPill: Boolean = true,
+    val showOutlinePill: Boolean = true,
+    val showProsePill: Boolean = true,
+    val showReferencesPill: Boolean = true,
     val showLabel       : Boolean = true,
     val splitFraction   : Float = 0.5f,
     val systemMinimizedNoticeShown : Boolean = false

@@ -43,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.data.WorldEntry
 import com.primaloptima.scribe.ui.components.AddFileSheet
@@ -72,6 +73,7 @@ fun WorkbenchCard(
     pinnedIndex         : Int,
     allNotes            : List<Note>,
     worldEntries        : List<WorldEntry>,
+    books               : List<Book> = emptyList(),
     activeTheme         : AppTheme?,
     activeNote          : Note? = null,
     accentColor         : Color = Color.Unspecified,
@@ -546,6 +548,7 @@ fun WorkbenchCard(
         AddFileSheet(
             allNotes = allNotes,
             currentBookId = activeNote?.bookId,
+            books = books,
             onDismiss = { showAddFileSheet = false },
             onConfirm = { ids -> onPinNotes(ids) }
         )
