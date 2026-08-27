@@ -129,7 +129,7 @@ fun WorkbenchCard(
     var showOverflow by remember { mutableStateOf(false) }
     var editingLabel by remember { mutableStateOf(false) }
     var labelInputText by remember(pane.label) { mutableStateOf(pane.label) }
-    var showReferences by remember { mutableStateOf(false) }
+    var showReferencesOverlay by remember { mutableStateOf(false) }
     var unpinCandidateNoteId by remember { mutableStateOf<String?>(null) }
 
     // Modals
@@ -141,6 +141,7 @@ fun WorkbenchCard(
     var showScopeSheet by remember { mutableStateOf(false) }
 
     val paneAccentColor = pane.accentColor.toComposeColor(isDark)
+    val hasAccentBar = pane.accentColor != PaneAccentColor.NONE
 
     Box(
         modifier = modifier
@@ -170,7 +171,7 @@ fun WorkbenchCard(
             }
     ) {
         // Vertical accent bar on leading edge if pane accent color is set (3g)
-        if (pane.accentColor != PaneAccentColor.NONE) {
+        if (hasAccentBar) {
             Box(
                 modifier = Modifier
                     .width(3.5.dp)
@@ -230,6 +231,7 @@ fun WorkbenchCard(
             ) {
                 var headerDragging by remember { mutableStateOf(false) }
 
+                // ── Flushed Header Section ─────────────────────────────────────
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -237,7 +239,7 @@ fun WorkbenchCard(
                             if (headerDragging || isDetached) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.22f)
                             else Color.Transparent
                         )
-                        .padding(start = 10.dp, end = 4.dp, top = 6.dp, bottom = 4.dp)
+                        .padding(start = if (hasAccentBar) 5.dp else 4.dp, end = 4.dp, top = 0.dp, bottom = 2.dp)
                         .pointerInput(Unit) {
                             detectDragGesturesAfterLongPress(
                                 onDragStart = { offset ->
@@ -266,7 +268,7 @@ fun WorkbenchCard(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            // Section Label Chip with inline edit (3b)
+                            // Section Label Badge flushed with top-left corner
                             AnimatedVisibility(visible = pane.showLabel) {
                                 val chipBg = if (pane.accentColor != PaneAccentColor.NONE) paneAccentColor.copy(alpha = 0.20f)
                                 else MaterialTheme.colorScheme.primaryContainer
@@ -283,9 +285,9 @@ fun WorkbenchCard(
                                         onValueChange = { labelInputText = it },
                                         singleLine = true,
                                         textStyle = TextStyle(
-                                            fontSize = 10.sp,
+                                            fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
-                                            letterSpacing = 0.5.sp,
+                                            letterSpacing = 0.4.sp,
                                             color = chipText
                                         ),
                                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -295,8 +297,8 @@ fun WorkbenchCard(
                                         }),
                                         modifier = Modifier
                                             .focusRequester(focusRequester)
-                                            .background(chipBg, RoundedCornerShape(4.dp))
-                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            .background(chipBg, RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 4.dp))
+                                            .padding(horizontal = 4.dp, vertical = 1.dp)
                                             .onFocusChanged { focusState ->
                                                 if (!focusState.isFocused && editingLabel) {
                                                     editingLabel = false
@@ -306,7 +308,7 @@ fun WorkbenchCard(
                                     )
                                 } else {
                                     Surface(
-                                        shape = RoundedCornerShape(4.dp),
+                                        shape = RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 4.dp),
                                         color = chipBg,
                                         onClick = {
                                             labelInputText = pane.label
@@ -315,24 +317,30 @@ fun WorkbenchCard(
                                     ) {
                                         Text(
                                             text = pane.label.ifBlank { "SECTION" }.uppercase(),
-                                            fontSize = 10.sp,
+                                            fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
-                                            letterSpacing = 0.5.sp,
+                                            letterSpacing = 0.4.sp,
                                             color = chipText,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                                         )
                                     }
                                 }
                             }
 
                             Spacer(Modifier.height(2.dp))
+
+                            // Note Title - tapping opens reference switcher overlay
                             Text(
                                 text = currentNote.name,
-                                fontSize = 14.sp,
+                                fontSize = 13.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .clickable { showReferencesOverlay = true }
+                                    .padding(horizontal = 2.dp, vertical = 1.dp)
                             )
                         }
 
@@ -342,8 +350,8 @@ fun WorkbenchCard(
                             }
                             Spacer(Modifier.width(2.dp))
                             Text(
-                                "${pinnedIndex + 1} / ${pinnedIds.size}",
-                                fontSize = 11.sp,
+                                "${pinnedIndex + 1}/${pinnedIds.size}",
+                                fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.outline
                             )
                             Spacer(Modifier.width(2.dp))
@@ -361,7 +369,7 @@ fun WorkbenchCard(
                                     Icons.Default.RemoveCircleOutline,
                                     contentDescription = "Remove Section",
                                     tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(16.dp)
+                                    modifier = Modifier.size(15.dp)
                                 )
                             }
                         }
@@ -371,7 +379,7 @@ fun WorkbenchCard(
                                 onClick = { showOverflow = true },
                                 modifier = Modifier.size(20.dp)
                             ) {
-                                Icon(Icons.Default.MoreVert, "Options", modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.MoreVert, "Options", modifier = Modifier.size(15.dp))
                             }
 
                             if (showOverflow) {
@@ -390,7 +398,7 @@ fun WorkbenchCard(
                                     },
                                     onReferences = {
                                         showOverflow = false
-                                        showReferences = !showReferences
+                                        showReferencesOverlay = true
                                     },
                                     onDuplicate = {
                                         showOverflow = false
@@ -420,84 +428,262 @@ fun WorkbenchCard(
                 }
 
                 HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 8.dp),
-                    color    = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    modifier = Modifier.padding(horizontal = 4.dp),
+                    thickness = 0.5.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                 )
 
-                // ── References Expand Panel (3c) ──────────────────────────────
-                WorkbenchReferencesPanel(
-                    visible = showReferences,
-                    pinnedNotes = pinnedNotesList,
-                    selectedIndex = pinnedIndex,
-                    onSelectIndex = onSelectIndex,
-                    onReorderNote = onReorderNote,
-                    onRequestUnpin = { noteId -> unpinCandidateNoteId = noteId },
-                    onCollapse = { showReferences = false }
-                )
-
-                // ── Note Content (Read-Only Sora CodeEditor) ───────────────────
-                AndroidView(
-                    modifier = Modifier.weight(1f).fillMaxWidth().padding(bottom = 2.dp),
-                    factory  = { ctx ->
-                        CodeEditor(ctx).apply {
-                            isEditable             = false
-                            isLineNumberEnabled    = false
-                            isHighlightCurrentLine = false
-                            isWordwrap             = true
-                            setText(currentNote.content.ifBlank { "(Empty note content)" })
-                            activeTheme?.let { colorScheme = ScribeColorScheme(it) }
-                            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                // ── Note Content (Read-Only Sora CodeEditor) with Floating Pills Overlay ───
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    AndroidView(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        factory = { ctx ->
+                            CodeEditor(ctx).apply {
+                                isEditable             = false
+                                isLineNumberEnabled    = false
+                                isHighlightCurrentLine = false
+                                isWordwrap             = true
+                                setText(currentNote.content.ifBlank { "(Empty note content)" })
+                                activeTheme?.let { colorScheme = ScribeColorScheme(it) }
+                                setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                            }
+                        },
+                        update = { editor ->
+                            val incoming = currentNote.content.ifBlank { "(Empty note content)" }
+                            if (editor.text.toString() != incoming) editor.setText(incoming)
+                            activeTheme?.let { editor.colorScheme = ScribeColorScheme(it) }
                         }
-                    },
-                    update = { editor ->
-                        val incoming = currentNote.content.ifBlank { "(Empty note content)" }
-                        if (editor.text.toString() != incoming) editor.setText(incoming)
-                        activeTheme?.let { editor.colorScheme = ScribeColorScheme(it) }
-                    }
-                )
+                    )
 
-                // ── Footer Row with Pills Visibility (3g) ─────────────────────
-                AnimatedVisibility(visible = pane.showFooterPills) {
-                    Column {
-                        HorizontalDivider(
-                            thickness = 0.5.dp,
-                            color     = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                        )
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                    // Floating Action Pills over the view (Bottom-End aligned)
+                    AnimatedVisibility(
+                        visible = pane.showFooterPills,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(6.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (hasBgImage) MaterialTheme.colorScheme.surface.copy(alpha = 0.75f)
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.90f),
+                            border = androidx.compose.foundation.BorderStroke(
+                                0.5.dp,
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                            ),
+                            shadowElevation = 2.dp
                         ) {
-                            Text(
-                                text = "Edited just now",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.outline
-                            )
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                             ) {
+                                // Fullscreen Focus Pill
                                 IconButton(
                                     onClick = onFocusPane,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(22.dp)
                                 ) {
-                                    Icon(Icons.Default.OpenInFull, contentDescription = "Focus note", modifier = Modifier.size(14.dp))
+                                    Icon(
+                                        Icons.Default.OpenInFull,
+                                        contentDescription = "Focus note",
+                                        modifier = Modifier.size(12.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
                                 }
+
+                                // Add Reference Pill
                                 IconButton(
                                     onClick = { showAddReferenceChoiceSheet = true },
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(22.dp)
                                 ) {
-                                    Icon(Icons.Default.Add, contentDescription = "Add reference", modifier = Modifier.size(14.dp))
+                                    Icon(
+                                        Icons.Default.Add,
+                                        contentDescription = "Add reference",
+                                        modifier = Modifier.size(13.dp),
+                                        tint = if (accentColor != Color.Unspecified) accentColor else MaterialTheme.colorScheme.primary
+                                    )
                                 }
+                            }
+                        }
+                    }
+
+                    // Floating Meta Pill (Bottom-Start aligned)
+                    AnimatedVisibility(
+                        visible = pane.showFooterPills,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(6.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (hasBgImage) MaterialTheme.colorScheme.surface.copy(alpha = 0.65f)
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.80f),
+                            border = androidx.compose.foundation.BorderStroke(
+                                0.5.dp,
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                            )
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Edit,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(9.dp),
+                                    tint = MaterialTheme.colorScheme.outline
+                                )
+                                Spacer(Modifier.width(3.dp))
+                                Text(
+                                    text = "Read-only",
+                                    fontSize = 9.sp,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    // ── References Switcher Overlay Dialog ─────────────────────────────────────
+    if (showReferencesOverlay) {
+        AlertDialog(
+            onDismissRequest = { showReferencesOverlay = false },
+            title = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "References (${pinnedNotesList.size})",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    IconButton(
+                        onClick = {
+                            showReferencesOverlay = false
+                            showAddReferenceChoiceSheet = true
+                        },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Add", tint = if (accentColor != Color.Unspecified) accentColor else MaterialTheme.colorScheme.primary)
+                    }
+                }
+            },
+            text = {
+                if (pinnedNotesList.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
+                        Text("No pinned references", fontSize = 13.sp, color = MaterialTheme.colorScheme.outline)
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 280.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        itemsIndexed(pinnedNotesList, key = { _, n -> n.id }) { idx, noteItem ->
+                            val isCurrent = idx == pinnedIndex
+                            Surface(
+                                onClick = {
+                                    onSelectIndex(idx)
+                                    showReferencesOverlay = false
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                color = if (isCurrent) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(
+                                        verticalArrangement = Arrangement.Center,
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.width(18.dp)
+                                    ) {
+                                        if (idx > 0) {
+                                            Icon(
+                                                imageVector = Icons.Default.KeyboardArrowUp,
+                                                contentDescription = "Move Up",
+                                                tint = MaterialTheme.colorScheme.outline,
+                                                modifier = Modifier
+                                                    .size(14.dp)
+                                                    .clickable { onReorderNote(idx, idx - 1) }
+                                            )
+                                        }
+                                        if (idx < pinnedNotesList.size - 1) {
+                                            Icon(
+                                                imageVector = Icons.Default.KeyboardArrowDown,
+                                                contentDescription = "Move Down",
+                                                tint = MaterialTheme.colorScheme.outline,
+                                                modifier = Modifier
+                                                    .size(14.dp)
+                                                    .clickable { onReorderNote(idx, idx + 1) }
+                                            )
+                                        }
+                                    }
+
+                                    Spacer(Modifier.width(6.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = noteItem.name,
+                                            fontSize = 13.sp,
+                                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        if (noteItem.content.isNotBlank()) {
+                                            Text(
+                                                text = noteItem.content.take(60).replace('\n', ' '),
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.outline,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            showReferencesOverlay = false
+                                            unpinCandidateNoteId = noteItem.id
+                                        },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Unpin",
+                                            tint = MaterialTheme.colorScheme.outline,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showReferencesOverlay = false }) {
+                    Text("Close")
+                }
+            }
+        )
     }
 
     // ── Unpin Confirmation Dialog (3c) ────────────────────────────────────────
