@@ -45,6 +45,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.data.WorldEntry
@@ -309,21 +312,22 @@ fun WorkbenchCard(
                                             }
                                     )
                                 } else {
-                                    Surface(
-                                        shape = RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 4.dp),
-                                        color = chipBg,
-                                        onClick = {
-                                            labelInputText = pane.label
-                                            editingLabel = true
-                                        }
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(bottomStart = 2.dp, bottomEnd = 4.dp))
+                                            .background(chipBg)
+                                            .clickable {
+                                                labelInputText = pane.label
+                                                editingLabel = true
+                                            }
+                                            .padding(horizontal = 4.dp, vertical = 1.dp)
                                     ) {
                                         Text(
                                             text = pane.label.ifBlank { "SECTION" }.uppercase(),
                                             fontSize = 9.sp,
                                             fontWeight = FontWeight.Bold,
                                             letterSpacing = 0.4.sp,
-                                            color = chipText,
-                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                            color = chipText
                                         )
                                     }
                                 }
@@ -342,13 +346,24 @@ fun WorkbenchCard(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(3.dp))
                                     .clickable { showReferencesOverlay = true }
-                                    .padding(horizontal = 2.dp, vertical = 1.dp)
+                                    .padding(horizontal = 2.dp, vertical = 0.dp)
                             )
                         }
 
                         if (pinnedIds.size > 1) {
-                            IconButton(onClick = onPrev, modifier = Modifier.size(20.dp)) {
-                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous note", modifier = Modifier.size(14.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clip(CircleShape)
+                                    .clickable(onClick = onPrev),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                    contentDescription = "Previous note",
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.outline
+                                )
                             }
                             Spacer(Modifier.width(2.dp))
                             Text(
@@ -357,15 +372,29 @@ fun WorkbenchCard(
                                 color = MaterialTheme.colorScheme.outline
                             )
                             Spacer(Modifier.width(2.dp))
-                            IconButton(onClick = onNext, modifier = Modifier.size(20.dp)) {
-                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next note", modifier = Modifier.size(14.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clip(CircleShape)
+                                    .clickable(onClick = onNext),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = "Next note",
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.outline
+                                )
                             }
                         }
 
                         if (removeMode) {
-                            IconButton(
-                                onClick = { onRemoveClick?.invoke() },
-                                modifier = Modifier.size(20.dp)
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clip(CircleShape)
+                                    .clickable { onRemoveClick?.invoke() },
+                                contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     Icons.Default.RemoveCircleOutline,
@@ -377,11 +406,19 @@ fun WorkbenchCard(
                         }
 
                         Box {
-                            IconButton(
-                                onClick = { showOverflow = true },
-                                modifier = Modifier.size(20.dp)
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clip(CircleShape)
+                                    .clickable { showOverflow = true },
+                                contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.MoreVert, "Options", modifier = Modifier.size(15.dp))
+                                Icon(
+                                    Icons.Default.MoreVert,
+                                    contentDescription = "Options",
+                                    modifier = Modifier.size(15.dp),
+                                    tint = MaterialTheme.colorScheme.outline
+                                )
                             }
 
                             if (showOverflow) {
@@ -486,9 +523,12 @@ fun WorkbenchCard(
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                             ) {
                                 // Fullscreen Focus Pill
-                                IconButton(
-                                    onClick = onFocusPane,
-                                    modifier = Modifier.size(22.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .size(22.dp)
+                                        .clip(CircleShape)
+                                        .clickable(onClick = onFocusPane),
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         Icons.Default.OpenInFull,
@@ -499,9 +539,12 @@ fun WorkbenchCard(
                                 }
 
                                 // Add Reference Pill
-                                IconButton(
-                                    onClick = { showAddReferenceChoiceSheet = true },
-                                    modifier = Modifier.size(22.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .size(22.dp)
+                                        .clip(CircleShape)
+                                        .clickable { showAddReferenceChoiceSheet = true },
+                                    contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         Icons.Default.Add,
@@ -515,6 +558,20 @@ fun WorkbenchCard(
                     }
 
                     // Floating Meta Pill (Bottom-Start aligned)
+                    val formattedTime = remember(currentNote.updatedAt) {
+                        val diff = System.currentTimeMillis() - currentNote.updatedAt
+                        val minutes = diff / (1000 * 60)
+                        val hours = minutes / 60
+                        val days = hours / 24
+                        when {
+                            diff < 60_000L -> "Edited just now"
+                            minutes < 60L -> "Edited ${minutes}m ago"
+                            hours < 24L -> "Edited ${hours}h ago"
+                            days < 7L -> "Edited ${days}d ago"
+                            else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(currentNote.updatedAt))
+                        }
+                    }
+
                     androidx.compose.animation.AnimatedVisibility(
                         visible = pane.showFooterPills,
                         modifier = Modifier
@@ -542,7 +599,7 @@ fun WorkbenchCard(
                                 )
                                 Spacer(Modifier.width(3.dp))
                                 Text(
-                                    text = "Read-only",
+                                    text = formattedTime,
                                     fontSize = 9.sp,
                                     color = MaterialTheme.colorScheme.outline
                                 )
