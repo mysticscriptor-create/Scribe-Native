@@ -251,6 +251,7 @@ class EditorViewModel(
         }
     }
 
+    @Deprecated("Use updatePane / pinNoteToPane instead")
     fun addPinnedTop(noteId: String) {
         val list = _pinnedTopNotes.value.toMutableList()
         if (!list.contains(noteId)) {
@@ -263,6 +264,7 @@ class EditorViewModel(
         persistPinnedTop()
     }
 
+    @Deprecated("Use updatePane / unpinNote instead")
     fun removePinnedTop(noteId: String) {
         val list = _pinnedTopNotes.value.toMutableList()
         list.remove(noteId)
@@ -272,6 +274,7 @@ class EditorViewModel(
         persistPinnedTop()
     }
 
+    @Deprecated("Use updatePane instead")
     fun prevPinnedTop() {
         val list = _pinnedTopNotes.value
         if (list.size <= 1) return
@@ -279,6 +282,7 @@ class EditorViewModel(
         _pinnedTopIndex.value = if (curr > 0) curr - 1 else list.size - 1
     }
 
+    @Deprecated("Use updatePane instead")
     fun nextPinnedTop() {
         val list = _pinnedTopNotes.value
         if (list.size <= 1) return
@@ -287,6 +291,7 @@ class EditorViewModel(
     }
 
     /** Swap top & bottom pinned slot contents. */
+    @Deprecated("Use updateWorkbench instead")
     fun swapPinnedSlots() {
         val oldTop    = _pinnedTopNotes.value
         val oldBottom = _pinnedBottomNotes.value
@@ -298,6 +303,7 @@ class EditorViewModel(
         persistPinnedBottom()
     }
 
+    @Deprecated("Use updatePane / pinNoteToPane instead")
     fun addPinnedBottom(noteId: String) {
         val list = _pinnedBottomNotes.value.toMutableList()
         if (!list.contains(noteId)) {
@@ -310,6 +316,7 @@ class EditorViewModel(
         persistPinnedBottom()
     }
 
+    @Deprecated("Use updatePane / unpinNote instead")
     fun removePinnedBottom(noteId: String) {
         val list = _pinnedBottomNotes.value.toMutableList()
         list.remove(noteId)
@@ -319,6 +326,7 @@ class EditorViewModel(
         persistPinnedBottom()
     }
 
+    @Deprecated("Use updatePane instead")
     fun prevPinnedBottom() {
         val list = _pinnedBottomNotes.value
         if (list.size <= 1) return
@@ -326,6 +334,7 @@ class EditorViewModel(
         _pinnedBottomIndex.value = if (curr > 0) curr - 1 else list.size - 1
     }
 
+    @Deprecated("Use updatePane instead")
     fun nextPinnedBottom() {
         val list = _pinnedBottomNotes.value
         if (list.size <= 1) return
