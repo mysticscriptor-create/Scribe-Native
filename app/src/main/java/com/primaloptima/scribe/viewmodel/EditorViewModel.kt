@@ -171,6 +171,56 @@ class EditorViewModel(
         }
     }
 
+    fun pinMultipleNotesToPane(paneId: String, noteIds: List<String>) {
+        updatePane(paneId) { pane ->
+            val existing = pane.pinnedNoteIds.toSet()
+            val toAdd = noteIds.filter { !existing.contains(it) }
+            if (toAdd.isEmpty()) return@updatePane pane
+            val list = pane.pinnedNoteIds + toAdd
+            pane.copy(pinnedNoteIds = list, currentIndex = list.size - 1)
+        }
+    }
+
+    fun updateNoteContent(noteId: String, content: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val note = db.noteDao().getById(noteId) ?: return@launch
+            if (note.externalUri != null) {
+                try {
+                    SAFHelper.writeFile(getApplication(), Uri.parse(note.externalUri), content)
+                } catch (_: Exception) {}
+            }
+            val newWords = MarkdownUtil.countWords(content)
+            val now = System.currentTimeMillis()
+            db.noteDao().updateContentAndWordCount(noteId, content, newWords, now)
+            if (_activeNote.value?.id == noteId) {
+                _activeNote.value = _activeNote.value?.copy(content = content, updatedAt = now)
+                lastSavedContent = content
+            }
+        }
+    }
+
+    fun createNoteForPane(paneId: String, name: String, content: String, bookId: String = Note.DEFAULT_BOOK_ID) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val id = java.util.UUID.randomUUID().toString()
+            val now = System.currentTimeMillis()
+            val note = Note(
+                id = id,
+                name = name.ifBlank { "Untitled" },
+                content = content,
+                bookId = bookId,
+                folderPath = "/",
+                ext = "md",
+                createdAt = now,
+                updatedAt = now,
+                wordCount = MarkdownUtil.countWords(content)
+            )
+            db.noteDao().insert(note)
+            withContext(Dispatchers.Main) {
+                pinNoteToPane(paneId, id)
+            }
+        }
+    }
+
     // ── Companion panel UI prefs (persisted) ──────────────────────────────────
     val companionTabBarBottom: StateFlow<Boolean> = dataStore.companionTabBarBottomFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
