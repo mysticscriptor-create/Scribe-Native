@@ -885,9 +885,9 @@ fun SectionScopeSheet(
             scopeOptions.forEach { (label, scope) ->
                 val isSelected = when (val current = pane.primaryScope) {
                     is PaneScope.Global -> scope is PaneScope.Global
-                    is PaneScope.Book -> scope is PaneScope.Book && scope.bookId == current.bookId
-                    is PaneScope.Folder -> scope is PaneScope.Folder && scope.folderPath == current.folderPath
-                    is PaneScope.File -> scope is PaneScope.File && scope.fileId == current.fileId
+                    is PaneScope.Book -> scope is PaneScope.Book && scope.id == current.id
+                    is PaneScope.Folder -> scope is PaneScope.Folder && scope.id == current.id
+                    is PaneScope.File -> scope is PaneScope.File && scope.id == current.id
                 }
 
                 Surface(

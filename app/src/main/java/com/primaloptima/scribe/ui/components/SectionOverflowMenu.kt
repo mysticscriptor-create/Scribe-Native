@@ -10,7 +10,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.FormatListBulleted
-import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -93,7 +92,7 @@ fun SectionOverflowMenu(
                         .fillMaxWidth()
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
-                            indication = rememberRipple(),
+                            indication = ripple(),
                             onClick = onEditLabel
                         )
                         .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -224,7 +223,7 @@ private fun OverflowMenuItem(
             .height(44.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
-                indication = rememberRipple(),
+                indication = ripple(),
                 onClick = onClick
             )
             .padding(horizontal = 16.dp),

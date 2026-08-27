@@ -6,6 +6,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -759,7 +760,15 @@ fun EditorRightPanel(
                             }
                         }
                         1 -> OutlineView(outline = outline, soraEditorRef = soraEditorRef)
-                        2 -> ProseAnalysisView(proseAnalysis = proseAnalysis, soraEditorRef = soraEditorRef)
+                        2 -> ProseAnalysisView(
+                            analysis = proseAnalysis,
+                            onJumpToSentence = { line ->
+                                soraEditorRef?.let { editor ->
+                                    val l = line.coerceIn(0, (editor.lineCount - 1).coerceAtLeast(0))
+                                    editor.setSelection(l, 0)
+                                }
+                            }
+                        )
                     }
                 }
 
@@ -1840,7 +1849,7 @@ private fun OutlineView(
                 Surface(
                     onClick = {
                         soraEditorRef?.let { editor ->
-                            val line = entry.line.coerceIn(0, (editor.lineCount - 1).coerceAtLeast(0))
+                            val line = entry.lineIndex.coerceIn(0, (editor.lineCount - 1).coerceAtLeast(0))
                             editor.setSelection(line, 0)
                         }
                     },
@@ -1868,7 +1877,7 @@ private fun OutlineView(
                             )
                         }
                         Text(
-                            text = entry.title,
+                            text = entry.text,
                             fontSize = 13.sp,
                             fontWeight = if (entry.level == 1) FontWeight.SemiBold else FontWeight.Normal,
                             color = MaterialTheme.colorScheme.onSurface,
