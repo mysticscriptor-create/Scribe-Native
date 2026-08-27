@@ -15,9 +15,15 @@ import com.primaloptima.scribe.util.RecoveryManager
 import com.primaloptima.scribe.util.SAFHelper
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.ExternalRoot
-import kotlinx.serialization.decodeFromString
 import com.primaloptima.scribe.util.model.FloatingWindow
 import com.primaloptima.scribe.util.model.OutlineEntry
+import com.primaloptima.scribe.util.model.PaneConfig
+import com.primaloptima.scribe.util.model.PaneScope
+import com.primaloptima.scribe.util.model.MinimizedBy
+import com.primaloptima.scribe.util.model.WorkbenchState
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.coroutines.flow.first
 import com.primaloptima.scribe.engine.ProseAnalysisEngine
 import com.primaloptima.scribe.engine.ProseAnalysisResult
 import kotlinx.coroutines.Dispatchers
@@ -80,6 +86,91 @@ class EditorViewModel(
     private val _pinnedBottomIndex = MutableStateFlow(0)
     val pinnedBottomIndex: StateFlow<Int> = _pinnedBottomIndex.asStateFlow()
 
+    // ── WorkbenchState ────────────────────────────────────────────────────────────
+
+    private val _workbenchState = MutableStateFlow(WorkbenchState())
+    val workbenchState: StateFlow<WorkbenchState> = _workbenchState.asStateFlow()
+
+    private fun persistWorkbench() {
+        viewModelScope.launch {
+            dataStore.setWorkbenchStateJson(AppJson.encodeToString(_workbenchState.value))
+        }
+    }
+
+    fun updatePane(id: String, transform: (PaneConfig) -> PaneConfig) {
+        _workbenchState.value = _workbenchState.value.copy(
+            panes = _workbenchState.value.panes.map { if (it.id == id) transform(it) else it }
+        )
+        persistWorkbench()
+    }
+
+    fun updateWorkbench(transform: (WorkbenchState) -> WorkbenchState) {
+        _workbenchState.value = transform(_workbenchState.value)
+        persistWorkbench()
+    }
+
+    fun addPane(scope: PaneScope) {
+        val current = _workbenchState.value
+        if (current.panes.count { !it.isMinimized } >= current.maxSlots) return
+        val newPane = PaneConfig(
+            id = "pane_${System.currentTimeMillis()}",
+            primaryScope = scope
+        )
+        _workbenchState.value = current.copy(panes = current.panes + newPane)
+        persistWorkbench()
+    }
+
+    fun removePane(id: String) {
+        val current = _workbenchState.value
+        _workbenchState.value = current.copy(panes = current.panes.filter { it.id != id })
+        persistWorkbench()
+    }
+
+    fun duplicatePane(id: String) {
+        val current = _workbenchState.value
+        val source = current.panes.firstOrNull { it.id == id } ?: return
+        val copy = source.copy(
+            id = "pane_${System.currentTimeMillis()}",
+            label = "${source.label} (Copy)"
+        )
+        _workbenchState.value = current.copy(panes = current.panes + copy)
+        persistWorkbench()
+    }
+
+    fun minimizePane(id: String, by: MinimizedBy) {
+        updatePane(id) { it.copy(isMinimized = true, minimizedBy = by) }
+    }
+
+    fun restorePane(id: String) {
+        updatePane(id) { it.copy(isMinimized = false, minimizedBy = null) }
+    }
+
+    fun reorderPinnedNote(paneId: String, fromIndex: Int, toIndex: Int) {
+        updatePane(paneId) { pane ->
+            val list = pane.pinnedNoteIds.toMutableList()
+            val item = list.removeAt(fromIndex)
+            list.add(toIndex, item)
+            pane.copy(pinnedNoteIds = list)
+        }
+    }
+
+    fun unpinNote(paneId: String, noteId: String) {
+        updatePane(paneId) { pane ->
+            val list = pane.pinnedNoteIds.toMutableList()
+            list.remove(noteId)
+            val newIndex = pane.currentIndex.coerceIn(0, (list.size - 1).coerceAtLeast(0))
+            pane.copy(pinnedNoteIds = list, currentIndex = newIndex)
+        }
+    }
+
+    fun pinNoteToPane(paneId: String, noteId: String) {
+        updatePane(paneId) { pane ->
+            if (pane.pinnedNoteIds.contains(noteId)) return@updatePane pane
+            val list = pane.pinnedNoteIds + noteId
+            pane.copy(pinnedNoteIds = list, currentIndex = list.size - 1)
+        }
+    }
+
     // ── Companion panel UI prefs (persisted) ──────────────────────────────────
     val companionTabBarBottom: StateFlow<Boolean> = dataStore.companionTabBarBottomFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
@@ -89,10 +180,12 @@ class EditorViewModel(
 
     fun setCompanionTabBarBottom(v: Boolean) {
         viewModelScope.launch { dataStore.setCompanionTabBarBottom(v) }
+        updateWorkbench { it.copy(tabBarAtBottom = v) }
     }
 
     fun setCompanionSplitHorizontal(v: Boolean) {
         viewModelScope.launch { dataStore.setCompanionSplitHorizontal(v) }
+        updateWorkbench { it.copy(splitHorizontal = v) }
     }
 
     // ── Pinned notes helper: save to DataStore ────────────────────────────────
@@ -337,6 +430,57 @@ class EditorViewModel(
                         _pinnedBottomNotes.value = ids
                         _pinnedBottomIndex.value = if (ids.isEmpty()) 0 else _pinnedBottomIndex.value.coerceIn(0, ids.size - 1)
                     } catch (_: Exception) { }
+                }
+            }
+        }
+        viewModelScope.launch {
+            dataStore.workbenchStateJsonFlow.collectLatest { json ->
+                if (!json.isNullOrBlank()) {
+                    try {
+                        _workbenchState.value = AppJson.decodeFromString<WorkbenchState>(json)
+                    } catch (_: Exception) { }
+                } else {
+                    // One-time migration from legacy keys
+                    val topJson = dataStore.pinnedTopJsonFlow.first()
+                    val bottomJson = dataStore.pinnedBottomJsonFlow.first()
+                    val topNotes = if (!topJson.isNullOrBlank()) {
+                        try { AppJson.decodeFromString<List<String>>(topJson) } catch (_: Exception) { emptyList() }
+                    } else emptyList()
+                    val bottomNotes = if (!bottomJson.isNullOrBlank()) {
+                        try { AppJson.decodeFromString<List<String>>(bottomJson) } catch (_: Exception) { emptyList() }
+                    } else emptyList()
+
+                    val panes = mutableListOf<PaneConfig>()
+                    if (topNotes.isNotEmpty()) {
+                        panes.add(
+                            PaneConfig(
+                                id = "pane_top_migrated",
+                                label = "Top Slot",
+                                pinnedNoteIds = topNotes,
+                                primaryScope = PaneScope.Global
+                            )
+                        )
+                    }
+                    if (bottomNotes.isNotEmpty()) {
+                        panes.add(
+                            PaneConfig(
+                                id = "pane_bottom_migrated",
+                                label = "Bottom Slot",
+                                pinnedNoteIds = bottomNotes,
+                                primaryScope = PaneScope.Global
+                            )
+                        )
+                    }
+                    if (panes.isEmpty()) {
+                        panes.add(PaneConfig(id = "pane_default", label = "Section"))
+                    }
+                    val migrated = WorkbenchState(
+                        panes = panes,
+                        tabBarAtBottom = dataStore.companionTabBarBottomFlow.first(),
+                        splitHorizontal = dataStore.companionSplitHorizontalFlow.first()
+                    )
+                    _workbenchState.value = migrated
+                    persistWorkbench()
                 }
             }
         }

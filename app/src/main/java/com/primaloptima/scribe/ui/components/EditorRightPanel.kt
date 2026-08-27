@@ -108,6 +108,7 @@ fun EditorRightPanel(
     pinnedTopIndex      : Int,
     pinnedBottomNotes   : List<String>,
     pinnedBottomIndex   : Int,
+    workbenchState      : com.primaloptima.scribe.util.model.WorkbenchState = com.primaloptima.scribe.util.model.WorkbenchState(),
     allNotes            : List<Note>,
     worldEntries        : List<WorldEntry>,
     outline             : List<OutlineEntry>,

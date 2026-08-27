@@ -200,6 +200,7 @@ fun MainEditorScreen(
     val pinnedTopIndex     by editorVm.pinnedTopIndex.collectAsStateWithLifecycle()
     val pinnedBottomNotes  by editorVm.pinnedBottomNotes.collectAsStateWithLifecycle()
     val pinnedBottomIndex  by editorVm.pinnedBottomIndex.collectAsStateWithLifecycle()
+    val workbenchState     by editorVm.workbenchState.collectAsStateWithLifecycle()
     val companionTabBarBottom   by editorVm.companionTabBarBottom.collectAsStateWithLifecycle()
     val companionSplitHorizontal by editorVm.companionSplitHorizontal.collectAsStateWithLifecycle()
 
@@ -644,6 +645,7 @@ fun MainEditorScreen(
                 pinnedTopIndex        = pinnedTopIndex,
                 pinnedBottomNotes     = pinnedBottomNotes,
                 pinnedBottomIndex     = pinnedBottomIndex,
+                workbenchState        = workbenchState,
                 allNotes              = allNotes,
                 worldEntries          = worldEntries,
                 outline               = outline,

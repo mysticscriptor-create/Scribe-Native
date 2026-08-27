@@ -2,6 +2,8 @@ package com.primaloptima.scribe.util.model
 
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
+import androidx.compose.ui.graphics.Color
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 // ── Shortcut ─────────────────────────────────────────────────────────────────
@@ -172,3 +174,78 @@ data class HistorySnapshot(
     val content: String,
     val savedAt: Long
 )
+
+// ── Workbench / Right Panel ───────────────────────────────────────────────────
+
+@Immutable
+@Serializable
+sealed class PaneScope {
+    @SerialName("global")
+    @Serializable data object Global : PaneScope()
+
+    @SerialName("book")
+    @Serializable data class Book(val id: String, val title: String) : PaneScope()
+
+    @SerialName("folder")
+    @Serializable data class Folder(val id: String, val title: String) : PaneScope()
+
+    @SerialName("file")
+    @Serializable data class File(val id: String, val title: String) : PaneScope()
+}
+
+val PaneScope.specificity: Int get() = when (this) {
+    is PaneScope.Global -> 0
+    is PaneScope.Book   -> 1
+    is PaneScope.Folder -> 2
+    is PaneScope.File   -> 3
+}
+
+@Serializable
+enum class PaneAccentColor { NONE, SLATE, BLUE, INDIGO, TEAL, GREEN, AMBER, ROSE, PLUM }
+
+fun PaneAccentColor.toComposeColor(isDark: Boolean): androidx.compose.ui.graphics.Color = when (this) {
+    PaneAccentColor.NONE  -> androidx.compose.ui.graphics.Color.Unspecified
+    PaneAccentColor.SLATE -> if (isDark) androidx.compose.ui.graphics.Color(0xFF94A3B8) else androidx.compose.ui.graphics.Color(0xFF64748B)
+    PaneAccentColor.BLUE  -> if (isDark) androidx.compose.ui.graphics.Color(0xFF60A5FA) else androidx.compose.ui.graphics.Color(0xFF3B82F6)
+    PaneAccentColor.INDIGO-> if (isDark) androidx.compose.ui.graphics.Color(0xFF818CF8) else androidx.compose.ui.graphics.Color(0xFF6366F1)
+    PaneAccentColor.TEAL  -> if (isDark) androidx.compose.ui.graphics.Color(0xFF2DD4BF) else androidx.compose.ui.graphics.Color(0xFF14B8A6)
+    PaneAccentColor.GREEN -> if (isDark) androidx.compose.ui.graphics.Color(0xFF4ADE80) else androidx.compose.ui.graphics.Color(0xFF22C55E)
+    PaneAccentColor.AMBER -> if (isDark) androidx.compose.ui.graphics.Color(0xFFFBBF24) else androidx.compose.ui.graphics.Color(0xFFF59E0B)
+    PaneAccentColor.ROSE  -> if (isDark) androidx.compose.ui.graphics.Color(0xFFFB7185) else androidx.compose.ui.graphics.Color(0xFFF43F5E)
+    PaneAccentColor.PLUM  -> if (isDark) androidx.compose.ui.graphics.Color(0xFFC084FC) else androidx.compose.ui.graphics.Color(0xFFA855F7)
+}
+
+@Serializable
+enum class MinimizedBy { USER, SYSTEM }
+
+@Serializable
+enum class OutOfScopeDefault { SESSION_ONLY, ALWAYS_ADD, ALWAYS_ASK }
+
+@Immutable
+@Serializable
+data class PaneConfig(
+    val id              : String,
+    val label           : String = "Section",
+    val accentColor     : PaneAccentColor = PaneAccentColor.NONE,
+    val primaryScope    : PaneScope = PaneScope.Global,
+    val secondaryScopes : List<PaneScope> = emptyList(),
+    val pinnedNoteIds   : List<String> = emptyList(),
+    val currentIndex    : Int = 0,
+    val isMinimized     : Boolean = false,
+    val minimizedBy     : MinimizedBy? = null,
+    val showFooterPills : Boolean = true,
+    val showLabel       : Boolean = true,
+    val splitFraction   : Float = 0.5f,
+    val systemMinimizedNoticeShown : Boolean = false
+)
+
+@Immutable
+@Serializable
+data class WorkbenchState(
+    val panes    : List<PaneConfig> = listOf(PaneConfig(id = "pane_default")),
+    val maxSlots : Int = 2,
+    val outOfScopeDefault : OutOfScopeDefault = OutOfScopeDefault.ALWAYS_ASK,
+    val splitHorizontal   : Boolean = false,
+    val tabBarAtBottom    : Boolean = false
+)
+
