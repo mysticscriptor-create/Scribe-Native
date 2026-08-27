@@ -1695,7 +1695,7 @@ private fun PillTab(
     )
 
     val animatedFontSize by animateFloatAsState(
-        targetValue = if (selected) 13.5f else 13f,
+        targetValue = if (selected) 15f else 13f,
         animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMediumLow),
         label = "PillTabFontSize"
     )
@@ -1926,7 +1926,7 @@ private fun PinnedNoteSlot(
                 else Modifier.frostedCard(hazeState, RoundedCornerShape(12.dp), applyFallbackBackground = true)
             )
             .border(
-                width = 0.8.dp,
+                width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
                 shape = RoundedCornerShape(12.dp)
             )
@@ -1954,7 +1954,7 @@ private fun PinnedNoteSlot(
                 .matchParentSize()
                 .clip(RoundedCornerShape(12.dp))
                 .drawBehind {
-                    val alpha = if (isDark) 0.06f else 0.10f
+                    val alpha = if (isDark) 0.06f else 0.12f
                     drawRoundRect(
                         color = Color.White.copy(alpha = alpha),
                         cornerRadius = CornerRadius(12.dp.toPx()),
@@ -2037,10 +2037,10 @@ private fun PinnedNoteSlot(
                         Column(modifier = Modifier.weight(1f)) {
                             // Section Label Chip with inline edit (3b)
                             AnimatedVisibility(visible = pane.showLabel) {
-                                val chipBg = if (pane.accentColor != PaneAccentColor.NONE) paneAccentColor.copy(alpha = 0.15f)
+                                val chipBg = if (pane.accentColor != PaneAccentColor.NONE) paneAccentColor.copy(alpha = 0.20f)
                                 else MaterialTheme.colorScheme.primaryContainer
                                 val chipText = if (pane.accentColor != PaneAccentColor.NONE) paneAccentColor
-                                else MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onPrimaryContainer
 
                                 if (editingLabel) {
                                     val focusRequester = remember { FocusRequester() }
@@ -2052,9 +2052,9 @@ private fun PinnedNoteSlot(
                                         onValueChange = { labelInputText = it },
                                         singleLine = true,
                                         textStyle = TextStyle(
-                                            fontSize = 9.sp,
+                                            fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold,
-                                            letterSpacing = 0.8.sp,
+                                            letterSpacing = 0.5.sp,
                                             color = chipText
                                         ),
                                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -2084,9 +2084,9 @@ private fun PinnedNoteSlot(
                                     ) {
                                         Text(
                                             text = pane.label.ifBlank { "SECTION" }.uppercase(),
-                                            fontSize = 9.sp,
+                                            fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold,
-                                            letterSpacing = 0.8.sp,
+                                            letterSpacing = 0.5.sp,
                                             color = chipText,
                                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                         )
@@ -2106,29 +2106,31 @@ private fun PinnedNoteSlot(
                         }
 
                         if (pinnedIds.size > 1) {
-                            IconButton(onClick = onPrev, modifier = Modifier.size(28.dp)) {
-                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, null, modifier = Modifier.size(16.dp))
+                            IconButton(onClick = onPrev, modifier = Modifier.size(20.dp)) {
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous note", modifier = Modifier.size(14.dp))
                             }
+                            Spacer(Modifier.width(2.dp))
                             Text(
                                 "${pinnedIndex + 1} / ${pinnedIds.size}",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.outline
                             )
-                            IconButton(onClick = onNext, modifier = Modifier.size(28.dp)) {
-                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(2.dp))
+                            IconButton(onClick = onNext, modifier = Modifier.size(20.dp)) {
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next note", modifier = Modifier.size(14.dp))
                             }
                         }
 
                         if (removeMode) {
                             IconButton(
                                 onClick = { onRemoveClick?.invoke() },
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(20.dp)
                             ) {
                                 Icon(
                                     Icons.Default.RemoveCircleOutline,
                                     contentDescription = "Remove Section",
                                     tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
@@ -2136,7 +2138,7 @@ private fun PinnedNoteSlot(
                         Box {
                             IconButton(
                                 onClick = { showOverflow = true },
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(20.dp)
                             ) {
                                 Icon(Icons.Default.MoreVert, "Options", modifier = Modifier.size(16.dp))
                             }
@@ -2337,7 +2339,7 @@ private fun PinnedNoteSlot(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -2352,15 +2354,15 @@ private fun PinnedNoteSlot(
                             ) {
                                 IconButton(
                                     onClick = onFocusPane,
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier.size(20.dp)
                                 ) {
-                                    Icon(Icons.Default.OpenInFull, contentDescription = "Focus note", modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.OpenInFull, contentDescription = "Focus note", modifier = Modifier.size(14.dp))
                                 }
                                 IconButton(
                                     onClick = { showAddReferenceChoiceSheet = true },
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier.size(20.dp)
                                 ) {
-                                    Icon(Icons.Default.Add, contentDescription = "Add reference", modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.Add, contentDescription = "Add reference", modifier = Modifier.size(14.dp))
                                 }
                             }
                         }
@@ -2464,8 +2466,7 @@ private fun SplitDivider(
     hazeState   : dev.chrisbanes.haze.HazeState,
 ) {
     var isDragging by remember { mutableStateOf(false) }
-    val solidSurface = LocalSolidSurface.current
-    val hasBgImage = localHasBgImage()
+    val haptic = LocalHapticFeedback.current
 
     val dividerBgColor by animateColorAsState(
         targetValue = if (isDragging) accentColor.copy(alpha = 0.25f) else Color.Transparent,
@@ -2476,12 +2477,15 @@ private fun SplitDivider(
     Box(
         modifier = if (isHorizontal) {
             Modifier
-                .width(12.dp)
+                .width(28.dp)
                 .fillMaxHeight()
                 .background(dividerBgColor)
                 .pointerInput(Unit) {
                     detectDragGestures(
-                        onDragStart = { isDragging = true },
+                        onDragStart = {
+                            isDragging = true
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        },
                         onDragEnd   = { isDragging = false },
                         onDragCancel= { isDragging = false },
                         onDrag      = { change, dragAmount ->
@@ -2496,11 +2500,14 @@ private fun SplitDivider(
         } else {
             Modifier
                 .fillMaxWidth()
-                .height(12.dp)
+                .height(28.dp)
                 .background(dividerBgColor)
                 .pointerInput(Unit) {
                     detectDragGestures(
-                        onDragStart = { isDragging = true },
+                        onDragStart = {
+                            isDragging = true
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        },
                         onDragEnd   = { isDragging = false },
                         onDragCancel= { isDragging = false },
                         onDrag      = { change, dragAmount ->
@@ -2515,15 +2522,45 @@ private fun SplitDivider(
         },
         contentAlignment = Alignment.Center
     ) {
+        // 0.5dp Hairline running through the divider center
+        if (isHorizontal) {
+            Box(
+                modifier = Modifier
+                    .width(0.5.dp)
+                    .fillMaxHeight()
+                    .align(Alignment.Center)
+                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(0.5.dp)
+                    .align(Alignment.Center)
+                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            )
+        }
+
+        // Center pill with RoundedCornerShape(50)
         Surface(
-            shape = RoundedCornerShape(2.dp),
-            color = if (isDragging) accentColor else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+            shape = RoundedCornerShape(50),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             modifier = if (isHorizontal) {
-                Modifier.width(3.dp).height(32.dp)
+                Modifier.width(28.dp).height(36.dp)
             } else {
-                Modifier.height(3.dp).width(32.dp)
+                Modifier.width(48.dp).height(28.dp)
             }
-        ) {}
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Default.DragHandle,
+                    contentDescription = "Swap split",
+                    modifier = Modifier.size(16.dp),
+                    tint = if (isDragging) accentColor else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }
 

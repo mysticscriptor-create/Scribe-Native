@@ -109,6 +109,85 @@ class EditorViewModel(
         persistWorkbench()
     }
 
+    // ── Session scope overrides ──────────────────────────────────────────────
+    private val _sessionOverrides = MutableStateFlow<Set<String>>(emptySet())
+    val sessionOverrides: StateFlow<Set<String>> = _sessionOverrides.asStateFlow()
+
+    fun addSessionOverride(paneId: String) {
+        _sessionOverrides.value = _sessionOverrides.value + paneId
+    }
+
+    fun removeSessionOverride(paneId: String) {
+        _sessionOverrides.value = _sessionOverrides.value - paneId
+    }
+
+    fun clearSessionOverrides() {
+        _sessionOverrides.value = emptySet()
+    }
+
+    fun isPaneInScope(pane: PaneConfig, note: Note?): Boolean {
+        if (_sessionOverrides.value.contains(pane.id)) return true
+        if (matchesScopeItem(pane.primaryScope, note)) return true
+        return pane.secondaryScopes.any { matchesScopeItem(it, note) }
+    }
+
+    private fun matchesScopeItem(scope: PaneScope, note: Note?): Boolean {
+        return when (scope) {
+            is PaneScope.Global -> true
+            is PaneScope.Book   -> note?.bookId == scope.id
+            is PaneScope.Folder -> note?.folderPath == scope.id || (note != null && note.folderPath.startsWith(scope.id))
+            is PaneScope.File   -> note?.id == scope.id
+        }
+    }
+
+    fun resolveVisibleSections(): List<PaneConfig> {
+        val state = _workbenchState.value
+        val note = _activeNote.value
+        val overrides = _sessionOverrides.value
+
+        // Filter and categorize panes based on scope matching
+        val candidatePanes = state.panes.filter { pane ->
+            if (pane.isMinimized && pane.minimizedBy == MinimizedBy.USER) return@filter false
+            val inScope = isPaneInScope(pane, note)
+            if (inScope) {
+                true
+            } else {
+                when (pane.outOfScopeBehavior) {
+                    OutOfScopeBehavior.KEEP_VISIBLE -> true
+                    OutOfScopeBehavior.HIDE -> false
+                    OutOfScopeBehavior.MINIMIZE -> false
+                    OutOfScopeBehavior.DEFAULT -> false
+                }
+            }
+        }
+
+        // Sort by primary scope specificity descending, preserving relative order
+        val sorted = candidatePanes.sortedByDescending { it.primaryScope.specificity }
+        return sorted.take(state.maxSlots)
+    }
+
+    fun setLayout(layout: WorkbenchLayout) {
+        val slots = when (layout) {
+            is WorkbenchLayout.Single -> 1
+            is WorkbenchLayout.VerticalSplit, is WorkbenchLayout.HorizontalSplit -> 2
+            is WorkbenchLayout.ThreePane -> 3
+            is WorkbenchLayout.FourPane -> 4
+        }
+        val isHorizontal = layout is WorkbenchLayout.HorizontalSplit
+        updateWorkbench {
+            it.copy(
+                layout = layout,
+                maxSlots = slots,
+                splitHorizontal = isHorizontal
+            )
+        }
+    }
+
+    fun updateSplitFraction(paneId: String, fraction: Float) {
+        val clamped = fraction.coerceIn(0.15f, 0.85f)
+        updatePane(paneId) { it.copy(splitFraction = clamped) }
+    }
+
     fun addPane(scope: PaneScope) {
         val current = _workbenchState.value
         if (current.panes.count { !it.isMinimized } >= current.maxSlots) return
@@ -141,8 +220,21 @@ class EditorViewModel(
         updatePane(id) { it.copy(isMinimized = true, minimizedBy = by) }
     }
 
-    fun restorePane(id: String) {
-        updatePane(id) { it.copy(isMinimized = false, minimizedBy = null) }
+    fun restorePane(id: String, replacingId: String? = null) {
+        if (replacingId != null) {
+            _workbenchState.value = _workbenchState.value.copy(
+                panes = _workbenchState.value.panes.map { pane ->
+                    when (pane.id) {
+                        replacingId -> pane.copy(isMinimized = true, minimizedBy = MinimizedBy.USER)
+                        id -> pane.copy(isMinimized = false, minimizedBy = null)
+                        else -> pane
+                    }
+                }
+            )
+            persistWorkbench()
+        } else {
+            updatePane(id) { it.copy(isMinimized = false, minimizedBy = null) }
+        }
     }
 
     fun reorderPinnedNote(paneId: String, fromIndex: Int, toIndex: Int) {

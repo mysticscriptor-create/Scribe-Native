@@ -221,6 +221,28 @@ enum class MinimizedBy { USER, SYSTEM }
 @Serializable
 enum class OutOfScopeDefault { SESSION_ONLY, ALWAYS_ADD, ALWAYS_ASK }
 
+@Serializable
+enum class OutOfScopeBehavior { DEFAULT, MINIMIZE, HIDE, KEEP_VISIBLE }
+
+@Immutable
+@Serializable
+sealed class WorkbenchLayout {
+    @SerialName("single")
+    @Serializable data object Single : WorkbenchLayout()
+
+    @SerialName("vertical_split")
+    @Serializable data object VerticalSplit : WorkbenchLayout()
+
+    @SerialName("horizontal_split")
+    @Serializable data object HorizontalSplit : WorkbenchLayout()
+
+    @SerialName("three_pane")
+    @Serializable data object ThreePane : WorkbenchLayout()
+
+    @SerialName("four_pane")
+    @Serializable data object FourPane : WorkbenchLayout()
+}
+
 @Immutable
 @Serializable
 data class PaneConfig(
@@ -229,6 +251,7 @@ data class PaneConfig(
     val accentColor     : PaneAccentColor = PaneAccentColor.NONE,
     val primaryScope    : PaneScope = PaneScope.Global,
     val secondaryScopes : List<PaneScope> = emptyList(),
+    val outOfScopeBehavior : OutOfScopeBehavior = OutOfScopeBehavior.DEFAULT,
     val pinnedNoteIds   : List<String> = emptyList(),
     val currentIndex    : Int = 0,
     val isMinimized     : Boolean = false,
@@ -244,8 +267,10 @@ data class PaneConfig(
 data class WorkbenchState(
     val panes    : List<PaneConfig> = listOf(PaneConfig(id = "pane_default")),
     val maxSlots : Int = 2,
+    val layout   : WorkbenchLayout = WorkbenchLayout.VerticalSplit,
     val outOfScopeDefault : OutOfScopeDefault = OutOfScopeDefault.ALWAYS_ASK,
     val splitHorizontal   : Boolean = false,
-    val tabBarAtBottom    : Boolean = false
+    val tabBarAtBottom    : Boolean = false,
+    val activeFloatingWindowIds: List<String> = emptyList(),
 )
 

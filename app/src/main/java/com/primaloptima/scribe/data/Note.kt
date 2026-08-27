@@ -32,6 +32,7 @@ data class Note(
     @ColumnInfo(name = "word_count") val wordCount: Int = 0,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
     @ColumnInfo(name = "updated_at") val updatedAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(name = "last_modified") val lastModified: Long = System.currentTimeMillis(),
     /** Non-null when this note is backed by a SAF document URI. */
     @ColumnInfo(name = "external_uri") val externalUri: String? = null,
     /** True once the SAF file content has been read from disk. */
