@@ -9,6 +9,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -462,7 +464,7 @@ fun WorkbenchCard(
                     )
 
                     // Floating Action Pills over the view (Bottom-End aligned)
-                    AnimatedVisibility(
+                    androidx.compose.animation.AnimatedVisibility(
                         visible = pane.showFooterPills,
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
@@ -513,7 +515,7 @@ fun WorkbenchCard(
                     }
 
                     // Floating Meta Pill (Bottom-Start aligned)
-                    AnimatedVisibility(
+                    androidx.compose.animation.AnimatedVisibility(
                         visible = pane.showFooterPills,
                         modifier = Modifier
                             .align(Alignment.BottomStart)
