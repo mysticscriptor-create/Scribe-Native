@@ -4,16 +4,20 @@ import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -31,9 +35,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -131,16 +140,14 @@ fun EditorRightPanel(
     var splitFraction by remember { mutableFloatStateOf(0.5f) }
 
     val tabBarContent: @Composable () -> Unit = {
-        Surface(
-            shape    = RoundedCornerShape(50),
-            color    = MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.padding(3.dp)
+        Row(
+            modifier = Modifier.padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
         ) {
-            Row(modifier = Modifier.padding(3.dp)) {
-                PillTab(label = "Pinned",  selected = rightPanelTab == 0, onClick = { onTabChange(0) })
-                PillTab(label = "Outline", selected = rightPanelTab == 1, onClick = { onTabChange(1) })
-                PillTab(label = "Prose",   selected = rightPanelTab == 2, onClick = { onTabChange(2) })
-            }
+            PillTab(label = "Shelf",   selected = rightPanelTab == 0, onClick = { onTabChange(0) })
+            PillTab(label = "Outline", selected = rightPanelTab == 1, onClick = { onTabChange(1) })
+            PillTab(label = "Prose",   selected = rightPanelTab == 2, onClick = { onTabChange(2) })
         }
     }
 
@@ -336,6 +343,7 @@ fun EditorRightPanel(
                                                 allNotes            = allNotes,
                                                 worldEntries        = worldEntries,
                                                 activeTheme         = activeTheme,
+                                                accentColor         = accentColor,
                                                 onPrev              = onPrevTop,
                                                 onNext              = onNextTop,
                                                 onSwitch            = onSwitchTop,
@@ -368,6 +376,7 @@ fun EditorRightPanel(
                                                 allNotes            = allNotes,
                                                 worldEntries        = worldEntries,
                                                 activeTheme         = activeTheme,
+                                                accentColor         = accentColor,
                                                 onPrev              = onPrevBottom,
                                                 onNext              = onNextBottom,
                                                 onSwitch            = onSwitchBottom,
@@ -397,6 +406,7 @@ fun EditorRightPanel(
                                                 allNotes            = allNotes,
                                                 worldEntries        = worldEntries,
                                                 activeTheme         = activeTheme,
+                                                accentColor         = accentColor,
                                                 onPrev              = onPrevTop,
                                                 onNext              = onNextTop,
                                                 onSwitch            = onSwitchTop,
@@ -429,6 +439,7 @@ fun EditorRightPanel(
                                                 allNotes            = allNotes,
                                                 worldEntries        = worldEntries,
                                                 activeTheme         = activeTheme,
+                                                accentColor         = accentColor,
                                                 onPrev              = onPrevBottom,
                                                 onNext              = onNextBottom,
                                                 onSwitch            = onSwitchBottom,
@@ -792,17 +803,24 @@ private fun SplitDivider(
                 .fillMaxHeight()
                 .width(28.dp)
                 .pointerInput(Unit) {
-                    detectDragGestures { change, dragAmount ->
-                        change.consume(); onDrag(dragAmount.x)
-                    }
+                    detectDragGestures(
+                        onDragStart = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            onDrag(dragAmount.x)
+                        }
+                    )
                 },
             contentAlignment = Alignment.Center
         ) {
-            Box(Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
+            Box(Modifier.fillMaxHeight().width(0.5.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)))
             Surface(
                 shape    = RoundedCornerShape(50),
                 color    = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.size(26.dp).pointerInput(Unit) {
+                border   = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.width(28.dp).height(36.dp).pointerInput(Unit) {
                     detectTapGestures(onTap = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onSwap()
@@ -825,17 +843,24 @@ private fun SplitDivider(
                 .fillMaxWidth()
                 .height(28.dp)
                 .pointerInput(Unit) {
-                    detectDragGestures { change, dragAmount ->
-                        change.consume(); onDrag(dragAmount.y)
-                    }
+                    detectDragGestures(
+                        onDragStart = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            onDrag(dragAmount.y)
+                        }
+                    )
                 },
             contentAlignment = Alignment.Center
         ) {
-            Box(Modifier.fillMaxWidth().height(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
+            Box(Modifier.fillMaxWidth().height(0.5.dp).background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)))
             Surface(
                 shape    = RoundedCornerShape(50),
                 color    = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier.height(26.dp).width(44.dp).pointerInput(Unit) {
+                border   = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.width(48.dp).height(28.dp).pointerInput(Unit) {
                     detectTapGestures(onTap = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onSwap()
@@ -857,19 +882,49 @@ private fun SplitDivider(
 
 @Composable
 private fun PillTab(label: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(
-        shape           = RoundedCornerShape(50),
-        color           = if (selected) MaterialTheme.colorScheme.surface else Color.Transparent,
-        shadowElevation = if (selected) 1.dp else 0.dp,
-        modifier        = Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onClick)
+    var textWidth by remember { mutableFloatStateOf(0f) }
+    val animatedFontSize by animateFloatAsState(
+        targetValue = if (selected) 15f else 13f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "PillTabFontSize"
+    )
+    val animatedUnderlineWidth by animateFloatAsState(
+        targetValue = if (selected) textWidth else 0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "PillTabUnderlineWidth"
+    )
+    val primaryColor = MaterialTheme.colorScheme.primary
+
+    Box(
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .drawBehind {
+                if (animatedUnderlineWidth > 0f) {
+                    val strokeWidth = 2.dp.toPx()
+                    val lineY = size.height - strokeWidth / 2
+                    val startX = (size.width - animatedUnderlineWidth) / 2
+                    val endX = startX + animatedUnderlineWidth
+                    drawLine(
+                        color = primaryColor,
+                        start = Offset(startX, lineY),
+                        end = Offset(endX, lineY),
+                        strokeWidth = strokeWidth,
+                        cap = StrokeCap.Round
+                    )
+                }
+            },
+        contentAlignment = Alignment.Center
     ) {
         Text(
             text       = label,
-            fontSize   = 13.sp,
+            fontSize   = animatedFontSize.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             color      = if (selected) MaterialTheme.colorScheme.primary
                          else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier   = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+            modifier   = Modifier.onGloballyPositioned { layoutCoordinates ->
+                textWidth = layoutCoordinates.size.width.toFloat()
+            }
         )
     }
 }
@@ -980,6 +1035,7 @@ private fun PinnedNoteSlot(
     allNotes            : List<Note>,
     worldEntries        : List<WorldEntry>,
     activeTheme         : AppTheme?,
+    accentColor         : Color = Color.Unspecified,
     onPrev              : () -> Unit,
     onNext              : () -> Unit,
     onSwitch            : () -> Unit,
@@ -1001,6 +1057,7 @@ private fun PinnedNoteSlot(
             }
     }
 
+    val isDark = isSystemInDarkTheme()
     val solidSurface = LocalSolidSurface.current
     val hasBgImage = localHasBgImage()
 
@@ -1021,6 +1078,11 @@ private fun PinnedNoteSlot(
                 if (!hasBgImage) Modifier.background(solidSurface, RoundedCornerShape(12.dp))
                 else Modifier.frostedCard(hazeState, RoundedCornerShape(12.dp), applyFallbackBackground = true)
             )
+            .border(
+                width = 0.8.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                shape = RoundedCornerShape(12.dp)
+            )
             .onGloballyPositioned { layoutCoordinates ->
                 slotSize = androidx.compose.ui.geometry.Size(
                     layoutCoordinates.size.width.toFloat(),
@@ -1029,6 +1091,22 @@ private fun PinnedNoteSlot(
                 slotPositionInRoot = layoutCoordinates.positionInRoot()
             }
     ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(RoundedCornerShape(12.dp))
+                .drawBehind {
+                    val alpha = if (isDark) 0.06f else 0.10f
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = alpha),
+                        cornerRadius = CornerRadius(12.dp.toPx()),
+                        style = Stroke(width = 1.dp.toPx()),
+                        topLeft = Offset(1.dp.toPx(), 1.dp.toPx()),
+                        size = Size(size.width - 2.dp.toPx(), size.height - 2.dp.toPx())
+                    )
+                }
+        )
+
         if (currentNote == null) {
             Column(
                 modifier            = Modifier.fillMaxSize().clickable(onClick = onPick),
@@ -1058,7 +1136,7 @@ private fun PinnedNoteSlot(
 
             Column(Modifier.fillMaxSize()) {
                 var headerDragging by remember { mutableStateOf(false) }
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(
@@ -1087,52 +1165,51 @@ private fun PinnedNoteSlot(
                                     currentOnDetachedDrag?.invoke(dragAmount.x, dragAmount.y)
                                 }
                             )
-                        },
-                    verticalAlignment = Alignment.CenterVertically
+                        }
                 ) {
-                    Surface(
-                        shape    = RoundedCornerShape(50),
-                        color    = MaterialTheme.colorScheme.primaryContainer,
-                        modifier = Modifier.weight(1f).padding(end = 4.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.DragIndicator,
-                                contentDescription = "Long press and drag to reposition",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.65f),
-                                modifier = Modifier.size(14.dp).padding(end = 2.dp)
-                            )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            val chipBg = if (accentColor != Color.Unspecified) accentColor.copy(alpha = 0.15f) else MaterialTheme.colorScheme.primaryContainer
+                            val chipText = if (accentColor != Color.Unspecified) accentColor else MaterialTheme.colorScheme.primary
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = chipBg,
+                            ) {
+                                Text(
+                                    "SECTION",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.8.sp,
+                                    color = chipText,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                            Spacer(Modifier.height(2.dp))
                             Text(
-                                text       = currentNote.name,
+                                text = currentNote.name,
+                                fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                fontSize   = 12.sp,
-                                color      = MaterialTheme.colorScheme.onPrimaryContainer,
-                                maxLines   = 1,
-                                overflow   = TextOverflow.Ellipsis
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
-                    }
-                    if (pinnedIds.size > 1) {
-                        Text("${pinnedIndex + 1}/${pinnedIds.size}", fontSize = 10.sp,
-                             color = MaterialTheme.colorScheme.outline, modifier = Modifier.padding(end = 2.dp))
-                        IconButton(onClick = onPrev, modifier = Modifier.size(26.dp)) {
-                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, null, Modifier.size(14.dp))
+                        if (pinnedIds.size > 1) {
+                            IconButton(onClick = onPrev, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, null, modifier = Modifier.size(16.dp))
+                            }
+                            Text(
+                                "${pinnedIndex + 1} / ${pinnedIds.size}",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                            IconButton(onClick = onNext, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, modifier = Modifier.size(16.dp))
+                            }
                         }
-                        IconButton(onClick = onNext, modifier = Modifier.size(26.dp)) {
-                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(14.dp))
+                        IconButton(onClick = { /* TODO Phase 3 */ }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.MoreVert, "Options", modifier = Modifier.size(16.dp))
                         }
-                    }
-                    IconButton(onClick = onSwitch, modifier = Modifier.size(26.dp)) {
-                        Icon(Icons.Default.SwapHoriz, "Switch note", Modifier.size(14.dp))
-                    }
-                    IconButton(onClick = { onEdit(currentNote.id) }, modifier = Modifier.size(26.dp)) {
-                        Icon(Icons.Default.Edit, "Edit in main editor", Modifier.size(14.dp))
-                    }
-                    IconButton(onClick = { onRemove(currentNote.id) }, modifier = Modifier.size(26.dp)) {
-                        Icon(Icons.Default.Close, "Unpin", Modifier.size(14.dp))
                     }
                 }
 
@@ -1160,6 +1237,36 @@ private fun PinnedNoteSlot(
                         activeTheme?.let { editor.colorScheme = ScribeColorScheme(it) }
                     }
                 )
+
+                HorizontalDivider(
+                    thickness = 0.5.dp,
+                    color     = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Edited just now",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        IconButton(onClick = { /* TODO Phase 3: Expand/Focus */ }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.OpenInFull, contentDescription = "Expand note", modifier = Modifier.size(16.dp))
+                        }
+                        IconButton(onClick = { /* TODO Phase 3: Add Reference */ }, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.Add, contentDescription = "Add reference", modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
             }
         }
     }
