@@ -21,6 +21,9 @@ import com.primaloptima.scribe.util.model.PaneConfig
 import com.primaloptima.scribe.util.model.PaneScope
 import com.primaloptima.scribe.util.model.MinimizedBy
 import com.primaloptima.scribe.util.model.WorkbenchState
+import com.primaloptima.scribe.util.model.WorkbenchLayout
+import com.primaloptima.scribe.util.model.OutOfScopeBehavior
+import com.primaloptima.scribe.util.model.specificity
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.coroutines.flow.first
