@@ -196,10 +196,6 @@ fun MainEditorScreen(
     val shortcuts  by shortcutsVm.shortcuts.collectAsStateWithLifecycle()
 
     val floatingWindows    by editorVm.floatingWindows.collectAsStateWithLifecycle()
-    val pinnedTopNotes     by editorVm.pinnedTopNotes.collectAsStateWithLifecycle()
-    val pinnedTopIndex     by editorVm.pinnedTopIndex.collectAsStateWithLifecycle()
-    val pinnedBottomNotes  by editorVm.pinnedBottomNotes.collectAsStateWithLifecycle()
-    val pinnedBottomIndex  by editorVm.pinnedBottomIndex.collectAsStateWithLifecycle()
     val workbenchState     by editorVm.workbenchState.collectAsStateWithLifecycle()
     val companionTabBarBottom   by editorVm.companionTabBarBottom.collectAsStateWithLifecycle()
     val companionSplitHorizontal by editorVm.companionSplitHorizontal.collectAsStateWithLifecycle()
@@ -214,9 +210,8 @@ fun MainEditorScreen(
 
     var showRenameDialog     by remember { mutableStateOf(false) }
     var showCreateNoteDialog by remember { mutableStateOf(false) }
-    var filePickerTargetSlot by remember { mutableStateOf<String?>(null) }
 
-    val anyDialogOpen = showRenameDialog || showCreateNoteDialog || filePickerTargetSlot != null
+    val anyDialogOpen = showRenameDialog || showCreateNoteDialog
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
         LaunchedEffect(anyDialogOpen) { if (!anyDialogOpen) dialogOneShotBitmap = null }
     }
@@ -641,10 +636,6 @@ fun MainEditorScreen(
             EditorRightPanel(
                 rightPanelTab         = rightPanelTab,
                 onTabChange           = { rightPanelTab = it },
-                pinnedTopNotes        = pinnedTopNotes,
-                pinnedTopIndex        = pinnedTopIndex,
-                pinnedBottomNotes     = pinnedBottomNotes,
-                pinnedBottomIndex     = pinnedBottomIndex,
                 workbenchState        = workbenchState,
                 allNotes              = allNotes,
                 worldEntries          = worldEntries,
@@ -654,30 +645,20 @@ fun MainEditorScreen(
                 proseAnalysis         = proseAnalysis,
                 soraEditorRef         = soraEditorRef,
                 tabBarAtBottom        = companionTabBarBottom,
-                splitHorizontal       = companionSplitHorizontal,
                 onToggleTabBarPos     = { editorVm.setCompanionTabBarBottom(!companionTabBarBottom) },
-                onToggleSplitLayout   = { editorVm.setCompanionSplitHorizontal(!companionSplitHorizontal) },
-                onSwapSlots           = { editorVm.swapPinnedSlots() },
-                onPrevTop             = { editorVm.prevPinnedTop() },
-                onNextTop             = { editorVm.nextPinnedTop() },
-                onSwitchTop           = { scope.launch { captureForDialog { filePickerTargetSlot = "top" } } },
-                onEditTop             = { id -> editorVm.loadNote(id) },
-                onRemoveTop           = { id -> editorVm.removePinnedTop(id) },
-                onPrevBottom          = { editorVm.prevPinnedBottom() },
-                onNextBottom          = { editorVm.nextPinnedBottom() },
-                onSwitchBottom        = { scope.launch { captureForDialog { filePickerTargetSlot = "bottom" } } },
-                onEditBottom          = { id -> editorVm.loadNote(id) },
-                onRemoveBottom        = { id -> editorVm.removePinnedBottom(id) },
-                onPickTop             = { scope.launch { captureForDialog { filePickerTargetSlot = "top" } } },
-                onPickBottom          = { scope.launch { captureForDialog { filePickerTargetSlot = "bottom" } } },
                 onUpdatePane          = { id, transform -> editorVm.updatePane(id, transform) },
+                onUpdateWorkbench     = { transform -> editorVm.updateWorkbench(transform) },
+                onAddPane             = { scope -> editorVm.addPane(scope) },
+                onRemovePane          = { id -> editorVm.removePane(id) },
                 onDuplicatePane       = { id -> editorVm.duplicatePane(id) },
-                onMinimizePane        = { id -> editorVm.minimizePane(id, com.primaloptima.scribe.util.model.MinimizedBy.USER) },
+                onMinimizePane        = { id, by -> editorVm.minimizePane(id, by) },
+                onRestorePane         = { id -> editorVm.restorePane(id) },
+                onPinNote             = { paneId, noteId -> editorVm.pinNoteToPane(paneId, noteId) },
                 onUnpinNote           = { paneId, noteId -> editorVm.unpinNote(paneId, noteId) },
                 onReorderNote         = { paneId, from, to -> editorVm.reorderPinnedNote(paneId, from, to) },
-                onCreateNoteForPane   = { paneId, title, content -> editorVm.createNoteForPane(paneId, title, content, activeNote?.bookId ?: Note.DEFAULT_BOOK_ID) },
-                onPinNotesToPane      = { paneId, ids -> editorVm.pinMultipleNotesToPane(paneId, ids) },
+                onCreateNote          = { paneId, title, content -> editorVm.createNoteForPane(paneId, title, content, activeNote?.bookId ?: Note.DEFAULT_BOOK_ID) },
                 onSaveNoteContent     = { noteId, content -> editorVm.updateNoteContent(noteId, content) },
+                onLoadNote            = { id -> editorVm.loadNote(id) },
                 onClose               = onClose,
                 barBlurBitmap         = barBlurBitmap,
                 hazeState             = hazeState,
@@ -780,19 +761,6 @@ fun MainEditorScreen(
                         }) { Text("Create") }
                     },
                     dismissButton = { TextButton(onClick = { showCreateNoteDialog = false }) { Text("Cancel") } }
-                )
-            }
-
-            filePickerTargetSlot?.let { targetSlot ->
-                FileExplorerOverlayDialog(
-                    allNotes     = if (leftDrawerMode == "Current") currentBookNotes else allNotes,
-                    allFolders   = if (leftDrawerMode == "Current") currentBookFolders else allFolders,
-                    onSelectNote = { note ->
-                        if (targetSlot == "top") editorVm.addPinnedTop(note.id)
-                        else editorVm.addPinnedBottom(note.id)
-                        filePickerTargetSlot = null
-                    },
-                    onDismiss = { filePickerTargetSlot = null }
                 )
             }
         }
@@ -1004,87 +972,6 @@ private fun WordCountPill(
     }
 }
 
-// ── File explorer overlay ─────────────────────────────────────────────────────
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun FileExplorerOverlayDialog(
-    allNotes     : List<Note>,
-    allFolders   : List<Folder>,
-    onSelectNote : (Note) -> Unit,
-    onDismiss    : () -> Unit
-) {
-    val expandedPaths = remember { mutableStateMapOf<String, Boolean>() }
-    val folderGrouped = remember(allNotes, allFolders) {
-        buildMap<String, MutableList<Note>> {
-            allNotes.forEach { n -> getOrPut(n.folderPath.ifBlank { "/" }) { mutableListOf() }.add(n) }
-        }
-    }
-
-    FrostedDialog(
-        onDismissRequest = onDismiss,
-        title            = { Text("Pick a note to pin", fontWeight = FontWeight.Bold) },
-        text             = {
-            LazyColumn(
-                modifier            = Modifier.fillMaxWidth().heightIn(max = 360.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                folderGrouped.forEach { (folderPath, notesInFolder) ->
-                    val isExpanded = expandedPaths[folderPath] ?: true
-                    item(key = "f_$folderPath") {
-                        Row(
-                            modifier          = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable { expandedPaths[folderPath] = !isExpanded }
-                                .padding(vertical = 6.dp, horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                if (isExpanded) Icons.Default.KeyboardArrowDown
-                                else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                contentDescription = null, modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Icon(
-                                if (isExpanded) Icons.Default.FolderOpen else Icons.Default.Folder,
-                                contentDescription = null,
-                                tint     = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                folderPath.substringAfterLast('/'),
-                                fontWeight = FontWeight.Bold,
-                                fontSize   = 13.sp,
-                                modifier   = Modifier.weight(1f)
-                            )
-                        }
-                    }
-                    if (isExpanded) {
-                        items(notesInFolder, key = { "n_${it.id}" }) { note ->
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onSelectNote(note) }
-                                    .padding(start = 24.dp),
-                                shape  = RoundedCornerShape(6.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-                            ) {
-                                Text(
-                                    note.name,
-                                    fontSize = 14.sp,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-    )
-}
 
 @Composable
 private fun FormatButton(

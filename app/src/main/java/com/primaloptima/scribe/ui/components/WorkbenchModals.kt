@@ -33,6 +33,7 @@ import com.primaloptima.scribe.data.WorldEntry
 import com.primaloptima.scribe.util.model.PaneAccentColor
 import com.primaloptima.scribe.util.model.PaneConfig
 import com.primaloptima.scribe.util.model.PaneScope
+import com.primaloptima.scribe.util.model.specificity
 import com.primaloptima.scribe.util.model.toComposeColor
 
 // ── 1. Choice Sheet (New Note / Add File / Add WorldSheet) ─────────────────────

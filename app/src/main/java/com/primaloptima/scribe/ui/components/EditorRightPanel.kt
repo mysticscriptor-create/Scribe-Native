@@ -14,9 +14,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -51,6 +53,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
@@ -94,11 +97,6 @@ import kotlin.math.roundToInt
 private enum class SpatialDropZone {
     TOP,
     BOTTOM,
-    LEFT,
-    RIGHT
-}
-
-private enum class EdgeSide {
     LEFT,
     RIGHT
 }
@@ -342,10 +340,10 @@ fun EditorRightPanel(
 
                                         DisposableEffect(dragState != null, pinnedContainerBounds) {
                                             if (dragState != null && pinnedContainerBounds != null) {
-                                                registerBounds?.invoke("pinned_notes_detached_drag", pinnedContainerBounds)
+                                                registerBounds("pinned_notes_detached_drag", pinnedContainerBounds)
                                             }
                                             onDispose {
-                                                registerBounds?.invoke("pinned_notes_detached_drag", null)
+                                                registerBounds("pinned_notes_detached_drag", null)
                                             }
                                         }
 
@@ -1265,9 +1263,10 @@ fun EditorRightPanel(
 
             // ── Focus Mode Full-Screen Overlay (3f) ───────────────────────────
             if (focusedPaneId != null) {
-                val currentFocusedPane = remember(focusedPaneId, workbenchState, topPane, bottomPane) {
+                val currentFocusedPane = remember(focusedPaneId, workbenchState) {
                     workbenchState.panes.firstOrNull { it.id == focusedPaneId }
-                        ?: if (focusedPaneId == topPane.id || focusedPaneId == "top") topPane else bottomPane
+                        ?: workbenchState.panes.firstOrNull()
+                        ?: PaneConfig(id = "pane_default")
                 }
 
                 val currentFocusedNoteId = currentFocusedPane.pinnedNoteIds.getOrNull(currentFocusedPane.currentIndex)
@@ -1427,6 +1426,244 @@ fun EditorRightPanel(
                         )
                     }
                 }
+            }
+
+            // ── Modal Sheets & Dialogs (Phase 4) ──────────────────────────────
+            if (showAddSectionSheet) {
+                AddSectionSheet(
+                    activeNote = activeNote,
+                    onDismiss = { showAddSectionSheet = false },
+                    onPickScope = { scope ->
+                        onAddPane(scope)
+                        showAddSectionSheet = false
+                    }
+                )
+            }
+
+            if (showWorkbenchSettingsSheet) {
+                WorkbenchSettingsSheet(
+                    workbenchState = workbenchState,
+                    onDismiss = { showWorkbenchSettingsSheet = false },
+                    onUpdateWorkbench = onUpdateWorkbench
+                )
+            }
+
+            if (restoreTargetPane != null) {
+                val target = restoreTargetPane!!
+                OutOfScopeRestoreSheet(
+                    pane = target,
+                    activeNote = activeNote,
+                    onDismiss = { restoreTargetPane = null },
+                    onJustSession = {
+                        sessionScopeOverrides = sessionScopeOverrides + target.id
+                        if (visiblePanes.size >= workbenchState.maxSlots) {
+                            slotSwapReplaceTarget = target
+                        } else {
+                            onRestorePane(target.id)
+                        }
+                        restoreTargetPane = null
+                    },
+                    onAlwaysAdd = {
+                        val fScope = PaneScope.File(id = activeNote?.id ?: "note", title = activeNote?.name ?: "Note")
+                        onUpdatePane(target.id) { it.copy(secondaryScopes = it.secondaryScopes + fScope) }
+                        if (visiblePanes.size >= workbenchState.maxSlots) {
+                            slotSwapReplaceTarget = target
+                        } else {
+                            onRestorePane(target.id)
+                        }
+                        restoreTargetPane = null
+                    }
+                )
+            }
+
+            if (slotSwapReplaceTarget != null) {
+                val incoming = slotSwapReplaceTarget!!
+                AlertDialog(
+                    onDismissRequest = { slotSwapReplaceTarget = null },
+                    title = { Text("Workbench Full (${workbenchState.maxSlots}/${workbenchState.maxSlots})") },
+                    text = {
+                        Column {
+                            Text(
+                                text = "Select an active section to minimize and replace with \"${incoming.label}\":",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            visiblePanes.forEach { activePane ->
+                                Surface(
+                                    onClick = {
+                                        onMinimizePane(activePane.id, MinimizedBy.SYSTEM)
+                                        onRestorePane(incoming.id)
+                                        slotSwapReplaceTarget = null
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(
+                                            text = activePane.label,
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(
+                                            text = "Minimize",
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {},
+                    dismissButton = {
+                        TextButton(onClick = { slotSwapReplaceTarget = null }) {
+                            Text("Cancel")
+                        }
+                    }
+                )
+            }
+
+            if (removeCandidatePane != null) {
+                val paneToRemove = removeCandidatePane!!
+                AlertDialog(
+                    onDismissRequest = { removeCandidatePane = null },
+                    icon = { Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                    title = { Text("Remove Section?") },
+                    text = {
+                        Text("Are you sure you want to remove \"${paneToRemove.label}\" from the workbench? Pinned notes will not be deleted.")
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                onRemovePane(paneToRemove.id)
+                                removeCandidatePane = null
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("Remove")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { removeCandidatePane = null }) {
+                            Text("Cancel")
+                        }
+                    }
+                )
+            }
+
+            if (edgeTabLongPressPane != null) {
+                val p = edgeTabLongPressPane!!
+                AlertDialog(
+                    onDismissRequest = { edgeTabLongPressPane = null },
+                    title = { Text(p.label) },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Surface(
+                                onClick = {
+                                    handleRestorePane(p)
+                                    edgeTabLongPressPane = null
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.UnfoldMore, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(10.dp))
+                                    Text("Restore Section", fontSize = 14.sp)
+                                }
+                            }
+                            Surface(
+                                onClick = {
+                                    removeCandidatePane = p
+                                    edgeTabLongPressPane = null
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(10.dp))
+                                    Text("Remove Section", fontSize = 14.sp, color = MaterialTheme.colorScheme.error)
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {},
+                    dismissButton = {
+                        TextButton(onClick = { edgeTabLongPressPane = null }) {
+                            Text("Cancel")
+                        }
+                    }
+                )
+            }
+
+            if (showEdgeTabGroupPopup != null) {
+                val groupPanes = showEdgeTabGroupPopup!!
+                AlertDialog(
+                    onDismissRequest = { showEdgeTabGroupPopup = null },
+                    title = { Text("Minimized Sections (${groupPanes.size})") },
+                    text = {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 260.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            items(groupPanes, key = { it.id }) { pane ->
+                                Surface(
+                                    onClick = {
+                                        handleRestorePane(pane)
+                                        showEdgeTabGroupPopup = null
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .clip(CircleShape)
+                                                .background(pane.accentColor.toComposeColor(isDark).takeOrElse { MaterialTheme.colorScheme.primary })
+                                        )
+                                        Spacer(Modifier.width(10.dp))
+                                        Text(pane.label, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                                        Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.outline)
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    confirmButton = {},
+                    dismissButton = {
+                        TextButton(onClick = { showEdgeTabGroupPopup = null }) {
+                            Text("Close")
+                        }
+                    }
+                )
             }
 
             SnackbarHost(
@@ -1608,6 +1845,8 @@ private fun PinnedNoteSlot(
     activeTheme         : AppTheme?,
     activeNote          : Note? = null,
     accentColor         : Color = Color.Unspecified,
+    removeMode          : Boolean = false,
+    onRemoveClick       : (() -> Unit)? = null,
     onPrev              : () -> Unit,
     onNext              : () -> Unit,
     onSelectIndex       : (Int) -> Unit,
@@ -1877,6 +2116,20 @@ private fun PinnedNoteSlot(
                             )
                             IconButton(onClick = onNext, modifier = Modifier.size(28.dp)) {
                                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, modifier = Modifier.size(16.dp))
+                            }
+                        }
+
+                        if (removeMode) {
+                            IconButton(
+                                onClick = { onRemoveClick?.invoke() },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.RemoveCircleOutline,
+                                    contentDescription = "Remove Section",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
                         }
 
@@ -2353,6 +2606,299 @@ private fun OutlineView(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── EdgeTabRail (Phase 4) ───────────────────────────────────────────────────
+
+enum class EdgeSide { LEFT, RIGHT }
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun EdgeTabRail(
+    minimizedPanes: List<PaneConfig>,
+    side: EdgeSide,
+    isDark: Boolean,
+    onTap: (PaneConfig) -> Unit,
+    onLongPress: (PaneConfig) -> Unit,
+    onOpenGroup: (List<PaneConfig>) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (minimizedPanes.isEmpty()) return
+
+    val maxIndividualTabs = 3
+    val showGroup = minimizedPanes.size > maxIndividualTabs
+    val individualTabs = if (showGroup) minimizedPanes.take(maxIndividualTabs - 1) else minimizedPanes
+    val groupedTabs = if (showGroup) minimizedPanes.drop(maxIndividualTabs - 1) else emptyList()
+
+    Column(
+        modifier = modifier
+            .width(28.dp)
+            .fillMaxHeight()
+            .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
+        horizontalAlignment = if (side == EdgeSide.LEFT) Alignment.Start else Alignment.End
+    ) {
+        individualTabs.forEach { pane ->
+            EdgeTabItem(
+                pane = pane,
+                side = side,
+                isDark = isDark,
+                onTap = { onTap(pane) },
+                onLongPress = { onLongPress(pane) }
+            )
+        }
+
+        if (showGroup && groupedTabs.isNotEmpty()) {
+            val groupAccent = groupedTabs.firstOrNull()?.accentColor?.toComposeColor(isDark)
+                ?.takeOrElse { MaterialTheme.colorScheme.primary } ?: MaterialTheme.colorScheme.primary
+
+            val shape = if (side == EdgeSide.LEFT) {
+                RoundedCornerShape(topEnd = 8.dp, bottomEnd = 8.dp)
+            } else {
+                RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp)
+            }
+
+            Surface(
+                onClick = { onOpenGroup(groupedTabs) },
+                shape = shape,
+                color = groupAccent.copy(alpha = if (isDark) 0.22f else 0.15f),
+                border = BorderStroke(1.dp, groupAccent.copy(alpha = 0.4f)),
+                modifier = Modifier
+                    .width(26.dp)
+                    .height(36.dp)
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "+${groupedTabs.size}",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = groupAccent
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun EdgeTabItem(
+    pane: PaneConfig,
+    side: EdgeSide,
+    isDark: Boolean,
+    onTap: () -> Unit,
+    onLongPress: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val accent = pane.accentColor.toComposeColor(isDark).takeOrElse { MaterialTheme.colorScheme.primary }
+    val shape = if (side == EdgeSide.LEFT) {
+        RoundedCornerShape(topEnd = 8.dp, bottomEnd = 8.dp)
+    } else {
+        RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp)
+    }
+
+    Surface(
+        modifier = modifier
+            .width(26.dp)
+            .height(84.dp)
+            .combinedClickable(
+                onClick = onTap,
+                onLongClick = onLongPress
+            ),
+        shape = shape,
+        color = accent.copy(alpha = if (isDark) 0.25f else 0.18f),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.5f))
+    ) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                // Pip / dot
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(accent)
+                )
+                Spacer(Modifier.height(4.dp))
+                // Vertical text rotation
+                Text(
+                    text = pane.label.take(8),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.graphicsLayer {
+                        rotationZ = if (side == EdgeSide.LEFT) -90f else 90f
+                    }
+                )
+            }
+        }
+    }
+}
+
+// ── ContextTray (Phase 4) ───────────────────────────────────────────────────
+
+@Composable
+fun ContextTray(
+    trayExpanded: Boolean,
+    onToggleExpand: () -> Unit,
+    waitingCount: Int,
+    removeMode: Boolean,
+    onToggleRemove: () -> Unit,
+    onAddSection: () -> Unit,
+    onOpenSettings: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .animateContentSize(spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow)),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(36.dp)
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Expand / collapse handle
+                IconButton(
+                    onClick = onToggleExpand,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        if (trayExpanded) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+                        contentDescription = if (trayExpanded) "Collapse Context Tray" else "Expand Context Tray",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.outline
+                    )
+                }
+
+                // Waiting badge indicator if any waiting panes
+                if (waitingCount > 0) {
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(start = 4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(5.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = "$waitingCount waiting",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                }
+
+                Spacer(Modifier.weight(1f))
+
+                // Remove Mode Toggle
+                IconButton(
+                    onClick = onToggleRemove,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.DeleteOutline,
+                        contentDescription = "Toggle Remove Mode",
+                        tint = if (removeMode) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                // Add Section Button
+                IconButton(
+                    onClick = onAddSection,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Add,
+                        contentDescription = "Add Section",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                // Workbench Settings Button
+                IconButton(
+                    onClick = onOpenSettings,
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Tune,
+                        contentDescription = "Workbench Settings",
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            // Expanded Tray Content
+            AnimatedVisibility(visible = trayExpanded) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = "Workbench Controls",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onAddSection,
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("New Section", fontSize = 12.sp)
+                        }
+                        OutlinedButton(
+                            onClick = onOpenSettings,
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Settings", fontSize = 12.sp)
+                        }
                     }
                 }
             }
