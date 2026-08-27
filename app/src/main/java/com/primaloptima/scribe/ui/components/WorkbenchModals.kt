@@ -1011,3 +1011,291 @@ fun SectionScopeSheet(
         }
     }
 }
+
+// ── 7. Add Section Sheet (4d) ─────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddSectionSheet(
+    activeNote: Note?,
+    onDismiss: () -> Unit,
+    onPickScope: (PaneScope) -> Unit,
+) {
+    val bookScope = remember(activeNote) {
+        val bId = activeNote?.bookId?.ifBlank { "default" } ?: "default"
+        PaneScope.Book(id = bId, title = if (bId == "default") "Default Book" else "Current Book")
+    }
+    val folderScope = remember(activeNote) {
+        val fPath = activeNote?.folderPath?.ifBlank { "/" } ?: "/"
+        PaneScope.Folder(id = fPath, title = if (fPath == "/") "Root Folder" else fPath)
+    }
+    val fileScope = remember(activeNote) {
+        val fId = activeNote?.id ?: "note"
+        PaneScope.File(id = fId, title = activeNote?.name?.ifBlank { "Current Note" } ?: "Current Note")
+    }
+
+    val options = listOf(
+        Triple("Everywhere", "Visible in all books and notes", PaneScope.Global),
+        Triple("Current Book", "Scoped to ${bookScope.title}", bookScope),
+        Triple("Current Folder", "Scoped to ${folderScope.title}", folderScope),
+        Triple("Current Note", "Scoped exclusively to this note", fileScope),
+    )
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = "Add Workbench Section",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+            Text(
+                text = "Choose the scope for this new shelf section",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+
+            options.forEach { (title, subtitle, scope) ->
+                val icon = when (scope) {
+                    is PaneScope.Global -> Icons.Default.Public
+                    is PaneScope.Book -> Icons.AutoMirrored.Filled.MenuBook
+                    is PaneScope.Folder -> Icons.Default.Folder
+                    is PaneScope.File -> Icons.Default.Description
+                }
+                AddChoiceItem(
+                    title = title,
+                    subtitle = subtitle,
+                    icon = icon,
+                    onClick = {
+                        onDismiss()
+                        onPickScope(scope)
+                    }
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+// ── 8. Workbench Settings Sheet (4d) ──────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WorkbenchSettingsSheet(
+    workbenchState: com.primaloptima.scribe.util.model.WorkbenchState,
+    onDismiss: () -> Unit,
+    onUpdateWorkbench: ((com.primaloptima.scribe.util.model.WorkbenchState) -> com.primaloptima.scribe.util.model.WorkbenchState) -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = "Workbench Settings",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+
+            // Max Slots
+            Text(
+                text = "MAXIMUM ACTIVE SECTIONS",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.8.sp,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(1, 2, 3, 4).forEach { slots ->
+                    val isSelected = workbenchState.maxSlots == slots
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = {
+                            onUpdateWorkbench { wb ->
+                                val updated = wb.copy(maxSlots = slots)
+                                val active = updated.panes.filter { !it.isMinimized }
+                                if (active.size > slots) {
+                                    // Minimize excess panes (least specific first)
+                                    val toMinimizeCount = active.size - slots
+                                    val sortedBySpecificity = active.sortedBy { it.primaryScope.specificity }
+                                    val toMinIds = sortedBySpecificity.take(toMinimizeCount).map { it.id }.toSet()
+                                    updated.copy(
+                                        panes = updated.panes.map { p ->
+                                            if (toMinIds.contains(p.id)) p.copy(isMinimized = true, minimizedBy = com.primaloptima.scribe.util.model.MinimizedBy.SYSTEM)
+                                            else p
+                                        }
+                                    )
+                                } else {
+                                    updated
+                                }
+                            }
+                        },
+                        label = { Text("$slots ${if (slots == 1) "Section" else "Sections"}") },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+
+            // Out-of-Scope Default
+            Text(
+                text = "OUT-OF-SCOPE BEHAVIOR",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.8.sp,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+
+            val outOfScopeOptions = listOf(
+                Pair(com.primaloptima.scribe.util.model.OutOfScopeDefault.ALWAYS_ASK, "Always ask (Recommended)"),
+                Pair(com.primaloptima.scribe.util.model.OutOfScopeDefault.SESSION_ONLY, "Show for this session only"),
+                Pair(com.primaloptima.scribe.util.model.OutOfScopeDefault.ALWAYS_ADD, "Always add current note location")
+            )
+
+            outOfScopeOptions.forEach { (mode, label) ->
+                val isSelected = workbenchState.outOfScopeDefault == mode
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                            else Color.Transparent,
+                    onClick = { onUpdateWorkbench { it.copy(outOfScopeDefault = mode) } },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = isSelected,
+                            onClick = { onUpdateWorkbench { it.copy(outOfScopeDefault = mode) } }
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = label,
+                            fontSize = 14.sp,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(20.dp))
+        }
+    }
+}
+
+// ── 9. Out-of-Scope Restore Sheet (4c) ─────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun OutOfScopeRestoreSheet(
+    pane: PaneConfig,
+    activeNote: Note?,
+    onDismiss: () -> Unit,
+    onJustSession: () -> Unit,
+    onAlwaysAdd: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = "Show \"${pane.label}\" here?",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(bottom = 6.dp)
+            )
+            Text(
+                text = "This section belongs to a different scope. Choose how to handle its visibility:",
+                fontSize = 13.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(14.dp)) {
+                    Button(
+                        onClick = {
+                            onDismiss()
+                            onJustSession()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.AccessTime, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Just for this session")
+                    }
+                    Text(
+                        text = "The section will return to its original scope when you leave this note.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                    )
+
+                    OutlinedButton(
+                        onClick = {
+                            onDismiss()
+                            onAlwaysAdd()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.AddLocationAlt, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Always show here too")
+                    }
+                    Text(
+                        text = "Adds this note's scope (${activeNote?.name ?: "Current Note"}) as a secondary location.",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
