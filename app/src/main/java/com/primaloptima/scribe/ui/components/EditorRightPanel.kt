@@ -30,9 +30,9 @@ import com.primaloptima.scribe.ui.components.workbench.Workbench
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.frostedBar
 import com.primaloptima.scribe.ui.theme.frostedPanel
-import com.primaloptima.scribe.util.OutlineEntry
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.MinimizedBy
+import com.primaloptima.scribe.util.model.OutlineEntry
 import com.primaloptima.scribe.util.model.PaneConfig
 import com.primaloptima.scribe.util.model.PaneScope
 import com.primaloptima.scribe.util.model.WorkbenchState
@@ -68,7 +68,7 @@ fun EditorRightPanel(
     onLoadNote          : (noteId: String) -> Unit = {},
     onClose             : () -> Unit,
     barBlurBitmap       : Bitmap?,
-    hazeState           : dev.chrisbanes.haze.HazeState,
+    hazeState           : dev.chrisbanes.haze.HazeState?,
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
 

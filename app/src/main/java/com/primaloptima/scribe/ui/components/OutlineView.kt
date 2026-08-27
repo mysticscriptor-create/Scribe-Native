@@ -16,7 +16,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.primaloptima.scribe.util.OutlineEntry
+import com.primaloptima.scribe.util.model.OutlineEntry
 import io.github.rosemoe.sora.widget.CodeEditor
 
 @Composable

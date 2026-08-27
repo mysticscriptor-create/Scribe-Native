@@ -92,7 +92,7 @@ fun WorkbenchCard(
     onReorderNote       : (fromIndex: Int, toIndex: Int) -> Unit,
     onCreateNote        : (title: String, content: String) -> Unit,
     onPinNotes          : (selectedIds: List<String>) -> Unit,
-    hazeState           : dev.chrisbanes.haze.HazeState = LocalHazeState.current,
+    hazeState           : dev.chrisbanes.haze.HazeState? = LocalHazeState.current,
     isDetached          : Boolean = false,
     onStartDetachedDrag : ((note: Note, touchPos: Offset, size: androidx.compose.ui.geometry.Size, slotPosInRoot: Offset) -> Unit)? = null,
     onDetachedDrag      : ((dx: Float, dy: Float) -> Unit)? = null,

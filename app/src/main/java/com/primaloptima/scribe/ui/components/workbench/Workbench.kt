@@ -104,7 +104,7 @@ fun Workbench(
     onCreateNote        : (paneId: String, title: String, content: String) -> Unit = { _, _, _ -> },
     onSaveNoteContent   : (noteId: String, content: String) -> Unit = { _, _ -> },
     onLoadNote          : (noteId: String) -> Unit = {},
-    hazeState           : dev.chrisbanes.haze.HazeState = LocalHazeState.current,
+    hazeState           : dev.chrisbanes.haze.HazeState? = LocalHazeState.current,
     snackbarHostState   : SnackbarHostState,
     modifier            : Modifier = Modifier,
 ) {
@@ -1042,7 +1042,7 @@ fun Workbench(
                         }
 
                         // ── Spatial 4-Zone Glass Blueprint Dock Overlay ──
-                        AnimatedVisibility(
+                        androidx.compose.animation.AnimatedVisibility(
                             visible = dragState != null,
                             enter = fadeIn(tween(180, easing = FastOutSlowInEasing)),
                             exit = fadeOut(tween(160, easing = FastOutSlowInEasing)),
