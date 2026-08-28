@@ -295,6 +295,33 @@ private fun ScribeBottomBarSurface(
 }
 
 
+/**
+ * Individual action icon button inside a [ScribeTopBar] or [ScribeEditorTopBar].
+ * Applies adaptive text color, standard 40.dp touch target, and Scribe token sizing.
+ */
+@Composable
+fun ScribeBarIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    IconButton(
+        onClick  = onClick,
+        modifier = modifier.size(40.dp)
+    ) {
+        val (iconColor, iconMod) = rememberAdaptiveTextColor(
+            fallback = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Icon(
+            imageVector        = icon,
+            contentDescription = contentDescription,
+            tint               = iconColor,
+            modifier           = iconMod.size(ScribeBarTokens.IconSize)
+        )
+    }
+}
+
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // LAYER 3A — ScribeTopBar  (standard screen top bar)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -348,6 +375,7 @@ fun ScribeTopBar(
     navigationIcon: ImageVector? = null,
     onNavigationClick: () -> Unit = {},
     actions: List<ScribeBarAction> = emptyList(),
+    actionsContent: (@Composable RowScope.() -> Unit)? = null,
     extraContent: (@Composable () -> Unit)? = null,
     titleContent: (@Composable (titleModifier: Modifier) -> Unit)? = null,
 ) {
@@ -397,21 +425,13 @@ fun ScribeTopBar(
 
         // ── Action icons ─────────────────────────────────────────────────────
         actions.forEach { action ->
-            IconButton(
-                onClick  = action.onClick,
-                modifier = Modifier.size(40.dp)
-            ) {
-                val (iconColor, iconMod) = rememberAdaptiveTextColor(
-                    fallback = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Icon(
-                    imageVector        = action.icon,
-                    contentDescription = action.contentDescription,
-                    tint               = iconColor,
-                    modifier           = iconMod.size(ScribeBarTokens.IconSize)
-                )
-            }
+            ScribeBarIconButton(
+                icon = action.icon,
+                contentDescription = action.contentDescription,
+                onClick = action.onClick
+            )
         }
+        actionsContent?.invoke(this)
     }
 
     // Extra content slot (progress bar, find bar, etc.) — rendered directly
@@ -454,6 +474,7 @@ fun ScribeEditorTopBar(
     onNavClick: () -> Unit,
     onTitleClick: () -> Unit = {},
     actions: List<ScribeBarAction> = emptyList(),
+    actionsContent: (@Composable RowScope.() -> Unit)? = null,
     visible: Boolean = true,
     navigationIcon: ImageVector,
     extraContent: (@Composable () -> Unit)? = null,
@@ -505,21 +526,13 @@ fun ScribeEditorTopBar(
 
         // ── Action icons ─────────────────────────────────────────────────────
         actions.forEach { action ->
-            IconButton(
-                onClick  = action.onClick,
-                modifier = Modifier.size(40.dp)
-            ) {
-                val (iconColor, iconMod) = rememberAdaptiveTextColor(
-                    fallback = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Icon(
-                    imageVector        = action.icon,
-                    contentDescription = action.contentDescription,
-                    tint               = iconColor,
-                    modifier           = iconMod.size(ScribeBarTokens.IconSize)
-                )
-            }
+            ScribeBarIconButton(
+                icon = action.icon,
+                contentDescription = action.contentDescription,
+                onClick = action.onClick
+            )
         }
+        actionsContent?.invoke(this)
     }
 
     extraContent?.invoke()

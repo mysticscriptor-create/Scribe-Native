@@ -76,6 +76,7 @@ import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.components.ScribeNavBar
 import com.primaloptima.scribe.ui.components.ScribeNavItem
 import com.primaloptima.scribe.ui.components.ScribeBarAction
+import com.primaloptima.scribe.ui.components.ScribeBarIconButton
 import com.primaloptima.scribe.*
 import com.primaloptima.scribe.R
 import com.primaloptima.scribe.data.Book
@@ -484,45 +485,51 @@ fun HomeScreen(
                 // delivers the MoreVert click via ScribeBarAction.onClick.
                 if (!isSearching) {
                     var showSortMenu by remember { mutableStateOf(false) }
-                    Box {
-                        ScribeTopBar(
-                            title             = "Scribe",
-                            navigationIcon    = Icons.Default.Menu,
-                            onNavigationClick = { scope.launch { drawerState.open() } },
-                            actions = buildList {
-                                add(ScribeBarAction(Icons.Default.Search, "Search") { isSearching = true })
-                                if (selectedNavTab == 1) {
-                                    add(ScribeBarAction(
-                                        if (isGridMode) Icons.Filled.ViewList else Icons.Default.GridView,
-                                        "Toggle view"
-                                    ) { isGridMode = !isGridMode })
-                                    add(ScribeBarAction(Icons.Default.MoreVert, "More options") { showSortMenu = true })
-                                }
+                    ScribeTopBar(
+                        title             = "Scribe",
+                        navigationIcon    = Icons.Default.Menu,
+                        onNavigationClick = { scope.launch { drawerState.open() } },
+                        actions = buildList {
+                            add(ScribeBarAction(Icons.Default.Search, "Search") { isSearching = true })
+                            if (selectedNavTab == 1) {
+                                add(ScribeBarAction(
+                                    if (isGridMode) Icons.Filled.ViewList else Icons.Default.GridView,
+                                    "Toggle view"
+                                ) { isGridMode = !isGridMode })
                             }
-                        )
-                        if (selectedNavTab == 1) {
-                            FrostedDropdownMenu(
-                                expanded         = showSortMenu,
-                                onDismissRequest = { showSortMenu = false }
-                            ) {
-                                if (isGridMode) {
-                                    DropdownMenuItem(
-                                        text = { Text(if (gridColumns == 2) "3 Columns" else "2 Columns") },
-                                        leadingIcon = { Icon(Icons.Default.GridView, contentDescription = null, modifier = Modifier.size(18.dp)) },
-                                        onClick = {
-                                            val nextCols = if (gridColumns == 2) 3 else 2
-                                            booksVm.setGridColumns(nextCols)
-                                            showSortMenu = false
-                                        }
+                        },
+                        actionsContent = {
+                            if (selectedNavTab == 1) {
+                                Box {
+                                    ScribeBarIconButton(
+                                        icon = Icons.Default.MoreVert,
+                                        contentDescription = "More options",
+                                        onClick = { showSortMenu = true }
                                     )
-                                    HorizontalDivider()
+                                    FrostedDropdownMenu(
+                                        expanded         = showSortMenu,
+                                        onDismissRequest = { showSortMenu = false }
+                                    ) {
+                                        if (isGridMode) {
+                                            DropdownMenuItem(
+                                                text = { Text(if (gridColumns == 2) "3 Columns" else "2 Columns") },
+                                                leadingIcon = { Icon(Icons.Default.GridView, contentDescription = null, modifier = Modifier.size(18.dp)) },
+                                                onClick = {
+                                                    val nextCols = if (gridColumns == 2) 3 else 2
+                                                    booksVm.setGridColumns(nextCols)
+                                                    showSortMenu = false
+                                                }
+                                            )
+                                            HorizontalDivider()
+                                        }
+                                        DropdownMenuItem(text = { Text("Date Updated") }, onClick = { booksVm.setSortMode(BooksViewModel.SortMode.DATE_UPDATED); showSortMenu = false })
+                                        DropdownMenuItem(text = { Text("Date Created") }, onClick = { booksVm.setSortMode(BooksViewModel.SortMode.DATE_CREATED); showSortMenu = false })
+                                        DropdownMenuItem(text = { Text("Title (A-Z)") },  onClick = { booksVm.setSortMode(BooksViewModel.SortMode.TITLE_AZ);     showSortMenu = false })
+                                    }
                                 }
-                                DropdownMenuItem(text = { Text("Date Updated") }, onClick = { booksVm.setSortMode(BooksViewModel.SortMode.DATE_UPDATED); showSortMenu = false })
-                                DropdownMenuItem(text = { Text("Date Created") }, onClick = { booksVm.setSortMode(BooksViewModel.SortMode.DATE_CREATED); showSortMenu = false })
-                                DropdownMenuItem(text = { Text("Title (A-Z)") },  onClick = { booksVm.setSortMode(BooksViewModel.SortMode.TITLE_AZ);     showSortMenu = false })
                             }
                         }
-                    }
+                    )
                 }
             },
             bottomBar = {

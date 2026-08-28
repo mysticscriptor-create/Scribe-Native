@@ -41,6 +41,7 @@ import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
 import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.components.ScribeBarAction
+import com.primaloptima.scribe.ui.components.ScribeBarIconButton
 import com.primaloptima.scribe.ui.components.ScribeSingleFab
 import com.primaloptima.scribe.ui.theme.parseComposeColor
 import com.primaloptima.scribe.ui.theme.FontHelper
@@ -109,26 +110,30 @@ fun ThemeListScreen(
     Scaffold(
         contentWindowInsets = WindowInsets.systemBars,
         topBar = {
-            Box {
-                ScribeTopBar(
-                    title             = "Themes",
-                    navigationIcon    = Icons.AutoMirrored.Filled.ArrowBack,
-                    onNavigationClick = onBack,
-                    actions           = listOf(
-                        ScribeBarAction(Icons.Default.MoreVert, "Menu") { showTopMenu = true }
-                    )
-                )
-                FrostedDropdownMenu(
-                    expanded         = showTopMenu,
-                    onDismissRequest = { showTopMenu = false }
-                ) {
-                    DropdownMenuItem(
-                        text        = { Text("Import Theme") },
-                        leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = null) },
-                        onClick     = { showTopMenu = false; importThemeLauncher.launch("*/*") }
-                    )
+            ScribeTopBar(
+                title             = "Themes",
+                navigationIcon    = Icons.AutoMirrored.Filled.ArrowBack,
+                onNavigationClick = onBack,
+                actionsContent    = {
+                    Box {
+                        ScribeBarIconButton(
+                            icon = Icons.Default.MoreVert,
+                            contentDescription = "Menu",
+                            onClick = { showTopMenu = true }
+                        )
+                        FrostedDropdownMenu(
+                            expanded         = showTopMenu,
+                            onDismissRequest = { showTopMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text        = { Text("Import Theme") },
+                                leadingIcon = { Icon(Icons.Default.FileDownload, contentDescription = null) },
+                                onClick     = { showTopMenu = false; importThemeLauncher.launch("*/*") }
+                            )
+                        }
+                    }
                 }
-            }
+            )
         },
         floatingActionButton = {
             ScribeSingleFab(

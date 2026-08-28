@@ -50,6 +50,7 @@ import com.primaloptima.scribe.ui.theme.frostedBar
 import com.primaloptima.scribe.ui.components.ScribeSingleFab
 import com.primaloptima.scribe.ui.components.ScribeEditorTopBar
 import com.primaloptima.scribe.ui.components.ScribeBarAction
+import com.primaloptima.scribe.ui.components.ScribeBarIconButton
 import com.primaloptima.scribe.ui.components.EditorLeftDrawer
 import com.primaloptima.scribe.ui.components.EditorRightPanel
 import com.primaloptima.scribe.ui.theme.frostedFab
@@ -790,49 +791,55 @@ private fun EditorTopBarWithMenu(
     onSettings       : () -> Unit,
 ) {
     var showMenu by remember { mutableStateOf(false) }
-    Box {
-        ScribeEditorTopBar(
-            title          = activeNote?.name,
-            onNavClick     = onNavClick,
-            onTitleClick   = onTitleClick,
-            navigationIcon = Icons.Default.Menu,
-            visible        = !zenMode,
-            actions        = listOf(
-                ScribeBarAction(Icons.Default.Dock,        "Outline & Pinned Notes") { onOpenRightPanel() },
-                ScribeBarAction(Icons.Default.Search,      "Find")                   { onToggleFind() },
-                ScribeBarAction(Icons.Default.BookmarkAdd, "Save Checkpoint")        { onSaveCheckpoint() },
-                ScribeBarAction(Icons.Default.MoreVert,    "Menu")                   { showMenu = true },
-            ),
-            extraContent = {
-                if (!zenMode) {
-                    LinearProgressIndicator(
-                        progress   = { goalProgress },
-                        modifier   = Modifier.fillMaxWidth().height(3.dp),
-                        color      = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
+    ScribeEditorTopBar(
+        title          = activeNote?.name,
+        onNavClick     = onNavClick,
+        onTitleClick   = onTitleClick,
+        navigationIcon = Icons.Default.Menu,
+        visible        = !zenMode,
+        actions        = listOf(
+            ScribeBarAction(Icons.Default.Dock,        "Outline & Pinned Notes") { onOpenRightPanel() },
+            ScribeBarAction(Icons.Default.Search,      "Find")                   { onToggleFind() },
+            ScribeBarAction(Icons.Default.BookmarkAdd, "Save Checkpoint")        { onSaveCheckpoint() },
+        ),
+        actionsContent = {
+            Box {
+                ScribeBarIconButton(
+                    icon = Icons.Default.MoreVert,
+                    contentDescription = "Menu",
+                    onClick = { showMenu = true }
+                )
+                FrostedDropdownMenu(
+                    expanded         = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(text = { Text("Enter Zen Mode") },                  onClick = { showMenu = false; onEnterZen() })
+                    HorizontalDivider()
+                    DropdownMenuItem(text = { Text("Open as Floating Reference Window") }, onClick = { showMenu = false; onOpenFloating() })
+                    HorizontalDivider()
+                    DropdownMenuItem(text = { Text("Export as TXT") },      onClick = { showMenu = false; onExport("txt") })
+                    DropdownMenuItem(text = { Text("Export as Markdown") }, onClick = { showMenu = false; onExport("md") })
+                    DropdownMenuItem(text = { Text("Export as HTML") },     onClick = { showMenu = false; onExport("html") })
+                    DropdownMenuItem(text = { Text("Export as PDF") },      onClick = { showMenu = false; onExport("pdf") })
+                    HorizontalDivider()
+                    DropdownMenuItem(text = { Text("Version History") }, onClick = { showMenu = false; onVersionHistory() })
+                    DropdownMenuItem(text = { Text("Shortcuts") },       onClick = { showMenu = false; onShortcuts() })
+                    DropdownMenuItem(text = { Text("User Guide") },      onClick = { showMenu = false; onGuide() })
+                    DropdownMenuItem(text = { Text("Settings") },        onClick = { showMenu = false; onSettings() })
                 }
             }
-        )
-        FrostedDropdownMenu(
-            expanded         = showMenu,
-            onDismissRequest = { showMenu = false }
-        ) {
-            DropdownMenuItem(text = { Text("Enter Zen Mode") },                  onClick = { showMenu = false; onEnterZen() })
-            HorizontalDivider()
-            DropdownMenuItem(text = { Text("Open as Floating Reference Window") }, onClick = { showMenu = false; onOpenFloating() })
-            HorizontalDivider()
-            DropdownMenuItem(text = { Text("Export as TXT") },      onClick = { showMenu = false; onExport("txt") })
-            DropdownMenuItem(text = { Text("Export as Markdown") }, onClick = { showMenu = false; onExport("md") })
-            DropdownMenuItem(text = { Text("Export as HTML") },     onClick = { showMenu = false; onExport("html") })
-            DropdownMenuItem(text = { Text("Export as PDF") },      onClick = { showMenu = false; onExport("pdf") })
-            HorizontalDivider()
-            DropdownMenuItem(text = { Text("Version History") }, onClick = { showMenu = false; onVersionHistory() })
-            DropdownMenuItem(text = { Text("Shortcuts") },       onClick = { showMenu = false; onShortcuts() })
-            DropdownMenuItem(text = { Text("User Guide") },      onClick = { showMenu = false; onGuide() })
-            DropdownMenuItem(text = { Text("Settings") },        onClick = { showMenu = false; onSettings() })
+        },
+        extraContent = {
+            if (!zenMode) {
+                LinearProgressIndicator(
+                    progress   = { goalProgress },
+                    modifier   = Modifier.fillMaxWidth().height(3.dp),
+                    color      = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            }
         }
-    }
+    )
 }
 
 // ── Extracted: Find/Replace bar ───────────────────────────────────────────────
