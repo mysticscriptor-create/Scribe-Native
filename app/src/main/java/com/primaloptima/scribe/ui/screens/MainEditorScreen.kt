@@ -51,6 +51,8 @@ import com.primaloptima.scribe.ui.components.ScribeSingleFab
 import com.primaloptima.scribe.ui.components.ScribeEditorTopBar
 import com.primaloptima.scribe.ui.components.ScribeBarAction
 import com.primaloptima.scribe.ui.components.ScribeBarIconButton
+import com.primaloptima.scribe.ui.components.FrostedBottomSheet
+import com.primaloptima.scribe.ui.components.FrostedSheetDragHandle
 import com.primaloptima.scribe.ui.components.EditorLeftDrawer
 import com.primaloptima.scribe.ui.components.EditorRightPanel
 import com.primaloptima.scribe.ui.theme.frostedFab
@@ -71,6 +73,8 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.material.icons.automirrored.filled.Help
 import coil3.compose.AsyncImage
 
 import androidx.activity.compose.BackHandler
@@ -213,8 +217,9 @@ fun MainEditorScreen(
 
     var showRenameDialog     by remember { mutableStateOf(false) }
     var showCreateNoteDialog by remember { mutableStateOf(false) }
+    var showEditorTray       by remember { mutableStateOf(false) }
 
-    val anyDialogOpen = showRenameDialog || showCreateNoteDialog
+    val anyDialogOpen = showRenameDialog || showCreateNoteDialog || showEditorTray
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
         LaunchedEffect(anyDialogOpen) { if (!anyDialogOpen) dialogOneShotBitmap = null }
     }
@@ -359,7 +364,7 @@ fun MainEditorScreen(
                 containerColor      = Color.Transparent,
                 contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime),
                 topBar = {
-                    EditorTopBarWithMenu(
+                    EditorTopBar(
                         activeNote        = activeNote,
                         zenMode           = zenMode,
                         goalProgress      = goalProgress,
@@ -373,13 +378,7 @@ fun MainEditorScreen(
                             editorVm.saveManualSnapshot(soraEditorRef?.text?.toString() ?: "")
                             Toast.makeText(context, "Checkpoint saved", Toast.LENGTH_SHORT).show()
                         },
-                        onEnterZen        = { editorVm.setZen(true) },
-                        onOpenFloating    = { activeNote?.let { editorVm.openFloatingWindow(it.id) } },
-                        onExport          = { fmt -> activeNote?.let { ExportHelper.shareNote(context, it, fmt) } },
-                        onVersionHistory  = { editorVm.flushContent(soraEditorRef?.text?.toString() ?: ""); onOpenHistory() },
-                        onShortcuts       = onOpenShortcuts,
-                        onGuide           = onOpenGuide,
-                        onSettings        = onOpenSettings,
+                        onOpenMenu        = { showEditorTray = true },
                     )
                 },
                 bottomBar = {
@@ -708,7 +707,43 @@ fun MainEditorScreen(
             onMoveWindow     = { id, x, y -> editorVm.moveFloatingWindow(id, x, y) }
         )
 
-        // ── Dialogs ───────────────────────────────────────────────────────────
+        // ── Dialogs & Bottom Sheets ───────────────────────────────────────────
+        if (showEditorTray) {
+            EditorOptionsBottomSheet(
+                noteTitle        = activeNote?.name ?: "Untitled Note",
+                onDismiss        = { showEditorTray = false },
+                onEnterZen       = {
+                    showEditorTray = false
+                    editorVm.setZen(true)
+                },
+                onOpenFloating   = {
+                    showEditorTray = false
+                    activeNote?.let { editorVm.openFloatingWindow(it.id) }
+                },
+                onExport         = { fmt ->
+                    showEditorTray = false
+                    activeNote?.let { ExportHelper.shareNote(context, it, fmt) }
+                },
+                onVersionHistory = {
+                    showEditorTray = false
+                    editorVm.flushContent(soraEditorRef?.text?.toString() ?: "")
+                    onOpenHistory()
+                },
+                onShortcuts      = {
+                    showEditorTray = false
+                    onOpenShortcuts()
+                },
+                onGuide          = {
+                    showEditorTray = false
+                    onOpenGuide()
+                },
+                onSettings       = {
+                    showEditorTray = false
+                    onOpenSettings()
+                },
+            )
+        }
+
         CompositionLocalProvider(LocalOneShotBitmap provides dialogOneShotBitmap) {
             if (showRenameDialog && activeNote != null) {
                 val noteToRename = activeNote
@@ -765,13 +800,9 @@ fun MainEditorScreen(
     } // end outer Box
 }
 
-// ── Extracted: Top bar + overflow menu ───────────────────────────────────────
-// FIX 9 (decomposition): Moved the topBar content into its own composable so
-// the Scaffold's topBar slot isn't holding 60+ lines of inline logic. This
-// also means showMenu recomposition is scoped here instead of touching the parent.
-@OptIn(ExperimentalMaterial3Api::class)
+// ── Extracted: Top bar ────────────────────────────────────────────────────────
 @Composable
-private fun EditorTopBarWithMenu(
+private fun EditorTopBar(
     activeNote       : Note?,
     zenMode          : Boolean,
     goalProgress     : Float,
@@ -782,15 +813,8 @@ private fun EditorTopBarWithMenu(
     onOpenRightPanel : () -> Unit,
     onToggleFind     : () -> Unit,
     onSaveCheckpoint : () -> Unit,
-    onEnterZen       : () -> Unit,
-    onOpenFloating   : () -> Unit,
-    onExport         : (String) -> Unit,
-    onVersionHistory : () -> Unit,
-    onShortcuts      : () -> Unit,
-    onGuide          : () -> Unit,
-    onSettings       : () -> Unit,
+    onOpenMenu       : () -> Unit,
 ) {
-    var showMenu by remember { mutableStateOf(false) }
     ScribeEditorTopBar(
         title          = activeNote?.name,
         onNavClick     = onNavClick,
@@ -801,34 +825,8 @@ private fun EditorTopBarWithMenu(
             ScribeBarAction(Icons.Default.Dock,        "Outline & Pinned Notes") { onOpenRightPanel() },
             ScribeBarAction(Icons.Default.Search,      "Find")                   { onToggleFind() },
             ScribeBarAction(Icons.Default.BookmarkAdd, "Save Checkpoint")        { onSaveCheckpoint() },
+            ScribeBarAction(Icons.Default.MoreVert,    "Menu")                   { onOpenMenu() },
         ),
-        actionsContent = {
-            Box {
-                ScribeBarIconButton(
-                    icon = Icons.Default.MoreVert,
-                    contentDescription = "Menu",
-                    onClick = { showMenu = true }
-                )
-                FrostedDropdownMenu(
-                    expanded         = showMenu,
-                    onDismissRequest = { showMenu = false }
-                ) {
-                    DropdownMenuItem(text = { Text("Enter Zen Mode") },                  onClick = { showMenu = false; onEnterZen() })
-                    HorizontalDivider()
-                    DropdownMenuItem(text = { Text("Open as Floating Reference Window") }, onClick = { showMenu = false; onOpenFloating() })
-                    HorizontalDivider()
-                    DropdownMenuItem(text = { Text("Export as TXT") },      onClick = { showMenu = false; onExport("txt") })
-                    DropdownMenuItem(text = { Text("Export as Markdown") }, onClick = { showMenu = false; onExport("md") })
-                    DropdownMenuItem(text = { Text("Export as HTML") },     onClick = { showMenu = false; onExport("html") })
-                    DropdownMenuItem(text = { Text("Export as PDF") },      onClick = { showMenu = false; onExport("pdf") })
-                    HorizontalDivider()
-                    DropdownMenuItem(text = { Text("Version History") }, onClick = { showMenu = false; onVersionHistory() })
-                    DropdownMenuItem(text = { Text("Shortcuts") },       onClick = { showMenu = false; onShortcuts() })
-                    DropdownMenuItem(text = { Text("User Guide") },      onClick = { showMenu = false; onGuide() })
-                    DropdownMenuItem(text = { Text("Settings") },        onClick = { showMenu = false; onSettings() })
-                }
-            }
-        },
         extraContent = {
             if (!zenMode) {
                 LinearProgressIndicator(
@@ -840,6 +838,283 @@ private fun EditorTopBarWithMenu(
             }
         }
     )
+}
+
+// ── Custom Frosted Bottom Tray for Editor ───────────────────────────────────────
+@Composable
+private fun EditorOptionsBottomSheet(
+    noteTitle        : String,
+    onDismiss        : () -> Unit,
+    onEnterZen       : () -> Unit,
+    onOpenFloating   : () -> Unit,
+    onExport         : (String) -> Unit,
+    onVersionHistory : () -> Unit,
+    onShortcuts      : () -> Unit,
+    onGuide          : () -> Unit,
+    onSettings       : () -> Unit,
+) {
+    FrostedBottomSheet(
+        onDismissRequest = onDismiss
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(horizontal = 20.dp, vertical = 6.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = noteTitle,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "Document & Editor Actions",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
+                IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            // Quick Mode Actions (Zen Mode & Floating Reference)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                EditorTrayActionCard(
+                    title = "Zen Mode",
+                    subtitle = "Focus distraction-free",
+                    icon = Icons.Default.Fullscreen,
+                    modifier = Modifier.weight(1f),
+                    onClick = onEnterZen
+                )
+                EditorTrayActionCard(
+                    title = "Floating Window",
+                    subtitle = "Pin as quick reference",
+                    icon = Icons.Default.PictureInPicture,
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenFloating
+                )
+            }
+
+            // Export Options Section
+            Text(
+                text = "EXPORT NOTE",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+                letterSpacing = 0.5.sp,
+                modifier = Modifier.padding(start = 2.dp, top = 4.dp, bottom = 8.dp)
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    "TXT" to "txt",
+                    "Markdown" to "md",
+                    "HTML" to "html",
+                    "PDF" to "pdf"
+                ).forEach { (label, format) ->
+                    Surface(
+                        onClick = { onExport(format) },
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(vertical = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = when (format) {
+                                    "txt" -> Icons.Default.Description
+                                    "md" -> Icons.Default.Code
+                                    "html" -> Icons.Default.Language
+                                    else -> Icons.Default.PictureAsPdf
+                                },
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = label,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
+
+            // Navigation & Preferences
+            EditorTrayMenuItem(
+                title = "Version History",
+                subtitle = "Browse snapshots and restore edits",
+                icon = Icons.Default.History,
+                onClick = onVersionHistory
+            )
+            EditorTrayMenuItem(
+                title = "Keyboard Shortcuts",
+                subtitle = "Formatting keys and navigation helpers",
+                icon = Icons.Default.Keyboard,
+                onClick = onShortcuts
+            )
+            EditorTrayMenuItem(
+                title = "User Guide",
+                subtitle = "Quick manual and formatting tips",
+                icon = Icons.AutoMirrored.Filled.Help,
+                onClick = onGuide
+            )
+            EditorTrayMenuItem(
+                title = "Settings & Appearance",
+                subtitle = "Themes, fonts, and editor preferences",
+                icon = Icons.Default.Settings,
+                onClick = onSettings
+            )
+
+            Spacer(Modifier.height(10.dp))
+        }
+    }
+}
+
+@Composable
+private fun EditorTrayActionCard(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f),
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.size(34.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = subtitle,
+                    fontSize = 10.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EditorTrayMenuItem(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        color = Color.Transparent,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 1.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = subtitle,
+                    fontSize = 11.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                )
+            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
 }
 
 // ── Extracted: Find/Replace bar ───────────────────────────────────────────────
