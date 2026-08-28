@@ -24,7 +24,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.primaloptima.scribe.ScribeApp
 import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.theme.FrostedDialog
+import com.primaloptima.scribe.ui.theme.LocalHazeState
+import com.primaloptima.scribe.ui.theme.frostedCard
+import com.primaloptima.scribe.ui.theme.frostedChip
 import com.primaloptima.scribe.viewmodel.SettingsViewModel
+import dev.chrisbanes.haze.hazeSource
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,6 +40,7 @@ fun SettingsScreen(
     val app = context.applicationContext as ScribeApp
     val themeManager = remember { app.themeManager }
     val vm: SettingsViewModel = viewModel()
+    val hazeState = LocalHazeState.current
 
     val showWordCount by vm.showWordCount.collectAsStateWithLifecycle()
     val typewriterMode by vm.typewriterMode.collectAsStateWithLifecycle()
@@ -73,12 +78,17 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .padding(16.dp)
+                .then(if (hazeState != null) Modifier.hazeSource(hazeState) else Modifier)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Home Section
             Text("Home", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            Card(shape = RoundedCornerShape(12.dp)) {
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                modifier = Modifier.fillMaxWidth().frostedCard(hazeState, shape = RoundedCornerShape(12.dp))
+            ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Start on", fontWeight = FontWeight.Medium)
                     Text(
@@ -94,7 +104,9 @@ fun SettingsScreen(
                             label = { Text("Books") },
                             leadingIcon = if (homeStartPage == "books") {
                                 { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                            } else null
+                            } else null,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.frostedChip(hazeState, shape = RoundedCornerShape(12.dp), isSelected = homeStartPage == "books")
                         )
                         FilterChip(
                             selected = homeStartPage == "dashboard",
@@ -102,7 +114,9 @@ fun SettingsScreen(
                             label = { Text("Dashboard") },
                             leadingIcon = if (homeStartPage == "dashboard") {
                                 { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
-                            } else null
+                            } else null,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.frostedChip(hazeState, shape = RoundedCornerShape(12.dp), isSelected = homeStartPage == "dashboard")
                         )
                     }
                 }
@@ -113,10 +127,12 @@ fun SettingsScreen(
             // Appearance Section
             Text("Appearance", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
             Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onOpenThemes() },
-                shape = RoundedCornerShape(12.dp)
+                    .frostedCard(hazeState, shape = RoundedCornerShape(12.dp))
+                    .clickable { onOpenThemes() }
             ) {
                 Row(
                     modifier = Modifier
@@ -139,7 +155,11 @@ fun SettingsScreen(
             // Writing Options Section
             Text("Writing Options", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
 
-            Card(shape = RoundedCornerShape(12.dp)) {
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                modifier = Modifier.fillMaxWidth().frostedCard(hazeState, shape = RoundedCornerShape(12.dp))
+            ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -181,7 +201,11 @@ fun SettingsScreen(
             // Version History Section
             Text("Version History", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
 
-            Card(shape = RoundedCornerShape(12.dp)) {
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                modifier = Modifier.fillMaxWidth().frostedCard(hazeState, shape = RoundedCornerShape(12.dp))
+            ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
 
                     Row(
@@ -261,10 +285,12 @@ fun SettingsScreen(
             Text("Goals & Progress", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
 
             Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { showGoalDialog = true },
-                shape = RoundedCornerShape(12.dp)
+                    .frostedCard(hazeState, shape = RoundedCornerShape(12.dp))
+                    .clickable { showGoalDialog = true }
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(

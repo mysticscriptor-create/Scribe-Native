@@ -22,7 +22,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.ui.components.FrostedBottomSheet
+import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.frostedSearchBox
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -85,6 +87,7 @@ fun TagFilterSheet(
 
             // Search input for tags
             if (allTagsWithCount.size > 8) {
+                val hazeState = LocalHazeState.current
                 OutlinedTextField(
                     value = tagSearchQuery,
                     onValueChange = { tagSearchQuery = it },
@@ -98,7 +101,7 @@ fun TagFilterSheet(
                             }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().frostedSearchBox(hazeState, shape = RoundedCornerShape(12.dp)),
                     shape = RoundedCornerShape(12.dp)
                 )
             }

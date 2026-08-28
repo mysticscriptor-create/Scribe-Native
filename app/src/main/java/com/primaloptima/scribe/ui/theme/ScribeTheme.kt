@@ -92,6 +92,7 @@ val LocalHazeState = compositionLocalOf<HazeState?> { null }
 val LocalAppTheme = compositionLocalOf<AppTheme?> { null }
 val LocalBgAnalysisBitmap = compositionLocalOf<Bitmap?> { null }
 val LocalScreenSize = compositionLocalOf { Pair(1080f, 1920f) }
+val LocalRootGeometry = compositionLocalOf { Pair(0f, 0f) }
 /**
  * True when the user has enabled the frosted glass effect for this theme.
  * Controls whether bars, panels, cards, and FABs use hazeEffect / one-shot blur.
@@ -276,6 +277,7 @@ fun Modifier.drawWithBackdropBitmap(
 
     val view = LocalView.current
     val (screenWFromLocal, screenHFromLocal) = LocalScreenSize.current
+    val (rootWFromLocal, rootHFromLocal) = LocalRootGeometry.current
 
     var screenOffset by remember { mutableStateOf(IntOffset.Zero) }
 
@@ -297,11 +299,13 @@ fun Modifier.drawWithBackdropBitmap(
             val bitmapH = bitmap.height.toFloat()
             val displayMetrics = view.resources.displayMetrics
             val screenW = when {
+                rootWFromLocal > 0f -> rootWFromLocal
                 screenWFromLocal > 0f -> screenWFromLocal
                 displayMetrics.widthPixels > 0 -> displayMetrics.widthPixels.toFloat()
                 else -> bitmapW
             }
             val screenH = when {
+                rootHFromLocal > 0f -> rootHFromLocal
                 screenHFromLocal > 0f -> screenHFromLocal
                 displayMetrics.heightPixels > 0 -> displayMetrics.heightPixels.toFloat()
                 else -> bitmapH
@@ -544,6 +548,93 @@ fun Modifier.frostedCard(
         } else {
             this
         }
+    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
+        this
+            .clip(shape)
+            .hazeEffect(
+                state = hazeState,
+                style = HazeStyle(blurRadius = blurRadius.dp, tint = HazeTint(tintColor), noiseFactor = 0f)
+            )
+            .specularGlassBorder(shape, isDark)
+    } else if (barBlurBitmap != null) {
+        this
+            .clip(shape)
+            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = solidAlpha))
+    } else {
+        this
+            .clip(shape)
+            .background(solidSurface.copy(alpha = solidAlpha), shape = shape)
+            .specularGlassBorder(shape, isDark)
+    }
+}
+
+/**
+ * Frosted glass for Chips, Pill tabs, and small badges.
+ */
+@Composable
+fun Modifier.frostedChip(
+    hazeState: HazeState?,
+    shape: Shape = RoundedCornerShape(12.dp),
+    isDark: Boolean = LocalAppTheme.current?.isDark == true,
+    isSelected: Boolean = false,
+    selectedAlpha: Float = 0.25f,
+    unselectedAlpha: Float = 0.12f,
+    solidAlpha: Float = 0.90f
+): Modifier {
+    val solidSurface = LocalSolidSurface.current
+    val accentColor = LocalAccentColor.current
+    val hasBgImage = localHasBgImage()
+    val barBlurBitmap = LocalBarBlurBitmap.current
+    val tintEnabled = LocalFrostedTint.current
+    val blurRadius = LocalFrostedBlurRadius.current
+    val baseTint = if (isSelected) accentColor else solidSurface
+    val tintAlpha = if (isSelected) selectedAlpha else unselectedAlpha
+    val tintColor = if (tintEnabled) baseTint.copy(alpha = tintAlpha) else (if (isSelected) accentColor.copy(alpha = 0.18f) else Color.Transparent)
+
+    return if (!hasBgImage) {
+        val fallbackBg = if (isSelected) accentColor.copy(alpha = 0.18f) else solidSurface.copy(alpha = solidAlpha)
+        this.clip(shape).background(fallbackBg, shape = shape)
+    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
+        this
+            .clip(shape)
+            .hazeEffect(
+                state = hazeState,
+                style = HazeStyle(blurRadius = blurRadius.dp, tint = HazeTint(tintColor), noiseFactor = 0f)
+            )
+            .specularGlassBorder(shape, isDark)
+    } else if (barBlurBitmap != null) {
+        val fallbackBg = if (isSelected) accentColor.copy(alpha = 0.18f) else solidSurface.copy(alpha = solidAlpha)
+        this
+            .clip(shape)
+            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, fallbackBg)
+    } else {
+        val fallbackBg = if (isSelected) accentColor.copy(alpha = 0.18f) else solidSurface.copy(alpha = solidAlpha)
+        this
+            .clip(shape)
+            .background(fallbackBg, shape = shape)
+            .specularGlassBorder(shape, isDark)
+    }
+}
+
+/**
+ * Frosted glass for Search Bars / TextFields.
+ */
+@Composable
+fun Modifier.frostedSearchBox(
+    hazeState: HazeState?,
+    shape: Shape = RoundedCornerShape(12.dp),
+    isDark: Boolean = LocalAppTheme.current?.isDark == true,
+    solidAlpha: Float = 0.92f
+): Modifier {
+    val solidSurface = LocalSolidSurface.current
+    val hasBgImage = localHasBgImage()
+    val barBlurBitmap = LocalBarBlurBitmap.current
+    val tintEnabled = LocalFrostedTint.current
+    val blurRadius = LocalFrostedBlurRadius.current
+    val tintColor = if (tintEnabled) solidSurface.copy(alpha = 0.22f) else Color.Transparent
+
+    return if (!hasBgImage) {
+        this.clip(shape).background(solidSurface.copy(alpha = solidAlpha), shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
         this
             .clip(shape)
@@ -1163,70 +1254,85 @@ fun ScribeComposeTheme(
         }
     }
 
+    var rootDimensions by remember { mutableStateOf(Pair(screenWidthPx, screenHeightPx)) }
+
     MaterialTheme(
         colorScheme = animatedColorScheme,
         content = {
-            CompositionLocalProvider(
-                LocalHazeState provides hazeState,
-                LocalAppTheme provides resolvedTheme,
-                LocalBgAnalysisBitmap provides analysisBitmap,
-                LocalScreenSize provides Pair(screenWidthPx, screenHeightPx),
-                LocalFrostedGlass provides resolvedTheme.frostedGlassEnabled,
-                LocalFrostedTint provides frostedTintEnabled,
-                LocalFrostedBlurRadius provides frostedBlurRadius,
-                LocalSolidSurface provides animSurface,
-                LocalBarBlurBitmap provides barBlurBitmap,
-                // Adaptive accent resolved once here — screens read LocalAccentColor.current
-                // instead of calling parseComposeColor + adaptiveAccentColor themselves.
-                LocalAccentColor provides accentIcons,
-                // One-shot bitmap starts null; screens set it via their own
-                // CompositionLocalProvider wrapping the drawer/dialog content.
-                LocalOneShotBitmap provides null
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(if (showWholeAppBg) Color.Transparent else animBg)
-                ) {
-                    if (showWholeAppBg) {
-                        // Pick the right image model:
-                        // • API < 31 + blurred mode → pre-blurred software bitmap
-                        // • API < 31 + image mode  → software bitmap (no blur, but
-                        //   allowHardware=false so captureOnly can draw the view)
-                        // • API 31+ or no pre-processing needed → raw URI (Haze handles blur)
-                        val imageModel = when {
-                            needsSoftwareBlur && softwareBlurredModel != null -> softwareBlurredModel
-                            needsSoftwareImage && softwareImageModel != null -> softwareImageModel
-                            else -> bgUri
-                        }
-                        AsyncImage(
-                            model = imageModel,
-                            contentDescription = null,
-                            contentScale = ContentScale.FillBounds,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                // hazeSource registers this image as the layer Haze blurs from.
-                                // On API 31+, hazeEffect on child composables (bars, cards, FABs)
-                                // does all the blurring — the source must be the raw unprocessed
-                                // image. Applying renderEffect here creates an isolated offscreen
-                                // GPU render node that Haze cannot see through, which is why blur
-                                // was broken on API 31+. Pre-API-31 uses a pre-blurred software
-                                // bitmap with blurEnabled = false, so it never needs renderEffect
-                                // here either.
-                                .hazeSource(state = hazeState)
-                        )
-                        // Only apply the colour tint overlay in "blurred" mode.
-                        // In "image" mode the user wants the image as-is — no wash.
-                        if (bgMode == "blurred" && bgOpacity > 0f) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(bg.copy(alpha = bgOpacity))
-                            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .onGloballyPositioned { coords ->
+                        val w = coords.size.width.toFloat()
+                        val h = coords.size.height.toFloat()
+                        if (w > 0f && h > 0f && (w != rootDimensions.first || h != rootDimensions.second)) {
+                            rootDimensions = Pair(w, h)
                         }
                     }
+            ) {
+                CompositionLocalProvider(
+                    LocalHazeState provides hazeState,
+                    LocalAppTheme provides resolvedTheme,
+                    LocalBgAnalysisBitmap provides analysisBitmap,
+                    LocalScreenSize provides Pair(screenWidthPx, screenHeightPx),
+                    LocalRootGeometry provides rootDimensions,
+                    LocalFrostedGlass provides resolvedTheme.frostedGlassEnabled,
+                    LocalFrostedTint provides frostedTintEnabled,
+                    LocalFrostedBlurRadius provides frostedBlurRadius,
+                    LocalSolidSurface provides animSurface,
+                    LocalBarBlurBitmap provides barBlurBitmap,
+                    // Adaptive accent resolved once here — screens read LocalAccentColor.current
+                    // instead of calling parseComposeColor + adaptiveAccentColor themselves.
+                    LocalAccentColor provides accentIcons,
+                    // One-shot bitmap starts null; screens set it via their own
+                    // CompositionLocalProvider wrapping the drawer/dialog content.
+                    LocalOneShotBitmap provides null
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(if (showWholeAppBg) Color.Transparent else animBg)
+                    ) {
+                        if (showWholeAppBg) {
+                            // Pick the right image model:
+                            // • API < 31 + blurred mode → pre-blurred software bitmap
+                            // • API < 31 + image mode  → software bitmap (no blur, but
+                            //   allowHardware=false so captureOnly can draw the view)
+                            // • API 31+ or no pre-processing needed → raw URI (Haze handles blur)
+                            val imageModel = when {
+                                needsSoftwareBlur && softwareBlurredModel != null -> softwareBlurredModel
+                                needsSoftwareImage && softwareImageModel != null -> softwareImageModel
+                                else -> bgUri
+                            }
+                            AsyncImage(
+                                model = imageModel,
+                                contentDescription = null,
+                                contentScale = ContentScale.FillBounds,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    // hazeSource registers this image as the layer Haze blurs from.
+                                    // On API 31+, hazeEffect on child composables (bars, cards, FABs)
+                                    // does all the blurring — the source must be the raw unprocessed
+                                    // image. Applying renderEffect here creates an isolated offscreen
+                                    // GPU render node that Haze cannot see through, which is why blur
+                                    // was broken on API 31+. Pre-API-31 uses a pre-blurred software
+                                    // bitmap with blurEnabled = false, so it never needs renderEffect
+                                    // here either.
+                                    .hazeSource(state = hazeState)
+                            )
+                            // Only apply the colour tint overlay in "blurred" mode.
+                            // In "image" mode the user wants the image as-is — no wash.
+                            if (bgMode == "blurred" && bgOpacity > 0f) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(bg.copy(alpha = bgOpacity))
+                                )
+                            }
+                        }
 
-                    content()
+                        content()
+                    }
                 }
             }
         }

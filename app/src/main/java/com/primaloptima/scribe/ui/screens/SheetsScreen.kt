@@ -52,6 +52,9 @@ import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.frostedCard
+import com.primaloptima.scribe.ui.theme.frostedChip
+import com.primaloptima.scribe.ui.theme.frostedSearchBox
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.util.BitmapBlur
 import com.primaloptima.scribe.util.WorldImageUtil
@@ -234,14 +237,15 @@ fun SheetsScreen(
                             }
                         }
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).frostedSearchBox(hazeState, shape = RoundedCornerShape(12.dp)),
                     shape = RoundedCornerShape(12.dp)
                 )
 
                 // Sort Chip Button
                 Box {
+                    val isSortSelected = selectedSort != SheetsViewModel.SortOption.UPDATED_DESC
                     FilterChip(
-                        selected = selectedSort != SheetsViewModel.SortOption.UPDATED_DESC,
+                        selected = isSortSelected,
                         onClick = { sortMenuExpanded = true },
                         label = {
                             Text(
@@ -257,7 +261,8 @@ fun SheetsScreen(
                                 modifier = Modifier.size(16.dp)
                             )
                         },
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.frostedChip(hazeState, shape = RoundedCornerShape(12.dp), isSelected = isSortSelected)
                     )
 
                     FrostedDropdownMenu(
@@ -317,7 +322,8 @@ fun SheetsScreen(
                                 else MaterialTheme.colorScheme.primary
                             )
                         },
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.frostedChip(hazeState, shape = RoundedCornerShape(12.dp), isSelected = hasTagFilters)
                     )
                 }
 
@@ -345,7 +351,8 @@ fun SheetsScreen(
                                        else meta.color
                             )
                         },
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.frostedChip(hazeState, shape = RoundedCornerShape(12.dp), isSelected = selected)
                     )
                 }
             }
@@ -377,7 +384,8 @@ fun SheetsScreen(
                                             .clickable { selectedTags = selectedTags - tag }
                                     )
                                 },
-                                shape = RoundedCornerShape(8.dp)
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.frostedChip(hazeState, shape = RoundedCornerShape(8.dp), isSelected = true)
                             )
                         }
 

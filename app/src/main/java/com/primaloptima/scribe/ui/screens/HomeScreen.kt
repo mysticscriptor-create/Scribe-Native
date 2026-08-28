@@ -42,6 +42,7 @@ import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.LocalBarBlurBitmap
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
 import com.primaloptima.scribe.ui.theme.frostedPanel
+import com.primaloptima.scribe.ui.theme.frostedSearchBox
 import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.FrostedPanelContent
 import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
@@ -470,7 +471,10 @@ fun HomeScreen(
                                 }) { Icon(Icons.Default.Clear, contentDescription = "Clear") }
                             },
                             shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.fillMaxWidth().height(54.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(54.dp)
+                                .frostedSearchBox(hazeState, shape = RoundedCornerShape(14.dp))
                         )
                     }
                 }
