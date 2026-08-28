@@ -55,6 +55,7 @@ import com.primaloptima.scribe.ui.components.EditorRightPanel
 import com.primaloptima.scribe.ui.theme.frostedFab
 import com.primaloptima.scribe.ui.theme.frostedPanel
 import com.primaloptima.scribe.ui.theme.FrostedDialog
+import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
 import com.primaloptima.scribe.ui.theme.frostedContainerColor
 import com.primaloptima.scribe.ui.theme.LocalAppTheme
 import com.primaloptima.scribe.ui.theme.ScribeColorScheme
@@ -813,10 +814,9 @@ private fun EditorTopBarWithMenu(
                 }
             }
         )
-        DropdownMenu(
+        FrostedDropdownMenu(
             expanded         = showMenu,
-            onDismissRequest = { showMenu = false },
-            containerColor   = LocalSolidSurface.current
+            onDismissRequest = { showMenu = false }
         ) {
             DropdownMenuItem(text = { Text("Enter Zen Mode") },                  onClick = { showMenu = false; onEnterZen() })
             HorizontalDivider()

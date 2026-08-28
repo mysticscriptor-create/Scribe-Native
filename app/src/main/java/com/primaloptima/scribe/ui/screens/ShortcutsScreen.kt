@@ -24,6 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.ui.theme.FrostedDialog
+import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
@@ -195,10 +196,9 @@ private fun ShortcutRow(
                 IconButton(onClick = { showMenu = true }) {
                     Icon(Icons.Default.MoreVert, contentDescription = null)
                 }
-                DropdownMenu(
+                FrostedDropdownMenu(
                     expanded = showMenu,
-                    onDismissRequest = { showMenu = false },
-                    containerColor = LocalSolidSurface.current
+                    onDismissRequest = { showMenu = false }
                 ) {
                     DropdownMenuItem(text = { Text("Edit") }, onClick = { showMenu = false; onEdit() })
                     DropdownMenuItem(text = { Text("Delete") }, onClick = { showMenu = false; onDelete() })

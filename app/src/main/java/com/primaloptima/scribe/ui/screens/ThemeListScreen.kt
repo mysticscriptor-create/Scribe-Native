@@ -35,6 +35,7 @@ import androidx.core.content.FileProvider
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.style.TextOverflow
 import com.primaloptima.scribe.ui.theme.FrostedDialog
+import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
@@ -117,10 +118,9 @@ fun ThemeListScreen(
                         ScribeBarAction(Icons.Default.MoreVert, "Menu") { showTopMenu = true }
                     )
                 )
-                DropdownMenu(
+                FrostedDropdownMenu(
                     expanded         = showTopMenu,
-                    onDismissRequest = { showTopMenu = false },
-                    containerColor   = LocalSolidSurface.current
+                    onDismissRequest = { showTopMenu = false }
                 ) {
                     DropdownMenuItem(
                         text        = { Text("Import Theme") },
@@ -339,10 +339,9 @@ private fun ThemeCard(
                             tint = textColor
                         )
                     }
-                    DropdownMenu(
+                    FrostedDropdownMenu(
                         expanded = showMenu,
-                        onDismissRequest = { showMenu = false },
-                        containerColor = LocalSolidSurface.current
+                        onDismissRequest = { showMenu = false }
                     ) {
                         DropdownMenuItem(
                             text = { Text("Set Active") },

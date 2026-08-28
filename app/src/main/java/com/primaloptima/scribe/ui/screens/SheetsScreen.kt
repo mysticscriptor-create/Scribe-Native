@@ -48,6 +48,7 @@ import com.primaloptima.scribe.ui.components.FullScreenImageViewer
 import com.primaloptima.scribe.ui.components.ScribeCard
 import com.primaloptima.scribe.ui.components.ScribeSingleFab
 import com.primaloptima.scribe.ui.components.ScribeTopBar
+import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
@@ -259,7 +260,7 @@ fun SheetsScreen(
                         shape = RoundedCornerShape(12.dp)
                     )
 
-                    DropdownMenu(
+                    FrostedDropdownMenu(
                         expanded = sortMenuExpanded,
                         onDismissRequest = { sortMenuExpanded = false }
                     ) {
@@ -739,7 +740,7 @@ private fun WorldEntryCard(
                     )
                 }
 
-                DropdownMenu(
+                FrostedDropdownMenu(
                     expanded = menuExpanded,
                     onDismissRequest = { menuExpanded = false }
                 ) {

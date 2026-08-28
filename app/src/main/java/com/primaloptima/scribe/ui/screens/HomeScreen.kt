@@ -44,6 +44,7 @@ import com.primaloptima.scribe.ui.theme.LocalSolidSurface
 import com.primaloptima.scribe.ui.theme.frostedPanel
 import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.FrostedPanelContent
+import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
 
 import androidx.compose.material3.LocalContentColor
 import com.primaloptima.scribe.util.BitmapBlur
@@ -496,10 +497,9 @@ fun HomeScreen(
                             }
                         )
                         if (selectedNavTab == 1) {
-                            DropdownMenu(
+                            FrostedDropdownMenu(
                                 expanded         = showSortMenu,
-                                onDismissRequest = { showSortMenu = false },
-                                containerColor   = LocalSolidSurface.current
+                                onDismissRequest = { showSortMenu = false }
                             ) {
                                 if (isGridMode) {
                                     DropdownMenuItem(
@@ -1029,10 +1029,9 @@ private fun BookGridCard(
                         tint = if (book.coverUri != null) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
-                DropdownMenu(
+                FrostedDropdownMenu(
                     expanded = showMenu,
-                    onDismissRequest = { showMenu = false },
-                    containerColor = LocalSolidSurface.current
+                    onDismissRequest = { showMenu = false }
                 ) {
                     DropdownMenuItem(text = { Text("Open") }, onClick = { showMenu = false; onOpen() })
                     DropdownMenuItem(text = { Text("Rename") }, onClick = { showMenu = false; onRename() })
@@ -1163,10 +1162,9 @@ private fun BookListRow(
                     IconButton(onClick = { showMenu = true }) {
                         Icon(Icons.Default.MoreVert, contentDescription = null)
                     }
-                    DropdownMenu(
+                    FrostedDropdownMenu(
                         expanded = showMenu,
-                        onDismissRequest = { showMenu = false },
-                        containerColor = LocalSolidSurface.current
+                        onDismissRequest = { showMenu = false }
                     ) {
                         DropdownMenuItem(text = { Text("Open") }, onClick = { showMenu = false; onOpen() })
                         DropdownMenuItem(text = { Text("Rename") }, onClick = { showMenu = false; onRename(book) })

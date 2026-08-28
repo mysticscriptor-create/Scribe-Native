@@ -54,6 +54,7 @@ import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.components.ScribeBarAction
 import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.frostedContainerColor
+import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
 import com.primaloptima.scribe.ui.theme.rememberAdaptiveTextColor
 import com.primaloptima.scribe.util.BitmapBlur
 import androidx.compose.ui.platform.LocalView
@@ -350,10 +351,9 @@ fun BookScreen(
                             ScribeBarAction(Icons.Default.MoreVert, "Options") { showSortMenu = true },
                         )
                     )
-                    DropdownMenu(
+                    FrostedDropdownMenu(
                         expanded         = showSortMenu,
-                        onDismissRequest = { showSortMenu = false },
-                        containerColor   = LocalSolidSurface.current
+                        onDismissRequest = { showSortMenu = false }
                     ) {
                         DropdownMenuItem(text = { Text("Change Book Cover") }, onClick = { showSortMenu = false; coverPickerLauncher.launch("image/*") })
                         DropdownMenuItem(text = { Text("Edit Genre Tags") },   onClick = { showSortMenu = false; scope.launch { captureForDialog { showTagsDialog = true } } })
@@ -1383,7 +1383,7 @@ private fun NoteListRow(
                         IconButton(onClick = { showMenu = true }, modifier = Modifier.size(32.dp)) {
                             Icon(Icons.Default.MoreVert, contentDescription = null, modifier = Modifier.size(16.dp), tint = onSurface.copy(alpha = 0.5f))
                         }
-                        DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }, containerColor = LocalSolidSurface.current) {
+                        FrostedDropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                             DropdownMenuItem(text = { Text("Open") },                    onClick = { showMenu = false; onClick() })
                             DropdownMenuItem(text = { Text("Open in Floating Window") }, onClick = { showMenu = false; onOpenFloat() })
                             DropdownMenuItem(text = { Text("Rename") },                  onClick = { showMenu = false; onRename() })

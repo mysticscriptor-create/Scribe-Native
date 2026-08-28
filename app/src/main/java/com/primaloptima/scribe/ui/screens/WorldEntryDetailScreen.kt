@@ -34,6 +34,7 @@ import coil3.compose.AsyncImage
 import com.primaloptima.scribe.data.WorldEntry
 import com.primaloptima.scribe.ui.components.FullScreenImageViewer
 import com.primaloptima.scribe.ui.theme.FrostedDialog
+import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.util.WorldImageUtil
@@ -161,7 +162,7 @@ fun WorldEntryDetailScreen(
                         Icon(Icons.Default.MoreVert, contentDescription = "More options")
                     }
 
-                    DropdownMenu(
+                    FrostedDropdownMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false }
                     ) {
