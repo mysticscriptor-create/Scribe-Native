@@ -756,8 +756,7 @@ fun SheetsScreen(
                                             text = if (searchQuery.isNotBlank() || selectedTags.isNotEmpty())
                                                 "No world sheets matching your filters."
                                             else
-                                                "No ${categoryMeta(pageCategory).label.lowercase()} yet.
-Tap + to create your first sheet.",
+                                                "No ${categoryMeta(pageCategory).label.lowercase()} yet.\nTap + to create your first sheet.",
                                             color = MaterialTheme.colorScheme.outline,
                                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                             lineHeight = 20.sp
@@ -844,11 +843,36 @@ Tap + to create your first sheet.",
                                 }
                             }
                             Toast.makeText(context, "Deleted sheet", Toast.LENGTH_SHORT).show()
+                        },
+                        onFieldsReordered = { updatedFields ->
+                            vm.updateEntryFields(currentEntry, updatedFields)
                         }
                     )
                 } else {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("Select a world sheet from the list", color = MaterialTheme.colorScheme.outline)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                                contentDescription = null,
+                                modifier = Modifier.size(56.dp),
+                                tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "Select a sheet to view details",
+                                color = MaterialTheme.colorScheme.outline,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }
@@ -859,35 +883,41 @@ Tap + to create your first sheet.",
     if (showCreateSheet) {
         CreateWorldEntrySheet(
             selectedCategory = currentSelectedCategory,
-            onDismiss = { showCreateSheet = false },
-            onConfirm = { name, type ->
-                val newId = vm.createEntry(name, type)
-                showCreateSheet = false
-                selectedEntryId = newId
-                scope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, newId) }
+            onDismiss        = { showCreateSheet = false },
+            onConfirm        = { name, type ->
+                vm.createEntry(type, name) { created ->
+                    showCreateSheet = false
+                    entryToEdit      = created
+                    selectedEntryId  = created.id
+                    scope.launch { navigator.navigateTo(ListDetailPaneScaffoldRole.Detail, created.id) }
+                }
             }
         )
     }
 
     // ── Edit World Sheet Bottom Sheet ─────────────────────────────────────────
-    entryToEdit?.let { entry ->
+    entryToEdit?.let { editTarget ->
         EditWorldEntrySheet(
-            entry = entry,
+            entry     = editTarget,
             onDismiss = { entryToEdit = null },
-            onSave = { updatedEntry ->
-                vm.updateEntry(updatedEntry)
+            onSave    = { updated ->
+                vm.updateEntry(updated)
                 entryToEdit = null
+                if (selectedEntryId == updated.id) {
+                    selectedEntryId = updated.id
+                }
+                Toast.makeText(context, "Saved changes", Toast.LENGTH_SHORT).show()
             }
         )
     }
 
     // ── Tag Filter Modal Bottom Sheet ─────────────────────────────────────────
     if (showTagFilterSheet) {
-        TagFilterBottomSheet(
-            allTagsWithCount = allTagsWithCount,
-            selectedTags = selectedTags,
-            onDismiss = { showTagFilterSheet = false },
-            onApply = { newSelected ->
+        TagFilterSheet(
+            allTagsWithCount      = allTagsWithCount,
+            initiallySelectedTags = selectedTags,
+            onDismiss             = { showTagFilterSheet = false },
+            onApply               = { newSelected ->
                 selectedTags = newSelected
                 showTagFilterSheet = false
             }
@@ -897,8 +927,8 @@ Tap + to create your first sheet.",
     // ── Full-Screen Image Viewer Modal ────────────────────────────────────────
     fullScreenImageUri?.let { uri ->
         FullScreenImageViewer(
-            imageUri = uri,
-            title = fullScreenImageTitle,
+            imageUri  = uri,
+            title     = fullScreenImageTitle,
             onDismiss = { fullScreenImageUri = null }
         )
     }
