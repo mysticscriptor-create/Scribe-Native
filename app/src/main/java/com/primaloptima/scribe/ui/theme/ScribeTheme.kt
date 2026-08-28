@@ -85,6 +85,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.material3.LocalContentColor
 
 val LocalHazeState = compositionLocalOf<HazeState?> { null }
@@ -255,6 +256,8 @@ fun Modifier.specularGlassBorder(
  * High-performance coordinate-mapped wallpaper blur renderer for pre-API 31 devices.
  * Samples the exact screen rectangle behind this composable from [bitmap] (pre-blurred on Dispatchers.IO),
  * overlays [tint], and paints the specular glass border. Zero main-thread CPU capture overhead.
+ * Uses true global coordinate sampling so popups, menus, and dialogs in separate windows/layers
+ * sample their exact localized slice of the wallpaper without squashing or distortion.
  */
 @Composable
 fun Modifier.drawWithBackdropBitmap(
@@ -271,25 +274,38 @@ fun Modifier.drawWithBackdropBitmap(
             .specularGlassBorder(shape, isDark)
     }
 
+    val view = LocalView.current
+    val (screenWFromLocal, screenHFromLocal) = LocalScreenSize.current
+
     var screenOffset by remember { mutableStateOf(IntOffset.Zero) }
-    var rootSize by remember { mutableStateOf(IntSize.Zero) }
 
     return this
         .clip(shape)
         .onGloballyPositioned { coords ->
-            val pos = coords.positionInRoot()
-            screenOffset = IntOffset(pos.x.toInt(), pos.y.toInt())
-            var root = coords
-            while (root.parentCoordinates != null) {
-                root = root.parentCoordinates!!
-            }
-            rootSize = root.size
+            val viewLocation = IntArray(2)
+            view.getLocationOnScreen(viewLocation)
+            val windowPos = coords.positionInWindow()
+
+            // True physical screen position regardless of Popup, Window, or Dialog layer
+            val globalX = viewLocation[0] + windowPos.x
+            val globalY = viewLocation[1] + windowPos.y
+
+            screenOffset = IntOffset(globalX.toInt(), globalY.toInt())
         }
         .drawWithContent {
             val bitmapW = bitmap.width.toFloat()
             val bitmapH = bitmap.height.toFloat()
-            val screenW = if (rootSize.width > 0) rootSize.width.toFloat() else bitmapW
-            val screenH = if (rootSize.height > 0) rootSize.height.toFloat() else bitmapH
+            val displayMetrics = view.resources.displayMetrics
+            val screenW = when {
+                screenWFromLocal > 0f -> screenWFromLocal
+                displayMetrics.widthPixels > 0 -> displayMetrics.widthPixels.toFloat()
+                else -> bitmapW
+            }
+            val screenH = when {
+                screenHFromLocal > 0f -> screenHFromLocal
+                displayMetrics.heightPixels > 0 -> displayMetrics.heightPixels.toFloat()
+                else -> bitmapH
+            }
 
             val srcLeft = (screenOffset.x.toFloat() / screenW * bitmapW).coerceIn(0f, bitmapW)
             val srcTop = (screenOffset.y.toFloat() / screenH * bitmapH).coerceIn(0f, bitmapH)
