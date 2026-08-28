@@ -24,6 +24,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -205,7 +207,8 @@ fun InWindowMenuHost(
         ) {
             Box(
                 modifier = Modifier
-                    .widthIn(min = 180.dp, max = 280.dp)
+                    .width(IntrinsicSize.Max)
+                    .widthIn(min = 120.dp, max = 280.dp)
                     .heightIn(max = maxMenuHeightDp)
                     .frostedMenu(hazeState = hazeState, shape = activeMenu.shape, isDark = isDark)
                     .pointerInput(activeMenu.id) {
@@ -216,6 +219,7 @@ fun InWindowMenuHost(
                 CompositionLocalProvider(LocalContentColor provides contentColor) {
                     Column(
                         modifier = Modifier
+                            .width(IntrinsicSize.Max)
                             .padding(vertical = 6.dp)
                             .verticalScroll(rememberScrollState())
                     ) {
