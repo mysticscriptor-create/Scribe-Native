@@ -58,6 +58,10 @@ import androidx.core.graphics.ColorUtils
 import androidx.core.view.WindowCompat
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
+import com.primaloptima.scribe.ui.components.InWindowMenuHostState
+import com.primaloptima.scribe.ui.components.InWindowMenuHost
+import com.primaloptima.scribe.ui.components.LocalInWindowMenuHost
+import com.primaloptima.scribe.ui.components.FrostedInWindowDropdownMenu
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
 import com.primaloptima.scribe.util.DefaultThemes
@@ -489,8 +493,10 @@ fun Modifier.frostedMenu(
 
 /**
  * Frosted glass dropdown menu with cross-version support (API 24+).
- * Automatically applies GPU Haze blur on API 31+, coordinate-mapped StackBlur on API < 31,
- * and solid theme surface on plain-color themes with zero transparency bugs.
+ * Automatically delegates to [FrostedInWindowDropdownMenu] to render as an in-window overlay in the same tree:
+ * - On API 31+: Pure GPU Haze blur with zero popup sub-window isolation.
+ * - On API < 31: StackBlur bitmap slicing with accurate screen-coordinate sampling.
+ * - Solid themes: Clean opaque theme surface with zero transparency defects.
  */
 @Composable
 fun FrostedDropdownMenu(
@@ -503,25 +509,15 @@ fun FrostedDropdownMenu(
     shape: Shape = RoundedCornerShape(14.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val hazeState = LocalHazeState.current
-    val solidSurface = LocalSolidSurface.current
-    val isDark = LocalAppTheme.current?.isDark == true
-
-    DropdownMenu(
+    FrostedInWindowDropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismissRequest,
-        modifier = modifier.frostedMenu(hazeState = hazeState, shape = shape, isDark = isDark),
+        modifier = modifier,
         offset = offset,
         scrollState = scrollState,
         properties = properties,
         shape = shape,
-        containerColor = Color.Transparent,
-        content = {
-            val contentColor = autoTextColor(solidSurface)
-            CompositionLocalProvider(LocalContentColor provides contentColor) {
-                content()
-            }
-        }
+        content = content
     )
 }
 
@@ -1255,6 +1251,7 @@ fun ScribeComposeTheme(
     }
 
     var rootDimensions by remember { mutableStateOf(Pair(screenWidthPx, screenHeightPx)) }
+    val menuHostState = remember { InWindowMenuHostState() }
 
     MaterialTheme(
         colorScheme = animatedColorScheme,
@@ -1276,6 +1273,7 @@ fun ScribeComposeTheme(
                     LocalBgAnalysisBitmap provides analysisBitmap,
                     LocalScreenSize provides Pair(screenWidthPx, screenHeightPx),
                     LocalRootGeometry provides rootDimensions,
+                    LocalInWindowMenuHost provides menuHostState,
                     LocalFrostedGlass provides resolvedTheme.frostedGlassEnabled,
                     LocalFrostedTint provides frostedTintEnabled,
                     LocalFrostedBlurRadius provides frostedBlurRadius,
@@ -1332,6 +1330,9 @@ fun ScribeComposeTheme(
                         }
 
                         content()
+
+                        // In-Window Anchored Dropdown Menu overlay layer
+                        InWindowMenuHost(hostState = menuHostState)
                     }
                 }
             }
