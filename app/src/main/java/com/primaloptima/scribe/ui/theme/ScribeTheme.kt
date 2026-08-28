@@ -490,15 +490,17 @@ fun FrostedCardContent(content: @Composable () -> Unit) {
 @Composable
 fun FrostedDialog(
     onDismissRequest: () -> Unit,
+    confirmButton: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+    dismissButton: @Composable (() -> Unit)? = null,
+    icon: @Composable (() -> Unit)? = null,
     title: @Composable (() -> Unit)? = null,
     text: @Composable (() -> Unit)? = null,
-    confirmButton: @Composable () -> Unit,
-    dismissButton: @Composable (() -> Unit)? = null,
+    shape: Shape = RoundedCornerShape(28.dp),
 ) {
     val hazeState = LocalHazeState.current
     val solidSurface = LocalSolidSurface.current
     val isDark = LocalAppTheme.current?.isDark == true
-    val shape = RoundedCornerShape(28.dp)
 
     BackHandler { onDismissRequest() }
 
@@ -515,7 +517,7 @@ fun FrostedDialog(
         val dialogContentColor = autoTextColor(solidSurface)
         CompositionLocalProvider(LocalContentColor provides dialogContentColor) {
             Column(
-                modifier = Modifier
+                modifier = modifier
                     .fillMaxWidth(0.88f)
                     .clip(shape)
                     .frostedCard(
@@ -531,6 +533,14 @@ fun FrostedDialog(
                     .padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                icon?.let {
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        it()
+                    }
+                }
                 title?.let {
                     ProvideTextStyle(
                         value = MaterialTheme.typography.headlineSmall

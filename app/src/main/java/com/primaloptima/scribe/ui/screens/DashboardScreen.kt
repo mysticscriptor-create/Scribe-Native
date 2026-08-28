@@ -1263,6 +1263,8 @@ private fun BookPickerSheet(
     onSelect: (Book) -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+
     FrostedBottomSheet(
         onDismissRequest = onDismiss
     ) {
