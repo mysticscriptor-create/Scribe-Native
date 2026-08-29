@@ -3,6 +3,8 @@ package com.primaloptima.scribe.ui.screens
 import android.graphics.Bitmap
 import android.os.Build
 import android.widget.Toast
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -17,17 +19,21 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.primaloptima.scribe.ui.components.ScribeCardTokens
+import com.primaloptima.scribe.ui.components.ScribeStripCard
 import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
+import com.primaloptima.scribe.ui.theme.LocalAccentColor
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
-import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
 import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.components.ScribeBarAction
 import com.primaloptima.scribe.ui.components.ScribeSingleFab
@@ -46,16 +52,17 @@ fun ShortcutsScreen(
 ) {
     val context = LocalContext.current
     val shortcuts by vm.shortcuts.collectAsStateWithLifecycle()
-
     var showEditDialog by remember { mutableStateOf(false) }
     var shortcutToEdit by remember { mutableStateOf<ShortcutAction?>(null) }
     var shortcutToDelete by remember { mutableStateOf<ShortcutAction?>(null) }
-
     val view = LocalView.current
     val blurRadiusPx = com.primaloptima.scribe.ui.theme.LocalFrostedBlurRadius.current.toInt().coerceIn(1, 25)
     val hazeState = LocalHazeState.current
+    val subtleText = LocalSubtleTextColor.current
+
     var dialogOneShotBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var dialogCaptured by remember { mutableStateOf(false) }
+
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
         LaunchedEffect(showEditDialog) {
             if (showEditDialog && !dialogCaptured) {
@@ -72,6 +79,7 @@ fun ShortcutsScreen(
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime),
         topBar = {
             ScribeTopBar(
@@ -98,8 +106,16 @@ fun ShortcutsScreen(
         }
     ) { padding ->
         if (shortcuts.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No shortcuts configured. Tap + to create one.", color = MaterialTheme.colorScheme.outline)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "No shortcuts configured. Tap + to create one.",
+                    color = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.outline
+                )
             }
         } else {
             CompositionLocalProvider(LocalOneShotBitmap provides dialogOneShotBitmap) {
@@ -168,30 +184,29 @@ private fun ShortcutRow(
     onDelete: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    val accentColor = LocalAccentColor.current
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onEdit() },
-        shape = RoundedCornerShape(12.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .padding(16.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                Icons.AutoMirrored.Filled.ShortText,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp)
-            )
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(shortcut.label, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Text("Kind: ${shortcut.kind} • Payload: ${shortcut.payload}", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+    ScribeStripCard(
+        title = shortcut.label,
+        subtitle = "Kind: ${shortcut.kind} • Payload: ${shortcut.payload}",
+        leading = {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(RoundedCornerShape(ScribeCardTokens.RadiusSmall))
+                    .background(accentColor.copy(alpha = 0.12f))
+                    .border(0.6.dp, accentColor.copy(alpha = 0.22f), RoundedCornerShape(ScribeCardTokens.RadiusSmall)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ShortText,
+                    contentDescription = null,
+                    tint = accentColor,
+                    modifier = Modifier.size(20.dp)
+                )
             }
+        },
+        trailing = {
             Box {
                 IconButton(onClick = { showMenu = true }) {
                     Icon(Icons.Default.MoreVert, contentDescription = null)
@@ -204,8 +219,11 @@ private fun ShortcutRow(
                     DropdownMenuItem(text = { Text("Delete") }, onClick = { showMenu = false; onDelete() })
                 }
             }
-        }
-    }
+        },
+        onClick = onEdit,
+        wrapInCard = true,
+        cornerRadius = ScribeCardTokens.RadiusMedium
+    )
 }
 
 @Composable
@@ -234,7 +252,6 @@ private fun EditShortcutDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-
                 OutlinedTextField(
                     value = payload,
                     onValueChange = { payload = it },
@@ -242,7 +259,6 @@ private fun EditShortcutDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
-
                 if (kind == "wrap" || kind == "pair") {
                     OutlinedTextField(
                         value = closing,
@@ -252,7 +268,6 @@ private fun EditShortcutDialog(
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
-
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(selected = kind == "insert", onClick = { kind = "insert" })
                     Text("Insert")

@@ -9,11 +9,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.primaloptima.scribe.ui.theme.LocalHazeState
+import com.primaloptima.scribe.ui.components.ScribeContentCard
 import com.primaloptima.scribe.ui.components.ScribeTopBar
+import com.primaloptima.scribe.ui.theme.LocalHazeState
+import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
 import dev.chrisbanes.haze.hazeSource
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -24,6 +25,7 @@ fun GuideScreen(
     val hazeState = LocalHazeState.current
 
     Scaffold(
+        containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets.systemBars,
         topBar = {
             ScribeTopBar(
@@ -56,14 +58,21 @@ fun GuideScreen(
 
 @Composable
 private fun GuideSection(title: String, description: String) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+    val subtle = LocalSubtleTextColor.current
+    val onSurface = MaterialTheme.colorScheme.onSurface
+    val textColor = if (subtle != Color.Unspecified) subtle else onSurface.copy(alpha = 0.85f)
+
+    ScribeContentCard(
+        title = title,
+        modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(description, fontSize = 14.sp, lineHeight = 20.sp)
+            Text(
+                text = description,
+                fontSize = 14.sp,
+                lineHeight = 21.sp,
+                color = textColor
+            )
         }
     }
 }

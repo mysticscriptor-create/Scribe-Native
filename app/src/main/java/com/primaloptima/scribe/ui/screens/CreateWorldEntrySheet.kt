@@ -1,10 +1,10 @@
 package com.primaloptima.scribe.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
@@ -20,7 +20,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.ui.components.FrostedBottomSheet
-import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.LocalAccentColor
+import com.primaloptima.scribe.ui.theme.LocalBorderSubtle
+import com.primaloptima.scribe.ui.theme.LocalHazeState
+import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
+import com.primaloptima.scribe.ui.theme.LocalSurfaceRaised
+import com.primaloptima.scribe.ui.theme.frostedChip
 import com.primaloptima.scribe.viewmodel.SheetsViewModel
 
 data class CategoryMeta(
@@ -54,6 +59,12 @@ fun CreateWorldEntrySheet(
         mutableStateOf(if (selectedCategory == "All") "character" else selectedCategory)
     }
     val typeKeys = listOf("character", "location", "faction", "item", "lore", "timeline")
+    val hazeState = LocalHazeState.current
+    val accentColor = LocalAccentColor.current
+    val subtleText = LocalSubtleTextColor.current
+    val surfaceRaised = LocalSurfaceRaised.current
+    val borderSubtle = LocalBorderSubtle.current
+    val resolvedSubtle = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
 
     FrostedBottomSheet(
         onDismissRequest = onDismiss
@@ -74,7 +85,8 @@ fun CreateWorldEntrySheet(
                 Text(
                     text = "New World Sheet",
                     fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 IconButton(onClick = onDismiss) {
                     Icon(Icons.Default.Close, contentDescription = "Close")
@@ -87,9 +99,8 @@ fun CreateWorldEntrySheet(
                     "Select Category",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = resolvedSubtle
                 )
-
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(vertical = 4.dp)
@@ -111,11 +122,12 @@ fun CreateWorldEntrySheet(
                                     imageVector = meta.icon,
                                     contentDescription = null,
                                     modifier = Modifier.size(16.dp),
-                                    tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer
+                                    tint = if (selected) MaterialTheme.colorScheme.onPrimary
                                     else meta.color
                                 )
                             },
-                            shape = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.frostedChip(hazeState, shape = RoundedCornerShape(12.dp), isSelected = selected)
                         )
                     }
                 }
@@ -153,12 +165,19 @@ fun CreateWorldEntrySheet(
                 else        -> SheetsViewModel.GENERAL_FIELDS
             }
 
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (surfaceRaised != Color.Unspecified) surfaceRaised else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                    .border(
+                        0.7.dp,
+                        if (borderSubtle != Color.Unspecified) borderSubtle else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
+                        RoundedCornerShape(12.dp)
+                    )
+                    .padding(14.dp)
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
+                Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
                             Icons.Default.AutoAwesome,
@@ -178,7 +197,7 @@ fun CreateWorldEntrySheet(
                     Text(
                         text = previewFields.joinToString(" · ") { it.label },
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = resolvedSubtle,
                         lineHeight = 18.sp
                     )
                 }
@@ -196,11 +215,14 @@ fun CreateWorldEntrySheet(
                 ) {
                     Text("Cancel")
                 }
-
                 Button(
                     onClick = { onConfirm(name, type) },
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = accentColor,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
                 ) {
                     Text("Create Sheet", fontWeight = FontWeight.Bold)
                 }

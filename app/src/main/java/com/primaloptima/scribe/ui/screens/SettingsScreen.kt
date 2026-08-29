@@ -11,22 +11,26 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.primaloptima.scribe.ScribeApp
+import com.primaloptima.scribe.ui.components.ScribeCard
+import com.primaloptima.scribe.ui.components.ScribeCardTokens
+import com.primaloptima.scribe.ui.components.ScribeContentCard
+import com.primaloptima.scribe.ui.components.ScribeSectionLabel
 import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.theme.FrostedDialog
+import com.primaloptima.scribe.ui.theme.LocalAccentColor
+import com.primaloptima.scribe.ui.theme.LocalBorderSubtle
 import com.primaloptima.scribe.ui.theme.LocalHazeState
-import com.primaloptima.scribe.ui.theme.frostedCard
+import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
 import com.primaloptima.scribe.ui.theme.frostedChip
 import com.primaloptima.scribe.viewmodel.SettingsViewModel
 import dev.chrisbanes.haze.hazeSource
@@ -42,6 +46,8 @@ fun SettingsScreen(
     val themeManager = remember { app.themeManager }
     val vm: SettingsViewModel = viewModel()
     val hazeState = LocalHazeState.current
+    val accentColor = LocalAccentColor.current
+    val subtleText = LocalSubtleTextColor.current
 
     val showWordCount by vm.showWordCount.collectAsStateWithLifecycle()
     val typewriterMode by vm.typewriterMode.collectAsStateWithLifecycle()
@@ -64,7 +70,10 @@ fun SettingsScreen(
 
     var showGoalDialog by remember { mutableStateOf(false) }
 
+    val subtleColor = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.outline
+
     Scaffold(
+        containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets.systemBars,
         topBar = {
             ScribeTopBar(
@@ -84,18 +93,20 @@ fun SettingsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Home Section
-            Text("Home", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                modifier = Modifier.fillMaxWidth().frostedCard(hazeState, shape = RoundedCornerShape(12.dp))
+            ScribeSectionLabel(text = "Home")
+            ScribeContentCard(
+                title = "Startup Destination",
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Text("Start on", fontWeight = FontWeight.Medium)
                     Text(
                         "Which screen opens when you launch Scribe.",
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.outline
+                        color = subtleColor
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -123,17 +134,13 @@ fun SettingsScreen(
                 }
             }
 
-            HorizontalDivider()
-
             // Appearance Section
-            Text("Appearance", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+            ScribeSectionLabel(text = "Appearance")
+            ScribeCard(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .frostedCard(hazeState, shape = RoundedCornerShape(12.dp))
-                    .clickable { onOpenThemes() }
+                    .fillMaxWidth(),
+                cornerRadius = ScribeCardTokens.RadiusLarge,
+                onClick = { onOpenThemes() }
             ) {
                 Row(
                     modifier = Modifier
@@ -141,27 +148,26 @@ fun SettingsScreen(
                         .fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Palette, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.Palette, contentDescription = null, tint = accentColor)
                     Spacer(modifier = Modifier.width(16.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Active Theme", fontWeight = FontWeight.Bold)
-                        Text(themeManager.activeTheme().name, fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+                        Text(themeManager.activeTheme().name, fontSize = 12.sp, color = subtleColor)
                     }
-                    Icon(Icons.Default.ChevronRight, contentDescription = null)
+                    Icon(Icons.Default.ChevronRight, contentDescription = null, tint = subtleColor)
                 }
             }
 
-            HorizontalDivider()
-
-            // Writing Options Section
-            Text("Writing Options", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                modifier = Modifier.fillMaxWidth().frostedCard(hazeState, shape = RoundedCornerShape(12.dp))
+            // Editor Section
+            ScribeSectionLabel(text = "Editor")
+            ScribeContentCard(
+                title = "Editor Experience",
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -170,10 +176,13 @@ fun SettingsScreen(
                         Text("Show Word Count FAB", fontWeight = FontWeight.Medium)
                         Switch(
                             checked = showWordCount,
-                            onCheckedChange = { vm.setShowWordCount(it) }
+                            onCheckedChange = { vm.setShowWordCount(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                checkedTrackColor = accentColor
+                            )
                         )
                     }
-
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -182,33 +191,38 @@ fun SettingsScreen(
                         Text("Typewriter Mode (Center Active Line)", fontWeight = FontWeight.Medium)
                         Switch(
                             checked = typewriterMode,
-                            onCheckedChange = { vm.setTypewriterMode(it) }
+                            onCheckedChange = { vm.setTypewriterMode(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                checkedTrackColor = accentColor
+                            )
                         )
                     }
-
                     Column {
                         Text("Editor Font Size: $fontSize sp", fontWeight = FontWeight.Medium)
                         Slider(
                             value = fontSize.toFloat(),
                             onValueChange = { vm.setEditorFontSize(it.toInt()) },
-                            valueRange = 12f..28f
+                            valueRange = 12f..28f,
+                            colors = SliderDefaults.colors(
+                                thumbColor = accentColor,
+                                activeTrackColor = accentColor
+                            )
                         )
                     }
                 }
             }
 
-            HorizontalDivider()
-
             // Version History Section
-            Text("Version History", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-                modifier = Modifier.fillMaxWidth().frostedCard(hazeState, shape = RoundedCornerShape(12.dp))
+            ScribeSectionLabel(text = "Version History")
+            ScribeContentCard(
+                title = "Snapshots & Checkpoints",
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -216,40 +230,48 @@ fun SettingsScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Auto-save History", fontWeight = FontWeight.Medium)
-                            Text("Saves a snapshot when you leave a note", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+                            Text("Saves a snapshot when you leave a note", fontSize = 12.sp, color = subtleColor)
                         }
                         Switch(
                             checked = autoHistoryEnabled,
-                            onCheckedChange = { vm.setAutoHistoryEnabled(it) }
+                            onCheckedChange = { vm.setAutoHistoryEnabled(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                checkedTrackColor = accentColor
+                            )
                         )
                     }
-
                     if (autoHistoryEnabled) {
                         Column {
                             Text("Auto-save slots: $autoHistorySlots", fontWeight = FontWeight.Medium)
-                            Text("How many auto-saves to keep per note", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+                            Text("How many auto-saves to keep per note", fontSize = 12.sp, color = subtleColor)
                             Slider(
                                 value = autoHistorySlots.toFloat(),
                                 onValueChange = { vm.setAutoHistorySlots(it.toInt()) },
                                 valueRange = 1f..30f,
-                                steps = 28
+                                steps = 28,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = accentColor,
+                                    activeTrackColor = accentColor
+                                )
                             )
                         }
-
                         Column {
                             Text("Min words to trigger: $autoHistoryMinWords words", fontWeight = FontWeight.Medium)
-                            Text("Net word change needed to auto-save", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+                            Text("Net word change needed to auto-save", fontSize = 12.sp, color = subtleColor)
                             Slider(
                                 value = autoHistoryMinWords.toFloat(),
                                 onValueChange = { vm.setAutoHistoryMinWords(it.toInt()) },
                                 valueRange = 1f..100f,
-                                steps = 98
+                                steps = 98,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = accentColor,
+                                    activeTrackColor = accentColor
+                                )
                             )
                         }
                     }
-
-                    HorizontalDivider()
-
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.10f))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
@@ -257,54 +279,60 @@ fun SettingsScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Manual Checkpoints", fontWeight = FontWeight.Medium)
-                            Text("Saved when you tap the bookmark button", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+                            Text("Saved when you tap the bookmark button", fontSize = 12.sp, color = subtleColor)
                         }
                         Switch(
                             checked = manualCheckpointsEnabled,
-                            onCheckedChange = { vm.setManualCheckpointsEnabled(it) }
+                            onCheckedChange = { vm.setManualCheckpointsEnabled(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                checkedTrackColor = accentColor
+                            )
                         )
                     }
-
                     if (manualCheckpointsEnabled) {
                         Column {
                             Text("Checkpoint slots: $manualCheckpointSlots", fontWeight = FontWeight.Medium)
-                            Text("How many checkpoints to keep per note", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+                            Text("How many checkpoints to keep per note", fontSize = 12.sp, color = subtleColor)
                             Slider(
                                 value = manualCheckpointSlots.toFloat(),
                                 onValueChange = { vm.setManualCheckpointSlots(it.toInt()) },
                                 valueRange = 1f..30f,
-                                steps = 28
+                                steps = 28,
+                                colors = SliderDefaults.colors(
+                                    thumbColor = accentColor,
+                                    activeTrackColor = accentColor
+                                )
                             )
                         }
                     }
                 }
             }
 
-            HorizontalDivider()
-
             // Daily Goals Section
-            Text("Goals & Progress", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-
-            Card(
-                shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+            ScribeSectionLabel(text = "Goals & Progress")
+            ScribeContentCard(
+                title = "Daily Target",
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .frostedCard(hazeState, shape = RoundedCornerShape(12.dp))
-                    .clickable { showGoalDialog = true }
+                    .fillMaxWidth(),
+                headerTrailing = {
+                    Text(
+                        "$dailyGoal words",
+                        fontWeight = FontWeight.Bold,
+                        color = accentColor,
+                        fontSize = 13.sp,
+                        modifier = Modifier.clickable { showGoalDialog = true }
+                    )
+                },
+                onClick = { showGoalDialog = true }
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Daily Word Goal", fontWeight = FontWeight.Bold)
-                        Text("$dailyGoal words", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    }
-                    Text("Words today: $todayWords", fontSize = 13.sp)
-                    Text("Current streak: $currentStreak days", fontSize = 13.sp)
-                    Text("Longest streak: $longestStreak days", fontSize = 13.sp)
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Words today: $todayWords", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text("Current streak: $currentStreak days", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text("Longest streak: $longestStreak days", fontSize = 13.sp, color = subtleColor)
                 }
             }
         }
@@ -334,7 +362,7 @@ fun SettingsScreen(
                             Toast.makeText(context, "Daily goal updated", Toast.LENGTH_SHORT).show()
                         }
                     }
-                ) { Text("Save") }
+                ) { Text("Save", color = accentColor) }
             },
             dismissButton = {
                 TextButton(onClick = { showGoalDialog = false }) { Text("Cancel") }

@@ -33,13 +33,22 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.primaloptima.scribe.data.WorldEntry
 import com.primaloptima.scribe.ui.components.FullScreenImageViewer
+import com.primaloptima.scribe.ui.components.ScribeBarAction
+import com.primaloptima.scribe.ui.components.ScribeCard
+import com.primaloptima.scribe.ui.components.ScribeCardTokens
+import com.primaloptima.scribe.ui.components.ScribeContentCard
+import com.primaloptima.scribe.ui.components.ScribePill
+import com.primaloptima.scribe.ui.components.ScribeSectionLabel
+import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
-import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.LocalAccentColor
+import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.util.WorldImageUtil
 import com.primaloptima.scribe.viewmodel.SheetsViewModel
+import dev.chrisbanes.haze.hazeSource
 import kotlinx.serialization.decodeFromString
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -56,21 +65,25 @@ fun WorldEntryDetailScreen(
     onFieldsReordered: (List<SheetsViewModel.Companion.Field>) -> Unit
 ) {
     val context = LocalContext.current
-    val solidSurface = LocalSolidSurface.current
     val meta = categoryMeta(entry.type)
+    val hazeState = LocalHazeState.current
+    val accentColor = LocalAccentColor.current
+    val subtleText = LocalSubtleTextColor.current
+    val resolvedSubtle = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
 
     var showImageViewer by remember { mutableStateOf(false) }
     var isReorderingMode by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
 
     val fields: List<SheetsViewModel.Companion.Field> = remember(entry.fieldsJson) {
         try { AppJson.decodeFromString(entry.fieldsJson) } catch (_: Exception) { emptyList() }
     }
+
     val tags: List<String> = remember(entry.tagsJson) {
         try { AppJson.decodeFromString(entry.tagsJson) } catch (_: Exception) { emptyList() }
     }
 
-    // Determine if the attached image is landscape (aspect ratio width > height)
     val isLandscape = remember(entry.imageUri) {
         WorldImageUtil.isLandscapeImage(context, entry.imageUri)
     }
@@ -82,6 +95,7 @@ fun WorldEntryDetailScreen(
         if (entry.createdAt > 0) dateFormatter.format(Date(entry.createdAt))
         else "Initial creation"
     }
+
     val formattedUpdated = remember(entry.updatedAt) {
         val now = System.currentTimeMillis()
         val diff = now - entry.updatedAt
@@ -94,230 +108,88 @@ fun WorldEntryDetailScreen(
     }
 
     Scaffold(
-        containerColor = solidSurface,
+        containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets.systemBars,
         topBar = {
-            TopAppBar(
-                title = {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            color = meta.color.copy(alpha = 0.18f),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.padding(end = 8.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = meta.icon,
-                                    contentDescription = null,
-                                    tint = meta.color,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = meta.label.dropLast(1).ifEmpty { meta.label },
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = meta.color
-                                )
-                            }
-                        }
-
-                        Text(
-                            text = entry.name,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    // Toggle Reorder Attributes mode
+            ScribeTopBar(
+                title             = entry.name,
+                navigationIcon    = Icons.AutoMirrored.Filled.ArrowBack,
+                onNavigationClick = onBack,
+                actions           = listOfNotNull(
                     if (fields.size > 1) {
-                        IconButton(
+                        ScribeBarAction(
+                            icon = if (isReorderingMode) Icons.Default.Check else Icons.Default.SwapVert,
+                            description = "Reorder Attributes",
                             onClick = { isReorderingMode = !isReorderingMode }
-                        ) {
-                            Icon(
-                                if (isReorderingMode) Icons.Default.Check else Icons.Default.SwapVert,
-                                contentDescription = "Reorder Attributes",
-                                tint = if (isReorderingMode) meta.color else MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-
-                    // Edit
-                    IconButton(onClick = onEdit) {
-                        Icon(Icons.Default.Edit, contentDescription = "Edit Sheet")
-                    }
-
-                    // Overflow Menu (Duplicate, Delete, Copy)
-                    var menuExpanded by remember { mutableStateOf(false) }
-                    Box {
-                        IconButton(onClick = { menuExpanded = true }) {
-                            Icon(Icons.Default.MoreVert, contentDescription = "More options")
-                        }
-
-                        FrostedDropdownMenu(
-                            expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Edit Sheet") },
-                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    onEdit()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Duplicate") },
-                                leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    onDuplicate()
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Copy Summary") },
-                                leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
-                                onClick = {
-                                    menuExpanded = false
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val text = buildString {
-                                        appendLine("${entry.name} (${meta.label})")
-                                        if (entry.summary.isNotBlank()) appendLine(entry.summary)
-                                        fields.filter { it.value.isNotBlank() }.forEach {
-                                            appendLine("${it.label}: ${it.value}")
-                                        }
-                                    }
-                                    clipboard.setPrimaryClip(ClipData.newPlainText(entry.name, text))
-                                    Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
-                                }
-                            )
-                            HorizontalDivider()
-                            DropdownMenuItem(
-                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
-                                onClick = {
-                                    menuExpanded = false
-                                    showDeleteConfirm = true
-                                }
-                            )
-                        }
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = solidSurface
+                        )
+                    } else null,
+                    ScribeBarAction(
+                        icon = Icons.Default.Edit,
+                        description = "Edit Sheet",
+                        onClick = onEdit
+                    ),
+                    ScribeBarAction(
+                        icon = Icons.Default.MoreVert,
+                        description = "More options",
+                        onClick = { menuExpanded = true }
+                    )
                 )
             )
         }
     ) { innerPadding ->
-        LazyColumn(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 20.dp),
-            contentPadding = PaddingValues(vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .then(if (hazeState != null) Modifier.hazeSource(hazeState) else Modifier)
         ) {
-            // ── Adaptive Header (Portrait Left vs Landscape Top Center) ─
-            item(key = "header_section") {
-                if (!entry.imageUri.isNullOrEmpty()) {
-                    if (isLandscape) {
-                        // ── Landscape Image: Banner at Top Center ───────
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(180.dp)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .border(1.5.dp, meta.color.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
-                                    .clickable { showImageViewer = true }
-                            ) {
-                                AsyncImage(
-                                    model = entry.imageUri,
-                                    contentDescription = entry.name,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .padding(8.dp)
-                                        .size(28.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.Black.copy(alpha = 0.65f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        Icons.Default.Fullscreen,
-                                        contentDescription = "Expand Image",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-
-                            HeaderTitleAndMetadata(
-                                entry = entry,
-                                meta = meta,
-                                formattedCreated = formattedCreated,
-                                formattedUpdated = formattedUpdated
-                            )
-                        }
-                    } else {
-                        // ── Portrait Image: Left Column ─────────────────
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            verticalAlignment = Alignment.Top
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .width(115.dp)
-                                    .height(150.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .border(1.5.dp, meta.color.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
-                                    .clickable { showImageViewer = true }
-                            ) {
-                                AsyncImage(
-                                    model = entry.imageUri,
-                                    contentDescription = entry.name,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .align(Alignment.BottomEnd)
-                                        .padding(6.dp)
-                                        .size(24.dp)
-                                        .clip(CircleShape)
-                                        .background(Color.Black.copy(alpha = 0.65f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        Icons.Default.Fullscreen,
-                                        contentDescription = "Expand Image",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                            }
-
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(innerPadding)
+                    .padding(horizontal = 20.dp),
+                contentPadding = PaddingValues(vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // ── Adaptive Header (Portrait Left vs Landscape Top Center) ─
+                item(key = "header_section") {
+                    if (!entry.imageUri.isNullOrEmpty()) {
+                        if (isLandscape) {
                             Column(
-                                modifier = Modifier.weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(180.dp)
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .border(1.5.dp, meta.color.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                                        .clickable { showImageViewer = true }
+                                ) {
+                                    AsyncImage(
+                                        model = entry.imageUri,
+                                        contentDescription = entry.name,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .padding(8.dp)
+                                            .size(28.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Black.copy(alpha = 0.65f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Fullscreen,
+                                            contentDescription = "Expand Image",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+
                                 HeaderTitleAndMetadata(
                                     entry = entry,
                                     meta = meta,
@@ -325,166 +197,218 @@ fun WorldEntryDetailScreen(
                                     formattedUpdated = formattedUpdated
                                 )
                             }
-                        }
-                    }
-                } else {
-                    // No image: Clean Header with Category Icon
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(56.dp)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(meta.color.copy(alpha = 0.15f))
-                                .border(1.dp, meta.color.copy(alpha = 0.35f), RoundedCornerShape(14.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = meta.icon,
-                                contentDescription = null,
-                                tint = meta.color,
-                                modifier = Modifier.size(28.dp)
-                            )
-                        }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .width(115.dp)
+                                        .height(150.dp)
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .border(1.5.dp, meta.color.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
+                                        .clickable { showImageViewer = true }
+                                ) {
+                                    AsyncImage(
+                                        model = entry.imageUri,
+                                        contentDescription = entry.name,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .padding(6.dp)
+                                            .size(24.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Black.copy(alpha = 0.65f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Fullscreen,
+                                            contentDescription = "Expand Image",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
 
-                        Column(modifier = Modifier.weight(1f)) {
-                            HeaderTitleAndMetadata(
-                                entry = entry,
-                                meta = meta,
-                                formattedCreated = formattedCreated,
-                                formattedUpdated = formattedUpdated
-                            )
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    HeaderTitleAndMetadata(
+                                        entry = entry,
+                                        meta = meta,
+                                        formattedCreated = formattedCreated,
+                                        formattedUpdated = formattedUpdated
+                                    )
+                                }
+                            }
                         }
+                    } else {
+                        HeaderTitleAndMetadata(
+                            entry = entry,
+                            meta = meta,
+                            formattedCreated = formattedCreated,
+                            formattedUpdated = formattedUpdated
+                        )
                     }
                 }
-            }
 
-            // ── Summary Box (if present) ──────────────────────────────
-            if (entry.summary.isNotBlank()) {
-                item(key = "summary_section") {
-                    Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Text(
-                                text = "Overview",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = meta.color
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
+                // ── Summary Section ──────────────────────────────────────────
+                if (entry.summary.isNotBlank()) {
+                    item(key = "summary_section") {
+                        ScribeContentCard(
+                            title = "Summary",
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
                             Text(
                                 text = entry.summary,
                                 fontSize = 14.sp,
-                                lineHeight = 20.sp,
-                                color = MaterialTheme.colorScheme.onSurface
+                                lineHeight = 21.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(16.dp)
                             )
                         }
                     }
                 }
-            }
 
-            // ── Tags Strip (if present) ───────────────────────────────
-            if (tags.isNotEmpty()) {
-                item(key = "tags_section") {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            text = "Tags",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.outline
-                        )
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            tags.forEach { tag ->
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = meta.color.copy(alpha = 0.12f),
-                                    border = androidx.compose.foundation.BorderStroke(0.5.dp, meta.color.copy(alpha = 0.35f))
-                                ) {
-                                    Text(
+                // ── Tags Section ──────────────────────────────────────────────
+                if (tags.isNotEmpty()) {
+                    item(key = "tags_section") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ScribeSectionLabel(text = "Tags")
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                tags.forEach { tag ->
+                                    ScribePill(
                                         text = "#$tag",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = meta.color,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        color = meta.color
                                     )
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            // ── Attributes Section Header ─────────────────────────────
-            item(key = "attributes_header") {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Attributes & Lore",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                // ── Attributes Section ────────────────────────────────────────
+                if (fields.isNotEmpty()) {
+                    item(key = "attributes_header") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ScribeSectionLabel(text = "Attributes (${fields.size})")
+                            AnimatedVisibility(
+                                visible = isReorderingMode,
+                                enter = fadeIn(),
+                                exit = fadeOut()
+                            ) {
+                                Text(
+                                    text = "Tap arrows to reorder",
+                                    fontSize = 11.sp,
+                                    color = meta.color,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
 
-                    if (isReorderingMode) {
-                        TextButton(onClick = { isReorderingMode = false }) {
-                            Text("Done Reordering", fontWeight = FontWeight.Bold)
-                        }
-                    } else if (fields.size > 1) {
-                        TextButton(onClick = { isReorderingMode = true }) {
-                            Icon(Icons.Default.SwapVert, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Reorder", fontSize = 12.sp)
-                        }
+                    itemsIndexed(fields, key = { index, field -> "${field.label}_$index" }) { index, field ->
+                        DetailAttributeRow(
+                            index = index,
+                            totalCount = fields.size,
+                            field = field,
+                            accentColor = meta.color,
+                            isReorderMode = isReorderingMode,
+                            onMoveUp = {
+                                if (index > 0) {
+                                    val mutable = fields.toMutableList()
+                                    val item = mutable.removeAt(index)
+                                    mutable.add(index - 1, item)
+                                    onFieldsReordered(mutable)
+                                }
+                            },
+                            onMoveDown = {
+                                if (index < fields.size - 1) {
+                                    val mutable = fields.toMutableList()
+                                    val item = mutable.removeAt(index)
+                                    mutable.add(index + 1, item)
+                                    onFieldsReordered(mutable)
+                                }
+                            },
+                            onCopyValue = {
+                                if (field.value.isNotBlank()) {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    clipboard.setPrimaryClip(ClipData.newPlainText(field.label, field.value))
+                                    Toast.makeText(context, "Copied ${field.label}", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
                     }
                 }
             }
 
-            // ── Attributes List (with Comma-to-Pills formatting & Reordering) ─
-            itemsIndexed(fields, key = { index, f -> "${f.label}_$index" }) { index, field ->
-                DetailAttributeRow(
-                    index = index,
-                    totalCount = fields.size,
-                    field = field,
-                    accentColor = meta.color,
-                    isReorderMode = isReorderingMode,
-                    onMoveUp = {
-                        if (index > 0) {
-                            val mutable = fields.toMutableList()
-                            val temp = mutable[index]
-                            mutable[index] = mutable[index - 1]
-                            mutable[index - 1] = temp
-                            onFieldsReordered(mutable)
+            // Dropdown Menu
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = 16.dp, top = 8.dp)
+            ) {
+                FrostedDropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Edit Sheet") },
+                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                        onClick = {
+                            menuExpanded = false
+                            onEdit()
                         }
-                    },
-                    onMoveDown = {
-                        if (index < fields.size - 1) {
-                            val mutable = fields.toMutableList()
-                            val temp = mutable[index]
-                            mutable[index] = mutable[index + 1]
-                            mutable[index + 1] = temp
-                            onFieldsReordered(mutable)
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Duplicate") },
+                        leadingIcon = { Icon(Icons.Default.ContentCopy, contentDescription = null) },
+                        onClick = {
+                            menuExpanded = false
+                            onDuplicate()
                         }
-                    },
-                    onCopyValue = {
-                        if (field.value.isNotBlank()) {
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Copy Summary") },
+                        leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) },
+                        onClick = {
+                            menuExpanded = false
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText(field.label, field.value))
-                            Toast.makeText(context, "Copied ${field.label}", Toast.LENGTH_SHORT).show()
+                            val text = buildString {
+                                appendLine("${entry.name} (${meta.label})")
+                                if (entry.summary.isNotBlank()) appendLine(entry.summary)
+                                fields.filter { it.value.isNotBlank() }.forEach {
+                                    appendLine("${it.label}: ${it.value}")
+                                }
+                            }
+                            clipboard.setPrimaryClip(ClipData.newPlainText(entry.name, text))
+                            Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
                         }
-                    }
-                )
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.10f))
+                    DropdownMenuItem(
+                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                        onClick = {
+                            menuExpanded = false
+                            showDeleteConfirm = true
+                        }
+                    )
+                }
             }
         }
     }
@@ -532,6 +456,16 @@ private fun HeaderTitleAndMetadata(
     formattedCreated: String,
     formattedUpdated: String
 ) {
+    val subtle = LocalSubtleTextColor.current
+    val resolvedSubtle = if (subtle != Color.Unspecified) subtle else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        ScribePill(
+            text = meta.label.dropLast(1).ifEmpty { meta.label },
+            color = meta.color
+        )
+    }
+    Spacer(modifier = Modifier.height(6.dp))
     Text(
         text = entry.name,
         fontSize = 22.sp,
@@ -539,38 +473,34 @@ private fun HeaderTitleAndMetadata(
         color = MaterialTheme.colorScheme.onSurface,
         lineHeight = 28.sp
     )
-
     Spacer(modifier = Modifier.height(4.dp))
-
-    // Timestamps block
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 Icons.Default.Schedule,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.outline,
+                tint = resolvedSubtle,
                 modifier = Modifier.size(12.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = "Created: $formattedCreated",
                 fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.outline
+                color = resolvedSubtle
             )
         }
-
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
                 Icons.Default.Update,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.outline,
+                tint = resolvedSubtle,
                 modifier = Modifier.size(12.dp)
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = "Updated: $formattedUpdated",
                 fontSize = 11.sp,
-                color = MaterialTheme.colorScheme.outline
+                color = resolvedSubtle
             )
         }
     }
@@ -588,7 +518,6 @@ private fun DetailAttributeRow(
     onMoveDown: () -> Unit,
     onCopyValue: () -> Unit
 ) {
-    // Comma pill detection: if value contains commas, parse into pill chips
     val pills = remember(field.value) {
         if (field.value.contains(",")) {
             field.value.split(",").map { it.trim() }.filter { it.isNotEmpty() }
@@ -596,15 +525,14 @@ private fun DetailAttributeRow(
             emptyList()
         }
     }
+    val subtle = LocalSubtleTextColor.current
+    val resolvedSubtle = if (subtle != Color.Unspecified) subtle else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
 
-    Card(
+    ScribeCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(enabled = !isReorderMode && field.value.isNotBlank()) { onCopyValue() },
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-        )
+        cornerRadius = ScribeCardTokens.RadiusMedium
     ) {
         Row(
             modifier = Modifier
@@ -621,15 +549,13 @@ private fun DetailAttributeRow(
                     color = accentColor
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-
                 if (field.value.isBlank()) {
                     Text(
                         text = "—",
                         fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.outline
+                        color = resolvedSubtle
                     )
                 } else if (pills.isNotEmpty()) {
-                    // Auto-rendered comma pills
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -638,19 +564,10 @@ private fun DetailAttributeRow(
                             .padding(top = 2.dp)
                     ) {
                         pills.forEach { pill ->
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.surface,
-                                border = androidx.compose.foundation.BorderStroke(1.dp, accentColor.copy(alpha = 0.35f))
-                            ) {
-                                Text(
-                                    text = pill,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
+                            ScribePill(
+                                text = pill,
+                                color = accentColor
+                            )
                         }
                     }
                 } else {
@@ -664,7 +581,6 @@ private fun DetailAttributeRow(
             }
 
             if (isReorderMode) {
-                val subtleText = LocalSubtleTextColor.current
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
@@ -678,7 +594,7 @@ private fun DetailAttributeRow(
                             Icons.Default.ArrowUpward,
                             contentDescription = "Move Up",
                             modifier = Modifier.size(16.dp),
-                            tint = if (index > 0) MaterialTheme.colorScheme.onSurface else subtleText.copy(alpha = 0.35f)
+                            tint = if (index > 0) MaterialTheme.colorScheme.onSurface else resolvedSubtle.copy(alpha = 0.35f)
                         )
                     }
                     IconButton(
@@ -690,7 +606,7 @@ private fun DetailAttributeRow(
                             Icons.Default.ArrowDownward,
                             contentDescription = "Move Down",
                             modifier = Modifier.size(16.dp),
-                            tint = if (index < totalCount - 1) MaterialTheme.colorScheme.onSurface else subtleText.copy(alpha = 0.35f)
+                            tint = if (index < totalCount - 1) MaterialTheme.colorScheme.onSurface else resolvedSubtle.copy(alpha = 0.35f)
                         )
                     }
                 }
@@ -698,7 +614,7 @@ private fun DetailAttributeRow(
                 Icon(
                     Icons.Default.ContentCopy,
                     contentDescription = "Copy",
-                    tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                    tint = resolvedSubtle.copy(alpha = 0.5f),
                     modifier = Modifier.size(16.dp)
                 )
             }

@@ -4,10 +4,10 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -34,13 +35,19 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.primaloptima.scribe.ScribeApp
 import com.primaloptima.scribe.data.NoteVersion
-import com.primaloptima.scribe.viewmodel.EditorViewModel
+import com.primaloptima.scribe.ui.components.ScribeCard
+import com.primaloptima.scribe.ui.components.ScribeCardTokens
+import com.primaloptima.scribe.ui.components.ScribePill
+import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.theme.FrostedDialog
+import com.primaloptima.scribe.ui.theme.LocalAccentColor
+import com.primaloptima.scribe.ui.theme.LocalBorderSubtle
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
-import com.primaloptima.scribe.ui.components.ScribeTopBar
+import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
+import com.primaloptima.scribe.ui.theme.LocalSurfaceRaised
 import com.primaloptima.scribe.util.BitmapBlur
-import com.primaloptima.scribe.util.MarkdownUtil
+import com.primaloptima.scribe.viewmodel.EditorViewModel
 import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -58,22 +65,18 @@ fun HistoryScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val app = context.applicationContext as ScribeApp
+    val accentColor = LocalAccentColor.current
+    val subtleText = LocalSubtleTextColor.current
 
-    // Phase 6-F: read activeNoteId from DataStore instead of prefs snapshot.
-    // collectAsStateWithLifecycle stops collecting when the UI is invisible,
-    // saving resources (replaces collectAsState throughout this screen).
     val activeNoteIdState by app.dataStore.activeNoteIdFlow.collectAsStateWithLifecycle(initialValue = null)
     val noteId = activeNoteIdState ?: ""
-    var currentNoteContent by remember { mutableStateOf("") }
 
+    var currentNoteContent by remember { mutableStateOf("") }
     val versionsFlow = remember(noteId) {
         app.database.noteVersionDao().observeVersions(noteId)
     }
     val versions by versionsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
-    // Tracks whether the DB has responded at least once so we don't flash
-    // "No saved versions" on the initial empty-list emission before the
-    // query returns. Only show the empty state after the first real result.
     var hasLoaded by remember { mutableStateOf(false) }
     LaunchedEffect(versions) {
         if (!hasLoaded) hasLoaded = true
@@ -98,6 +101,7 @@ fun HistoryScreen(
     val hazeState = LocalHazeState.current
     var dialogOneShotBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var dialogCaptured by remember { mutableStateOf(false) }
+
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
         val anyDialogOpen = selectedVersion != null || showConfirmRestoreDialog
         LaunchedEffect(anyDialogOpen) {
@@ -115,6 +119,7 @@ fun HistoryScreen(
     }
 
     Scaffold(
+        containerColor = Color.Transparent,
         contentWindowInsets = WindowInsets.systemBars,
         topBar = {
             ScribeTopBar(
@@ -131,11 +136,11 @@ fun HistoryScreen(
                     .padding(padding),
                 contentAlignment = Alignment.Center
             ) {
-                // Show the empty-state message only after the DB has responded.
-                // Before hasLoaded, the list is the initial emptyList() placeholder —
-                // showing the message immediately would flash before any data arrives.
                 if (hasLoaded) {
-                    Text("No saved versions for this note yet.", color = MaterialTheme.colorScheme.outline)
+                    Text(
+                        "No saved versions for this note yet.",
+                        color = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.outline
+                    )
                 }
             }
         } else {
@@ -151,24 +156,22 @@ fun HistoryScreen(
                     val dateStr = remember(ver.timestamp) {
                         SimpleDateFormat("MMM d, yyyy · h:mm a", Locale.getDefault()).format(Date(ver.timestamp))
                     }
-                    // Word delta vs. the next older version (index+1 is older because list is DESC)
                     val deltaStr = remember(versions, index) {
                         val olderWords = versions.getOrNull(index + 1)?.wordCount ?: 0
                         val delta = ver.wordCount - olderWords
                         when {
-                            index == versions.lastIndex -> null // oldest — no prior to compare
+                            index == versions.lastIndex -> null
                             delta > 0  -> "+$delta words"
                             delta < 0  -> "$delta words"
                             else       -> "no change"
                         }
                     }
-                    val isManual = ver.type == com.primaloptima.scribe.data.NoteVersion.TYPE_MANUAL
+                    val isManual = ver.type == NoteVersion.TYPE_MANUAL
 
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { selectedVersion = ver },
-                        shape = RoundedCornerShape(12.dp)
+                    ScribeCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        cornerRadius = ScribeCardTokens.RadiusMedium,
+                        onClick = { selectedVersion = ver }
                     ) {
                         Row(
                             modifier = Modifier
@@ -176,55 +179,70 @@ fun HistoryScreen(
                                 .fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                if (isManual) Icons.Default.Bookmark else Icons.Default.History,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(28.dp)
-                            )
-                            Spacer(modifier = Modifier.width(16.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(ScribeCardTokens.RadiusSmall))
+                                    .background(accentColor.copy(alpha = 0.12f))
+                                    .border(0.6.dp, accentColor.copy(alpha = 0.22f), RoundedCornerShape(ScribeCardTokens.RadiusSmall)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    if (isManual) Icons.Default.Bookmark else Icons.Default.History,
+                                    contentDescription = null,
+                                    tint = accentColor,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Text(dateStr, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                    Text(
+                                        dateStr,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
                                     if (isManual) {
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.primaryContainer,
-                                            shape = RoundedCornerShape(4.dp)
-                                        ) {
-                                            Text(
-                                                "Checkpoint",
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                            )
-                                        }
+                                        ScribePill(text = "Checkpoint", color = accentColor)
                                     }
                                 }
+                                Spacer(modifier = Modifier.height(2.dp))
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("${ver.wordCount} words", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                                    Text(
+                                        "${ver.wordCount} words",
+                                        fontSize = 12.sp,
+                                        color = accentColor,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
                                     if (deltaStr != null) {
                                         val deltaColor = when {
-                                            deltaStr.startsWith("+") -> Color(0xFF2E7D32)
-                                            deltaStr.startsWith("-") -> Color(0xFFC62828)
-                                            else -> MaterialTheme.colorScheme.outline
+                                            deltaStr.startsWith("+") -> Color(0xFF388E3C)
+                                            deltaStr.startsWith("-") -> MaterialTheme.colorScheme.error
+                                            else -> if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.outline
                                         }
-                                        Text(deltaStr, fontSize = 12.sp, color = deltaColor, fontWeight = FontWeight.Medium)
+                                        Text(
+                                            deltaStr,
+                                            fontSize = 12.sp,
+                                            color = deltaColor,
+                                            fontWeight = FontWeight.Medium
+                                        )
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    ver.content.take(100).replace("\n", " "),
+                                    ver.content.take(100).replace("
+", " "),
                                     fontSize = 12.sp,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -239,13 +257,19 @@ fun HistoryScreen(
             val dateStr = remember(ver.timestamp) {
                 SimpleDateFormat("MMM d, yyyy · h:mm a", Locale.getDefault()).format(Date(ver.timestamp))
             }
+            val raisedSurface = LocalSurfaceRaised.current
+            val borderSubtle = LocalBorderSubtle.current
 
             FrostedDialog(
                 onDismissRequest = { selectedVersion = null },
                 title = {
                     Column {
                         Text("Version Preview", fontWeight = FontWeight.Bold)
-                        Text(dateStr, fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+                        Text(
+                            dateStr,
+                            fontSize = 12.sp,
+                            color = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.outline
+                        )
                     }
                 },
                 text = {
@@ -255,8 +279,13 @@ fun HistoryScreen(
                             .heightIn(max = 350.dp)
                             .verticalScroll(rememberScrollState())
                             .background(
-                                MaterialTheme.colorScheme.surfaceVariant,
-                                RoundedCornerShape(8.dp)
+                                if (raisedSurface != Color.Unspecified) raisedSurface else MaterialTheme.colorScheme.surfaceVariant,
+                                RoundedCornerShape(ScribeCardTokens.RadiusSmall)
+                            )
+                            .border(
+                                0.7.dp,
+                                if (borderSubtle != Color.Unspecified) borderSubtle else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
+                                RoundedCornerShape(ScribeCardTokens.RadiusSmall)
                             )
                             .padding(12.dp)
                     ) {
@@ -269,7 +298,11 @@ fun HistoryScreen(
                 },
                 confirmButton = {
                     Button(
-                        onClick = { showConfirmRestoreDialog = true }
+                        onClick = { showConfirmRestoreDialog = true },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = accentColor,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
                     ) {
                         Text("Restore this version")
                     }
@@ -291,11 +324,6 @@ fun HistoryScreen(
                     Button(
                         onClick = {
                             val ver = selectedVersion!!
-                            // Fix (Bug 1): Route restore through EditorViewModel so
-                            // lastWordCount is reset to the restored baseline and a
-                            // corrective delta is written to writing_log atomically.
-                            // Previously this called db.noteDao() directly, bypassing
-                            // the ViewModel entirely and corrupting subsequent deltas.
                             editorVm.restoreSnapshot(ver.content)
                             scope.launch(Dispatchers.Main) {
                                 Toast.makeText(context, "Version restored successfully", Toast.LENGTH_SHORT).show()
@@ -303,7 +331,11 @@ fun HistoryScreen(
                                 selectedVersion = null
                                 onBack()
                             }
-                        }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = accentColor,
+                            contentColor = MaterialTheme.colorScheme.onPrimary
+                        )
                     ) {
                         Text("Restore")
                     }
@@ -321,13 +353,11 @@ fun HistoryScreen(
 private fun buildDiffAnnotatedString(currentText: String, versionText: String, errorColor: Color = Color(0xFFD32F2F)) = buildAnnotatedString {
     val currentLines = currentText.lines()
     val versionLines = versionText.lines()
-
     val oldSet = currentLines.toSet()
     val newSet = versionLines.toSet()
 
     for (line in versionLines) {
         if (!oldSet.contains(line)) {
-            // Added in this version
             withStyle(
                 style = SpanStyle(
                     background = Color(0x334CAF50),
@@ -343,7 +373,6 @@ private fun buildDiffAnnotatedString(currentText: String, versionText: String, e
 
     for (line in currentLines) {
         if (!newSet.contains(line)) {
-            // Removed in this version
             withStyle(
                 style = SpanStyle(
                     background = errorColor.copy(alpha = 0.2f),

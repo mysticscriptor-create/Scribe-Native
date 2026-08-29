@@ -832,8 +832,8 @@ private fun EditorTopBar(
                 LinearProgressIndicator(
                     progress   = { goalProgress },
                     modifier   = Modifier.fillMaxWidth().height(3.dp),
-                    color      = MaterialTheme.colorScheme.primary,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    color      = LocalAccentColor.current,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                 )
             }
         }
@@ -923,7 +923,7 @@ private fun EditorOptionsBottomSheet(
                 text = "EXPORT NOTE",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary,
+                color = LocalAccentColor.current,
                 letterSpacing = 0.5.sp,
                 modifier = Modifier.padding(start = 2.dp, top = 4.dp, bottom = 8.dp)
             )
@@ -959,7 +959,7 @@ private fun EditorOptionsBottomSheet(
                                     else -> Icons.Default.PictureAsPdf
                                 },
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = LocalAccentColor.current,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(Modifier.height(4.dp))
@@ -1032,14 +1032,14 @@ private fun EditorTrayActionCard(
         ) {
             Surface(
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
+                color = LocalAccentColor.current.copy(alpha = 0.15f),
                 modifier = Modifier.size(34.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = LocalAccentColor.current,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -1090,7 +1090,7 @@ private fun EditorTrayMenuItem(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
+                tint = LocalAccentColor.current,
                 modifier = Modifier.size(20.dp)
             )
             Spacer(Modifier.width(14.dp))
@@ -1260,7 +1260,7 @@ private fun FormatButton(
     Surface(
         onClick      = onClick,
         shape        = CircleShape,
-        color        = if (isSelected) MaterialTheme.colorScheme.primary
+        color        = if (isSelected) LocalAccentColor.current
                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
         contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary
                        else MaterialTheme.colorScheme.onSurfaceVariant,
