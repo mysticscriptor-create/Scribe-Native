@@ -1314,6 +1314,152 @@ fun ScribeComposeTheme(
     var rootDimensions by remember { mutableStateOf(Pair(screenWidthPx, screenHeightPx)) }
     val menuHostState = remember { InWindowMenuHostState() }
 
+    val subtleTextResolved = parseComposeColor(resolvedTheme.colors.subtleText, text.copy(alpha = 0.6f))
+    val mutedTextResolved = parseComposeColor(resolvedTheme.colors.mutedText, text.copy(alpha = 0.75f))
+    val disabledTextResolved = text.copy(alpha = 0.38f)
+
+    val secondaryColor = parseComposeColor(
+        resolvedTheme.colors.secondary,
+        if (resolvedTheme.isDark) Color(0xFFA58BEA) else Color(0xFF6366F1)
+    )
+    val tertiaryColor = parseComposeColor(
+        resolvedTheme.colors.tertiary,
+        if (resolvedTheme.isDark) Color(0xFF63D5D0) else Color(0xFF0D9488)
+    )
+
+    val successResolved = parseComposeColor(
+        resolvedTheme.colors.success,
+        if (resolvedTheme.isDark) Color(0xFF55D18A) else Color(0xFF2E7D32)
+    )
+    val warningResolved = parseComposeColor(
+        resolvedTheme.colors.warning,
+        if (resolvedTheme.isDark) Color(0xFFFFC857) else Color(0xFFD97706)
+    )
+    val errorResolved = parseComposeColor(
+        resolvedTheme.colors.error,
+        if (resolvedTheme.isDark) Color(0xFFFF6B7A) else Color(0xFFDC2626)
+    )
+    val infoResolved = tertiaryColor
+
+    val dialogueResolved = parseComposeColor(resolvedTheme.colors.dialogueText, accentIcons)
+    val monologueResolved = parseComposeColor(resolvedTheme.colors.monologueText, text)
+    val headingResolved = parseComposeColor(resolvedTheme.colors.headingText, accentIcons)
+    val annotationResolved = secondaryColor
+    val highlightResolved = parseComposeColor(
+        resolvedTheme.colors.specialHighlight,
+        if (resolvedTheme.isDark) Color(0xFFE7B85A) else Color(0xFFB45309)
+    )
+
+    val selectionResolved = parseComposeColor(resolvedTheme.colors.selection, accentIcons.copy(alpha = 0.3f))
+    val accentMutedResolved = parseComposeColor(resolvedTheme.colors.accentMuted, surface)
+    val borderProminentResolved = parseComposeColor(resolvedTheme.colors.borderProminent, accentIcons)
+
+    val surfaceSelectedResolved = if (resolvedTheme.isDark) surfaceRaised.copy(alpha = 0.6f) else accentMutedResolved
+    val surfacePressedResolved = surface.copy(alpha = 0.8f)
+
+    val scribeColors = remember(
+        resolvedTheme, animBg, animSurfaceLowest, animSurface, animSurfaceRaised,
+        animSurfaceOverlay, text, accentIcons, onPrimaryColor
+    ) {
+        ScribeColors(
+            surfaces = SurfaceColors(
+                background = animBg,
+                surfaceLowest = animSurfaceLowest,
+                surface = animSurface,
+                surfaceRaised = animSurfaceRaised,
+                surfaceOverlay = animSurfaceOverlay,
+                surfaceSelected = surfaceSelectedResolved,
+                surfacePressed = surfacePressedResolved
+            ),
+            content = ContentColors(
+                primary = text,
+                secondary = mutedTextResolved,
+                tertiary = subtleTextResolved,
+                disabled = disabledTextResolved,
+                onAccent = onPrimaryColor
+            ),
+            interaction = InteractionColors(
+                primary = accentIcons,
+                primaryContainer = accentMutedResolved,
+                onPrimary = onPrimaryColor,
+                onPrimaryContainer = if (resolvedTheme.isDark) Color.White else text,
+                secondary = secondaryColor,
+                tertiary = tertiaryColor,
+                selection = selectionResolved,
+                focus = borderProminentResolved,
+                link = accentIcons
+            ),
+            semantic = SemanticStatusColors(
+                success = successResolved,
+                onSuccess = autoTextColor(successResolved),
+                successContainer = successResolved.copy(alpha = if (resolvedTheme.isDark) 0.16f else 0.12f),
+                onSuccessContainer = if (resolvedTheme.isDark) successResolved else Color(0xFF1B5E20),
+
+                warning = warningResolved,
+                onWarning = autoTextColor(warningResolved),
+                warningContainer = warningResolved.copy(alpha = if (resolvedTheme.isDark) 0.16f else 0.12f),
+                onWarningContainer = if (resolvedTheme.isDark) warningResolved else Color(0xFF92400E),
+
+                error = errorResolved,
+                onError = autoTextColor(errorResolved),
+                errorContainer = errorResolved.copy(alpha = if (resolvedTheme.isDark) 0.16f else 0.12f),
+                onErrorContainer = if (resolvedTheme.isDark) errorResolved else Color(0xFF991B1B),
+
+                info = infoResolved,
+                onInfo = autoTextColor(infoResolved),
+                infoContainer = infoResolved.copy(alpha = if (resolvedTheme.isDark) 0.16f else 0.12f),
+                onInfoContainer = if (resolvedTheme.isDark) infoResolved else Color(0xFF075985)
+            ),
+            writing = WritingColors(
+                dialogue = dialogueResolved,
+                monologue = monologueResolved,
+                heading = headingResolved,
+                annotation = annotationResolved,
+                highlight = highlightResolved
+            ),
+            analytics = AnalyticsColors(
+                positive = successResolved,
+                neutral = mutedTextResolved,
+                negative = errorResolved,
+                series1 = accentIcons,
+                series2 = secondaryColor,
+                series3 = tertiaryColor,
+                target = highlightResolved,
+                warning = warningResolved
+            ),
+            borders = BorderColors(
+                subtle = animOutline,
+                normal = if (resolvedTheme.isDark) animOutline.copy(alpha = 0.9f) else animOutline,
+                prominent = borderProminentResolved
+            ),
+            world = WorldEntityColors(
+                character = accentIcons,
+                location = tertiaryColor,
+                faction = secondaryColor,
+                item = highlightResolved,
+                lore = dialogueResolved,
+                event = errorResolved,
+                relationship = mutedTextResolved
+            ),
+            isDark = resolvedTheme.isDark
+        )
+    }
+
+    val scribeShapes = remember { ScribeShapes() }
+    val scribeMetrics = remember { ScribeMetrics() }
+    val scribeTypography = remember(resolvedTheme.fontFamily, resolvedTheme.fontSize, resolvedTheme.lineHeight, resolvedTheme.letterSpacing) {
+        val resolvedFontFamily = FontHelper.getFontFamily(resolvedTheme.fontFamily)
+        ScribeTypography(
+            prose = TextStyle(
+                fontFamily = resolvedFontFamily,
+                fontWeight = FontWeight.Normal,
+                fontSize = resolvedTheme.fontSize.sp,
+                lineHeight = (resolvedTheme.fontSize * resolvedTheme.lineHeight).sp,
+                letterSpacing = resolvedTheme.letterSpacing.sp
+            )
+        )
+    }
+
     MaterialTheme(
         colorScheme = animatedColorScheme,
         content = {
@@ -1329,6 +1475,10 @@ fun ScribeComposeTheme(
                     }
             ) {
                 CompositionLocalProvider(
+                    LocalScribeColors provides scribeColors,
+                    LocalScribeShapes provides scribeShapes,
+                    LocalScribeTypography provides scribeTypography,
+                    LocalScribeMetrics provides scribeMetrics,
                     LocalHazeState provides hazeState,
                     LocalAppTheme provides resolvedTheme,
                     LocalBgAnalysisBitmap provides analysisBitmap,
@@ -1343,10 +1493,10 @@ fun ScribeComposeTheme(
                     // Adaptive accent resolved once here — screens read LocalAccentColor.current
                     // instead of calling parseComposeColor + adaptiveAccentColor themselves.
                     LocalAccentColor provides accentIcons,
-                    LocalDialogueColor provides parseComposeColor(resolvedTheme.colors.dialogueText, accentIcons),
-                    LocalMonologueColor provides parseComposeColor(resolvedTheme.colors.monologueText, text),
-                    LocalHeadingColor provides parseComposeColor(resolvedTheme.colors.headingText, accentIcons),
-                    LocalSubtleTextColor provides parseComposeColor(resolvedTheme.colors.subtleText, text.copy(alpha = 0.6f)),
+                    LocalDialogueColor provides dialogueResolved,
+                    LocalMonologueColor provides monologueResolved,
+                    LocalHeadingColor provides headingResolved,
+                    LocalSubtleTextColor provides subtleTextResolved,
                     LocalSurfaceLowest provides animSurfaceLowest,
                     LocalSurfaceRaised provides animSurfaceRaised,
                     LocalSurfaceOverlay provides animSurfaceOverlay,

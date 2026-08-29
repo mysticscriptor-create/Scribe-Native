@@ -22,6 +22,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.engine.ProseAnalysisResult
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -31,6 +32,9 @@ fun ProseAnalysisView(
     modifier: Modifier = Modifier,
     onJumpToSentence: ((Int) -> Unit)? = null
 ) {
+    val colors = ScribeTheme.colors
+    val shapes = ScribeTheme.shapes
+
     if (analysis.wordCount == 0) {
         Box(
             modifier = modifier.fillMaxSize().padding(32.dp),
@@ -39,14 +43,14 @@ fun ProseAnalysisView(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Surface(
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer,
+                    color = colors.interaction.primaryContainer,
                     modifier = Modifier.size(56.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             Icons.Outlined.Analytics,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = colors.interaction.primary,
                             modifier = Modifier.size(28.dp)
                         )
                     }
@@ -56,13 +60,13 @@ fun ProseAnalysisView(
                     "No Prose to Analyze",
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 16.sp,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = colors.content.primary
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "Start typing your chapter or notes to view live background readability, repetition, and pacing insights.",
                     fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.outline,
+                    color = colors.content.secondary,
                     textAlign = TextAlign.Center
                 )
             }
@@ -79,9 +83,9 @@ fun ProseAnalysisView(
         // ── 1. Readability Hero Card ──────────────────────────────────────────
         item {
             Card(
-                shape = RoundedCornerShape(16.dp),
+                shape = shapes.large,
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)
+                    containerColor = colors.surfaces.surfaceRaised.copy(alpha = 0.85f)
                 ),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -96,7 +100,7 @@ fun ProseAnalysisView(
                                 "READABILITY GRADE",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
+                                color = colors.interaction.primary,
                                 letterSpacing = 1.sp
                             )
                             Spacer(Modifier.height(2.dp))
@@ -104,27 +108,25 @@ fun ProseAnalysisView(
                                 analysis.fleschKincaidGradeLabel,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = colors.content.primary
                             )
                         }
 
+                        val (easeBg, easeFg) = when {
+                            analysis.fleschReadingEase >= 70f -> Pair(colors.semantic.successContainer, colors.semantic.success)
+                            analysis.fleschReadingEase >= 50f -> Pair(colors.semantic.warningContainer, colors.semantic.warning)
+                            else -> Pair(colors.semantic.errorContainer, colors.semantic.error)
+                        }
+
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = when {
-                                analysis.fleschReadingEase >= 70f -> Color(0xFF4CAF50).copy(alpha = 0.2f)
-                                analysis.fleschReadingEase >= 50f -> Color(0xFFFF9800).copy(alpha = 0.2f)
-                                else -> Color(0xFFE91E63).copy(alpha = 0.2f)
-                            }
+                            shape = shapes.medium,
+                            color = easeBg
                         ) {
                             Text(
                                 text = "${analysis.fleschReadingEase.roundToInt()} / 100",
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = when {
-                                    analysis.fleschReadingEase >= 70f -> Color(0xFF2E7D32)
-                                    analysis.fleschReadingEase >= 50f -> Color(0xFFE65100)
-                                    else -> Color(0xFFC2185B)
-                                },
+                                color = easeFg,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
                             )
                         }
@@ -133,18 +135,20 @@ fun ProseAnalysisView(
                     Spacer(Modifier.height(12.dp))
 
                     // Progress indicator of reading ease
+                    val progressColor = when {
+                        analysis.fleschReadingEase >= 70f -> colors.semantic.success
+                        analysis.fleschReadingEase >= 50f -> colors.semantic.warning
+                        else -> colors.semantic.error
+                    }
+
                     LinearProgressIndicator(
                         progress = { (analysis.fleschReadingEase / 100f).coerceIn(0f, 1f) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(6.dp)
                             .clip(RoundedCornerShape(3.dp)),
-                        color = when {
-                            analysis.fleschReadingEase >= 70f -> Color(0xFF4CAF50)
-                            analysis.fleschReadingEase >= 50f -> Color(0xFFFF9800)
-                            else -> Color(0xFFE91E63)
-                        },
-                        trackColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
+                        color = progressColor,
+                        trackColor = colors.surfaces.surfaceLowest
                     )
 
                     Spacer(Modifier.height(14.dp))
@@ -175,9 +179,9 @@ fun ProseAnalysisView(
         // ── 2. Time & Prose Distribution Card ────────────────────────────────
         item {
             Card(
-                shape = RoundedCornerShape(16.dp),
+                shape = shapes.large,
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                    containerColor = colors.surfaces.surfaceRaised.copy(alpha = 0.65f)
                 ),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -186,7 +190,7 @@ fun ProseAnalysisView(
                         "PACING & PROSE BALANCE",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = colors.interaction.primary,
                         letterSpacing = 1.sp
                     )
                     Spacer(Modifier.height(12.dp))
@@ -198,22 +202,22 @@ fun ProseAnalysisView(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
+                                .clip(shapes.medium)
+                                .background(colors.surfaces.surfaceLowest.copy(alpha = 0.7f))
                                 .padding(10.dp)
                         ) {
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Outlined.AutoStories, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                    Icon(Icons.Outlined.AutoStories, null, modifier = Modifier.size(14.dp), tint = colors.interaction.primary)
                                     Spacer(Modifier.width(4.dp))
-                                    Text("Reading Time", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                                    Text("Reading Time", fontSize = 11.sp, color = colors.content.secondary)
                                 }
                                 Spacer(Modifier.height(4.dp))
                                 Text(
                                     formatDuration(analysis.readingTimeMinutes),
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = colors.content.primary
                                 )
                             }
                         }
@@ -221,22 +225,22 @@ fun ProseAnalysisView(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
+                                .clip(shapes.medium)
+                                .background(colors.surfaces.surfaceLowest.copy(alpha = 0.7f))
                                 .padding(10.dp)
                         ) {
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Outlined.RecordVoiceOver, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                    Icon(Icons.Outlined.RecordVoiceOver, null, modifier = Modifier.size(14.dp), tint = colors.interaction.primary)
                                     Spacer(Modifier.width(4.dp))
-                                    Text("Speaking Time", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                                    Text("Speaking Time", fontSize = 11.sp, color = colors.content.secondary)
                                 }
                                 Spacer(Modifier.height(4.dp))
                                 Text(
                                     formatDuration(analysis.speakingTimeMinutes),
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = colors.content.primary
                                 )
                             }
                         }
@@ -244,22 +248,22 @@ fun ProseAnalysisView(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
+                                .clip(shapes.medium)
+                                .background(colors.surfaces.surfaceLowest.copy(alpha = 0.7f))
                                 .padding(10.dp)
                         ) {
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Outlined.FormatAlignLeft, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
+                                    Icon(Icons.Outlined.FormatAlignLeft, null, modifier = Modifier.size(14.dp), tint = colors.interaction.primary)
                                     Spacer(Modifier.width(4.dp))
-                                    Text("Paragraphs", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                                    Text("Paragraphs", fontSize = 11.sp, color = colors.content.secondary)
                                 }
                                 Spacer(Modifier.height(4.dp))
                                 Text(
                                     "${analysis.paragraphCount}",
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = colors.content.primary
                                 )
                             }
                         }
@@ -268,7 +272,7 @@ fun ProseAnalysisView(
                     Spacer(Modifier.height(14.dp))
 
                     // Dialogue vs Narrative bar
-                    Text("Dialogue vs. Narrative Split", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                    Text("Dialogue vs. Narrative Split", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = colors.content.primary)
                     Spacer(Modifier.height(6.dp))
 
                     Row(
@@ -281,13 +285,13 @@ fun ProseAnalysisView(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .weight(analysis.dialoguePercentage.coerceAtLeast(0.01f))
-                                .background(MaterialTheme.colorScheme.primary)
+                                .background(colors.writing.dialogue)
                         )
                         Box(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .weight(analysis.narrativePercentage.coerceAtLeast(0.01f))
-                                .background(MaterialTheme.colorScheme.tertiaryContainer)
+                                .background(colors.interaction.primary.copy(alpha = 0.35f))
                         )
                     }
 
@@ -299,12 +303,12 @@ fun ProseAnalysisView(
                         Text(
                             "Dialogue: ${analysis.dialoguePercentage.roundToInt()}% (${analysis.dialogueWordCount}w)",
                             fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.primary
+                            color = colors.writing.dialogue
                         )
                         Text(
                             "Narrative: ${analysis.narrativePercentage.roundToInt()}% (${analysis.narrativeWordCount}w)",
                             fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.outline
+                            color = colors.content.secondary
                         )
                     }
                 }
@@ -314,9 +318,9 @@ fun ProseAnalysisView(
         // ── 3. Sentence Length & Variety ─────────────────────────────────────
         item {
             Card(
-                shape = RoundedCornerShape(16.dp),
+                shape = shapes.large,
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                    containerColor = colors.surfaces.surfaceRaised.copy(alpha = 0.65f)
                 ),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -325,7 +329,7 @@ fun ProseAnalysisView(
                         "SENTENCE VARIETY & RHYTHM",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = colors.interaction.primary,
                         letterSpacing = 1.sp
                     )
                     Spacer(Modifier.height(10.dp))
@@ -343,21 +347,21 @@ fun ProseAnalysisView(
                     if (analysis.monotonyWarnings.isNotEmpty()) {
                         Spacer(Modifier.height(12.dp))
                         Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
+                            shape = shapes.medium,
+                            color = colors.semantic.warningContainer,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(Modifier.padding(10.dp)) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.WarningAmber, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.WarningAmber, null, tint = colors.semantic.warning, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(6.dp))
-                                    Text("Monotony Alert", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                                    Text("Monotony Alert", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = colors.semantic.warning)
                                 }
                                 Spacer(Modifier.height(4.dp))
                                 Text(
                                     "${analysis.monotonyWarnings.size} instances of repeated sentence lengths found. Varying short and long sentences improves reader engagement.",
                                     fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = colors.content.secondary
                                 )
                             }
                         }
@@ -370,19 +374,21 @@ fun ProseAnalysisView(
                             "Rhythm Visualizer",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = colors.content.primary
                         )
                         Text(
                             "Each bar = one sentence. Height = word count.",
                             fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.outline
+                            color = colors.content.secondary
                         )
                         Spacer(Modifier.height(8.dp))
 
                         val maxLen = analysis.sentenceLengths.max().coerceAtLeast(1)
-                        val primary = MaterialTheme.colorScheme.primary
-                        val tertiary = MaterialTheme.colorScheme.tertiary
-                        val surface = MaterialTheme.colorScheme.surface
+                        val primary = colors.interaction.primary
+                        val secondary = colors.interaction.secondary
+                        val tertiary = colors.interaction.tertiary
+                        val warningColor = colors.semantic.warning
+                        val surfaceLowest = colors.surfaces.surfaceLowest
 
                         // Show up to 120 sentences to keep chart compact
                         val displayLengths = if (analysis.sentenceLengths.size > 120)
@@ -393,7 +399,7 @@ fun ProseAnalysisView(
                                 .fillMaxWidth()
                                 .height(64.dp)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(surface.copy(alpha = 0.5f))
+                                .background(surfaceLowest.copy(alpha = 0.6f))
                                 .padding(horizontal = 6.dp, vertical = 6.dp)
                         ) {
                             val barCount = displayLengths.size
@@ -407,10 +413,10 @@ fun ProseAnalysisView(
                                 val barHeight = (fraction * totalHeight).coerceAtLeast(2f)
                                 val x = i * (barWidth + gap)
                                 val color = when {
-                                    len < 10  -> tertiary.copy(alpha = 0.7f)
+                                    len < 10  -> tertiary.copy(alpha = 0.75f)
                                     len <= 20 -> primary.copy(alpha = 0.75f)
-                                    len <= 35 -> primary.copy(alpha = 0.9f)
-                                    else      -> androidx.compose.ui.graphics.Color(0xFFE91E63).copy(alpha = 0.85f)
+                                    len <= 35 -> secondary.copy(alpha = 0.85f)
+                                    else      -> warningColor.copy(alpha = 0.9f)
                                 }
                                 drawRoundRect(
                                     color = color,
@@ -426,10 +432,10 @@ fun ProseAnalysisView(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            RhythmLegendDot(tertiary.copy(alpha = 0.7f), "Short")
+                            RhythmLegendDot(tertiary.copy(alpha = 0.75f), "Short")
                             RhythmLegendDot(primary.copy(alpha = 0.75f), "Medium")
-                            RhythmLegendDot(primary.copy(alpha = 0.9f), "Long")
-                            RhythmLegendDot(androidx.compose.ui.graphics.Color(0xFFE91E63).copy(alpha = 0.85f), "Very long")
+                            RhythmLegendDot(secondary.copy(alpha = 0.85f), "Long")
+                            RhythmLegendDot(warningColor.copy(alpha = 0.9f), "Very long")
                         }
                     }
                 }
@@ -440,9 +446,9 @@ fun ProseAnalysisView(
         if (analysis.overusedWords.isNotEmpty() || analysis.repeatedPhrases.isNotEmpty()) {
             item {
                 Card(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = shapes.large,
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                        containerColor = colors.surfaces.surfaceRaised.copy(alpha = 0.65f)
                     ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -451,13 +457,13 @@ fun ProseAnalysisView(
                             "WORD FREQUENCY & REPETITION",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = colors.interaction.primary,
                             letterSpacing = 1.sp
                         )
                         Spacer(Modifier.height(10.dp))
 
                         if (analysis.overusedWords.isNotEmpty()) {
-                            Text("Frequently Occurring Words", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Frequently Occurring Words", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.content.primary)
                             Spacer(Modifier.height(8.dp))
 
                             FlowRow(
@@ -467,8 +473,8 @@ fun ProseAnalysisView(
                             ) {
                                 analysis.overusedWords.forEach { item ->
                                     Surface(
-                                        shape = RoundedCornerShape(50),
-                                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                                        shape = shapes.pill,
+                                        color = colors.surfaces.surfaceLowest.copy(alpha = 0.85f),
                                         shadowElevation = 1.dp
                                     ) {
                                         Row(
@@ -479,18 +485,18 @@ fun ProseAnalysisView(
                                                 item.word,
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Medium,
-                                                color = MaterialTheme.colorScheme.onSurface
+                                                color = colors.content.primary
                                             )
                                             Spacer(Modifier.width(6.dp))
                                             Surface(
                                                 shape = CircleShape,
-                                                color = MaterialTheme.colorScheme.primaryContainer
+                                                color = colors.interaction.primaryContainer
                                             ) {
                                                 Text(
                                                     "${item.count}×",
                                                     fontSize = 10.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                    color = colors.interaction.onPrimaryContainer,
                                                     modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
                                                 )
                                             }
@@ -502,7 +508,7 @@ fun ProseAnalysisView(
 
                         if (analysis.repeatedPhrases.isNotEmpty()) {
                             Spacer(Modifier.height(14.dp))
-                            Text("Repeated 3-Word Phrases", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                            Text("Repeated 3-Word Phrases", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.content.primary)
                             Spacer(Modifier.height(6.dp))
 
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -510,8 +516,8 @@ fun ProseAnalysisView(
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f))
+                                            .clip(shapes.medium)
+                                            .background(colors.surfaces.surfaceLowest.copy(alpha = 0.6f))
                                             .padding(horizontal = 10.dp, vertical = 6.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
@@ -520,14 +526,14 @@ fun ProseAnalysisView(
                                             "\"${phrase.phrase}\"",
                                             fontSize = 12.sp,
                                             fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onSurface,
+                                            color = colors.content.primary,
                                             modifier = Modifier.weight(1f)
                                         )
                                         Text(
                                             "${phrase.count} times",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary
+                                            color = colors.interaction.primary
                                         )
                                     }
                                 }
@@ -536,14 +542,14 @@ fun ProseAnalysisView(
 
                         if (analysis.duplicateAdjacentWords.isNotEmpty()) {
                             Spacer(Modifier.height(14.dp))
-                            Text("Adjacent Duplicate Words", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error)
+                            Text("Adjacent Duplicate Words", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.semantic.error)
                             Spacer(Modifier.height(6.dp))
 
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 analysis.duplicateAdjacentWords.forEach { dup ->
                                     Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.35f),
+                                        shape = shapes.medium,
+                                        color = colors.semantic.errorContainer,
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Row(
@@ -554,13 +560,13 @@ fun ProseAnalysisView(
                                                 "\"${dup.word} ${dup.word}\"",
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.error
+                                                color = colors.semantic.error
                                             )
                                             Spacer(Modifier.width(8.dp))
                                             Text(
                                                 dup.preview,
                                                 fontSize = 11.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                color = colors.content.secondary,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
                                                 modifier = Modifier.weight(1f)
@@ -580,9 +586,9 @@ fun ProseAnalysisView(
         if (analysis.passiveVoiceMatches.isNotEmpty()) {
             item {
                 Card(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = shapes.large,
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                        containerColor = colors.surfaces.surfaceRaised.copy(alpha = 0.65f)
                     ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -597,25 +603,25 @@ fun ProseAnalysisView(
                                     "PASSIVE VOICE SCANNER",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
+                                    color = colors.interaction.primary,
                                     letterSpacing = 1.sp
                                 )
                                 Spacer(Modifier.height(2.dp))
                                 Text(
                                     "${analysis.passiveVoiceMatches.size} passive constructions detected",
                                     fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = colors.content.secondary
                                 )
                             }
                             Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFFFF9800).copy(alpha = 0.2f)
+                                shape = shapes.small,
+                                color = colors.semantic.warningContainer
                             ) {
                                 Text(
                                     "${analysis.passiveVoiceMatches.size} flags",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFE65100),
+                                    color = colors.semantic.warning,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                 )
                             }
@@ -625,15 +631,15 @@ fun ProseAnalysisView(
                         Text(
                             "Passive voice delays the subject and slows narrative momentum. Converting to active voice creates punchier action.",
                             fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.outline
+                            color = colors.content.secondary
                         )
                         Spacer(Modifier.height(10.dp))
 
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             analysis.passiveVoiceMatches.take(8).forEach { match ->
                                 Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                    shape = shapes.medium,
+                                    color = colors.surfaces.surfaceLowest.copy(alpha = 0.7f),
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable { onJumpToSentence?.invoke(match.sentenceIndex) }
@@ -648,20 +654,20 @@ fun ProseAnalysisView(
                                                 "\"${match.text}\"",
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = Color(0xFFE65100)
+                                                color = colors.semantic.warning
                                             )
                                             Text(
                                                 "Sentence ${match.sentenceIndex + 1} ↗",
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.SemiBold,
-                                                color = MaterialTheme.colorScheme.primary
+                                                color = colors.interaction.primary
                                             )
                                         }
                                         Spacer(Modifier.height(4.dp))
                                         Text(
                                             match.preview,
                                             fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurface,
+                                            color = colors.content.primary,
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis
                                         )
@@ -670,7 +676,7 @@ fun ProseAnalysisView(
                                             Text(
                                                 "💡 ${match.suggestion}",
                                                 fontSize = 10.sp,
-                                                color = MaterialTheme.colorScheme.primary
+                                                color = colors.interaction.primary
                                             )
                                         }
                                     }
@@ -686,9 +692,9 @@ fun ProseAnalysisView(
         if (analysis.filterWordsMatches.isNotEmpty()) {
             item {
                 Card(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = shapes.large,
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                        containerColor = colors.surfaces.surfaceRaised.copy(alpha = 0.65f)
                     ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -703,25 +709,25 @@ fun ProseAnalysisView(
                                     "FILTER WORDS & POV DISTANCE",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
+                                    color = colors.interaction.primary,
                                     letterSpacing = 1.sp
                                 )
                                 Spacer(Modifier.height(2.dp))
                                 Text(
                                     "${analysis.filterWordsMatches.size} sensory filters found",
                                     fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = colors.content.secondary
                                 )
                             }
                             Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer
+                                shape = shapes.small,
+                                color = colors.interaction.primaryContainer
                             ) {
                                 Text(
                                     "${analysis.filterWordsMatches.size} filters",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    color = colors.interaction.onPrimaryContainer,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                 )
                             }
@@ -731,15 +737,15 @@ fun ProseAnalysisView(
                         Text(
                             "Filter words ('she heard', 'he felt', 'noticed that') place a lens between the reader and the experience. Deleting them creates immediate immersion.",
                             fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.outline
+                            color = colors.content.secondary
                         )
                         Spacer(Modifier.height(10.dp))
 
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             analysis.filterWordsMatches.take(8).forEach { match ->
                                 Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                    shape = shapes.medium,
+                                    color = colors.surfaces.surfaceLowest.copy(alpha = 0.7f),
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable { onJumpToSentence?.invoke(match.sentenceIndex) }
@@ -754,20 +760,20 @@ fun ProseAnalysisView(
                                                 "\"${match.text}\"",
                                                 fontSize = 12.sp,
                                                 fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primary
+                                                color = colors.interaction.primary
                                             )
                                             Text(
                                                 "Sentence ${match.sentenceIndex + 1} ↗",
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.SemiBold,
-                                                color = MaterialTheme.colorScheme.primary
+                                                color = colors.interaction.primary
                                             )
                                         }
                                         Spacer(Modifier.height(4.dp))
                                         Text(
                                             match.preview,
                                             fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurface,
+                                            color = colors.content.primary,
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis
                                         )
@@ -776,7 +782,7 @@ fun ProseAnalysisView(
                                             Text(
                                                 "💡 ${match.suggestion}",
                                                 fontSize = 10.sp,
-                                                color = MaterialTheme.colorScheme.tertiary
+                                                color = colors.interaction.tertiary
                                             )
                                         }
                                     }
@@ -792,9 +798,9 @@ fun ProseAnalysisView(
         if (analysis.weakAdverbsMatches.isNotEmpty()) {
             item {
                 Card(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = shapes.large,
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                        containerColor = colors.surfaces.surfaceRaised.copy(alpha = 0.65f)
                     ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -809,14 +815,14 @@ fun ProseAnalysisView(
                                     "WEAK ADVERBS (-LY) INSPECTOR",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
+                                    color = colors.interaction.primary,
                                     letterSpacing = 1.sp
                                 )
                                 Spacer(Modifier.height(2.dp))
                                 Text(
                                     "${analysis.weakAdverbsMatches.size} adverbs flagged",
                                     fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = colors.content.secondary
                                 )
                             }
                         }
@@ -825,7 +831,7 @@ fun ProseAnalysisView(
                         Text(
                             "Adverbs often prop up weak verbs. Replace 'ran quickly' with 'sprinted', or 'said quietly' with 'whispered'.",
                             fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.outline
+                            color = colors.content.secondary
                         )
                         Spacer(Modifier.height(10.dp))
 
@@ -836,15 +842,15 @@ fun ProseAnalysisView(
                         ) {
                             analysis.weakAdverbsMatches.map { it.text }.distinct().take(16).forEach { adverb ->
                                 Surface(
-                                    shape = RoundedCornerShape(50),
-                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                                    shape = shapes.pill,
+                                    color = colors.surfaces.surfaceLowest.copy(alpha = 0.85f),
                                     shadowElevation = 1.dp
                                 ) {
                                     Text(
                                         adverb,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurface,
+                                        color = colors.content.primary,
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                                     )
                                 }
@@ -859,9 +865,9 @@ fun ProseAnalysisView(
         if (analysis.sceneSections.isNotEmpty()) {
             item {
                 Card(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = shapes.large,
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+                        containerColor = colors.surfaces.surfaceRaised.copy(alpha = 0.65f)
                     ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -876,20 +882,20 @@ fun ProseAnalysisView(
                                     "SCENE INLAYS & TARGETS",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
+                                    color = colors.interaction.primary,
                                     letterSpacing = 1.sp
                                 )
                                 Spacer(Modifier.height(2.dp))
                                 Text(
                                     "${analysis.sceneSections.size} scene sections in chapter",
                                     fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = colors.content.secondary
                                 )
                             }
                             Icon(
                                 Icons.Outlined.BookmarkBorder,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = colors.interaction.primary,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
@@ -899,8 +905,8 @@ fun ProseAnalysisView(
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             analysis.sceneSections.forEach { scene ->
                                 Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f),
+                                    shape = shapes.medium,
+                                    color = colors.surfaces.surfaceLowest.copy(alpha = 0.75f),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Row(
@@ -914,7 +920,7 @@ fun ProseAnalysisView(
                                             Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Surface(
                                                     shape = CircleShape,
-                                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                                    color = colors.interaction.primaryContainer,
                                                     modifier = Modifier.size(22.dp)
                                                 ) {
                                                     Box(contentAlignment = Alignment.Center) {
@@ -922,7 +928,7 @@ fun ProseAnalysisView(
                                                             "${scene.sceneIndex}",
                                                             fontSize = 10.sp,
                                                             fontWeight = FontWeight.Bold,
-                                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                            color = colors.interaction.onPrimaryContainer
                                                         )
                                                     }
                                                 }
@@ -931,7 +937,7 @@ fun ProseAnalysisView(
                                                     scene.sceneTitle ?: "Scene ${scene.sceneIndex}",
                                                     fontSize = 13.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onSurface
+                                                    color = colors.content.primary
                                                 )
                                             }
 
@@ -945,14 +951,14 @@ fun ProseAnalysisView(
                                                         Text(
                                                             "👤 POV: ${scene.povCharacter}",
                                                             fontSize = 11.sp,
-                                                            color = MaterialTheme.colorScheme.primary
+                                                            color = colors.interaction.primary
                                                         )
                                                     }
                                                     if (scene.location != null) {
                                                         Text(
                                                             "📍 ${scene.location}",
                                                             fontSize = 11.sp,
-                                                            color = MaterialTheme.colorScheme.outline
+                                                            color = colors.content.secondary
                                                         )
                                                     }
                                                 }
@@ -961,14 +967,14 @@ fun ProseAnalysisView(
 
                                         // Inlay Hint Badge: [1,420 words · 5 min read]
                                         Surface(
-                                            shape = RoundedCornerShape(8.dp),
-                                            color = MaterialTheme.colorScheme.surfaceVariant
+                                            shape = shapes.small,
+                                            color = colors.surfaces.surfaceRaised
                                         ) {
                                             Text(
                                                 "[ ${scene.wordCount} words · ${formatDuration(scene.readingTimeMinutes)} ]",
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.SemiBold,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                color = colors.content.primary,
                                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                             )
                                         }
@@ -984,9 +990,9 @@ fun ProseAnalysisView(
         // ── 7. Lexical Diversity Card ─────────────────────────────────────────
         item {
             Card(
-                shape = RoundedCornerShape(16.dp),
+                shape = shapes.large,
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                    containerColor = colors.surfaces.surfaceRaised.copy(alpha = 0.65f)
                 ),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -1002,7 +1008,7 @@ fun ProseAnalysisView(
                             "VOCABULARY DIVERSITY",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = colors.interaction.primary,
                             letterSpacing = 1.sp
                         )
                         Spacer(Modifier.height(2.dp))
@@ -1010,14 +1016,14 @@ fun ProseAnalysisView(
                             "${analysis.uniqueWordCount} unique words (${(analysis.lexicalDiversity * 100f).roundToInt()}% diversity)",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = colors.content.primary
                         )
                     }
 
                     Icon(
                         Icons.Outlined.Translate,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = colors.interaction.primary,
                         modifier = Modifier.size(24.dp)
                     )
                 }
@@ -1032,32 +1038,36 @@ fun ProseAnalysisView(
 
 @Composable
 private fun MetricSmallItem(label: String, value: String) {
+    val colors = ScribeTheme.colors
     Column {
-        Text(label, fontSize = 10.sp, color = MaterialTheme.colorScheme.outline)
+        Text(label, fontSize = 10.sp, color = colors.content.secondary)
         Spacer(Modifier.height(2.dp))
-        Text(value, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+        Text(value, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.content.primary)
     }
 }
 
 @Composable
 private fun PacingCategoryBox(label: String, count: Int, modifier: Modifier = Modifier) {
+    val colors = ScribeTheme.colors
+    val shapes = ScribeTheme.shapes
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
+            .clip(shapes.medium)
+            .background(colors.surfaces.surfaceLowest.copy(alpha = 0.7f))
             .padding(vertical = 8.dp, horizontal = 4.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(label, fontSize = 9.sp, color = MaterialTheme.colorScheme.outline, textAlign = TextAlign.Center, maxLines = 1)
+            Text(label, fontSize = 9.sp, color = colors.content.secondary, textAlign = TextAlign.Center, maxLines = 1)
             Spacer(Modifier.height(2.dp))
-            Text("$count", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+            Text("$count", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = colors.content.primary)
         }
     }
 }
 
 @Composable
 private fun RhythmLegendDot(color: androidx.compose.ui.graphics.Color, label: String) {
+    val colors = ScribeTheme.colors
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier
@@ -1066,7 +1076,7 @@ private fun RhythmLegendDot(color: androidx.compose.ui.graphics.Color, label: St
                 .background(color)
         )
         Spacer(Modifier.width(3.dp))
-        Text(label, fontSize = 9.sp, color = MaterialTheme.colorScheme.outline)
+        Text(label, fontSize = 9.sp, color = colors.content.secondary)
     }
 }
 

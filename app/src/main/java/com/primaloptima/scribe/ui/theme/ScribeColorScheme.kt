@@ -87,18 +87,38 @@ class ScribeColorScheme(private var theme: AppTheme? = null) : EditorColorScheme
 
         // ── Diagnostic Colors ──────────────────────────────────────────────────
         // High-contrast, calibrated chromatic wave markers for prose diagnostics
-        //   PROBLEM_WARNING (36) → passive voice / adverb phrases  (amber wave)
-        //   PROBLEM_TYPO    (37) → filter words                     (violet wave)
-        //   PROBLEM_ERROR   (35) → repeated words / hard adverbs    (sky/blue wave)
-        if (appTheme.isDark) {
-            setColor(PROBLEM_WARNING,          Color.argb(255, 251, 191,  36))  // Amber 400
-            setColor(PROBLEM_TYPO,             Color.argb(255, 167, 139, 250))  // Violet 400
-            setColor(PROBLEM_ERROR,            Color.argb(255,  96, 165, 250))  // Blue 400
+        //   PROBLEM_WARNING (36) → passive voice / adverb phrases  (warning / amber)
+        //   PROBLEM_TYPO    (37) → filter words                     (secondary / violet)
+        //   PROBLEM_ERROR   (35) → repeated words / hard adverbs    (error or tertiary / blue)
+        val warningColor = if (appTheme.colors.warning.isNotEmpty()) {
+            parse(appTheme.colors.warning)
+        } else if (appTheme.isDark) {
+            Color.argb(255, 251, 191, 36)
         } else {
-            setColor(PROBLEM_WARNING,          Color.argb(255, 217, 119,   6))  // Amber 600
-            setColor(PROBLEM_TYPO,             Color.argb(255, 124,  58, 237))  // Violet 600
-            setColor(PROBLEM_ERROR,            Color.argb(255,  37,  99, 235))  // Blue 600
+            Color.argb(255, 217, 119, 6)
         }
+
+        val typoColor = if (appTheme.colors.secondary.isNotEmpty() && appTheme.colors.secondary != appTheme.colors.accent) {
+            parse(appTheme.colors.secondary)
+        } else if (appTheme.isDark) {
+            Color.argb(255, 167, 139, 250)
+        } else {
+            Color.argb(255, 124, 58, 237)
+        }
+
+        val errorColor = if (appTheme.colors.error.isNotEmpty()) {
+            parse(appTheme.colors.error)
+        } else if (appTheme.colors.tertiary.isNotEmpty() && appTheme.colors.tertiary != appTheme.colors.accent) {
+            parse(appTheme.colors.tertiary)
+        } else if (appTheme.isDark) {
+            Color.argb(255, 96, 165, 250)
+        } else {
+            Color.argb(255, 37, 99, 235)
+        }
+
+        setColor(PROBLEM_WARNING, warningColor)
+        setColor(PROBLEM_TYPO, typoColor)
+        setColor(PROBLEM_ERROR, errorColor)
 
         // ── Inlay Hints ───────────────────────────────────────────────────────
         // Scene word-count badges and POV tags rendered by ProseInlayHintProvider.

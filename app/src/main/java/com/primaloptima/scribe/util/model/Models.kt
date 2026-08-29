@@ -84,10 +84,18 @@ data class ThemeColors(
     val mutedText: String,                   // Secondary metadata, word counts, subtitles
     val subtleText: String = mutedText,      // Inactive hints, timestamps, subtle counters
 
-    // ── Brand & Interactive Accents ──
-    val accent: String,                      // Primary interactive controls & carets
+    // ── Brand & Interactive Accents (Source Hues) ──
+    val accent: String,                      // Primary interactive controls & carets (Primary source hue)
+    val secondary: String = accent,          // Secondary source hue (cool violet/slate)
+    val tertiary: String = accent,           // Tertiary source hue (teal/cyan)
     val accentMuted: String = surface,       // Subtle badge & chip background fill
     val selection: String,                   // Selection highlight tint
+
+    // ── Semantic Status Source Hues ──
+    val success: String = "",                // Semantic success source hue
+    val warning: String = "",                // Semantic warning source hue
+    val error: String = "",                  // Semantic error source hue
+    val specialHighlight: String = "",       // Literary gold / emphasis hue
 
     // ── Boundaries & Dividers ──
     val border: String,                      // Legacy / fallback border token

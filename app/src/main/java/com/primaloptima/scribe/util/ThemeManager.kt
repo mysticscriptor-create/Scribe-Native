@@ -285,6 +285,13 @@ class ThemeManager(private val context: Context) {
                 val mutedText = shiftOklch(textInt, -0.28, 0.70)
                 val subtleText = shiftOklch(textInt, -0.46, 0.50)
 
+                val secondaryDefault = shiftOklch(accentInt, -0.05, 0.85)
+                val tertiaryDefault = shiftOklch(accentInt, +0.06, 0.75)
+                val successDefault = createOklchColor(0.75, 0.14, 142.0)
+                val warningDefault = createOklchColor(0.82, 0.15, 85.0)
+                val errorDefault = createOklchColor(0.72, 0.18, 25.0)
+                val specialHighlightDefault = createOklchColor(0.85, 0.14, 88.0)
+
                 val accentMuted = blend(accentInt, bgInt, 0.80f)
                 val selection = blend(accentInt, bgInt, 0.68f)
 
@@ -304,6 +311,12 @@ class ThemeManager(private val context: Context) {
                     mutedText = mutedText,
                     subtleText = subtleText,
                     accent = accentHex,
+                    secondary = base?.secondary?.takeIf { it.isNotEmpty() && it != base.accent } ?: secondaryDefault,
+                    tertiary = base?.tertiary?.takeIf { it.isNotEmpty() && it != base.accent } ?: tertiaryDefault,
+                    success = base?.success?.takeIf { it.isNotEmpty() } ?: successDefault,
+                    warning = base?.warning?.takeIf { it.isNotEmpty() } ?: warningDefault,
+                    error = base?.error?.takeIf { it.isNotEmpty() } ?: errorDefault,
+                    specialHighlight = base?.specialHighlight?.takeIf { it.isNotEmpty() } ?: specialHighlightDefault,
                     accentMuted = accentMuted,
                     selection = selection,
                     border = borderSubtle,
@@ -324,6 +337,13 @@ class ThemeManager(private val context: Context) {
                 val mutedText = shiftOklch(textInt, +0.32, 0.60)
                 val subtleText = shiftOklch(textInt, +0.48, 0.50)
 
+                val secondaryDefault = shiftOklch(accentInt, +0.08, 0.85)
+                val tertiaryDefault = shiftOklch(accentInt, +0.14, 0.75)
+                val successDefault = createOklchColor(0.48, 0.16, 142.0)
+                val warningDefault = createOklchColor(0.55, 0.16, 80.0)
+                val errorDefault = createOklchColor(0.50, 0.20, 25.0)
+                val specialHighlightDefault = createOklchColor(0.52, 0.15, 75.0)
+
                 val accentMuted = blend(accentInt, bgInt, 0.88f)
                 val selection = blend(accentInt, bgInt, 0.78f)
 
@@ -343,6 +363,12 @@ class ThemeManager(private val context: Context) {
                     mutedText = mutedText,
                     subtleText = subtleText,
                     accent = accentHex,
+                    secondary = base?.secondary?.takeIf { it.isNotEmpty() && it != base.accent } ?: secondaryDefault,
+                    tertiary = base?.tertiary?.takeIf { it.isNotEmpty() && it != base.accent } ?: tertiaryDefault,
+                    success = base?.success?.takeIf { it.isNotEmpty() } ?: successDefault,
+                    warning = base?.warning?.takeIf { it.isNotEmpty() } ?: warningDefault,
+                    error = base?.error?.takeIf { it.isNotEmpty() } ?: errorDefault,
+                    specialHighlight = base?.specialHighlight?.takeIf { it.isNotEmpty() } ?: specialHighlightDefault,
                     accentMuted = accentMuted,
                     selection = selection,
                     border = borderSubtle,
