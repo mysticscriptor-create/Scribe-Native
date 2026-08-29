@@ -267,9 +267,10 @@ fun ScribeSingleFab(
     icon: ImageVector,
     contentDescription: String,
     modifier: Modifier = Modifier,
-    iconTint: Color = Color.White,
+    iconTint: Color = Color.Unspecified,
     onClick: () -> Unit,
 ) {
+    val resolvedTint = if (iconTint != Color.Unspecified) iconTint else MaterialTheme.colorScheme.onPrimary
     ScribeFab(
         onClick            = onClick,
         modifier           = modifier.size(ScribeFabTokens.SizeDefault),
@@ -278,7 +279,7 @@ fun ScribeSingleFab(
         Icon(
             imageVector        = icon,
             contentDescription = null,
-            tint               = iconTint,
+            tint               = resolvedTint,
             modifier           = Modifier.size(24.dp)
         )
     }
@@ -299,7 +300,7 @@ fun ScribeSingleFab(
  * @param label              Text label.
  * @param contentDescription Accessibility label (defaults to [label]).
  * @param modifier           Applied to the outer FAB.
- * @param iconTint           Icon colour. Default: [Color.White].
+ * @param iconTint           Icon colour. Default: [MaterialTheme.colorScheme.onPrimary].
  * @param onClick            Action.
  */
 @Composable
@@ -308,9 +309,10 @@ fun ScribeExtendedFab(
     label: String,
     modifier: Modifier = Modifier,
     contentDescription: String = label,
-    iconTint: Color = Color.White,
+    iconTint: Color = Color.Unspecified,
     onClick: () -> Unit,
 ) {
+    val resolvedTint = if (iconTint != Color.Unspecified) iconTint else MaterialTheme.colorScheme.onPrimary
     ScribeFab(
         onClick            = onClick,
         modifier           = modifier.height(ScribeFabTokens.SizeDefault),
@@ -324,14 +326,14 @@ fun ScribeExtendedFab(
             Icon(
                 imageVector        = icon,
                 contentDescription = null,
-                tint               = iconTint,
+                tint               = resolvedTint,
                 modifier           = Modifier.size(20.dp)
             )
             Text(
                 text       = label,
                 fontSize   = 15.sp,
                 fontWeight = FontWeight.SemiBold,
-                color      = Color.White
+                color      = MaterialTheme.colorScheme.onPrimary
             )
         }
     }
@@ -435,7 +437,7 @@ fun ScribeSpeedDialFab(
                 Icon(
                     imageVector        = collapsedIcon,
                     contentDescription = null,
-                    tint               = Color.White,
+                    tint               = MaterialTheme.colorScheme.onPrimary,
                     modifier           = Modifier
                         .size(24.dp)
                         .graphicsLayer { rotationZ = iconRotation }

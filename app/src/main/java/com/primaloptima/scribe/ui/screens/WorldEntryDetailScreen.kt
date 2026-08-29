@@ -178,13 +178,13 @@ fun WorldEntryDetailScreen(
                                             .padding(8.dp)
                                             .size(28.dp)
                                             .clip(CircleShape)
-                                            .background(Color.Black.copy(alpha = 0.65f)),
+                                            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f)),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
                                             Icons.Default.Fullscreen,
                                             contentDescription = "Expand Image",
-                                            tint = Color.White,
+                                            tint = MaterialTheme.colorScheme.inverseOnSurface,
                                             modifier = Modifier.size(18.dp)
                                         )
                                     }
@@ -223,13 +223,13 @@ fun WorldEntryDetailScreen(
                                             .padding(6.dp)
                                             .size(24.dp)
                                             .clip(CircleShape)
-                                            .background(Color.Black.copy(alpha = 0.65f)),
+                                            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f)),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
                                             Icons.Default.Fullscreen,
                                             contentDescription = "Expand Image",
-                                            tint = Color.White,
+                                            tint = MaterialTheme.colorScheme.inverseOnSurface,
                                             modifier = Modifier.size(14.dp)
                                         )
                                     }

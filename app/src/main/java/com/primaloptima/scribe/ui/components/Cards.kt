@@ -625,11 +625,12 @@ fun ScribeActionTile(
                 horizontalAlignment   = Alignment.CenterHorizontally,
                 verticalArrangement   = Arrangement.Center
             ) {
+                val onPrimary = MaterialTheme.colorScheme.onPrimary
                 Box(
                     modifier = if (isPrimary) Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(Color.White.copy(alpha = 0.15f))
+                        .background(onPrimary.copy(alpha = 0.15f))
                     else Modifier.size(36.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -637,7 +638,7 @@ fun ScribeActionTile(
                         imageVector        = icon,
                         contentDescription = label,
                         modifier           = Modifier.size(20.dp),
-                        tint               = if (isPrimary) Color.White else accentColor
+                        tint               = if (isPrimary) onPrimary else accentColor
                     )
                 }
                 Spacer(modifier = Modifier.height(6.dp))
@@ -645,7 +646,7 @@ fun ScribeActionTile(
                     text       = label,
                     fontSize   = 11.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color      = if (isPrimary) Color.White
+                    color      = if (isPrimary) onPrimary
                                  else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
                     maxLines   = 1
                 )

@@ -181,13 +181,13 @@ fun EditWorldEntrySheet(
                                         .padding(4.dp)
                                         .size(20.dp)
                                         .clip(CircleShape)
-                                        .background(Color.Black.copy(alpha = 0.65f)),
+                                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.65f)),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
                                         Icons.Default.Fullscreen,
                                         contentDescription = "Expand",
-                                        tint = Color.White,
+                                        tint = MaterialTheme.colorScheme.inverseOnSurface,
                                         modifier = Modifier.size(14.dp)
                                     )
                                 }

@@ -238,8 +238,8 @@ private fun ThemeCard(
             .shadow(
                 elevation = if (isSelected) 8.dp else 4.dp,
                 shape = cardShape,
-                ambientColor = if (isSelected) accentColor else Color.Black,
-                spotColor = if (isSelected) accentColor else Color.Black
+                ambientColor = if (isSelected) accentColor else MaterialTheme.colorScheme.scrim,
+                spotColor = if (isSelected) accentColor else MaterialTheme.colorScheme.scrim
             )
             .then(
                 if (isSelected) Modifier.border(

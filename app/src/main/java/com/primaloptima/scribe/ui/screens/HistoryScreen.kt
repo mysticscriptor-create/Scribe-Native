@@ -222,9 +222,11 @@ fun HistoryScreen(
                                         fontWeight = FontWeight.SemiBold
                                     )
                                     if (deltaStr != null) {
+                                        val successColor = ScribeTheme.colors.semantic.success
+                                        val errorColor = ScribeTheme.colors.semantic.error
                                         val deltaColor = when {
-                                            deltaStr.startsWith("+") -> Color(0xFF388E3C)
-                                            deltaStr.startsWith("-") -> MaterialTheme.colorScheme.error
+                                            deltaStr.startsWith("+") -> successColor
+                                            deltaStr.startsWith("-") -> errorColor
                                             else -> if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurfaceVariant
                                         }
                                         Text(
@@ -288,9 +290,10 @@ fun HistoryScreen(
                             )
                             .padding(12.dp)
                     ) {
-                        val errorColor = MaterialTheme.colorScheme.error
-                        val diffAnnotated = remember(currentNoteContent, ver.content, errorColor) {
-                            buildDiffAnnotatedString(currentNoteContent, ver.content, errorColor)
+                        val errorColor = ScribeTheme.colors.semantic.error
+                        val successColor = ScribeTheme.colors.semantic.success
+                        val diffAnnotated = remember(currentNoteContent, ver.content, errorColor, successColor) {
+                            buildDiffAnnotatedString(currentNoteContent, ver.content, errorColor = errorColor, successColor = successColor)
                         }
                         Text(text = diffAnnotated, fontSize = 13.sp, lineHeight = 18.sp)
                     }
@@ -349,7 +352,14 @@ fun HistoryScreen(
     }
 }
 
-private fun buildDiffAnnotatedString(currentText: String, versionText: String, errorColor: Color = Color(0xFFD32F2F)) = buildAnnotatedString {
+private fun buildDiffAnnotatedString(
+    currentText: String,
+    versionText: String,
+    errorColor: Color = Color.Unspecified,
+    successColor: Color = Color.Unspecified
+) = buildAnnotatedString {
+    val resolvedError = if (errorColor != Color.Unspecified) errorColor else Color(0xFFD32F2F)
+    val resolvedSuccess = if (successColor != Color.Unspecified) successColor else Color(0xFF4CAF50)
     val currentLines = currentText.lines()
     val versionLines = versionText.lines()
     val oldSet = currentLines.toSet()
@@ -359,7 +369,7 @@ private fun buildDiffAnnotatedString(currentText: String, versionText: String, e
         if (!oldSet.contains(line)) {
             withStyle(
                 style = SpanStyle(
-                    background = Color(0x334CAF50),
+                    background = resolvedSuccess.copy(alpha = 0.2f),
                     fontWeight = FontWeight.Bold
                 )
             ) {
@@ -374,9 +384,9 @@ private fun buildDiffAnnotatedString(currentText: String, versionText: String, e
         if (!newSet.contains(line)) {
             withStyle(
                 style = SpanStyle(
-                    background = errorColor.copy(alpha = 0.2f),
+                    background = resolvedError.copy(alpha = 0.2f),
                     textDecoration = TextDecoration.LineThrough,
-                    color = errorColor
+                    color = resolvedError
                 )
             ) {
                 append("- $line\n")

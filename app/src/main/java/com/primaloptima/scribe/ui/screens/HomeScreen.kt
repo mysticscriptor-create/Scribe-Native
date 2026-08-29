@@ -367,7 +367,7 @@ fun HomeScreen(
                 // ── INNER CARD with nav items ──
                 val innerCardBg = if (hazeState != null) {
                     // Frosted glass active: semi-transparent overlay
-                    Color.White.copy(alpha = 0.07f)
+                    MaterialTheme.colorScheme.surface.copy(alpha = 0.08f)
                 } else {
                     // No frosted glass: slightly lifted surface
                     MaterialTheme.colorScheme.surface.copy(alpha = 0.12f)
@@ -680,7 +680,7 @@ fun HomeScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.38f))
+                            .background(MaterialTheme.colorScheme.scrim)
                             .clickable { fabExpanded = false }
                     )
                 }
@@ -694,7 +694,7 @@ fun HomeScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.Black.copy(alpha = 0.38f))
+                            .background(MaterialTheme.colorScheme.scrim)
                             .clickable { rightPanelVisible = false }
                     )
                 }
@@ -1037,7 +1037,7 @@ private fun BookGridCard(
                     Icon(
                         Icons.Default.MoreVert,
                         contentDescription = "Menu",
-                        tint = if (book.coverUri != null) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
+                        tint = if (book.coverUri != null) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
                 FrostedDropdownMenu(

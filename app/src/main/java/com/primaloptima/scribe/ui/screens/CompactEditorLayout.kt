@@ -545,7 +545,7 @@ fun CompactEditorLayout(
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer { alpha = scrimAlpha }
-                            .background(Color.Black)
+                            .background(MaterialTheme.colorScheme.scrim)
                             .clickable(
                                 interactionSource = remember { MutableInteractionSource() },
                                 indication = null

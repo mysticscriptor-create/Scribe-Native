@@ -740,7 +740,7 @@ private fun WritingProgressCard(
                 value     = "$streak",
                 subLabel  = "days",
                 icon      = Icons.Outlined.LocalFireDepartment,
-                iconTint  = Color(0xFFFF6B00),
+                iconTint  = ScribeTheme.colors.semantic.warning,
                 extra     = {
                     Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                         streakDots.forEach { (_, hasWords) ->
@@ -873,13 +873,15 @@ private fun WritingProgressCard(
 @Composable
 private fun PremiumWeekBarChart(
     weekData: List<Triple<String, Int, Boolean>>,
-    accentColor: Color,
+    accentColor: Color = Color.Unspecified,
     modifier: Modifier = Modifier
 ) {
+    val seriesColor = if (accentColor != Color.Unspecified) accentColor else ScribeTheme.colors.analytics.series1
     val maxVal      = remember(weekData) { (weekData.maxOfOrNull { it.second } ?: 1).coerceAtLeast(1) }
     val trackColor  = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f)
-    val labelColor  = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-    val todayLabelColor = accentColor
+    val labelColor  = ScribeTheme.colors.content.secondary
+    val todayLabelColor = seriesColor
+    val onPrimaryColor = ScribeTheme.colors.content.onAccent
 
     val animatedFractions = weekData.mapIndexed { i, (_, count, _) ->
         val anim by animateFloatAsState(
@@ -920,8 +922,8 @@ private fun PremiumWeekBarChart(
 
                 val barGradient = Brush.verticalGradient(
                     colors = listOf(
-                        if (isToday) accentColor else accentColor.copy(alpha = 0.75f),
-                        accentColor.copy(alpha = if (isToday) 0.30f else 0.15f)
+                        if (isToday) seriesColor else seriesColor.copy(alpha = 0.75f),
+                        seriesColor.copy(alpha = if (isToday) 0.30f else 0.15f)
                     ),
                     startY = top,
                     endY   = chartH
@@ -935,12 +937,12 @@ private fun PremiumWeekBarChart(
 
                 if (isToday && fraction > 0.01f) {
                     drawCircle(
-                        color  = accentColor,
+                        color  = seriesColor,
                         radius = dotSizePx,
                         center = Offset(left + barW / 2f, top - dotSizePx - 2f)
                     )
                     drawCircle(
-                        color  = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.6f),
+                        color  = onPrimaryColor.copy(alpha = 0.6f),
                         radius = dotSizePx * 0.45f,
                         center = Offset(left + barW / 2f, top - dotSizePx - 2f)
                     )

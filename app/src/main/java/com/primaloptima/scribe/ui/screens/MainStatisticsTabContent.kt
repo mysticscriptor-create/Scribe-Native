@@ -205,6 +205,7 @@ private fun DetailedStatisticsTab(
         }
 
         // Three Stat Summary Cards Side-by-Side
+        val analyticsColors = ScribeTheme.colors.analytics
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -219,7 +220,7 @@ private fun DetailedStatisticsTab(
                     value = "$todayWords",
                     subLabel = "written",
                     icon = Icons.Outlined.Edit,
-                    iconTint = accentColor,
+                    iconTint = analyticsColors.series1,
                     modifier = Modifier.padding(12.dp)
                 )
             }
@@ -234,7 +235,7 @@ private fun DetailedStatisticsTab(
                     value = "${allBooks.size}",
                     subLabel = "total",
                     icon = Icons.Outlined.Book,
-                    iconTint = accentColor,
+                    iconTint = analyticsColors.series2,
                     modifier = Modifier.padding(12.dp)
                 )
             }
@@ -249,7 +250,7 @@ private fun DetailedStatisticsTab(
                     value = "$streakCount",
                     subLabel = "days",
                     icon = Icons.Default.LocalFireDepartment,
-                    iconTint = accentColor,
+                    iconTint = analyticsColors.warning,
                     modifier = Modifier.padding(12.dp)
                 )
             }
@@ -271,14 +272,14 @@ private fun DetailedStatisticsTab(
                             modifier = Modifier
                                 .size(28.dp)
                                 .clip(CircleShape)
-                                .background(accentColor.copy(alpha = 0.12f))
-                                .border(0.6.dp, accentColor.copy(alpha = 0.22f), CircleShape),
+                                .background(analyticsColors.target.copy(alpha = 0.12f))
+                                .border(0.6.dp, analyticsColors.target.copy(alpha = 0.22f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 Icons.Outlined.Flag,
                                 contentDescription = null,
-                                tint = accentColor,
+                                tint = analyticsColors.target,
                                 modifier = Modifier.size(16.dp)
                             )
                         }
@@ -296,12 +297,13 @@ private fun DetailedStatisticsTab(
                 }
                 Spacer(modifier = Modifier.height(10.dp))
                 val goalProgress = if (dailyGoal > 0) (todayWords.toFloat() / dailyGoal).coerceIn(0f, 1f) else 0f
+                val progressColor = if (goalProgress >= 1f) analyticsColors.positive else analyticsColors.series1
                 ScribeProgressBar(
                     progress = goalProgress,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(10.dp),
-                    color = accentColor
+                    color = progressColor
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(
@@ -317,7 +319,7 @@ private fun DetailedStatisticsTab(
                         text = "${(goalProgress * 100).toInt()}%",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = accentColor
+                        color = progressColor
                     )
                 }
             }
@@ -360,7 +362,7 @@ private fun DetailedStatisticsTab(
 
 @Composable
 private fun CombinedBarTrendChart(entries: List<DailyWordEntry>) {
-    val accentColor = LocalAccentColor.current
+    val series1Color = ScribeTheme.colors.analytics.series1
     val onSurface = MaterialTheme.colorScheme.onSurface
     val gridColor = onSurface.copy(alpha = 0.08f)
     var selectedIndex by remember { mutableStateOf<Int?>(null) }
@@ -429,7 +431,7 @@ private fun CombinedBarTrendChart(entries: List<DailyWordEntry>) {
                 barPoints.add(Offset(xCenter, topY))
 
                 val brush = Brush.verticalGradient(
-                    colors = listOf(accentColor, accentColor.copy(alpha = 0.35f)),
+                    colors = listOf(series1Color, series1Color.copy(alpha = 0.35f)),
                     startY = topY,
                     endY = topPadding + chartHeight
                 )
@@ -444,7 +446,7 @@ private fun CombinedBarTrendChart(entries: List<DailyWordEntry>) {
 
                 if (selectedIndex == index) {
                     drawRoundRect(
-                        color = accentColor,
+                        color = series1Color,
                         topLeft = Offset(xCenter - barWidth / 2 - 2f, topY - 2f),
                         size = Size(barWidth + 4f, barHeight + 4f),
                         cornerRadius = cornerRadius,
@@ -479,7 +481,7 @@ private fun CombinedBarTrendChart(entries: List<DailyWordEntry>) {
                     path = glowPath,
                     brush = Brush.verticalGradient(
                         colors = listOf(
-                            accentColor.copy(alpha = 0.20f * animProgress.value),
+                            series1Color.copy(alpha = 0.20f * animProgress.value),
                             Color.Transparent
                         ),
                         startY = topPadding,
@@ -489,7 +491,7 @@ private fun CombinedBarTrendChart(entries: List<DailyWordEntry>) {
 
                 drawPath(
                     path = linePath,
-                    color = accentColor,
+                    color = series1Color,
                     style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
                 )
             }
@@ -505,7 +507,7 @@ private fun CombinedBarTrendChart(entries: List<DailyWordEntry>) {
                 ) {
                     Surface(
                         shape = CircleShape,
-                        color = accentColor,
+                        color = series1Color,
                         shadowElevation = 6.dp
                     ) {
                         Text(

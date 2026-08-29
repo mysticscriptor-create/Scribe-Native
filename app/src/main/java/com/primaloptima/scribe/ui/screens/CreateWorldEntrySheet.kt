@@ -25,24 +25,47 @@ import com.primaloptima.scribe.ui.theme.LocalBorderSubtle
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
 import com.primaloptima.scribe.ui.theme.LocalSurfaceRaised
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.frostedChip
 import com.primaloptima.scribe.viewmodel.SheetsViewModel
+
+@Composable
+@ReadOnlyComposable
+fun categoryColor(key: String): Color {
+    val world = ScribeTheme.colors.world
+    val subtle = LocalSubtleTextColor.current
+    val fallbackSubtle = if (subtle != Color.Unspecified) subtle else MaterialTheme.colorScheme.onSurfaceVariant
+    return when (key.lowercase()) {
+        "character" -> world.character
+        "location" -> world.location
+        "faction" -> world.faction
+        "item" -> world.item
+        "lore" -> world.lore
+        "timeline", "event" -> world.event
+        "relationship" -> world.relationship
+        else -> fallbackSubtle
+    }
+}
 
 data class CategoryMeta(
     val key: String,
     val label: String,
-    val icon: ImageVector,
+    val icon: ImageVector
+) {
     val color: Color
-)
+        @Composable
+        @ReadOnlyComposable
+        get() = categoryColor(key)
+}
 
 val CATEGORY_META = listOf(
-    CategoryMeta("All",      "All",       Icons.Default.GridView,             Color(0xFF9E9E9E)),
-    CategoryMeta("character","Characters", Icons.Default.Person,               Color(0xFF5C9EF0)),
-    CategoryMeta("location", "Locations",  Icons.Default.Place,                Color(0xFF4CAF82)),
-    CategoryMeta("faction",  "Factions",   Icons.Default.Group,                Color(0xFFE07B54)),
-    CategoryMeta("item",     "Items",      Icons.Default.Category,             Color(0xFFB07FD4)),
-    CategoryMeta("lore",     "Lore",       Icons.AutoMirrored.Filled.MenuBook, Color(0xFFD4A74A)),
-    CategoryMeta("timeline", "Timeline",   Icons.Default.Timeline,             Color(0xFF4AB8D4)),
+    CategoryMeta("All",      "All",       Icons.Default.GridView),
+    CategoryMeta("character","Characters", Icons.Default.Person),
+    CategoryMeta("location", "Locations",  Icons.Default.Place),
+    CategoryMeta("faction",  "Factions",   Icons.Default.Group),
+    CategoryMeta("item",     "Items",      Icons.Default.Category),
+    CategoryMeta("lore",     "Lore",       Icons.AutoMirrored.Filled.MenuBook),
+    CategoryMeta("timeline", "Timeline",   Icons.Default.Timeline),
 )
 
 fun categoryMeta(key: String): CategoryMeta =
