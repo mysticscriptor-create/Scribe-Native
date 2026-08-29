@@ -150,6 +150,14 @@ val LocalSolidSurface = compositionLocalOf { Color.White }
  * Usage: val accent = LocalAccentColor.current
  */
 val LocalAccentColor = compositionLocalOf { Color.Unspecified }
+val LocalDialogueColor = compositionLocalOf { Color.Unspecified }
+val LocalMonologueColor = compositionLocalOf { Color.Unspecified }
+val LocalHeadingColor = compositionLocalOf { Color.Unspecified }
+val LocalSubtleTextColor = compositionLocalOf { Color.Unspecified }
+val LocalSurfaceLowest = compositionLocalOf { Color.Unspecified }
+val LocalSurfaceRaised = compositionLocalOf { Color.Unspecified }
+val LocalSurfaceOverlay = compositionLocalOf { Color.Unspecified }
+val LocalBorderSubtle = compositionLocalOf { Color.Unspecified }
 
 fun autoTextColor(bg: Color): Color {
     val luminance = bg.luminance()
@@ -1292,6 +1300,14 @@ fun ScribeComposeTheme(
                     // Adaptive accent resolved once here — screens read LocalAccentColor.current
                     // instead of calling parseComposeColor + adaptiveAccentColor themselves.
                     LocalAccentColor provides accentIcons,
+                    LocalDialogueColor provides parseComposeColor(resolvedTheme.colors.dialogueText, accentIcons),
+                    LocalMonologueColor provides parseComposeColor(resolvedTheme.colors.monologueText, text),
+                    LocalHeadingColor provides parseComposeColor(resolvedTheme.colors.headingText, accentIcons),
+                    LocalSubtleTextColor provides parseComposeColor(resolvedTheme.colors.subtleText, text.copy(alpha = 0.6f)),
+                    LocalSurfaceLowest provides animSurfaceLowest,
+                    LocalSurfaceRaised provides animSurfaceRaised,
+                    LocalSurfaceOverlay provides animSurfaceOverlay,
+                    LocalBorderSubtle provides animOutline,
                     // One-shot bitmap starts null; screens set it via their own
                     // CompositionLocalProvider wrapping the drawer/dialog content.
                     LocalOneShotBitmap provides null

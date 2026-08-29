@@ -43,6 +43,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -425,9 +428,9 @@ fun ThemeEditScreen(
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(
                         modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        Text("Theme Colors", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text("Theme Master Colors", fontWeight = FontWeight.Bold, fontSize = 15.sp)
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -448,6 +451,103 @@ fun ThemeEditScreen(
                                 hex = accentHex,
                                 onClick = { activeColorPickerTarget = ColorPickerTarget.ACCENT }
                             )
+                        }
+
+                        // Smart Palette Derivation Preview (Phase 3)
+                        val derivedPreview = remember(bgHex, textHex, accentHex, originalTheme.isDark) {
+                            ThemeManager.deriveThemeColors(
+                                bgHex = bgHex,
+                                textHex = textHex,
+                                accentHex = accentHex,
+                                isDark = ThemeManager.isDarkColor(bgHex),
+                                base = originalTheme.colors
+                            )
+                        }
+
+                        HorizontalDivider(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "Auto-Derived Elevation Ramp (5-Tier)",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                val tiers = listOf(
+                                    "L0 Base" to derivedPreview.background,
+                                    "L1 Recessed" to derivedPreview.surfaceLowest,
+                                    "L2 Surface" to derivedPreview.surface,
+                                    "L3 Raised" to derivedPreview.surfaceRaised,
+                                    "L4 Overlay" to derivedPreview.surfaceOverlay
+                                )
+                                tiers.forEach { (label, hex) ->
+                                    val swatchColor = parseComposeColor(hex, Color.Gray)
+                                    val swatchText = autoTextColor(swatchColor)
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(swatchColor)
+                                            .border(1.dp, parseComposeColor(derivedPreview.borderSubtle, Color.Gray), RoundedCornerShape(6.dp))
+                                            .padding(vertical = 6.dp, horizontal = 2.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(label, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = swatchText, maxLines = 1)
+                                        Text(hex, fontSize = 8.sp, color = swatchText.copy(alpha = 0.8f), maxLines = 1)
+                                    }
+                                }
+                            }
+                        }
+
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "Semantic Prose & Lexer Tokens",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                val proseTokens = listOf(
+                                    "Dialogue" to derivedPreview.dialogueText,
+                                    "Monologue" to derivedPreview.monologueText,
+                                    "Heading" to derivedPreview.headingText,
+                                    "Subtle" to derivedPreview.subtleText
+                                )
+                                proseTokens.forEach { (label, hex) ->
+                                    val tokenColor = parseComposeColor(hex, Color.Gray)
+                                    Row(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(parseComposeColor(derivedPreview.surfaceRaised, Color.DarkGray))
+                                            .border(1.dp, parseComposeColor(derivedPreview.borderSubtle, Color.Gray), RoundedCornerShape(6.dp))
+                                            .padding(vertical = 5.dp, horizontal = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(tokenColor)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(label, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = parseComposeColor(derivedPreview.text, Color.White), maxLines = 1)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -936,9 +1036,25 @@ private fun LivePreviewCard(
     textAlignment: String,
     sideMargins: Float
 ) {
-    val bgColor = parseComposeColor(bgHex, Color.White)
-    val textColor = parseComposeColor(textHex, Color.Black)
-    val accentColor = parseComposeColor(accentHex, Color.Blue)
+    val derived = remember(bgHex, textHex, accentHex) {
+        ThemeManager.deriveThemeColors(
+            bgHex = bgHex,
+            textHex = textHex,
+            accentHex = accentHex,
+            isDark = ThemeManager.isDarkColor(bgHex)
+        )
+    }
+
+    val bgColor = parseComposeColor(derived.background, Color.White)
+    val surfaceColor = parseComposeColor(derived.surface, bgColor)
+    val surfaceRaisedColor = parseComposeColor(derived.surfaceRaised, surfaceColor)
+    val textColor = parseComposeColor(derived.text, Color.Black)
+    val mutedTextColor = parseComposeColor(derived.mutedText, textColor.copy(alpha = 0.7f))
+    val accentColor = parseComposeColor(derived.accent, Color.Blue)
+    val dialogueColor = parseComposeColor(derived.dialogueText, accentColor)
+    val monologueColor = parseComposeColor(derived.monologueText, textColor)
+    val headingColor = parseComposeColor(derived.headingText, accentColor)
+    val borderSubtleColor = parseComposeColor(derived.borderSubtle, Color.Gray.copy(alpha = 0.2f))
     val font = FontHelper.getFontFamily(fontFamily)
 
     val textAlign = when (textAlignment) {
@@ -963,7 +1079,7 @@ private fun LivePreviewCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(200.dp),
+            .height(220.dp),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = bgColor)
     ) {
@@ -989,9 +1105,6 @@ private fun LivePreviewCard(
                             } else Modifier
                         )
                 )
-                // Overlay: on API 31+ the GPU blur handles it; on older devices we
-                // compensate by boosting the overlay opacity when blur intensity is raised,
-                // simulating the visual weight the blur would normally add.
                 val overlayAlpha = if (bgMode == "blurred" && Build.VERSION.SDK_INT < Build.VERSION_CODES.S && blurIntensity > 0f) {
                     (bgOpacity + blurIntensity / 35f).coerceIn(0f, 0.90f)
                 } else {
@@ -1006,40 +1119,65 @@ private fun LivePreviewCard(
 
             // Preview Layout with Fake Top Bar, Content, and Fake Bottom Toolbar
             Column(modifier = Modifier.fillMaxSize()) {
-                // Fake Top Bar
+                // Fake Top Bar (using surface & mutedText)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(bgColor.copy(alpha = 0.85f))
+                        .background(surfaceColor.copy(alpha = 0.92f))
+                        .border(width = 0.5.dp, color = borderSubtleColor)
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = textColor, modifier = Modifier.size(16.dp))
                     Text(themeName, color = textColor, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    Icon(Icons.Default.MoreVert, contentDescription = null, tint = textColor, modifier = Modifier.size(16.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Ch. 1 • 840 words", color = mutedTextColor, fontSize = 10.sp)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(Icons.Default.MoreVert, contentDescription = null, tint = textColor, modifier = Modifier.size(16.dp))
+                    }
                 }
 
                 // Main Content
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(horizontal = sideMargins.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.Center
+                        .padding(horizontal = sideMargins.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.SpaceEvenly
                 ) {
+                    // Heading
+                    Text(
+                        text = "Chapter I: The Starlit Archive",
+                        color = headingColor,
+                        fontFamily = font,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = (fontSize * 0.82f).sp
+                    )
+
+                    // Prose snippet showcasing Dialogue, Narrative, Monologue & Caret
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Experience seamless distraction-free writing.",
-                            color = textColor,
-                            fontFamily = font,
-                            fontSize = (fontSize * 0.7f).sp,
-                            lineHeight = (fontSize * 0.7f * lineHeight).sp,
-                            textAlign = textAlign,
-                            modifier = Modifier.weight(1f, fill = false)
-                        )
+                        Column(modifier = Modifier.weight(1f, fill = false)) {
+                            Text(
+                                text = buildAnnotatedString {
+                                    withStyle(SpanStyle(color = dialogueColor, fontWeight = FontWeight.SemiBold)) {
+                                        append("\"We must chronicle every thought,\" ")
+                                    }
+                                    withStyle(SpanStyle(color = textColor)) {
+                                        append("she murmured softly, ")
+                                    }
+                                    withStyle(SpanStyle(color = monologueColor, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)) {
+                                        append("(knowing tomorrow would rewrite it all).")
+                                    }
+                                },
+                                fontFamily = font,
+                                fontSize = (fontSize * 0.65f).sp,
+                                lineHeight = (fontSize * 0.65f * lineHeight).sp,
+                                textAlign = textAlign
+                            )
+                        }
                         Spacer(modifier = Modifier.width(2.dp))
                         Box(
                             modifier = Modifier
@@ -1049,21 +1187,46 @@ private fun LivePreviewCard(
                                 .background(accentColor)
                         )
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Accent & Highlight Color",
-                        color = accentColor,
-                        fontFamily = font,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = (fontSize * 0.75f).sp
-                    )
+
+                    // Floating Workbench Card Snippet (L3 SurfaceRaised)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(surfaceRaisedColor.copy(alpha = 0.95f))
+                            .border(1.dp, borderSubtleColor, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Pinned Note: Character Arc & Theme",
+                            color = textColor,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(parseComposeColor(derived.accentMuted, surfaceColor))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "Active",
+                                color = accentColor,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
                 }
 
                 // Fake Bottom Toolbar Strip
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(bgColor.copy(alpha = 0.85f))
+                        .background(surfaceColor.copy(alpha = 0.92f))
+                        .border(width = 0.5.dp, color = borderSubtleColor)
                         .padding(horizontal = 16.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
