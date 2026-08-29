@@ -60,6 +60,9 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.primaloptima.scribe.util.ThemeManager
+import com.primaloptima.scribe.util.model.ThemeColors
+import com.primaloptima.scribe.ui.theme.autoTextColor
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.ui.theme.FontHelper
 import com.primaloptima.scribe.ui.theme.FrostedDialog
@@ -483,13 +486,15 @@ fun ThemeEditScreen(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 val tiers = listOf(
-                                    "L0 Base" to derivedPreview.background,
-                                    "L1 Recessed" to derivedPreview.surfaceLowest,
-                                    "L2 Surface" to derivedPreview.surface,
-                                    "L3 Raised" to derivedPreview.surfaceRaised,
-                                    "L4 Overlay" to derivedPreview.surfaceOverlay
+                                    Pair("L0 Base", derivedPreview.background),
+                                    Pair("L1 Recessed", derivedPreview.surfaceLowest),
+                                    Pair("L2 Surface", derivedPreview.surface),
+                                    Pair("L3 Raised", derivedPreview.surfaceRaised),
+                                    Pair("L4 Overlay", derivedPreview.surfaceOverlay)
                                 )
-                                tiers.forEach { (label, hex) ->
+                                tiers.forEach { item ->
+                                    val label = item.first
+                                    val hex = item.second
                                     val swatchColor = parseComposeColor(hex, Color.Gray)
                                     val swatchText = autoTextColor(swatchColor)
                                     Column(
@@ -521,12 +526,14 @@ fun ThemeEditScreen(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 val proseTokens = listOf(
-                                    "Dialogue" to derivedPreview.dialogueText,
-                                    "Monologue" to derivedPreview.monologueText,
-                                    "Heading" to derivedPreview.headingText,
-                                    "Subtle" to derivedPreview.subtleText
+                                    Pair("Dialogue", derivedPreview.dialogueText),
+                                    Pair("Monologue", derivedPreview.monologueText),
+                                    Pair("Heading", derivedPreview.headingText),
+                                    Pair("Subtle", derivedPreview.subtleText)
                                 )
-                                proseTokens.forEach { (label, hex) ->
+                                proseTokens.forEach { item ->
+                                    val label = item.first
+                                    val hex = item.second
                                     val tokenColor = parseComposeColor(hex, Color.Gray)
                                     Row(
                                         modifier = Modifier
