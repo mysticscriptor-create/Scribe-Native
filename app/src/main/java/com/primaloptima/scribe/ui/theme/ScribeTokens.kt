@@ -301,8 +301,11 @@ data class ScribeTypography(
     val statValue: TextStyle = app.statValue,
     val statLabel: TextStyle = app.statLabel,
 
-    // Editor writing text style
+    // Editor writing text styles
     val prose: TextStyle = editor.prose,
+    val dialogue: TextStyle = editor.dialogue,
+    val monologue: TextStyle = editor.monologue,
+    val heading: TextStyle = editor.heading,
 
     // Compatibility accessors
     val displayLarge: TextStyle = app.display,

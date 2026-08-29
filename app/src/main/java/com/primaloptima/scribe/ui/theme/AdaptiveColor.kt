@@ -353,7 +353,15 @@ data class AdaptiveTokenSuite(
     val headingText: Color,
     val specularRimAlpha: Float,
     val isDarkBackground: Boolean,
-    val requiresShadowScrim: Boolean
+    val requiresShadowScrim: Boolean,
+    val writing: WritingColors = WritingColors(
+        prose = text,
+        dialogue = dialogueText,
+        monologue = monologueText,
+        heading = headingText,
+        annotation = monologueText,
+        highlight = dialogueText
+    )
 )
 
 /**

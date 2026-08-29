@@ -1590,7 +1590,21 @@ fun ScribeComposeTheme(
         )
         ScribeTypography(
             app = app,
-            editor = editor
+            editor = editor,
+            display = app.display,
+            headline = app.headline,
+            title = app.title,
+            sectionTitle = app.sectionTitle,
+            body = app.body,
+            bodySecondary = app.bodySecondary,
+            label = app.label,
+            caption = app.caption,
+            statValue = app.statValue,
+            statLabel = app.statLabel,
+            prose = editor.prose,
+            dialogue = editor.dialogue,
+            monologue = editor.monologue,
+            heading = editor.heading
         )
     }
 
