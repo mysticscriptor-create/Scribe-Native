@@ -1627,6 +1627,7 @@ fun ScribeComposeTheme(
                     LocalScribeShapes provides scribeShapes,
                     LocalScribeTypography provides scribeTypography,
                     LocalScribeMetrics provides scribeMetrics,
+                    LocalScribeSpacing provides scribeMetrics.spacing,
                     LocalHazeState provides hazeState,
                     LocalAppTheme provides resolvedTheme,
                     LocalBgAnalysisBitmap provides analysisBitmap,

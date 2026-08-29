@@ -141,12 +141,36 @@ data class ScribeShapes(
     val medium: CornerBasedShape = RoundedCornerShape(12.dp),
     val large: CornerBasedShape = RoundedCornerShape(16.dp),
     val extraLarge: CornerBasedShape = RoundedCornerShape(20.dp),
-    val full: CornerBasedShape = RoundedCornerShape(50)
+    val full: CornerBasedShape = RoundedCornerShape(50),
+
+    // Semantic Component Shape Aliases
+    val card: CornerBasedShape = RoundedCornerShape(12.dp),
+    val cardNested: CornerBasedShape = RoundedCornerShape(8.dp),
+    val button: CornerBasedShape = RoundedCornerShape(8.dp),
+    val field: CornerBasedShape = RoundedCornerShape(8.dp),
+    val chip: CornerBasedShape = RoundedCornerShape(50),
+    val dialog: CornerBasedShape = RoundedCornerShape(16.dp),
+    val bottomSheet: CornerBasedShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
+    val fab: CornerBasedShape = RoundedCornerShape(16.dp)
+)
+
+// ── Spacing Scale ───────────────────────────────────────────────────────────
+@Immutable
+data class ScribeSpacing(
+    val none: Dp = 0.dp,
+    val xs: Dp = 4.dp,
+    val sm: Dp = 8.dp,
+    val md: Dp = 12.dp,
+    val lg: Dp = 16.dp,
+    val xl: Dp = 24.dp,
+    val xxl: Dp = 32.dp,
+    val huge: Dp = 48.dp
 )
 
 // ── Metrics & Spacing ───────────────────────────────────────────────────────
 @Immutable
 data class ScribeMetrics(
+    val spacing: ScribeSpacing = ScribeSpacing(),
     val spaceNone: Dp = 0.dp,
     val spaceExtraSmall: Dp = 4.dp,
     val spaceSmall: Dp = 8.dp,
@@ -338,6 +362,10 @@ val LocalScribeMetrics = staticCompositionLocalOf<ScribeMetrics> {
     ScribeMetrics()
 }
 
+val LocalScribeSpacing = staticCompositionLocalOf<ScribeSpacing> {
+    ScribeSpacing()
+}
+
 // ── Central ScribeTheme Accessor Object ──────────────────────────────────────
 object ScribeTheme {
     val colors: ScribeColors
@@ -359,4 +387,9 @@ object ScribeTheme {
         @Composable
         @ReadOnlyComposable
         get() = LocalScribeMetrics.current
+
+    val spacing: ScribeSpacing
+        @Composable
+        @ReadOnlyComposable
+        get() = LocalScribeSpacing.current
 }

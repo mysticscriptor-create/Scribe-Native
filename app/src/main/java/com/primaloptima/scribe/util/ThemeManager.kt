@@ -12,6 +12,7 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.core.content.res.ResourcesCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -417,6 +418,100 @@ class ThemeManager(private val context: Context) {
             "compact"  -> 1.4f
             "spacious" -> 2.0f
             else       -> 1.7f  // comfortable
+        }
+
+        fun validateSemanticContrast(
+            bgHex: String,
+            textHex: String,
+            accentHex: String,
+            dialogueHex: String? = null,
+            monologueHex: String? = null,
+            headingHex: String? = null
+        ): com.primaloptima.scribe.ui.theme.ThemeSemanticContrastReport {
+            val derived = deriveThemeColors(bgHex, textHex, accentHex)
+            val isDark = isDarkColor(derived.background)
+            val bgCol = ComposeColor(parseColor(derived.background))
+            val textCol = ComposeColor(parseColor(derived.text))
+            val accentCol = ComposeColor(parseColor(derived.accent))
+            val surfaceCol = ComposeColor(parseColor(derived.surface))
+            val surfaceRaisedCol = ComposeColor(parseColor(derived.surfaceRaised))
+            val surfaceOverlayCol = ComposeColor(parseColor(derived.surfaceOverlay))
+            val mutedCol = ComposeColor(parseColor(derived.mutedText))
+            val subtleCol = ComposeColor(parseColor(derived.subtleText))
+            val borderCol = ComposeColor(parseColor(derived.borderSubtle))
+            val focusBorderCol = ComposeColor(parseColor(derived.borderFocused))
+
+            val dialogueCol = dialogueHex?.let { ComposeColor(parseColor(it)) } ?: accentCol
+            val monologueCol = monologueHex?.let { ComposeColor(parseColor(it)) } ?: mutedCol
+            val headingCol = headingHex?.let { ComposeColor(parseColor(it)) } ?: accentCol
+
+            val scribeColors = com.primaloptima.scribe.ui.theme.ScribeColors(
+                surfaces = com.primaloptima.scribe.ui.theme.SurfaceColors(
+                    background = bgCol,
+                    surfaceLowest = bgCol,
+                    surface = surfaceCol,
+                    surfaceRaised = surfaceRaisedCol,
+                    surfaceOverlay = surfaceOverlayCol,
+                    surfaceDim = bgCol,
+                    surfaceBright = surfaceRaisedCol
+                ),
+                content = com.primaloptima.scribe.ui.theme.ContentColors(
+                    primary = textCol,
+                    secondary = mutedCol,
+                    tertiary = subtleCol,
+                    disabled = mutedCol.copy(alpha = 0.38f),
+                    inverse = if (isDark) ComposeColor.Black else ComposeColor.White
+                ),
+                interaction = com.primaloptima.scribe.ui.theme.InteractionColors(
+                    primary = accentCol,
+                    onPrimary = if (isDarkColor(derived.accent)) ComposeColor.White else ComposeColor.Black,
+                    primaryContainer = accentCol.copy(alpha = 0.15f),
+                    onPrimaryContainer = accentCol,
+                    secondary = subtleCol,
+                    onSecondary = textCol,
+                    focus = focusBorderCol,
+                    ripple = accentCol.copy(alpha = 0.12f)
+                ),
+                semantic = com.primaloptima.scribe.ui.theme.SemanticStatusColors(
+                    success = ComposeColor(0xFF10B981),
+                    onSuccess = ComposeColor.White,
+                    warning = ComposeColor(0xFFF59E0B),
+                    onWarning = ComposeColor.Black,
+                    error = ComposeColor(0xFFEF4444),
+                    onError = ComposeColor.White,
+                    info = ComposeColor(0xFF3B82F6),
+                    onInfo = ComposeColor.White
+                ),
+                writing = com.primaloptima.scribe.ui.theme.WritingColors(
+                    prose = textCol,
+                    dialogue = dialogueCol,
+                    monologue = monologueCol,
+                    heading = headingCol,
+                    annotation = monologueCol,
+                    highlight = dialogueCol
+                ),
+                analytics = com.primaloptima.scribe.ui.theme.AnalyticsColors(
+                    series1 = accentCol,
+                    series2 = ComposeColor(0xFF10B981),
+                    series3 = ComposeColor(0xFFF59E0B),
+                    series4 = ComposeColor(0xFFEC4899),
+                    chartGrid = borderCol
+                ),
+                borders = com.primaloptima.scribe.ui.theme.BorderColors(
+                    subtle = borderCol,
+                    default = borderCol,
+                    strong = textCol.copy(alpha = 0.5f),
+                    focusRing = focusBorderCol
+                ),
+                world = com.primaloptima.scribe.ui.theme.WorldEntityColors(
+                    character = accentCol,
+                    location = ComposeColor(0xFF10B981),
+                    item = ComposeColor(0xFFF59E0B),
+                    lore = ComposeColor(0xFF8B5CF6)
+                ),
+                isDark = isDark
+            )
+            return com.primaloptima.scribe.ui.theme.validateThemeSemanticContrast(scribeColors)
         }
     }
 }

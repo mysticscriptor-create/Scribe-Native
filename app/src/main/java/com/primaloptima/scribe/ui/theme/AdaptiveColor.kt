@@ -82,6 +82,27 @@ fun colorToScreenLuminanceY(colorInt: Int): Double {
 }
 
 /**
+ * Computes standard WCAG 2.1 relative luminance for contrast ratio calculation.
+ */
+fun calculateWcagRelativeLuminance(colorInt: Int): Double {
+    val rLinear = sRgbToLinear(android.graphics.Color.red(colorInt) / 255.0)
+    val gLinear = sRgbToLinear(android.graphics.Color.green(colorInt) / 255.0)
+    val bLinear = sRgbToLinear(android.graphics.Color.blue(colorInt) / 255.0)
+    return 0.2126 * rLinear + 0.7152 * gLinear + 0.0722 * bLinear
+}
+
+/**
+ * Computes standard WCAG 2.1 contrast ratio (1.0 to 21.0).
+ */
+fun calculateWcagContrastRatio(foreground: Color, background: Color): Double {
+    val lum1 = calculateWcagRelativeLuminance(foreground.toArgb())
+    val lum2 = calculateWcagRelativeLuminance(background.toArgb())
+    val lighter = Math.max(lum1, lum2)
+    val darker = Math.min(lum1, lum2)
+    return (lighter + 0.05) / (darker + 0.05)
+}
+
+/**
  * Calculates polarity-aware APCA Lightness Contrast (Lc) according to W3C APCA 0.98G standard.
  * Returns a value roughly between -108 and +106:
  * - Positive: Dark text on light background (e.g. black on white ≈ +106)
@@ -127,7 +148,124 @@ fun calculateApcaContrastY(yTxt: Double, yBg: Double): Double {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pillar 2: Dual-Metric Region Analysis (Luminance + Visual Variance)
+// Pillar 2: Semantic Contrast Engine (Multi-Pair APCA & WCAG Validation)
+// ─────────────────────────────────────────────────────────────────────────────
+
+data class SemanticContrastPair(
+    val name: String,
+    val category: String,
+    val foregroundName: String,
+    val foregroundColor: Color,
+    val backgroundName: String,
+    val backgroundColor: Color,
+    val minRequiredApcaLc: Double,
+    val minRequiredWcagRatio: Double,
+    val isEssentialText: Boolean = true
+)
+
+data class SemanticContrastResult(
+    val pair: SemanticContrastPair,
+    val apcaLc: Double,
+    val wcagRatio: Double,
+    val passesApca: Boolean,
+    val passesWcag: Boolean,
+    val passesAll: Boolean,
+    val ratingDescription: String
+)
+
+data class ThemeSemanticContrastReport(
+    val overallPassRate: Float,
+    val totalPairsChecked: Int,
+    val passedPairsCount: Int,
+    val results: List<SemanticContrastResult>
+)
+
+/**
+ * Validates full semantic contrast pairs for a complete theme token suite against actual UI surfaces.
+ */
+fun validateThemeSemanticContrast(
+    colors: ScribeColors
+): ThemeSemanticContrastReport {
+    val pairs = listOf(
+        // 1. Primary text on all elevation surfaces
+        SemanticContrastPair("Primary Text on Background", "Text & Surfaces", "Content Primary", colors.content.primary, "Background", colors.surfaces.background, 75.0, 4.5),
+        SemanticContrastPair("Primary Text on Surface", "Text & Surfaces", "Content Primary", colors.content.primary, "Surface", colors.surfaces.surface, 75.0, 4.5),
+        SemanticContrastPair("Primary Text on Raised Surface", "Text & Surfaces", "Content Primary", colors.content.primary, "Surface Raised", colors.surfaces.surfaceRaised, 75.0, 4.5),
+        SemanticContrastPair("Primary Text on Overlay", "Text & Surfaces", "Content Primary", colors.content.primary, "Surface Overlay", colors.surfaces.surfaceOverlay, 70.0, 4.5),
+
+        // 2. Secondary and Tertiary text on surfaces
+        SemanticContrastPair("Secondary Text on Surface", "Text & Surfaces", "Content Secondary", colors.content.secondary, "Surface", colors.surfaces.surface, 60.0, 3.5),
+        SemanticContrastPair("Secondary Text on Raised Surface", "Text & Surfaces", "Content Secondary", colors.content.secondary, "Surface Raised", colors.surfaces.surfaceRaised, 60.0, 3.5),
+        SemanticContrastPair("Tertiary Text on Surface", "Text & Surfaces", "Content Tertiary", colors.content.tertiary, "Surface", colors.surfaces.surface, 45.0, 3.0, false),
+        SemanticContrastPair("Tertiary Text on Raised Surface", "Text & Surfaces", "Content Tertiary", colors.content.tertiary, "Surface Raised", colors.surfaces.surfaceRaised, 45.0, 3.0, false),
+
+        // 3. Accent & Interactivity
+        SemanticContrastPair("Accent on Background", "Interactions", "Primary Accent", colors.interaction.primary, "Background", colors.surfaces.background, 60.0, 3.0),
+        SemanticContrastPair("Accent on Surface", "Interactions", "Primary Accent", colors.interaction.primary, "Surface", colors.surfaces.surface, 60.0, 3.0),
+        SemanticContrastPair("Text on Accent Container", "Interactions", "On-Accent", colors.interaction.onPrimary, "Primary Accent", colors.interaction.primary, 75.0, 4.5),
+
+        // 4. Writing Colors on Editor Canvas
+        SemanticContrastPair("Prose Text on Editor Canvas", "Writing Engine", "Prose", colors.writing.prose, "Background", colors.surfaces.background, 75.0, 4.5),
+        SemanticContrastPair("Dialogue Text on Editor Canvas", "Writing Engine", "Dialogue", colors.writing.dialogue, "Background", colors.surfaces.background, 60.0, 3.5),
+        SemanticContrastPair("Monologue Text on Editor Canvas", "Writing Engine", "Monologue", colors.writing.monologue, "Background", colors.surfaces.background, 60.0, 3.5),
+        SemanticContrastPair("Heading Text on Editor Canvas", "Writing Engine", "Heading", colors.writing.heading, "Background", colors.surfaces.background, 65.0, 3.5),
+
+        // 5. Semantic Status & Badges
+        SemanticContrastPair("Success Status on Surface", "Status & Feedback", "Success", colors.semantic.success, "Surface", colors.surfaces.surface, 50.0, 3.0),
+        SemanticContrastPair("Warning Status on Surface", "Status & Feedback", "Warning", colors.semantic.warning, "Surface", colors.surfaces.surface, 50.0, 3.0),
+        SemanticContrastPair("Error Status on Surface", "Status & Feedback", "Error", colors.semantic.error, "Surface", colors.surfaces.surface, 60.0, 3.5),
+        SemanticContrastPair("Info Status on Surface", "Status & Feedback", "Info", colors.semantic.info, "Surface", colors.surfaces.surface, 50.0, 3.0),
+
+        // 6. Analytics on Raised Surfaces
+        SemanticContrastPair("Chart Series 1 on Surface", "Analytics", "Series 1", colors.analytics.series1, "Surface", colors.surfaces.surfaceRaised, 45.0, 3.0, false),
+        SemanticContrastPair("Chart Series 2 on Surface", "Analytics", "Series 2", colors.analytics.series2, "Surface", colors.surfaces.surfaceRaised, 45.0, 3.0, false),
+
+        // 7. Functional Borders & Dividers
+        SemanticContrastPair("Focus Ring on Surface", "Borders", "Focus Ring", colors.borders.focusRing, "Surface", colors.surfaces.surface, 45.0, 3.0, false),
+        SemanticContrastPair("Subtle Border on Surface", "Borders", "Border Subtle", colors.borders.subtle, "Surface", colors.surfaces.surface, 20.0, 1.3, false)
+    )
+
+    val results = pairs.map { pair ->
+        val apca = calculateApcaContrast(pair.foregroundColor, pair.backgroundColor)
+        val absApca = abs(apca)
+        val wcag = calculateWcagContrastRatio(pair.foregroundColor, pair.backgroundColor)
+
+        val passesApca = absApca >= pair.minRequiredApcaLc
+        val passesWcag = wcag >= pair.minRequiredWcagRatio
+        val passesAll = passesApca && passesWcag
+
+        val rating = when {
+            absApca >= 90.0 && wcag >= 7.0 -> "Optimal (AAA)"
+            absApca >= 75.0 && wcag >= 4.5 -> "Standard (AA)"
+            absApca >= 60.0 && wcag >= 3.0 -> "Readable (Large/UI)"
+            passesAll -> "Pass"
+            else -> "Low Contrast"
+        }
+
+        SemanticContrastResult(
+            pair = pair,
+            apcaLc = apca,
+            wcagRatio = wcag,
+            passesApca = passesApca,
+            passesWcag = passesWcag,
+            passesAll = passesAll,
+            ratingDescription = rating
+        )
+    }
+
+    val passedCount = results.count { it.passesAll }
+    val passRate = if (results.isNotEmpty()) passedCount.toFloat() / results.size.toFloat() else 1f
+
+    return ThemeSemanticContrastReport(
+        overallPassRate = passRate,
+        totalPairsChecked = results.size,
+        passedPairsCount = passedCount,
+        results = results
+    )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pillar 3: Dual-Metric Region Analysis (Luminance + Visual Variance)
 // ─────────────────────────────────────────────────────────────────────────────
 
 data class RegionAnalysisResult(

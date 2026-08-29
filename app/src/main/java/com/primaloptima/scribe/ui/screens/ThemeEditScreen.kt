@@ -477,6 +477,92 @@ fun ThemeEditScreen(
                             )
                         }
 
+                        // Semantic Contrast & Accessibility Report (Phase 10)
+                        val contrastReport = remember(bgHex, textHex, accentHex) {
+                            ThemeManager.validateSemanticContrast(
+                                bgHex = bgHex,
+                                textHex = textHex,
+                                accentHex = accentHex,
+                                dialogueHex = derivedPreview.dialogueText,
+                                monologueHex = derivedPreview.monologueText,
+                                headingHex = derivedPreview.headingText
+                            )
+                        }
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 4.dp),
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        )
+
+                        // Accessibility & Contrast Matrix
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Semantic Contrast Engine",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Surface(
+                                    color = if (contrastReport.overallPassRate >= 0.9f)
+                                        Color(0xFF10B981).copy(alpha = 0.15f)
+                                    else Color(0xFFF59E0B).copy(alpha = 0.15f),
+                                    shape = RoundedCornerShape(50)
+                                ) {
+                                    Text(
+                                        text = "${contrastReport.passedPairsCount}/${contrastReport.totalPairsChecked} Pairs Passed (${(contrastReport.overallPassRate * 100).toInt()}%)",
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (contrastReport.overallPassRate >= 0.9f)
+                                            Color(0xFF059669) else Color(0xFFD97706)
+                                    )
+                                }
+                            }
+
+                            // High-impact contrast pair chips
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                contrastReport.results.take(6).forEach { res ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = res.pair.name,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "Lc ${res.apcaLc.toInt().let { if (it > 0) "+$it" else "$it" }}",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = if (res.passesApca) Color(0xFF10B981) else Color(0xFFEF4444)
+                                            )
+                                            Text(
+                                                text = String.format(java.util.Locale.US, "%.1f:1", res.wcagRatio),
+                                                fontSize = 10.sp,
+                                                color = if (res.passesWcag) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFFEF4444)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         HorizontalDivider(
                             modifier = Modifier.fillMaxWidth(),
                             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
