@@ -237,8 +237,7 @@ fun HistoryScreen(
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    ver.content.take(100).replace("
-", " "),
+                                    ver.content.take(100).replace("\n", " "),
                                     fontSize = 12.sp,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,

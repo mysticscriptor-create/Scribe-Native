@@ -119,18 +119,18 @@ fun WorldEntryDetailScreen(
                     if (fields.size > 1) {
                         ScribeBarAction(
                             icon = if (isReorderingMode) Icons.Default.Check else Icons.Default.SwapVert,
-                            description = "Reorder Attributes",
+                            contentDescription = "Reorder Attributes",
                             onClick = { isReorderingMode = !isReorderingMode }
                         )
                     } else null,
                     ScribeBarAction(
                         icon = Icons.Default.Edit,
-                        description = "Edit Sheet",
+                        contentDescription = "Edit Sheet",
                         onClick = onEdit
                     ),
                     ScribeBarAction(
                         icon = Icons.Default.MoreVert,
-                        description = "More options",
+                        contentDescription = "More options",
                         onClick = { menuExpanded = true }
                     )
                 )

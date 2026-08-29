@@ -738,7 +738,7 @@ private fun computeWordmapItems(
         0 -> { // Files
             allNotes.map { note ->
                 val bookTitle = allBooks.firstOrNull { it.id == note.bookId }?.title ?: "Vault"
-                val pathStr = if (note.folderPath == "/") bookTitle else "$bookTitle › ${note.folderPath.trim(/)}"
+                val pathStr = if (note.folderPath == "/") bookTitle else "$bookTitle › ${note.folderPath.trim('/')}"
                 WordmapItem(
                     id = note.id,
                     title = note.name,
@@ -755,7 +755,7 @@ private fun computeWordmapItems(
                 val notesInFolder = allNotes.filter { it.bookId == folder.bookId && it.folderPath == folder.path }
                 WordmapItem(
                     id = "${folder.bookId}_${folder.path}",
-                    title = if (folder.path == "/") "Root Folder" else folder.path.trim(/),
+                    title = if (folder.path == "/") "Root Folder" else folder.path.trim('/'),
                     breadcrumb = "Book: $bookTitle",
                     wordCount = folderWordTotals[key] ?: notesInFolder.sumOf { it.wordCount },
                     updatedAt = notesInFolder.maxOfOrNull { it.updatedAt } ?: 0L
