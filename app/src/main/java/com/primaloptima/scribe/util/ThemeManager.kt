@@ -169,6 +169,107 @@ class ThemeManager(private val context: Context) {
             return darkness >= 0.4
         }
 
+        /**
+         * Automatically calculates a 5-tier elevation ramp, semantic typography tokens,
+         * and boundary tokens from base background, text, and accent colors.
+         */
+        fun deriveThemeColors(
+            bgHex: String,
+            textHex: String,
+            accentHex: String,
+            isDark: Boolean,
+            base: ThemeColors? = null
+        ): ThemeColors {
+            val bgInt = parseColor(bgHex)
+            val textInt = parseColor(textHex)
+            val accentInt = parseColor(accentHex)
+
+            fun blend(c1: Int, c2: Int, ratio: Float): String {
+                val r = (Color.red(c1) * (1f - ratio) + Color.red(c2) * ratio).toInt().coerceIn(0, 255)
+                val g = (Color.green(c1) * (1f - ratio) + Color.green(c2) * ratio).toInt().coerceIn(0, 255)
+                val b = (Color.blue(c1) * (1f - ratio) + Color.blue(c2) * ratio).toInt().coerceIn(0, 255)
+                return String.format("#%02X%02X%02X", r, g, b)
+            }
+
+            fun shiftLightness(c: Int, delta: Float): String {
+                val outHsl = FloatArray(3)
+                androidx.core.graphics.ColorUtils.colorToHSL(c, outHsl)
+                outHsl[2] = (outHsl[2] + delta).coerceIn(0f, 1f)
+                val res = androidx.core.graphics.ColorUtils.HSLToColor(outHsl)
+                return String.format("#%02X%02X%02X", Color.red(res), Color.green(res), Color.blue(res))
+            }
+
+            return if (isDark) {
+                val surfaceLowest = shiftLightness(bgInt, 0.02f)
+                val surface = shiftLightness(bgInt, 0.05f)
+                val surfaceRaised = shiftLightness(bgInt, 0.09f)
+                val surfaceOverlay = shiftLightness(bgInt, 0.14f)
+                val mutedText = blend(textInt, bgInt, 0.38f)
+                val subtleText = blend(textInt, bgInt, 0.58f)
+                val accentMuted = blend(accentInt, bgInt, 0.82f)
+                val selection = blend(accentInt, bgInt, 0.70f)
+                val borderSubtle = shiftLightness(bgInt, 0.08f)
+                val borderProminent = blend(accentInt, textInt, 0.40f)
+                val monologueText = blend(textInt, bgInt, 0.25f)
+
+                ThemeColors(
+                    background = bgHex,
+                    surfaceLowest = base?.surfaceLowest?.takeIf { it != base.background } ?: surfaceLowest,
+                    surface = surface,
+                    surfaceRaised = base?.surfaceRaised?.takeIf { it != base.surface } ?: surfaceRaised,
+                    surfaceOverlay = base?.surfaceOverlay?.takeIf { it != base.surface } ?: surfaceOverlay,
+                    text = textHex,
+                    mutedText = mutedText,
+                    subtleText = subtleText,
+                    accent = accentHex,
+                    accentMuted = accentMuted,
+                    selection = selection,
+                    border = borderSubtle,
+                    borderSubtle = borderSubtle,
+                    borderProminent = borderProminent,
+                    dialogueText = base?.dialogueText?.takeIf { it != base.accent } ?: accentHex,
+                    monologueText = monologueText,
+                    headingText = accentHex,
+                    toolbar = surface,
+                    toolbarText = textHex
+                )
+            } else {
+                val surfaceLowest = shiftLightness(bgInt, -0.03f)
+                val surface = "#FFFFFF"
+                val surfaceRaised = "#FFFFFF"
+                val surfaceOverlay = "#FFFFFF"
+                val mutedText = blend(textInt, bgInt, 0.42f)
+                val subtleText = blend(textInt, bgInt, 0.62f)
+                val accentMuted = blend(accentInt, bgInt, 0.88f)
+                val selection = blend(accentInt, bgInt, 0.78f)
+                val borderSubtle = shiftLightness(bgInt, -0.08f)
+                val borderProminent = accentHex
+                val monologueText = blend(textInt, bgInt, 0.25f)
+
+                ThemeColors(
+                    background = bgHex,
+                    surfaceLowest = base?.surfaceLowest?.takeIf { it != base.background } ?: surfaceLowest,
+                    surface = surface,
+                    surfaceRaised = base?.surfaceRaised?.takeIf { it != base.surface } ?: surfaceRaised,
+                    surfaceOverlay = base?.surfaceOverlay?.takeIf { it != base.surface } ?: surfaceOverlay,
+                    text = textHex,
+                    mutedText = mutedText,
+                    subtleText = subtleText,
+                    accent = accentHex,
+                    accentMuted = accentMuted,
+                    selection = selection,
+                    border = borderSubtle,
+                    borderSubtle = borderSubtle,
+                    borderProminent = borderProminent,
+                    dialogueText = base?.dialogueText?.takeIf { it != base.accent } ?: accentHex,
+                    monologueText = monologueText,
+                    headingText = accentHex,
+                    toolbar = surface,
+                    toolbarText = textHex
+                )
+            }
+        }
+
         fun resolveTypeface(context: Context, fontFamilyKey: String): Typeface {
             val fontResId = when (fontFamilyKey) {
                 "serif", "serif-medium", "serif-bold" -> R.font.playfair_display

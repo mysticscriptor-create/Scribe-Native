@@ -73,36 +73,32 @@ class ScribeColorScheme(private var theme: AppTheme? = null) : EditorColorScheme
         setColor(TEXT_SELECTED,            0)
 
         // ── Novel / Prose Lexer Tokens ─────────────────────────────────────────
-        // Spoken dialogue color: Warm tone tinted towards accent or amber/gold contrast
-        val dialogueColor = if (accent != text) {
-            Color.argb(
-                255,
-                ((Color.red(text) * 0.4f) + (Color.red(accent) * 0.6f)).toInt().coerceIn(0, 255),
-                ((Color.green(text) * 0.4f) + (Color.green(accent) * 0.6f)).toInt().coerceIn(0, 255),
-                ((Color.blue(text) * 0.4f) + (Color.blue(accent) * 0.6f)).toInt().coerceIn(0, 255)
-            )
-        } else {
-            Color.argb(255, 235, 175, 110)
-        }
+        // Dialogue / Direct speech highlighting from calibrated theme token
+        val dialogueColor = parse(appTheme.colors.dialogueText)
         setColor(LITERAL,                  dialogueColor)
 
-        // Thought / Internal Monologue color: Soft subtle opacity of primary text
-        val thoughtColor = withAlpha(text, 185)
+        // Thought / Internal Monologue from calibrated theme token
+        val thoughtColor = parse(appTheme.colors.monologueText)
         setColor(COMMENT,                  thoughtColor)
 
-        // Headings / Scene Breaks: Accent highlight
-        setColor(KEYWORD,                  accent)
+        // Headings / Scene Breaks: Heading highlight token
+        val headingColor = parse(appTheme.colors.headingText)
+        setColor(KEYWORD,                  headingColor)
 
         // ── Diagnostic Colors ──────────────────────────────────────────────────
-        // Correct constant names for Sora 0.24.x:
+        // High-contrast, calibrated chromatic wave markers for prose diagnostics
         //   PROBLEM_WARNING (36) → passive voice / adverb phrases  (amber wave)
-        //   PROBLEM_TYPO    (37) → filter words                     (purple wave)
-        //   PROBLEM_ERROR   (35) → repeated words / hard adverbs    (blue wave)
-        // DiagnosticRegion severity shorts (1=error, 2=warning, 3=typo) map to
-        // these color constants automatically in EditorRenderer.
-        setColor(PROBLEM_WARNING,          Color.argb(255, 245, 175,  45))  // Amber wave
-        setColor(PROBLEM_TYPO,             Color.argb(255, 140, 120, 240))  // Purple wave
-        setColor(PROBLEM_ERROR,            Color.argb(255,  80, 160, 240))  // Blue wave
+        //   PROBLEM_TYPO    (37) → filter words                     (violet wave)
+        //   PROBLEM_ERROR   (35) → repeated words / hard adverbs    (sky/blue wave)
+        if (appTheme.isDark) {
+            setColor(PROBLEM_WARNING,          Color.argb(255, 251, 191,  36))  // Amber 400
+            setColor(PROBLEM_TYPO,             Color.argb(255, 167, 139, 250))  // Violet 400
+            setColor(PROBLEM_ERROR,            Color.argb(255,  96, 165, 250))  // Blue 400
+        } else {
+            setColor(PROBLEM_WARNING,          Color.argb(255, 217, 119,   6))  // Amber 600
+            setColor(PROBLEM_TYPO,             Color.argb(255, 124,  58, 237))  // Violet 600
+            setColor(PROBLEM_ERROR,            Color.argb(255,  37,  99, 235))  // Blue 600
+        }
 
         // ── Inlay Hints ───────────────────────────────────────────────────────
         // Scene word-count badges and POV tags rendered by ProseInlayHintProvider.

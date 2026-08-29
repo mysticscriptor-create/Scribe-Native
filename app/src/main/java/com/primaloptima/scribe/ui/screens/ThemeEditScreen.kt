@@ -207,13 +207,12 @@ fun ThemeEditScreen(
                                 themeScope = themeScope,
                                 emoji = emoji,
                                 savedBgLuminance = bgLuminance,
-                                colors = originalTheme.colors.copy(
-                                    background = bgHex,
-                                    surface = bgHex,
-                                    text = textHex,
-                                    accent = accentHex,
-                                    toolbar = bgHex,
-                                    toolbarText = textHex
+                                colors = ThemeManager.deriveThemeColors(
+                                    bgHex = bgHex,
+                                    textHex = textHex,
+                                    accentHex = accentHex,
+                                    isDark = originalTheme.isDark,
+                                    base = originalTheme.colors
                                 )
                             )
                             vm.save(updated)
@@ -672,13 +671,12 @@ fun ThemeEditScreen(
                         themeScope = themeScope,
                         emoji = emoji,
                         savedBgLuminance = bgLuminance,
-                        colors = originalTheme.colors.copy(
-                            background = bgHex,
-                            surface = bgHex,
-                            text = textHex,
-                            accent = accentHex,
-                            toolbar = bgHex,
-                            toolbarText = textHex
+                        colors = ThemeManager.deriveThemeColors(
+                            bgHex = bgHex,
+                            textHex = textHex,
+                            accentHex = accentHex,
+                            isDark = originalTheme.isDark,
+                            base = originalTheme.colors
                         )
                     )
                     vm.save(updated)
@@ -734,11 +732,12 @@ fun ThemeEditScreen(
                                 textAlignment = textAlignment,
                                 themeScope = themeScope,
                                 emoji = emoji,
-                                colors = originalTheme.colors.copy(
-                                    background = bgHex,
-                                    surface = bgHex,
-                                    text = textHex,
-                                    accent = accentHex
+                                colors = ThemeManager.deriveThemeColors(
+                                    bgHex = bgHex,
+                                    textHex = textHex,
+                                    accentHex = accentHex,
+                                    isDark = originalTheme.isDark,
+                                    base = originalTheme.colors
                                 )
                             )
                             exportThemeJson(context, currentThemeToExport)

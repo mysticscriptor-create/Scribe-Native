@@ -902,7 +902,10 @@ fun ScribeComposeTheme(
     }
 
     val bg = parseComposeColor(resolvedTheme.colors.background, Color(0xFFFAFAF7))
+    val surfaceLowest = parseComposeColor(resolvedTheme.colors.surfaceLowest, bg)
     val surface = parseComposeColor(resolvedTheme.colors.surface, Color.White)
+    val surfaceRaised = parseComposeColor(resolvedTheme.colors.surfaceRaised, surface)
+    val surfaceOverlay = parseComposeColor(resolvedTheme.colors.surfaceOverlay, surfaceRaised)
     // Fallback is Color.Black (0xFF000000), NOT Color(0xFF1A1A1A) which equals
     // darkDefault.  If parsing fails on an empty/malformed hex, a fallback that
     // equals darkDefault would set isDefaultText = true and silently enable the
@@ -910,7 +913,8 @@ fun ScribeComposeTheme(
     val configuredText = parseComposeColor(resolvedTheme.colors.text, Color.Black)
     val configuredAccent = parseComposeColor(resolvedTheme.colors.accent, Color(0xFF333333))
     val border = parseComposeColor(resolvedTheme.colors.border, Color(0xFFE0E0D8))
-    val surfaceVariant = parseComposeColor(resolvedTheme.colors.surface, surface)
+    val borderSubtle = parseComposeColor(resolvedTheme.colors.borderSubtle, border)
+    val surfaceVariant = surfaceRaised
 
     val bgLum = resolvedTheme.savedBgLuminance
 
@@ -978,20 +982,20 @@ fun ScribeComposeTheme(
             onSurface = text,
             surfaceVariant = surfaceVariant,
             onSurfaceVariant = text,
-            surfaceContainerLowest = bg,
+            surfaceContainerLowest = surfaceLowest,
             surfaceContainerLow = bg,
             surfaceContainer = surface,
-            surfaceContainerHigh = surface,
+            surfaceContainerHigh = surfaceRaised,
             // KEY: surfaceContainerHighest was unset → M3 default is lavender(#E6E0E9)
             // Card() in BOM 2026.06.00 uses this slot by default.
-            surfaceContainerHighest = surfaceVariant,
+            surfaceContainerHighest = surfaceOverlay,
             // Keep tonal surface tint on-theme (prevents extra purple tinting)
             surfaceTint = accentIcons,
             inverseSurface = text,
             inverseOnSurface = bg,
             inversePrimary = accentIcons,
-            outline = border,
-            outlineVariant = border,
+            outline = borderSubtle,
+            outlineVariant = borderSubtle,
             scrim = Color.Black.copy(alpha = 0.32f)
         )
     } else {
@@ -1014,17 +1018,17 @@ fun ScribeComposeTheme(
             onSurface = text,
             surfaceVariant = surfaceVariant,
             onSurfaceVariant = text,
-            surfaceContainerLowest = bg,
+            surfaceContainerLowest = surfaceLowest,
             surfaceContainerLow = bg,
             surfaceContainer = surface,
-            surfaceContainerHigh = surface,
-            surfaceContainerHighest = surfaceVariant,
+            surfaceContainerHigh = surfaceRaised,
+            surfaceContainerHighest = surfaceOverlay,
             surfaceTint = accentIcons,
             inverseSurface = text,
             inverseOnSurface = bg,
             inversePrimary = accentIcons,
-            outline = border,
-            outlineVariant = border,
+            outline = borderSubtle,
+            outlineVariant = borderSubtle,
             scrim = Color.Black.copy(alpha = 0.32f)
         )
     }
@@ -1042,7 +1046,10 @@ fun ScribeComposeTheme(
     val animOnPrimary by animateColorAsState(rawColorScheme.onPrimary, animSpec, label = "onPrimary")
     val animBg by animateColorAsState(rawColorScheme.background, animSpec, label = "bg")
     val animOnBg by animateColorAsState(rawColorScheme.onBackground, animSpec, label = "onBg")
+    val animSurfaceLowest by animateColorAsState(rawColorScheme.surfaceContainerLowest, animSpec, label = "surfaceLowest")
     val animSurface by animateColorAsState(rawColorScheme.surface, animSpec, label = "surface")
+    val animSurfaceRaised by animateColorAsState(rawColorScheme.surfaceContainerHigh, animSpec, label = "surfaceRaised")
+    val animSurfaceOverlay by animateColorAsState(rawColorScheme.surfaceContainerHighest, animSpec, label = "surfaceOverlay")
     val animOnSurface by animateColorAsState(rawColorScheme.onSurface, animSpec, label = "onSurface")
     val animSurfaceVariant by animateColorAsState(rawColorScheme.surfaceVariant, animSpec, label = "surfaceVariant")
     val animOnSurfaceVariant by animateColorAsState(rawColorScheme.onSurfaceVariant, animSpec, label = "onSurfaceVariant")
@@ -1057,7 +1064,10 @@ fun ScribeComposeTheme(
     // BLACK instead of the theme colour. Instead, we zero only the alpha channel
     // while keeping the RGB channels intact, so copy(alpha = X) restores the
     // correct colour at the requested opacity.
+    val glassySurfaceLowest  = if (showWholeAppBg) animSurfaceLowest.copy(alpha = 0f)  else animSurfaceLowest
     val glassySurface        = if (showWholeAppBg) animSurface.copy(alpha = 0f)        else animSurface
+    val glassySurfaceRaised  = if (showWholeAppBg) animSurfaceRaised.copy(alpha = 0f)  else animSurfaceRaised
+    val glassySurfaceOverlay = if (showWholeAppBg) animSurfaceOverlay.copy(alpha = 0f) else animSurfaceOverlay
     val glassySurfaceVariant = if (showWholeAppBg) animSurfaceVariant.copy(alpha = 0f) else animSurfaceVariant
     val glassyBg             = if (showWholeAppBg) animBg.copy(alpha = 0f)             else animBg
 
@@ -1080,11 +1090,11 @@ fun ScribeComposeTheme(
         onSurface = animOnSurface,
         surfaceVariant = glassySurfaceVariant,
         onSurfaceVariant = animOnSurfaceVariant,
-        surfaceContainerLowest = glassyBg,
+        surfaceContainerLowest = glassySurfaceLowest,
         surfaceContainerLow = glassyBg,
         surfaceContainer = glassySurface,
-        surfaceContainerHigh = glassySurface,
-        surfaceContainerHighest = glassySurfaceVariant,
+        surfaceContainerHigh = glassySurfaceRaised,
+        surfaceContainerHighest = glassySurfaceOverlay,
         outline = animOutline,
         outlineVariant = animOutline
     )

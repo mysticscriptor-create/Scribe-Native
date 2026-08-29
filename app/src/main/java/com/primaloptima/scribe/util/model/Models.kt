@@ -72,15 +72,36 @@ data class OutlineEntry(
 @Immutable
 @Serializable
 data class ThemeColors(
-    val background: String,
-    val surface: String,
-    val text: String,
-    val mutedText: String,
-    val accent: String,
-    val border: String,
-    val selection: String,
-    val toolbar: String,
-    val toolbarText: String
+    // ── Surfaces & Elevation (5-Tier Perceptual Hierarchy) ──
+    val background: String,                  // L0: Canvas base background
+    val surfaceLowest: String = background,  // L1: Recessed gutters, split rails
+    val surface: String,                     // L2: App bars, drawers, primary panels
+    val surfaceRaised: String = surface,     // L3: Floating cards, workbench cards
+    val surfaceOverlay: String = surface,    // L4: Popovers, elevated menus, dialogs
+
+    // ── Text & Typography Hierarchy ──
+    val text: String,                        // Primary foreground prose & headers
+    val mutedText: String,                   // Secondary metadata, word counts, subtitles
+    val subtleText: String = mutedText,      // Inactive hints, timestamps, subtle counters
+
+    // ── Brand & Interactive Accents ──
+    val accent: String,                      // Primary interactive controls & carets
+    val accentMuted: String = surface,       // Subtle badge & chip background fill
+    val selection: String,                   // Selection highlight tint
+
+    // ── Boundaries & Dividers ──
+    val border: String,                      // Legacy / fallback border token
+    val borderSubtle: String = border,       // Subtle 1px structural hairline
+    val borderProminent: String = accent,    // Active states, focus rings
+
+    // ── Editorial & Prose Lexer Semantics ──
+    val dialogueText: String = accent,       // Spoken dialogue highlighting
+    val monologueText: String = text,        // Internal thoughts & reflections
+    val headingText: String = accent,        // Chapter & scene headings
+
+    // ── Toolbars & Action Bars ──
+    val toolbar: String = surface,           // Action bar background
+    val toolbarText: String = text           // Action bar foreground
 )
 
 // @Stable (not @Immutable): AppTheme instances are replaced wholesale via copy()
