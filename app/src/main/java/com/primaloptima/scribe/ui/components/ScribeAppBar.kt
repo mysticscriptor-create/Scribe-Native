@@ -17,6 +17,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.primaloptima.scribe.ui.theme.AmbientZone
 import com.primaloptima.scribe.ui.theme.FrostedBarContent
 import com.primaloptima.scribe.ui.theme.LocalAccentColor
 import com.primaloptima.scribe.ui.theme.LocalBarBlurBitmap
@@ -311,6 +312,7 @@ fun ScribeBarIconButton(
         modifier = modifier.size(40.dp)
     ) {
         val (iconColor, iconMod) = rememberAdaptiveTextColor(
+            zone = AmbientZone.TOP_APP_BAR,
             fallback = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Icon(
@@ -380,6 +382,7 @@ fun ScribeTopBar(
     titleContent: (@Composable (titleModifier: Modifier) -> Unit)? = null,
 ) {
     val (titleColor, titleModifier) = rememberAdaptiveTextColor(
+        zone = AmbientZone.TOP_APP_BAR,
         fallback = MaterialTheme.colorScheme.onSurface
     )
 
@@ -391,6 +394,7 @@ fun ScribeTopBar(
                 modifier = Modifier.size(40.dp)
             ) {
                 val (iconColor, iconMod) = rememberAdaptiveTextColor(
+                    zone = AmbientZone.TOP_APP_BAR,
                     fallback = MaterialTheme.colorScheme.primary
                 )
                 Icon(
@@ -482,6 +486,7 @@ fun ScribeEditorTopBar(
     if (!visible) return
 
     val (titleColor, titleModifier) = rememberAdaptiveTextColor(
+        zone = AmbientZone.TOP_APP_BAR,
         fallback = MaterialTheme.colorScheme.onSurface
     )
 
@@ -492,6 +497,7 @@ fun ScribeEditorTopBar(
             modifier = Modifier.size(40.dp)
         ) {
             val (iconColor, iconMod) = rememberAdaptiveTextColor(
+                zone = AmbientZone.TOP_APP_BAR,
                 fallback = MaterialTheme.colorScheme.primary
             )
             Icon(

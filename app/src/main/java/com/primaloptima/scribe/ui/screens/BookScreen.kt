@@ -55,6 +55,7 @@ import com.primaloptima.scribe.ui.components.ScribeBarAction
 import com.primaloptima.scribe.ui.components.ScribeBarIconButton
 import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.frostedContainerColor
+import com.primaloptima.scribe.ui.theme.AmbientZone
 import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
 import com.primaloptima.scribe.ui.theme.rememberAdaptiveTextColor
 import com.primaloptima.scribe.util.BitmapBlur
@@ -314,6 +315,7 @@ fun BookScreen(
                         onNavigationClick = onBack,
                         titleContent      = { titleModifier ->
                             val (titleColor, adaptiveModifier) = rememberAdaptiveTextColor(
+                                zone = AmbientZone.TOP_APP_BAR,
                                 fallback = MaterialTheme.colorScheme.onSurface
                             )
                             val sharedMod = if (sharedTransitionScope != null && animatedContentScope != null && book != null) {

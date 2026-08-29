@@ -39,6 +39,7 @@ import com.primaloptima.scribe.ui.theme.LocalAccentColor
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.primaloptima.scribe.viewmodel.DashboardViewModel
 import com.primaloptima.scribe.viewmodel.StatsViewModel
+import com.primaloptima.scribe.ui.theme.AmbientZone
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.rememberAdaptiveTextColor
@@ -96,6 +97,7 @@ fun MainStatisticsTabContent(
                     onClick = { selectedTopTab = 0 },
                     text = {
                         val (tabColor, tabModifier) = rememberAdaptiveTextColor(
+                            zone = AmbientZone.TOP_APP_BAR,
                             fallback = MaterialTheme.colorScheme.onSurface
                         )
                         Text("Statistics", fontWeight = FontWeight.Bold, color = tabColor, modifier = tabModifier)
@@ -106,6 +108,7 @@ fun MainStatisticsTabContent(
                     onClick = { selectedTopTab = 1 },
                     text = {
                         val (tabColor, tabModifier) = rememberAdaptiveTextColor(
+                            zone = AmbientZone.TOP_APP_BAR,
                             fallback = MaterialTheme.colorScheme.onSurface
                         )
                         Text("Wordmap", fontWeight = FontWeight.Bold, color = tabColor, modifier = tabModifier)

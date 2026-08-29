@@ -65,6 +65,7 @@ import com.primaloptima.scribe.util.model.ThemeColors
 import com.primaloptima.scribe.ui.theme.autoTextColor
 import com.primaloptima.scribe.ui.theme.colorToPerceptualLightness
 import com.primaloptima.scribe.ui.theme.computeZonalLuminanceMatrix
+import com.primaloptima.scribe.ui.theme.computeZonalVarianceMatrix
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.ui.theme.FontHelper
 import com.primaloptima.scribe.ui.theme.FrostedDialog
@@ -135,6 +136,7 @@ fun ThemeEditScreen(
     // -1f means not yet computed (no image, or pre-existing theme).
     var bgLuminance by remember(originalTheme) { mutableFloatStateOf(originalTheme.savedBgLuminance) }
     var zonalLuminanceMatrix by remember(originalTheme) { mutableStateOf(originalTheme.savedZonalLuminance) }
+    var zonalVarianceMatrix by remember(originalTheme) { mutableStateOf(originalTheme.savedZonalVariance) }
 
     // Crop screen: shown after the user picks a new background image
     var showCropScreen by remember { mutableStateOf(false) }
@@ -218,6 +220,7 @@ fun ThemeEditScreen(
                                 emoji = emoji,
                                 savedBgLuminance = bgLuminance,
                                 savedZonalLuminance = zonalLuminanceMatrix,
+                                savedZonalVariance = zonalVarianceMatrix,
                                 colors = ThemeManager.deriveThemeColors(
                                     bgHex = bgHex,
                                     textHex = textHex,
@@ -784,6 +787,7 @@ fun ThemeEditScreen(
                         emoji = emoji,
                         savedBgLuminance = bgLuminance,
                         savedZonalLuminance = zonalLuminanceMatrix,
+                        savedZonalVariance = zonalVarianceMatrix,
                         colors = ThemeManager.deriveThemeColors(
                             bgHex = bgHex,
                             textHex = textHex,
@@ -847,6 +851,7 @@ fun ThemeEditScreen(
                                 emoji = emoji,
                                 savedBgLuminance = bgLuminance,
                                 savedZonalLuminance = zonalLuminanceMatrix,
+                                savedZonalVariance = zonalVarianceMatrix,
                                 colors = ThemeManager.deriveThemeColors(
                                     bgHex = bgHex,
                                     textHex = textHex,
@@ -957,9 +962,10 @@ fun ThemeEditScreen(
                     // and cause the text colour to auto-compute from the wrong luminance).
                     isLuminancePending = true
                     scope.launch {
-                        val (avgL, zonal) = computeBgAnalysis(context, croppedUri)
+                        val (avgL, zonal, variance) = computeBgAnalysis(context, croppedUri)
                         bgLuminance = avgL
                         zonalLuminanceMatrix = zonal
+                        zonalVarianceMatrix = variance
                         isLuminancePending = false
                     }
                 },
@@ -1909,22 +1915,22 @@ private fun ImageCropScreen(
  * Returns Pair(-1f, emptyList()) on any error so callers can treat it as "not computed".
  * This function is suspend so it must be called from a coroutine (e.g. scope.launch).
  */
-private suspend fun computeBgAnalysis(context: android.content.Context, imageUri: String): Pair<Float, List<Float>> {
+private suspend fun computeBgAnalysis(context: android.content.Context, imageUri: String): Triple<Float, List<Float>, List<Float>> {
     return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         try {
             val request = coil3.request.ImageRequest.Builder(context)
                 .data(imageUri)
-                .size(coil3.size.Size(32, 32))
+                .size(coil3.size.Size(48, 48))
                 .allowHardware(false) // getPixel() requires software bitmap config
                 .build()
             val bitmap = (coil3.ImageLoader(context).execute(request) as? coil3.request.SuccessResult)
                 ?.image
                 ?.let { (it as? coil3.BitmapImage)?.bitmap }
-                ?: return@withContext Pair(-1f, emptyList())
+                ?: return@withContext Triple(-1f, emptyList(), emptyList())
 
             val w = bitmap.width
             val h = bitmap.height
-            if (w == 0 || h == 0) return@withContext Pair(-1f, emptyList())
+            if (w == 0 || h == 0) return@withContext Triple(-1f, emptyList(), emptyList())
 
             var total = 0.0
             for (x in 0 until w) {
@@ -1935,10 +1941,11 @@ private suspend fun computeBgAnalysis(context: android.content.Context, imageUri
             }
             val avgL = (total / (w * h)).toFloat().coerceIn(0f, 1f)
             val zonal = computeZonalLuminanceMatrix(bitmap)
+            val zonalVar = computeZonalVarianceMatrix(bitmap)
             bitmap.recycle()
-            Pair(avgL, zonal)
+            Triple(avgL, zonal, zonalVar)
         } catch (_: Exception) {
-            Pair(-1f, emptyList())
+            Triple(-1f, emptyList(), emptyList())
         }
     }
 }

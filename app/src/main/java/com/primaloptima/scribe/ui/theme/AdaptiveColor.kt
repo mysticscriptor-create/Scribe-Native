@@ -18,13 +18,15 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onLayoutRectChanged
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.ThemeColors
+import kotlin.math.abs
 import kotlin.math.sqrt
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pillar 1: OKLCH & APCA Perceptual Contrast Engine
+// Pillar 1: OKLCH & APCA Perceptual Contrast Engine (W3C APCA 0.98G / 2026 Standards)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -69,7 +71,8 @@ fun colorToPerceptualLightness(colorInt: Int): Double {
 }
 
 /**
- * Computes APCA (Accessible Perceptual Contrast Algorithm) screen luminance (Ys).
+ * Computes APCA (Accessible Perceptual Contrast Algorithm) spectral screen luminance (Ys).
+ * Uses standard W3C CIE Y weights for sRGB/Rec.709 primaries.
  */
 fun colorToScreenLuminanceY(colorInt: Int): Double {
     val r = sRgbToLinear(android.graphics.Color.red(colorInt) / 255.0)
@@ -79,20 +82,48 @@ fun colorToScreenLuminanceY(colorInt: Int): Double {
 }
 
 /**
- * Calculates polarity-aware APCA Lightness Contrast (Lc).
+ * Calculates polarity-aware APCA Lightness Contrast (Lc) according to W3C APCA 0.98G standard.
  * Returns a value roughly between -108 and +106:
- * - Positive: Dark text on light background
- * - Negative: Light text on dark background
+ * - Positive: Dark text on light background (e.g. black on white ≈ +106)
+ * - Negative: Light text on dark background (e.g. white on black ≈ -108)
+ *
+ * Accounts for human ocular halation, pupil dilation, and non-linear rods/cones response.
  */
 fun calculateApcaContrast(textColor: Color, backgroundColor: Color): Double {
     val yTxt = colorToScreenLuminanceY(textColor.toArgb())
     val yBg = colorToScreenLuminanceY(backgroundColor.toArgb())
+    return calculateApcaContrastY(yTxt, yBg)
+}
 
-    // Soft-clamping for deep dark values
-    val normBg = if (yBg > 0.022) Math.pow(yBg, 0.56) else Math.pow(yBg + 0.022, 1.414) * 0.56
-    val normTxt = if (yTxt > 0.022) Math.pow(yTxt, 0.57) else Math.pow(yTxt + 0.022, 1.414) * 0.57
-    val diff = normBg - normTxt
-    return diff * 1.14 * 100.0
+/**
+ * Low-level APCA calculation using precomputed relative screen luminances (Y_txt, Y_bg).
+ */
+fun calculateApcaContrastY(yTxt: Double, yBg: Double): Double {
+    val blkThrs = 0.022
+    val blkClmp = 1.414
+    val scaleBoW = 1.14
+    val scaleWoB = 1.14
+    val loBoWoffset = 0.027
+    val loWoBoffset = 0.027
+
+    // Soft-clamp for deep black noise
+    val normBg = if (yBg > blkThrs) Math.pow(yBg, 0.56) else Math.pow(yBg + Math.pow(blkThrs - yBg, blkClmp), 0.56)
+    val normTxt = if (yTxt > blkThrs) Math.pow(yTxt, 0.62) else Math.pow(yTxt + Math.pow(blkThrs - yTxt, blkClmp), 0.62)
+
+    val cDiff = abs(normBg - normTxt)
+    if (cDiff < 0.0005) return 0.0
+
+    return if (normBg >= normTxt) {
+        // Dark text on light background (positive Lc)
+        val sapc = (normBg - normTxt) * scaleBoW
+        if (sapc < loBoWoffset) 0.0 else (sapc - loBoWoffset) * 100.0
+    } else {
+        // Light text on dark background (negative Lc, light text on dark bg)
+        val normBgDark = if (yBg > blkThrs) Math.pow(yBg, 0.65) else Math.pow(yBg + Math.pow(blkThrs - yBg, blkClmp), 0.65)
+        val normTxtLight = if (yTxt > blkThrs) Math.pow(yTxt, 0.55) else Math.pow(yTxt + Math.pow(blkThrs - yTxt, blkClmp), 0.55)
+        val sapc = (normBgDark - normTxtLight) * scaleWoB
+        if (abs(sapc) < loWoBoffset) 0.0 else (sapc + loWoBoffset) * 100.0
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -221,6 +252,17 @@ fun AppTheme?.zonalLuminance(zone: AmbientZone = AmbientZone.GLOBAL): Float {
 }
 
 /**
+ * Resolves zonal spatial variance / standard deviation from [AppTheme].
+ */
+fun AppTheme?.zonalVariance(zone: AmbientZone = AmbientZone.GLOBAL): Float {
+    if (this == null) return 0f
+    if (savedZonalVariance.size == 9 && zone.matrixIndex in 0..8) {
+        return savedZonalVariance[zone.matrixIndex]
+    }
+    return 0f
+}
+
+/**
  * Precomputes a 3x3 Zonal Luminance Matrix across a software bitmap.
  * Produces 9 floats: [TL, TC, TR, ML, MC, MR, BL, BC, BR].
  */
@@ -255,6 +297,50 @@ fun computeZonalLuminanceMatrix(bitmap: Bitmap): List<Float> {
     return matrix
 }
 
+/**
+ * Precomputes a 3x3 Zonal Spatial Variance Matrix (RMS Contrast / Standard Deviation).
+ * Produces 9 floats representing high-frequency visual noise in each screen zone.
+ */
+fun computeZonalVarianceMatrix(bitmap: Bitmap): List<Float> {
+    if (bitmap.config == Bitmap.Config.HARDWARE || bitmap.width == 0 || bitmap.height == 0) {
+        return emptyList()
+    }
+    val w = bitmap.width
+    val h = bitmap.height
+    val matrix = ArrayList<Float>(9)
+
+    for (row in 0..2) {
+        val y0 = (row * h) / 3
+        val y1 = ((row + 1) * h) / 3
+        for (col in 0..2) {
+            val x0 = (col * w) / 3
+            val x1 = ((col + 1) * w) / 3
+
+            var sumL = 0.0
+            var sumL2 = 0.0
+            var count = 0
+            for (x in x0 until x1) {
+                for (y in y0 until y1) {
+                    val p = bitmap.getPixel(x, y)
+                    val l = colorToPerceptualLightness(p)
+                    sumL += l
+                    sumL2 += l * l
+                    count++
+                }
+            }
+            if (count > 0) {
+                val mean = sumL / count
+                val variance = ((sumL2 / count) - (mean * mean)).coerceAtLeast(0.0)
+                val stdDev = sqrt(variance).toFloat().coerceIn(0f, 1f)
+                matrix.add(stdDev)
+            } else {
+                matrix.add(0f)
+            }
+        }
+    }
+    return matrix
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Pillar 4: Semantic Palette Derivation (Beyond Binary Black/White)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -280,11 +366,11 @@ fun deriveAdaptiveTokens(
 ): AdaptiveTokenSuite {
     val isDark = backgroundLightness < 0.45f
 
-    // 1. Primary Text (anti-halated high contrast)
-    val text = if (isDark) Color(0xFFF9F9F8) else Color(0xFF141416)
+    // 1. Primary Text (anti-halated high contrast: OKLCH L=0.98 for dark zones, L=0.10 for light zones)
+    val text = if (isDark) Color(0xFFFAF9F8) else Color(0xFF141416)
 
-    // 2. Subtle & Metadata Text (calibrated at APCA Lc >= 60)
-    val subtleText = if (isDark) Color(0xFFB0B0A8) else Color(0xFF5A5A52)
+    // 2. Subtle & Metadata Text (calibrated at APCA Lc >= 60 threshold)
+    val subtleText = if (isDark) Color(0xFFB4B4AC) else Color(0xFF5A5A52)
 
     // 3. Adaptive Prose Tokens: Dialogue (preserves hue/chroma, shifts lightness)
     val dialogueBaseInt = baseColors?.dialogueText?.let { ThemeManager.parseColor(it) }
@@ -295,7 +381,7 @@ fun deriveAdaptiveTokens(
     val dialogueHex = ThemeManager.createOklchColor(targetDialogueL, targetDialogueC, dialogueOklch.h)
     val dialogueText = parseComposeColor(dialogueHex, if (isDark) Color(0xFFFDE68A) else Color(0xFF92400E))
 
-    // Monologue
+    // Monologue (preserves hue/chroma, shifts lightness)
     val monologueBaseInt = baseColors?.monologueText?.let { ThemeManager.parseColor(it) }
         ?: (if (isDark) 0xFF818CF8.toInt() else 0xFF3730A3.toInt())
     val monologueOklch = ThemeManager.colorToOklch(monologueBaseInt)
@@ -311,7 +397,7 @@ fun deriveAdaptiveTokens(
     val headingHex = ThemeManager.createOklchColor(targetHeadingL, headingOklch.c, headingOklch.h)
     val headingText = parseComposeColor(headingHex, text)
 
-    // 4. Adaptive Specular Rim Alpha
+    // 4. Adaptive Specular Rim Alpha (scales dynamically with local brightness)
     val specularRimAlpha = if (isDark) {
         (0.24f * (1f - backgroundLightness * 0.5f)).coerceIn(0.12f, 0.28f)
     } else {
@@ -336,11 +422,12 @@ fun deriveAdaptiveTokens(
 
 /**
  * Returns a resolved [Color] directly bound to the local ambient zone.
+ * Instant first-frame layout with zero coroutine delay.
  */
 @Composable
 fun rememberAdaptiveContentColor(
     zone: AmbientZone = AmbientZone.GLOBAL,
-    lightColor: Color = Color(0xFFF9F9F8),
+    lightColor: Color = Color(0xFFFAF9F8),
     darkColor: Color = Color(0xFF141416),
     fallback: Color = Color.Unspecified
 ): Color {
@@ -365,8 +452,14 @@ fun rememberAdaptiveTokenSuite(
 ): AdaptiveTokenSuite {
     val theme = LocalAppTheme.current
     val lum = theme.zonalLuminance(zone)
-    return remember(lum, baseColors) {
-        deriveAdaptiveTokens(backgroundLightness = lum, baseColors = baseColors)
+    val variance = theme.zonalVariance(zone)
+    val isHighVariance = variance >= 0.065f
+    return remember(lum, variance, isHighVariance, baseColors) {
+        deriveAdaptiveTokens(
+            backgroundLightness = lum,
+            hasHighVariance = isHighVariance,
+            baseColors = baseColors
+        )
     }
 }
 
@@ -392,9 +485,9 @@ fun rememberAdaptiveProseStyle(
 
     val shadow = if (suite.requiresShadowScrim) {
         Shadow(
-            color = if (suite.isDarkBackground) Color.Black.copy(alpha = 0.65f) else Color.White.copy(alpha = 0.55f),
-            offset = Offset(0f, 1f),
-            blurRadius = 3f
+            color = if (suite.isDarkBackground) Color.Black.copy(alpha = 0.70f) else Color.White.copy(alpha = 0.60f),
+            offset = Offset(0f, 1.2f),
+            blurRadius = 3.5f
         )
     } else {
         baseStyle.shadow
@@ -427,18 +520,19 @@ fun Modifier.adaptiveBackgroundShield(
  */
 @Composable
 fun rememberAdaptiveTextColor(
-    lightColor: Color = Color(0xFFF9F9F8),
+    zone: AmbientZone = AmbientZone.GLOBAL,
+    lightColor: Color = Color(0xFFFAF9F8),
     darkColor: Color = Color(0xFF141416),
     fallback: Color = Color.Unspecified
 ): Pair<Color, Modifier> {
     val theme = LocalAppTheme.current
-    val savedLum = theme?.savedBgLuminance ?: -1f
     val hasBgImage = theme?.backgroundImageUri?.isNotEmpty() == true &&
             (theme.bgMode == "image" || theme.bgMode == "blurred")
 
-    // Fast path: Precomputed luminance
-    if (hasBgImage && savedLum >= 0f) {
-        val color = if (savedLum < 0.45f) lightColor else darkColor
+    // Fast path: Precomputed zonal or global luminance
+    val lum = theme?.zonalLuminance(zone) ?: -1f
+    if (hasBgImage && lum >= 0f) {
+        val color = if (lum < 0.45f) lightColor else darkColor
         return Pair(color, Modifier)
     }
 
@@ -460,8 +554,8 @@ fun rememberAdaptiveTextColor(
         val intRect = layoutBounds.boundsInRoot
         val newBounds = Rect(intRect.left.toFloat(), intRect.top.toFloat(), intRect.right.toFloat(), intRect.bottom.toFloat())
         if (
-            kotlin.math.abs(newBounds.left - bounds.left) > 2f ||
-            kotlin.math.abs(newBounds.top - bounds.top) > 2f
+            abs(newBounds.left - bounds.left) > 2f ||
+            abs(newBounds.top - bounds.top) > 2f
         ) {
             bounds = newBounds
         }

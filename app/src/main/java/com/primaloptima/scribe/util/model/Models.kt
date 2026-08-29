@@ -160,7 +160,12 @@ data class AppTheme(
      *  6: BL, 7: BC (Toolbar), 8: BR]
      * Enables zero-allocation instant first-frame adaptation for top bars, editor, and toolbars.
      */
-    val savedZonalLuminance: List<Float> = emptyList()
+    val savedZonalLuminance: List<Float> = emptyList(),
+    /**
+     * 3x3 Zonal Spatial Variance Matrix (RMS Contrast / Standard Deviation).
+     * High variance (>= 0.065) automatically activates directional contrast shadows and adaptive micro-scrims.
+     */
+    val savedZonalVariance: List<Float> = emptyList()
 )
 
 // ── SAF scan result ───────────────────────────────────────────────────────────
