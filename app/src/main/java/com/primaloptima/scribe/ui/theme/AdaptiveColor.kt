@@ -221,7 +221,7 @@ fun validateThemeSemanticContrast(
         SemanticContrastPair("Chart Series 2 on Surface", "Analytics", "Series 2", colors.analytics.series2, "Surface", colors.surfaces.surfaceRaised, 45.0, 3.0, false),
 
         // 7. Functional Borders & Dividers
-        SemanticContrastPair("Focus Ring on Surface", "Borders", "Focus Ring", colors.borders.focusRing, "Surface", colors.surfaces.surface, 45.0, 3.0, false),
+        SemanticContrastPair("Focus Ring on Surface", "Borders", "Focus Ring", colors.borders.prominent, "Surface", colors.surfaces.surface, 45.0, 3.0, false),
         SemanticContrastPair("Subtle Border on Surface", "Borders", "Border Subtle", colors.borders.subtle, "Surface", colors.surfaces.surface, 20.0, 1.3, false)
     )
 
