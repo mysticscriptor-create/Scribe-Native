@@ -275,12 +275,37 @@ class ThemeManager(private val context: Context) {
         ): ThemeColors {
             // ── Stage 1: Source Palette Ingestion ────────────────────────────────────
             val bgInt = parseColor(bgHex)
-            val textInt = parseColor(textHex)
+            var textInt = parseColor(textHex)
             val accentInt = parseColor(accentHex)
 
             val bgOklch = colorToOklch(bgInt)
-            val textOklch = colorToOklch(textInt)
+            var textOklch = colorToOklch(textInt)
             val accentOklch = colorToOklch(accentInt)
+
+            // Check if base theme's background was changed
+            val bgChangedFromBase = base != null && !bgHex.equals(base.background, ignoreCase = true)
+
+            // Polarity Auto-Adjustment: Ensure text color contrast against background
+            val effectiveTextHex: String
+            if (isDark) {
+                // Dark mode requires high lightness text (L >= 0.70)
+                if (textOklch.l < 0.50) {
+                    textOklch = Oklch(0.92, (textOklch.c * 0.4).coerceAtMost(0.04), textOklch.h)
+                    effectiveTextHex = oklchToHex(textOklch)
+                    textInt = parseColor(effectiveTextHex)
+                } else {
+                    effectiveTextHex = textHex
+                }
+            } else {
+                // Light mode requires low lightness text (L <= 0.35)
+                if (textOklch.l > 0.55) {
+                    textOklch = Oklch(0.18, (textOklch.c * 0.4).coerceAtMost(0.04), textOklch.h)
+                    effectiveTextHex = oklchToHex(textOklch)
+                    textInt = parseColor(effectiveTextHex)
+                } else {
+                    effectiveTextHex = textHex
+                }
+            }
 
             fun blend(c1: Int, c2: Int, ratio: Float): String {
                 val r = (Color.red(c1) * (1f - ratio) + Color.red(c2) * ratio).toInt().coerceIn(0, 255)
@@ -326,11 +351,11 @@ class ThemeManager(private val context: Context) {
                 // ── Stage 4: Structured Output Assembly ───────────────────────────────
                 ThemeColors(
                     background = bgHex,
-                    surfaceLowest = base?.surfaceLowest?.takeIf { it != base.background } ?: surfaceLowest,
+                    surfaceLowest = if (bgChangedFromBase) surfaceLowest else (base?.surfaceLowest?.takeIf { it != base.background } ?: surfaceLowest),
                     surface = surface,
-                    surfaceRaised = base?.surfaceRaised?.takeIf { it != base.surface } ?: surfaceRaised,
-                    surfaceOverlay = base?.surfaceOverlay?.takeIf { it != base.surface } ?: surfaceOverlay,
-                    text = textHex,
+                    surfaceRaised = if (bgChangedFromBase) surfaceRaised else (base?.surfaceRaised?.takeIf { it != base.surface } ?: surfaceRaised),
+                    surfaceOverlay = if (bgChangedFromBase) surfaceOverlay else (base?.surfaceOverlay?.takeIf { it != base.surface } ?: surfaceOverlay),
+                    text = effectiveTextHex,
                     mutedText = mutedText,
                     subtleText = subtleText,
                     accent = accentHex,
@@ -342,14 +367,14 @@ class ThemeManager(private val context: Context) {
                     specialHighlight = base?.specialHighlight?.takeIf { it.isNotEmpty() } ?: specialHighlightDefault,
                     accentMuted = accentMuted,
                     selection = selection,
-                    border = borderSubtle,
-                    borderSubtle = borderSubtle,
+                    border = if (bgChangedFromBase) borderSubtle else (base?.borderSubtle ?: borderSubtle),
+                    borderSubtle = if (bgChangedFromBase) borderSubtle else (base?.borderSubtle ?: borderSubtle),
                     borderProminent = borderProminent,
                     dialogueText = base?.dialogueText?.takeIf { it != base.accent } ?: dialogueDefault,
                     monologueText = base?.monologueText?.takeIf { it != base.text } ?: monologueDefault,
                     headingText = accentHex,
                     toolbar = surface,
-                    toolbarText = textHex
+                    toolbarText = effectiveTextHex
                 )
             } else {
                 // Light Mode Elevation Ramp
@@ -388,11 +413,11 @@ class ThemeManager(private val context: Context) {
                 // ── Stage 4: Structured Output Assembly ───────────────────────────────
                 ThemeColors(
                     background = bgHex,
-                    surfaceLowest = base?.surfaceLowest?.takeIf { it != base.background } ?: surfaceLowest,
+                    surfaceLowest = if (bgChangedFromBase) surfaceLowest else (base?.surfaceLowest?.takeIf { it != base.background } ?: surfaceLowest),
                     surface = surface,
-                    surfaceRaised = base?.surfaceRaised?.takeIf { it != base.surface } ?: surfaceRaised,
-                    surfaceOverlay = base?.surfaceOverlay?.takeIf { it != base.surface } ?: surfaceOverlay,
-                    text = textHex,
+                    surfaceRaised = if (bgChangedFromBase) surfaceRaised else (base?.surfaceRaised?.takeIf { it != base.surface } ?: surfaceRaised),
+                    surfaceOverlay = if (bgChangedFromBase) surfaceOverlay else (base?.surfaceOverlay?.takeIf { it != base.surface } ?: surfaceOverlay),
+                    text = effectiveTextHex,
                     mutedText = mutedText,
                     subtleText = subtleText,
                     accent = accentHex,
@@ -404,14 +429,14 @@ class ThemeManager(private val context: Context) {
                     specialHighlight = base?.specialHighlight?.takeIf { it.isNotEmpty() } ?: specialHighlightDefault,
                     accentMuted = accentMuted,
                     selection = selection,
-                    border = borderSubtle,
-                    borderSubtle = borderSubtle,
+                    border = if (bgChangedFromBase) borderSubtle else (base?.borderSubtle ?: borderSubtle),
+                    borderSubtle = if (bgChangedFromBase) borderSubtle else (base?.borderSubtle ?: borderSubtle),
                     borderProminent = borderProminent,
                     dialogueText = base?.dialogueText?.takeIf { it != base.accent } ?: dialogueDefault,
                     monologueText = base?.monologueText?.takeIf { it != base.text } ?: monologueDefault,
                     headingText = accentHex,
                     toolbar = surface,
-                    toolbarText = textHex
+                    toolbarText = effectiveTextHex
                 )
             }
         }
