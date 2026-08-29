@@ -584,13 +584,13 @@ fun BookScreen(
                                                 Icons.Outlined.Description,
                                                 contentDescription = null,
                                                 modifier           = Modifier.size(56.dp),
-                                                tint               = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                                                tint               = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                                             )
                                             Spacer(modifier = Modifier.height(12.dp))
                                             Text(
                                                 "No notes in ${if (currentPath == "/") "Main" else currentPath}",
                                                 fontSize = 15.sp,
-                                                color    = MaterialTheme.colorScheme.outline
+                                                color    = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                     }
@@ -919,7 +919,7 @@ fun BookScreen(
                         Text(
                             text     = "Separate each tag with a comma.",
                             fontSize = 12.sp,
-                            color    = MaterialTheme.colorScheme.outline
+                            color    = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },
@@ -951,7 +951,7 @@ private fun BookInfoHeader(
     val context     = LocalContext.current
     val accentColor = LocalAccentColor.current
     val onSurface   = MaterialTheme.colorScheme.onSurface
-    val outline     = MaterialTheme.colorScheme.outline
+    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
     val surface     = MaterialTheme.colorScheme.surface
 
     val sharedTransitionScope = LocalSharedTransitionScope.current
@@ -1102,7 +1102,7 @@ private fun BookInfoHeader(
                         Text(
                             text      = "Tap ··· to add genre tags",
                             fontSize  = 12.sp,
-                            color     = outline.copy(alpha = 0.6f),
+                            color     = onSurfaceVariant.copy(alpha = 0.7f),
                             fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
                         )
                     }
@@ -1113,8 +1113,8 @@ private fun BookInfoHeader(
                         verticalAlignment     = Alignment.CenterVertically
                     ) {
                         StatChip(Icons.Outlined.TextFields, formatWordCount(totalWords), accentColor)
-                        StatChip(Icons.Outlined.Description, "$fileCount", outline)
-                        StatChip(Icons.Outlined.Folder, "$folderCount", outline)
+                        StatChip(Icons.Outlined.Description, "$fileCount", onSurfaceVariant)
+                        StatChip(Icons.Outlined.Folder, "$folderCount", onSurfaceVariant)
                     }
                 }
             }
@@ -1257,7 +1257,7 @@ private fun NoteListRowStateless(
 private fun BookStatisticsTab(notes: List<Note>, bookTitle: String) {
     val accentColor = LocalAccentColor.current
     val onSurface   = MaterialTheme.colorScheme.onSurface
-    val outline     = MaterialTheme.colorScheme.outline
+    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
 
     val totalWords = remember(notes) { notes.sumOf { it.wordCount } }
     val scoredNotes = remember(notes) {
@@ -1281,14 +1281,14 @@ private fun BookStatisticsTab(notes: List<Note>, bookTitle: String) {
                 ScribeCard(modifier = Modifier.weight(1f), cornerRadius = ScribeCardTokens.RadiusMedium, accentBorder = true, shine = true) {
                     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(text = "${notes.size}", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = onSurface)
-                        Text(text = "Total Files", fontSize = 12.sp, color = outline)
+                        Text(text = "Total Files", fontSize = 12.sp, color = onSurfaceVariant)
                     }
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 ScribeCard(modifier = Modifier.weight(1f), cornerRadius = ScribeCardTokens.RadiusMedium, accentBorder = true, shine = true) {
                     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(text = "$totalWords", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = accentColor)
-                        Text(text = "Total Words", fontSize = 12.sp, color = outline)
+                        Text(text = "Total Words", fontSize = 12.sp, color = onSurfaceVariant)
                     }
                 }
             }
@@ -1297,7 +1297,7 @@ private fun BookStatisticsTab(notes: List<Note>, bookTitle: String) {
         ScribeContentCard(title = "Files Word Count Ranking") {
             if (scoredNotes.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                    Text("No files in this book", color = outline)
+                    Text("No files in this book", color = onSurfaceVariant)
                 }
             } else {
                 scoredNotes.forEachIndexed { index, (note, count) ->
@@ -1317,7 +1317,7 @@ private fun BookStatisticsTab(notes: List<Note>, bookTitle: String) {
                             }
                             Text(text = "$count words", fontSize = 12.sp, color = accentColor, fontWeight = FontWeight.Medium)
                         }
-                        Text(text = "Folder: ${note.folderPath}", fontSize = 11.sp, color = outline)
+                        Text(text = "Folder: ${note.folderPath}", fontSize = 11.sp, color = onSurfaceVariant)
                         ScribeProgressBar(progress = ratio, modifier = Modifier.fillMaxWidth().height(6.dp))
                     }
                 }
@@ -1339,7 +1339,7 @@ private fun NoteListRow(
     var showMenu    by remember { mutableStateOf(false) }
     val accentColor = LocalAccentColor.current
     val onSurface   = MaterialTheme.colorScheme.onSurface
-    val outline     = MaterialTheme.colorScheme.outline
+    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
 
     val wordLabel   = remember(note.wordCount) { formatWordCount(note.wordCount) }
     val previewText = remember(note.content) {
@@ -1424,11 +1424,11 @@ private fun NoteListRow(
                 verticalAlignment     = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Outlined.CalendarToday, contentDescription = null, modifier = Modifier.size(11.dp), tint = outline.copy(alpha = 0.6f))
-                Text(createdStr, fontSize = 11.sp, color = outline.copy(alpha = 0.6f))
-                Text("·", fontSize = 11.sp, color = outline.copy(alpha = 0.4f))
-                Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(11.dp), tint = outline.copy(alpha = 0.6f))
-                Text(modifiedStr, fontSize = 11.sp, color = outline.copy(alpha = 0.6f))
+                Icon(Icons.Outlined.CalendarToday, contentDescription = null, modifier = Modifier.size(11.dp), tint = onSurfaceVariant.copy(alpha = 0.7f))
+                Text(createdStr, fontSize = 11.sp, color = onSurfaceVariant.copy(alpha = 0.7f))
+                Text("·", fontSize = 11.sp, color = onSurfaceVariant.copy(alpha = 0.5f))
+                Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(11.dp), tint = onSurfaceVariant.copy(alpha = 0.7f))
+                Text(modifiedStr, fontSize = 11.sp, color = onSurfaceVariant.copy(alpha = 0.7f))
             }
         }
     }

@@ -147,13 +147,13 @@ private fun AddChoiceItem(
                 Text(
                     text = subtitle,
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.outline
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
             Icon(
                 imageVector = Icons.Default.ChevronRight,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.outline
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -335,7 +335,7 @@ fun AddFileSheet(
                         ) {
                             Text(
                                 text = "No notes found",
-                                color = MaterialTheme.colorScheme.outline,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 14.sp
                             )
                         }
@@ -377,7 +377,7 @@ fun AddFileSheet(
                                         Text(
                                             text = note.content.take(80).replace('\n', ' '),
                                             fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.outline,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
@@ -518,7 +518,7 @@ fun AddWorldSheetModal(
                         ) {
                             Text(
                                 text = "No world sheets found",
-                                color = MaterialTheme.colorScheme.outline,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 14.sp
                             )
                         }
@@ -575,7 +575,7 @@ fun AddWorldSheetModal(
                                         Text(
                                             text = entry.summary,
                                             fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.outline,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
@@ -649,7 +649,7 @@ fun SectionAppearanceSheet(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.8.sp,
-                        color = MaterialTheme.colorScheme.outline,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
 
@@ -681,7 +681,7 @@ fun SectionAppearanceSheet(
                                 ) {
                                     Canvas(modifier = Modifier.size(20.dp)) {
                                         if (colorEnum == PaneAccentColor.NONE) {
-                                            drawCircle(
+                                             drawCircle(
                                                 color = borderSubtle,
                                                 radius = size.minDimension / 2 - 1.dp.toPx(),
                                                 style = Stroke(width = 1.5.dp.toPx())
@@ -721,7 +721,7 @@ fun SectionAppearanceSheet(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.8.sp,
-                        color = MaterialTheme.colorScheme.outline,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
 
@@ -745,7 +745,7 @@ fun SectionAppearanceSheet(
                                     Text(
                                         text = "Show shelf title chip",
                                         fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.outline
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                                 Switch(
@@ -775,7 +775,7 @@ fun SectionAppearanceSheet(
                                     Text(
                                         text = "Show bottom status & buttons",
                                         fontSize = 11.sp,
-                                        color = MaterialTheme.colorScheme.outline
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                                 Switch(
@@ -844,7 +844,7 @@ fun SectionScopeSheet(
             Text(
                 text = "This section is scoped to '$currentScopeTitle' and appears throughout this $currentScopeType.",
                 fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.outline
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
             Spacer(Modifier.height(16.dp))
@@ -854,7 +854,7 @@ fun SectionScopeSheet(
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 0.8.sp,
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 6.dp)
             )
 
@@ -912,7 +912,7 @@ fun SectionScopeSheet(
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 0.8.sp,
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 6.dp)
             )
 
@@ -950,7 +950,7 @@ fun SectionScopeSheet(
                 Text(
                     text = "No secondary locations added.",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.outline,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 4.dp)
                 )
             }
@@ -1044,7 +1044,7 @@ fun AddSectionSheet(
             Text(
                 text = "Choose the scope for this new shelf section",
                 fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
 
@@ -1103,7 +1103,7 @@ fun WorkbenchSettingsSheet(
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 0.8.sp,
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
 
@@ -1149,7 +1149,7 @@ fun WorkbenchSettingsSheet(
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 0.8.sp,
-                color = MaterialTheme.colorScheme.outline,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
 
@@ -1248,7 +1248,7 @@ fun OutOfScopeRestoreSheet(
                     Text(
                         text = "The section will return to its original scope when you leave this note.",
                         fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.outline,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
                     )
 
@@ -1266,7 +1266,7 @@ fun OutOfScopeRestoreSheet(
                     Text(
                         text = "Adds this note's scope (${activeNote?.name ?: "Current Note"}) as a secondary location.",
                         fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.outline,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 4.dp)
                     )
                 }

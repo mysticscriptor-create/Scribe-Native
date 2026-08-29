@@ -965,6 +965,7 @@ fun ScribeComposeTheme(
     val configuredAccent = parseComposeColor(resolvedTheme.colors.accent, Color(0xFF333333))
     val border = parseComposeColor(resolvedTheme.colors.border, Color(0xFFE0E0D8))
     val borderSubtle = parseComposeColor(resolvedTheme.colors.borderSubtle, border)
+    val borderProminentResolved = parseComposeColor(resolvedTheme.colors.borderProminent, border)
     val surfaceVariant = surfaceRaised
 
     val bgLum = resolvedTheme.savedBgLuminance
@@ -996,6 +997,35 @@ fun ScribeComposeTheme(
         else -> configuredText
     }
 
+    val subtleTextResolved = parseComposeColor(resolvedTheme.colors.subtleText, text.copy(alpha = 0.6f))
+    val mutedTextResolved = parseComposeColor(resolvedTheme.colors.mutedText, text.copy(alpha = 0.75f))
+    val disabledTextResolved = text.copy(alpha = 0.38f)
+
+    val secondaryColor = parseComposeColor(
+        resolvedTheme.colors.secondary,
+        if (resolvedTheme.isDark) Color(0xFFA58BEA) else Color(0xFF6366F1)
+    )
+    val tertiaryColor = parseComposeColor(
+        resolvedTheme.colors.tertiary,
+        if (resolvedTheme.isDark) Color(0xFF63D5D0) else Color(0xFF0D9488)
+    )
+
+    val successResolved = parseComposeColor(
+        resolvedTheme.colors.success,
+        if (resolvedTheme.isDark) Color(0xFF55D18A) else Color(0xFF2E7D32)
+    )
+    val warningResolved = parseComposeColor(
+        resolvedTheme.colors.warning,
+        if (resolvedTheme.isDark) Color(0xFFFFC857) else Color(0xFFD97706)
+    )
+    val errorResolved = parseComposeColor(
+        resolvedTheme.colors.error,
+        if (resolvedTheme.isDark) Color(0xFFFF6B7A) else Color(0xFFDC2626)
+    )
+    val infoResolved = tertiaryColor
+
+    val accentMutedResolved = parseComposeColor(resolvedTheme.colors.accentMuted, surface)
+
     // ── Accent colour resolution ──────────────────────────────────────────────
     // Use adaptiveAccentColor with savedBgLuminance so it contrasts the real image,
     // not the theme surface. This is now used for the full color scheme (accentIcons),
@@ -1015,15 +1045,13 @@ fun ScribeComposeTheme(
         lightColorScheme(
             primary = accentIcons,
             onPrimary = onPrimaryColor,
-            primaryContainer = surface,
+            primaryContainer = accentMutedResolved,
             onPrimaryContainer = text,
-            secondary = accentIcons,
+            secondary = secondaryColor,
             onSecondary = onPrimaryColor,
-            // KEY: secondaryContainer was unset → M3 default is purple(#E8DEF8)
-            // Setting it to surfaceVariant gives a themed, warm tint instead.
             secondaryContainer = surfaceVariant,
             onSecondaryContainer = text,
-            tertiary = accentIcons,
+            tertiary = tertiaryColor,
             onTertiary = onPrimaryColor,
             tertiaryContainer = surfaceVariant,
             onTertiaryContainer = text,
@@ -1032,34 +1060,35 @@ fun ScribeComposeTheme(
             surface = surface,
             onSurface = text,
             surfaceVariant = surfaceVariant,
-            onSurfaceVariant = text,
+            onSurfaceVariant = mutedTextResolved,
             surfaceContainerLowest = surfaceLowest,
             surfaceContainerLow = bg,
             surfaceContainer = surface,
             surfaceContainerHigh = surfaceRaised,
-            // KEY: surfaceContainerHighest was unset → M3 default is lavender(#E6E0E9)
-            // Card() in BOM 2026.06.00 uses this slot by default.
             surfaceContainerHighest = surfaceOverlay,
-            // Keep tonal surface tint on-theme (prevents extra purple tinting)
             surfaceTint = accentIcons,
             inverseSurface = text,
             inverseOnSurface = bg,
             inversePrimary = accentIcons,
-            outline = borderSubtle,
+            outline = borderProminentResolved,
             outlineVariant = borderSubtle,
-            scrim = Color.Black.copy(alpha = 0.32f)
+            scrim = Color.Black.copy(alpha = 0.32f),
+            error = errorResolved,
+            onError = autoTextColor(errorResolved),
+            errorContainer = errorResolved.copy(alpha = 0.12f),
+            onErrorContainer = Color(0xFF991B1B)
         )
     } else {
         darkColorScheme(
             primary = accentIcons,
             onPrimary = onPrimaryColor,
-            primaryContainer = surface,
-            onPrimaryContainer = text,
-            secondary = accentIcons,
+            primaryContainer = accentMutedResolved,
+            onPrimaryContainer = Color.White,
+            secondary = secondaryColor,
             onSecondary = onPrimaryColor,
             secondaryContainer = surfaceVariant,
             onSecondaryContainer = text,
-            tertiary = accentIcons,
+            tertiary = tertiaryColor,
             onTertiary = onPrimaryColor,
             tertiaryContainer = surfaceVariant,
             onTertiaryContainer = text,
@@ -1068,7 +1097,7 @@ fun ScribeComposeTheme(
             surface = surface,
             onSurface = text,
             surfaceVariant = surfaceVariant,
-            onSurfaceVariant = text,
+            onSurfaceVariant = mutedTextResolved,
             surfaceContainerLowest = surfaceLowest,
             surfaceContainerLow = bg,
             surfaceContainer = surface,
@@ -1078,9 +1107,13 @@ fun ScribeComposeTheme(
             inverseSurface = text,
             inverseOnSurface = bg,
             inversePrimary = accentIcons,
-            outline = borderSubtle,
+            outline = borderProminentResolved,
             outlineVariant = borderSubtle,
-            scrim = Color.Black.copy(alpha = 0.32f)
+            scrim = Color.Black.copy(alpha = 0.32f),
+            error = errorResolved,
+            onError = autoTextColor(errorResolved),
+            errorContainer = errorResolved.copy(alpha = 0.16f),
+            onErrorContainer = errorResolved
         )
     }
 
@@ -1105,6 +1138,7 @@ fun ScribeComposeTheme(
     val animSurfaceVariant by animateColorAsState(rawColorScheme.surfaceVariant, animSpec, label = "surfaceVariant")
     val animOnSurfaceVariant by animateColorAsState(rawColorScheme.onSurfaceVariant, animSpec, label = "onSurfaceVariant")
     val animOutline by animateColorAsState(rawColorScheme.outline, animSpec, label = "outline")
+    val animOutlineVariant by animateColorAsState(rawColorScheme.outlineVariant, animSpec, label = "outlineVariant")
 
     val showWholeAppBg = resolvedTheme.themeScope == "whole_app" && hasBgImage
 
@@ -1125,13 +1159,13 @@ fun ScribeComposeTheme(
     val animatedColorScheme = rawColorScheme.copy(
         primary = animPrimary,
         onPrimary = animOnPrimary,
-        primaryContainer = glassySurface,
+        primaryContainer = accentMutedResolved,
         onPrimaryContainer = animOnSurface,
-        secondary = animPrimary,
+        secondary = secondaryColor,
         onSecondary = animOnPrimary,
         secondaryContainer = glassySurfaceVariant,
         onSecondaryContainer = animOnSurface,
-        tertiary = animPrimary,
+        tertiary = tertiaryColor,
         onTertiary = animOnPrimary,
         tertiaryContainer = glassySurfaceVariant,
         onTertiaryContainer = animOnSurface,
@@ -1147,7 +1181,7 @@ fun ScribeComposeTheme(
         surfaceContainerHigh = glassySurfaceRaised,
         surfaceContainerHighest = glassySurfaceOverlay,
         outline = animOutline,
-        outlineVariant = animOutline
+        outlineVariant = animOutlineVariant
     )
 
     // enableEdgeToEdge() (called in each Activity) owns bar transparency.
@@ -1313,33 +1347,6 @@ fun ScribeComposeTheme(
 
     var rootDimensions by remember { mutableStateOf(Pair(screenWidthPx, screenHeightPx)) }
     val menuHostState = remember { InWindowMenuHostState() }
-
-    val subtleTextResolved = parseComposeColor(resolvedTheme.colors.subtleText, text.copy(alpha = 0.6f))
-    val mutedTextResolved = parseComposeColor(resolvedTheme.colors.mutedText, text.copy(alpha = 0.75f))
-    val disabledTextResolved = text.copy(alpha = 0.38f)
-
-    val secondaryColor = parseComposeColor(
-        resolvedTheme.colors.secondary,
-        if (resolvedTheme.isDark) Color(0xFFA58BEA) else Color(0xFF6366F1)
-    )
-    val tertiaryColor = parseComposeColor(
-        resolvedTheme.colors.tertiary,
-        if (resolvedTheme.isDark) Color(0xFF63D5D0) else Color(0xFF0D9488)
-    )
-
-    val successResolved = parseComposeColor(
-        resolvedTheme.colors.success,
-        if (resolvedTheme.isDark) Color(0xFF55D18A) else Color(0xFF2E7D32)
-    )
-    val warningResolved = parseComposeColor(
-        resolvedTheme.colors.warning,
-        if (resolvedTheme.isDark) Color(0xFFFFC857) else Color(0xFFD97706)
-    )
-    val errorResolved = parseComposeColor(
-        resolvedTheme.colors.error,
-        if (resolvedTheme.isDark) Color(0xFFFF6B7A) else Color(0xFFDC2626)
-    )
-    val infoResolved = tertiaryColor
 
     val dialogueResolved = parseComposeColor(resolvedTheme.colors.dialogueText, accentIcons)
     val monologueResolved = parseComposeColor(resolvedTheme.colors.monologueText, text)

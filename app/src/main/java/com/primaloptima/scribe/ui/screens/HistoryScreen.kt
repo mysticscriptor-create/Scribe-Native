@@ -139,7 +139,7 @@ fun HistoryScreen(
                 if (hasLoaded) {
                     Text(
                         "No saved versions for this note yet.",
-                        color = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.outline
+                        color = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -225,7 +225,7 @@ fun HistoryScreen(
                                         val deltaColor = when {
                                             deltaStr.startsWith("+") -> Color(0xFF388E3C)
                                             deltaStr.startsWith("-") -> MaterialTheme.colorScheme.error
-                                            else -> if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.outline
+                                            else -> if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurfaceVariant
                                         }
                                         Text(
                                             deltaStr,
@@ -267,7 +267,7 @@ fun HistoryScreen(
                         Text(
                             dateStr,
                             fontSize = 12.sp,
-                            color = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.outline
+                            color = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 },

@@ -356,7 +356,7 @@ fun Workbench(
                                         Icon(
                                             Icons.Default.VerticalSplit,
                                             contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                             modifier = Modifier.size(40.dp)
                                         )
                                         Spacer(Modifier.height(8.dp))
@@ -370,7 +370,7 @@ fun Workbench(
                                         Text(
                                             "Tap an edge tab to restore a section",
                                             fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.outline
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 }
@@ -1318,7 +1318,7 @@ fun Workbench(
                                 Text(
                                     text = if (focusEditMode) "Editing mode" else "Focus view · Read only",
                                     fontSize = 11.sp,
-                                    color = if (focusEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                    color = if (focusEditMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         },
@@ -1400,7 +1400,7 @@ fun Workbench(
                         )
                     } else {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text("No note selected", color = MaterialTheme.colorScheme.outline)
+                            Text("No note selected", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -1654,7 +1654,7 @@ fun Workbench(
                                     )
                                     Spacer(Modifier.width(10.dp))
                                     Text(pane.label, fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                                    Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.outline)
+                                    Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                         }
@@ -1760,7 +1760,7 @@ private fun SpatialDropZoneCard(
                     text = subLabel,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Normal,
-                    color = if (isHighlighted) accentColor else MaterialTheme.colorScheme.outline,
+                    color = if (isHighlighted) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
                     textAlign = TextAlign.Center
                 )
             }

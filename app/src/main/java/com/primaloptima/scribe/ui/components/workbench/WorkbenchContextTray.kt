@@ -225,7 +225,7 @@ fun WorkbenchContextTray(
                                 Icons.Default.DeleteOutline,
                                 contentDescription = null,
                                 modifier = Modifier.size(15.dp),
-                                tint = if (removeMode) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
+                                tint = if (removeMode) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(Modifier.width(4.dp))
                             Text(if (removeMode) "Done" else "Remove", fontSize = 12.sp)

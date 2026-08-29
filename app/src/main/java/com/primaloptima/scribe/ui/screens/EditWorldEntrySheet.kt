@@ -301,7 +301,7 @@ fun EditWorldEntrySheet(
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("Tags & Keywords", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
-                            Text("Separate with commas", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                            Text("Separate with commas", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
 
                         // Tags cloud
@@ -368,7 +368,7 @@ fun EditWorldEntrySheet(
                 ) {
                     Column {
                         Text("World Attributes & Details", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Text("Drag or use arrows to reorder. Commas create pills.", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                        Text("Drag or use arrows to reorder. Commas create pills.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     FilledTonalButton(
                         onClick = {

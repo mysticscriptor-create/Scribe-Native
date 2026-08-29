@@ -70,7 +70,7 @@ fun SettingsScreen(
 
     var showGoalDialog by remember { mutableStateOf(false) }
 
-    val subtleColor = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.outline
+    val subtleColor = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurfaceVariant
 
     Scaffold(
         containerColor = Color.Transparent,

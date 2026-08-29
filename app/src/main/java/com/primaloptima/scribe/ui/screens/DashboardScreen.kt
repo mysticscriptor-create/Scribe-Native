@@ -707,7 +707,6 @@ private fun WritingProgressCard(
     val streakDots    = weekData.map { (label, count, _) -> Pair(label, count > 0) }
     val goalMet       = dailyGoal > 0 && todayWords >= dailyGoal
     val onSurface     = MaterialTheme.colorScheme.onSurface
-    val outline       = MaterialTheme.colorScheme.outline
 
     ScribeContentCard(
         title        = "Your Progress",
@@ -1022,7 +1021,7 @@ private fun CompactChapterRow(
     onClick: () -> Unit
 ) {
     val onSurface = MaterialTheme.colorScheme.onSurface
-    val outline   = MaterialTheme.colorScheme.outline
+    val outlineVariant = MaterialTheme.colorScheme.outlineVariant
 
     Column {
         Row(
@@ -1100,7 +1099,7 @@ private fun CompactChapterRow(
         if (showDivider) {
             HorizontalDivider(
                 modifier = Modifier.padding(start = 60.dp, end = 14.dp),
-                color    = outline.copy(alpha = 0.07f)
+                color    = outlineVariant.copy(alpha = 0.35f)
             )
         }
     }
@@ -1294,7 +1293,7 @@ private fun BookPickerSheet(
                     contentAlignment = Alignment.Center
                 ) {
                     Text("No books yet. Create a book first.",
-                        color = MaterialTheme.colorScheme.outline)
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
                 books.forEach { book ->

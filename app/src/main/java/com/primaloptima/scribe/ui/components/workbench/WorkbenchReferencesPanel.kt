@@ -54,7 +54,7 @@ fun WorkbenchReferencesPanel(
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 0.8.sp,
-                    color = MaterialTheme.colorScheme.outline
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 IconButton(
                     onClick = onCollapse,
@@ -100,7 +100,7 @@ fun WorkbenchReferencesPanel(
                                     Icon(
                                         imageVector = Icons.Default.KeyboardArrowUp,
                                         contentDescription = "Move Up",
-                                        tint = MaterialTheme.colorScheme.outline,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier
                                             .size(14.dp)
                                             .clickable { onReorderNote(idx, idx - 1) }
@@ -110,7 +110,7 @@ fun WorkbenchReferencesPanel(
                                     Icon(
                                         imageVector = Icons.Default.KeyboardArrowDown,
                                         contentDescription = "Move Down",
-                                        tint = MaterialTheme.colorScheme.outline,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier
                                             .size(14.dp)
                                             .clickable { onReorderNote(idx, idx + 1) }
@@ -137,7 +137,7 @@ fun WorkbenchReferencesPanel(
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Unpin",
-                                    tint = MaterialTheme.colorScheme.outline,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(14.dp)
                                 )
                             }

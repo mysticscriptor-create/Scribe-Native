@@ -116,7 +116,7 @@ fun TagFilterSheet(
                 ) {
                     Text(
                         text = "No tags added to any sheets yet.\nAdd tags when editing characters or locations!",
-                        color = MaterialTheme.colorScheme.outline,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         fontSize = 13.sp
                     )
@@ -130,7 +130,7 @@ fun TagFilterSheet(
                 ) {
                     Text(
                         text = "No tags matching \"$tagSearchQuery\"",
-                        color = MaterialTheme.colorScheme.outline,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 13.sp
                     )
                 }

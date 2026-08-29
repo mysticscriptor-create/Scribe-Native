@@ -619,7 +619,7 @@ fun ThemeEditScreen(
                                         Text(
                                             text = fontOpt.name,
                                             fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.outline
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
                                 }
@@ -992,7 +992,7 @@ private fun SectionHeader(title: String) {
             text = title.uppercase(),
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.outline,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             letterSpacing = 1.sp
         )
     }
@@ -1044,7 +1044,7 @@ private fun ColorTile(
         }
         Spacer(modifier = Modifier.height(4.dp))
         Text(label, fontWeight = FontWeight.Medium, fontSize = 12.sp)
-        Text(hex, fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+        Text(hex, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

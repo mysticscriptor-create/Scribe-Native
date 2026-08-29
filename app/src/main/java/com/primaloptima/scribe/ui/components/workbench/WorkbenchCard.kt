@@ -219,7 +219,7 @@ fun WorkbenchCard(
                 Text("Pin a reference note", fontSize = 13.sp, fontWeight = FontWeight.Medium,
                      color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(3.dp))
-                Text("Tap to add notes or world sheets", fontSize = 11.sp, color = MaterialTheme.colorScheme.outline)
+                Text("Tap to add notes or world sheets", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
             val currentNoteState by rememberUpdatedState(currentNote)
@@ -363,14 +363,14 @@ fun WorkbenchCard(
                                     Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                                     contentDescription = "Previous note",
                                     modifier = Modifier.size(14.dp),
-                                    tint = MaterialTheme.colorScheme.outline
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                             Spacer(Modifier.width(2.dp))
                             Text(
                                 "${pinnedIndex + 1}/${pinnedIds.size}",
                                 fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.outline
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(Modifier.width(2.dp))
                             Box(
@@ -384,7 +384,7 @@ fun WorkbenchCard(
                                     Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                     contentDescription = "Next note",
                                     modifier = Modifier.size(14.dp),
-                                    tint = MaterialTheme.colorScheme.outline
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -418,7 +418,7 @@ fun WorkbenchCard(
                                     Icons.Default.MoreVert,
                                     contentDescription = "Options",
                                     modifier = Modifier.size(15.dp),
-                                    tint = MaterialTheme.colorScheme.outline
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
 
@@ -596,13 +596,13 @@ fun WorkbenchCard(
                                     Icons.Default.Edit,
                                     contentDescription = null,
                                     modifier = Modifier.size(9.dp),
-                                    tint = MaterialTheme.colorScheme.outline
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Spacer(Modifier.width(3.dp))
                                 Text(
                                     text = formattedTime,
                                     fontSize = 9.sp,
-                                    color = MaterialTheme.colorScheme.outline
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -641,7 +641,7 @@ fun WorkbenchCard(
             text = {
                 if (pinnedNotesList.isEmpty()) {
                     Box(modifier = Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-                        Text("No pinned references", fontSize = 13.sp, color = MaterialTheme.colorScheme.outline)
+                        Text("No pinned references", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else {
                     LazyColumn(
@@ -674,10 +674,10 @@ fun WorkbenchCard(
                                         modifier = Modifier.width(18.dp)
                                     ) {
                                         if (idx > 0) {
-                                            Icon(
+                                             Icon(
                                                 imageVector = Icons.Default.KeyboardArrowUp,
                                                 contentDescription = "Move Up",
-                                                tint = MaterialTheme.colorScheme.outline,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier
                                                     .size(14.dp)
                                                     .clickable { onReorderNote(idx, idx - 1) }
@@ -687,7 +687,7 @@ fun WorkbenchCard(
                                             Icon(
                                                 imageVector = Icons.Default.KeyboardArrowDown,
                                                 contentDescription = "Move Down",
-                                                tint = MaterialTheme.colorScheme.outline,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier
                                                     .size(14.dp)
                                                     .clickable { onReorderNote(idx, idx + 1) }
@@ -710,7 +710,7 @@ fun WorkbenchCard(
                                             Text(
                                                 text = noteItem.content.take(60).replace('\n', ' '),
                                                 fontSize = 10.sp,
-                                                color = MaterialTheme.colorScheme.outline,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                             )
@@ -727,7 +727,7 @@ fun WorkbenchCard(
                                         Icon(
                                             imageVector = Icons.Default.Close,
                                             contentDescription = "Unpin",
-                                            tint = MaterialTheme.colorScheme.outline,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = Modifier.size(14.dp)
                                         )
                                     }

@@ -132,7 +132,7 @@ fun EditorLeftDrawer(
                                 else Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
-                                tint     = MaterialTheme.colorScheme.outline
+                                tint     = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(Modifier.width(4.dp))
                             Icon(
@@ -151,7 +151,7 @@ fun EditorLeftDrawer(
                             Text(
                                 "${notesInFolder.size}",
                                 fontSize = 11.sp,
-                                color    = MaterialTheme.colorScheme.outline
+                                color    = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -177,7 +177,7 @@ fun EditorLeftDrawer(
                                     contentDescription = null,
                                     modifier = Modifier.size(14.dp),
                                     tint     = if (isActive) MaterialTheme.colorScheme.primary
-                                               else MaterialTheme.colorScheme.outline
+                                               else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
@@ -193,7 +193,7 @@ fun EditorLeftDrawer(
                                 Text(
                                     "${note.wordCount}w",
                                     fontSize = 11.sp,
-                                    color    = MaterialTheme.colorScheme.outline
+                                    color    = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }

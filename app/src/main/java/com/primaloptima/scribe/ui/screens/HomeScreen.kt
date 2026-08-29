@@ -739,7 +739,7 @@ fun HomeScreen(
                         "Quick Actions",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.outline
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     TextButton(
                         onClick = {
@@ -903,11 +903,11 @@ private fun BooksTabContent(
                         Icons.Outlined.MenuBook,
                         contentDescription = null,
                         modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.outline
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("No books yet", fontSize = 18.sp, color = MaterialTheme.colorScheme.outline)
-                    Text("Tap + to create your first book", fontSize = 14.sp, color = MaterialTheme.colorScheme.outline)
+                    Text("No books yet", fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Tap + to create your first book", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
                 }
             }
         } else if (isGridMode) {
@@ -1081,7 +1081,7 @@ private fun BookGridCard(
         Text(
             text = "$words words • $files files",
             fontSize = 11.sp,
-            color = MaterialTheme.colorScheme.outline,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center
         )
     }
@@ -1201,11 +1201,11 @@ private fun NotesTabContent(
                         Icons.Outlined.StickyNote2,
                         contentDescription = null,
                         modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.outline
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("No notes yet", fontSize = 18.sp, color = MaterialTheme.colorScheme.outline)
-                    Text("Tap + Quick Note to create one instantly", fontSize = 14.sp, color = MaterialTheme.colorScheme.outline)
+                    Text("No notes yet", fontSize = 18.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Tap + Quick Note to create one instantly", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f))
                 }
             }
         } else {
@@ -1256,7 +1256,7 @@ private fun SearchResultsView(
 ) {
     if (query.isBlank()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Type above to search across all notes", color = MaterialTheme.colorScheme.outline)
+            Text("Type above to search across all notes", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     } else {
         val matches = remember(query, allNotes) {
@@ -1267,7 +1267,7 @@ private fun SearchResultsView(
 
         if (matches.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No notes found matching \"$query\"", color = MaterialTheme.colorScheme.outline)
+                Text("No notes found matching \"$query\"", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         } else {
             LazyColumn(

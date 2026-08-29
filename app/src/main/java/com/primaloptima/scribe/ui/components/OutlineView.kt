@@ -35,19 +35,19 @@ fun OutlineView(
                     imageVector        = Icons.Default.FormatListNumbered,
                     contentDescription = null,
                     modifier           = Modifier.size(40.dp),
-                    tint               = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                    tint               = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text      = "No headings found",
                     fontSize  = 13.sp,
-                    color     = MaterialTheme.colorScheme.outline
+                    color     = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text      = "Add # Heading 1 or ## Heading 2 in your text",
                     fontSize  = 11.sp,
-                    color     = MaterialTheme.colorScheme.outline.copy(alpha = 0.7f),
+                    color     = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                     textAlign = TextAlign.Center
                 )
             }

@@ -749,7 +749,7 @@ fun SheetsScreen(
                                             else categoryMeta(pageCategory).icon,
                                             contentDescription = null,
                                             modifier = Modifier.size(52.dp),
-                                            tint = MaterialTheme.colorScheme.outline
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                                         )
                                         Spacer(modifier = Modifier.height(14.dp))
                                         Text(
@@ -757,7 +757,7 @@ fun SheetsScreen(
                                                 "No world sheets matching your filters."
                                             else
                                                 "No ${categoryMeta(pageCategory).label.lowercase()} yet.\nTap + to create your first sheet.",
-                                            color = MaterialTheme.colorScheme.outline,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                             lineHeight = 20.sp
                                         )
@@ -863,12 +863,12 @@ fun SheetsScreen(
                                 imageVector = Icons.AutoMirrored.Filled.MenuBook,
                                 contentDescription = null,
                                 modifier = Modifier.size(56.dp),
-                                tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                             )
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
                                 text = "Select a sheet to view details",
-                                color = MaterialTheme.colorScheme.outline,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Medium
                             )
@@ -1021,7 +1021,7 @@ private fun WorldEntryCard(
                     Text(
                         text = "· ${timeAgo(entry.updatedAt)}",
                         fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.outline
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
@@ -1070,7 +1070,7 @@ private fun WorldEntryCard(
                             Text(
                                 text = "+${tags.size - 3}",
                                 fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.outline,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.align(Alignment.CenterVertically)
                             )
                         }
@@ -1087,7 +1087,7 @@ private fun WorldEntryCard(
                     Icon(
                         Icons.Default.MoreVert,
                         contentDescription = "Options",
-                        tint = MaterialTheme.colorScheme.outline,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(20.dp)
                     )
                 }

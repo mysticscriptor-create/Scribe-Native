@@ -114,7 +114,7 @@ fun ShortcutsScreen(
             ) {
                 Text(
                     "No shortcuts configured. Tap + to create one.",
-                    color = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.outline
+                    color = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         } else {

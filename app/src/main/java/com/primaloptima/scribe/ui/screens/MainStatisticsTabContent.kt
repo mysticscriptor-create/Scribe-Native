@@ -538,7 +538,7 @@ private fun DetailedWordmapTab(
     val bookWordTotals = bookWordCounts
     val accentColor = LocalAccentColor.current
     val subtleText = LocalSubtleTextColor.current
-    val resolvedSubtle = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.outline
+    val resolvedSubtle = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurfaceVariant
 
     Column(
         modifier = Modifier

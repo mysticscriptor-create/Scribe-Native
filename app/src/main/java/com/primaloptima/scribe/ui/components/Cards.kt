@@ -241,7 +241,7 @@ fun ScribeContentCard(
 ) {
     val accentColor = LocalAccentColor.current
     val onSurface = MaterialTheme.colorScheme.onSurface
-    val outline   = MaterialTheme.colorScheme.outline
+    val outlineVariant = MaterialTheme.colorScheme.outlineVariant
 
     // If the caller uses the legacy actionLabel/onAction, convert them into
     // a headerTrailing slot automatically so the layout is identical.
@@ -299,7 +299,7 @@ fun ScribeContentCard(
                 resolvedTrailing?.invoke()
             }
 
-            HorizontalDivider(color = outline.copy(alpha = 0.10f))
+            HorizontalDivider(color = outlineVariant.copy(alpha = 0.35f))
 
             // ── Body ──────────────────────────────────────────────────────────
             Column(modifier = Modifier.fillMaxWidth()) {
@@ -308,7 +308,7 @@ fun ScribeContentCard(
 
             // ── Footer ────────────────────────────────────────────────────────
             if (footer != null) {
-                HorizontalDivider(color = outline.copy(alpha = 0.07f))
+                HorizontalDivider(color = outlineVariant.copy(alpha = 0.25f))
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -385,7 +385,7 @@ fun ScribeStripCard(
     cornerRadius: Dp = ScribeCardTokens.RadiusMedium
 ) {
     val onSurface = MaterialTheme.colorScheme.onSurface
-    val outline   = MaterialTheme.colorScheme.outline
+    val outlineVariant = MaterialTheme.colorScheme.outlineVariant
 
     // The inner row — shared between both wrapInCard modes
     @Composable
@@ -463,7 +463,7 @@ fun ScribeStripCard(
                         start = if (leading != null) 66.dp else 14.dp,
                         end   = 14.dp
                     ),
-                    color = outline.copy(alpha = 0.08f)
+                    color = outlineVariant.copy(alpha = 0.35f)
                 )
             }
         }
@@ -793,7 +793,7 @@ fun ScribeStatColumn(
 fun ScribeCardDivider(modifier: Modifier = Modifier) {
     HorizontalDivider(
         modifier = modifier,
-        color    = MaterialTheme.colorScheme.outline.copy(alpha = 0.10f)
+        color    = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
     )
 }
 
@@ -903,7 +903,7 @@ fun ScribeVerticalDivider(
         modifier = modifier
             .width(0.8.dp)
             .height(height)
-            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     )
 }
 
