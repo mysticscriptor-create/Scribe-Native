@@ -63,6 +63,7 @@ import kotlinx.coroutines.launch
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.ui.theme.FontHelper
 import com.primaloptima.scribe.ui.theme.FrostedDialog
+import com.primaloptima.scribe.ui.theme.specularRimBorder
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.components.ScribeTopBar
@@ -1194,7 +1195,11 @@ private fun LivePreviewCard(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .background(surfaceRaisedColor.copy(alpha = 0.95f))
-                            .border(1.dp, borderSubtleColor, RoundedCornerShape(8.dp))
+                            .specularRimBorder(
+                                shape = RoundedCornerShape(8.dp),
+                                isDark = ThemeManager.isDarkColor(derived.background),
+                                strokeWidth = 1.dp
+                            )
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween

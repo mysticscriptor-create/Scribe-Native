@@ -19,8 +19,10 @@ import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.primaloptima.scribe.R
 import com.primaloptima.scribe.util.model.AppTheme
+import com.primaloptima.scribe.util.model.ThemeColors
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
+import kotlin.math.roundToInt
 
 /**
  * Phase 2-C: ThemeManager migrated away from direct prefs access.
@@ -164,14 +166,97 @@ class ThemeManager(private val context: Context) {
             Color.parseColor(hex)
         } catch (_: Exception) { Color.BLACK }
 
+        // ── OKLCH Perceptual Color Space Engine ──
+        data class Oklch(val l: Double, val c: Double, val h: Double)
+
+        private fun sRgbToLinear(c: Double): Double {
+            return if (c >= 0.04045) {
+                Math.pow((c + 0.055) / 1.055, 2.4)
+            } else {
+                c / 12.92
+            }
+        }
+
+        private fun linearToSRgb(c: Double): Double {
+            val clamped = c.coerceIn(0.0, 1.0)
+            return if (clamped <= 0.0031308) {
+                12.92 * clamped
+            } else {
+                1.055 * Math.pow(clamped, 1.0 / 2.4) - 0.055
+            }
+        }
+
+        fun colorToOklch(colorInt: Int): Oklch {
+            val r = sRgbToLinear(Color.red(colorInt) / 255.0)
+            val g = sRgbToLinear(Color.green(colorInt) / 255.0)
+            val b = sRgbToLinear(Color.blue(colorInt) / 255.0)
+
+            val l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+            val m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+            val s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+
+            val L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s
+            val a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s
+            val bVal = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+
+            val C = Math.sqrt(a * a + bVal * bVal)
+            var h = Math.toDegrees(Math.atan2(bVal, a))
+            if (h < 0.0) h += 360.0
+
+            return Oklch(L.coerceIn(0.0, 1.0), C.coerceAtLeast(0.0), h)
+        }
+
+        fun oklchToColor(oklch: Oklch): Int {
+            val hRad = Math.toRadians(oklch.h)
+            val a = oklch.c * Math.cos(hRad)
+            val bVal = oklch.c * Math.sin(hRad)
+
+            val l_ = oklch.l + 0.3963377774 * a + 0.2158037573 * bVal
+            val m_ = oklch.l - 0.1055613458 * a - 0.0638541728 * bVal
+            val s_ = oklch.l - 0.0894841775 * a - 1.2914855480 * bVal
+
+            val l = l_ * l_ * l_
+            val m = m_ * m_ * m_
+            val s = s_ * s_ * s_
+
+            val rLin = +4.0767439362 * l - 3.3077115913 * m + 0.2309699292 * s
+            val gLin = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
+            val bLin = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+
+            val r = (linearToSRgb(rLin) * 255.0).roundToInt().coerceIn(0, 255)
+            val g = (linearToSRgb(gLin) * 255.0).roundToInt().coerceIn(0, 255)
+            val b = (linearToSRgb(bLin) * 255.0).roundToInt().coerceIn(0, 255)
+
+            return Color.rgb(r, g, b)
+        }
+
+        fun oklchToHex(oklch: Oklch): String {
+            val c = oklchToColor(oklch)
+            return String.format("#%02X%02X%02X", Color.red(c), Color.green(c), Color.blue(c))
+        }
+
+        fun shiftOklch(colorInt: Int, deltaL: Double, chromaFactor: Double = 1.0): String {
+            val oklch = colorToOklch(colorInt)
+            val newL = (oklch.l + deltaL).coerceIn(0.01, 0.99)
+            val newC = (oklch.c * chromaFactor).coerceAtLeast(0.0)
+            return oklchToHex(Oklch(newL, newC, oklch.h))
+        }
+
+        fun createOklchColor(l: Double, c: Double, h: Double): String {
+            return oklchToHex(Oklch(l.coerceIn(0.01, 0.99), c.coerceAtLeast(0.0), h % 360.0))
+        }
+
         fun isColorDark(color: Int): Boolean {
-            val darkness = 1 - (0.299 * Color.red(color) + 0.587 * Color.green(color) + 0.114 * Color.blue(color)) / 255
-            return darkness >= 0.4
+            return colorToOklch(color).l < 0.45
+        }
+
+        fun isDarkColor(hex: String): Boolean {
+            return isColorDark(parseColor(hex))
         }
 
         /**
          * Automatically calculates a 5-tier elevation ramp, semantic typography tokens,
-         * and boundary tokens from base background, text, and accent colors.
+         * and boundary tokens from base background, text, and accent colors using OKLCH.
          */
         fun deriveThemeColors(
             bgHex: String,
@@ -191,26 +276,23 @@ class ThemeManager(private val context: Context) {
                 return String.format("#%02X%02X%02X", r, g, b)
             }
 
-            fun shiftLightness(c: Int, delta: Float): String {
-                val outHsl = FloatArray(3)
-                androidx.core.graphics.ColorUtils.colorToHSL(c, outHsl)
-                outHsl[2] = (outHsl[2] + delta).coerceIn(0f, 1f)
-                val res = androidx.core.graphics.ColorUtils.HSLToColor(outHsl)
-                return String.format("#%02X%02X%02X", Color.red(res), Color.green(res), Color.blue(res))
-            }
-
             return if (isDark) {
-                val surfaceLowest = shiftLightness(bgInt, 0.02f)
-                val surface = shiftLightness(bgInt, 0.05f)
-                val surfaceRaised = shiftLightness(bgInt, 0.09f)
-                val surfaceOverlay = shiftLightness(bgInt, 0.14f)
-                val mutedText = blend(textInt, bgInt, 0.38f)
-                val subtleText = blend(textInt, bgInt, 0.58f)
-                val accentMuted = blend(accentInt, bgInt, 0.82f)
-                val selection = blend(accentInt, bgInt, 0.70f)
-                val borderSubtle = shiftLightness(bgInt, 0.08f)
-                val borderProminent = blend(accentInt, textInt, 0.40f)
-                val monologueText = blend(textInt, bgInt, 0.25f)
+                val surfaceLowest = shiftOklch(bgInt, +0.022, 0.95)
+                val surface = shiftOklch(bgInt, +0.052, 0.92)
+                val surfaceRaised = shiftOklch(bgInt, +0.095, 0.88)
+                val surfaceOverlay = shiftOklch(bgInt, +0.155, 0.85)
+
+                val mutedText = shiftOklch(textInt, -0.28, 0.70)
+                val subtleText = shiftOklch(textInt, -0.46, 0.50)
+
+                val accentMuted = blend(accentInt, bgInt, 0.80f)
+                val selection = blend(accentInt, bgInt, 0.68f)
+
+                val borderSubtle = shiftOklch(bgInt, +0.075, 0.75)
+                val borderProminent = accentHex
+
+                val dialogueDefault = createOklchColor(0.91, 0.12, 88.0)
+                val monologueDefault = createOklchColor(0.80, 0.08, 255.0)
 
                 ThemeColors(
                     background = bgHex,
@@ -227,24 +309,29 @@ class ThemeManager(private val context: Context) {
                     border = borderSubtle,
                     borderSubtle = borderSubtle,
                     borderProminent = borderProminent,
-                    dialogueText = base?.dialogueText?.takeIf { it != base.accent } ?: accentHex,
-                    monologueText = monologueText,
+                    dialogueText = base?.dialogueText?.takeIf { it != base.accent } ?: dialogueDefault,
+                    monologueText = base?.monologueText?.takeIf { it != base.text } ?: monologueDefault,
                     headingText = accentHex,
                     toolbar = surface,
                     toolbarText = textHex
                 )
             } else {
-                val surfaceLowest = shiftLightness(bgInt, -0.03f)
+                val surfaceLowest = shiftOklch(bgInt, -0.035, 1.05)
                 val surface = "#FFFFFF"
                 val surfaceRaised = "#FFFFFF"
                 val surfaceOverlay = "#FFFFFF"
-                val mutedText = blend(textInt, bgInt, 0.42f)
-                val subtleText = blend(textInt, bgInt, 0.62f)
+
+                val mutedText = shiftOklch(textInt, +0.32, 0.60)
+                val subtleText = shiftOklch(textInt, +0.48, 0.50)
+
                 val accentMuted = blend(accentInt, bgInt, 0.88f)
                 val selection = blend(accentInt, bgInt, 0.78f)
-                val borderSubtle = shiftLightness(bgInt, -0.08f)
+
+                val borderSubtle = shiftOklch(bgInt, -0.09, 0.60)
                 val borderProminent = accentHex
-                val monologueText = blend(textInt, bgInt, 0.25f)
+
+                val dialogueDefault = createOklchColor(0.42, 0.14, 75.0)
+                val monologueDefault = createOklchColor(0.35, 0.12, 260.0)
 
                 ThemeColors(
                     background = bgHex,
@@ -261,8 +348,8 @@ class ThemeManager(private val context: Context) {
                     border = borderSubtle,
                     borderSubtle = borderSubtle,
                     borderProminent = borderProminent,
-                    dialogueText = base?.dialogueText?.takeIf { it != base.accent } ?: accentHex,
-                    monologueText = monologueText,
+                    dialogueText = base?.dialogueText?.takeIf { it != base.accent } ?: dialogueDefault,
+                    monologueText = base?.monologueText?.takeIf { it != base.text } ?: monologueDefault,
                     headingText = accentHex,
                     toolbar = surface,
                     toolbarText = textHex

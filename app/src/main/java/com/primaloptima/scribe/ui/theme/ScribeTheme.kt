@@ -238,7 +238,7 @@ fun localHasBgImage(): Boolean {
 }
 
 /**
- * Directional specular rim lighting.
+ * Directional specular rim lighting for frosted surfaces.
  * Simulates physical overhead light catch via a vertical linear gradient.
  */
 fun Modifier.specularGlassBorder(
@@ -259,6 +259,49 @@ fun Modifier.specularGlassBorder(
                 Color.White.copy(alpha = 0.70f), // Crisp light sheen
                 Color.White.copy(alpha = 0.25f),
                 Color.Black.copy(alpha = 0.06f)
+            )
+        }
+    ),
+    shape = shape
+)
+
+/**
+ * Specular Micro-Borders & Directional Rim Lighting for solid elevated cards (surfaceRaised)
+ * and floating overlays (surfaceOverlay).
+ *
+ * Simulates physical overhead light catch via a subtle 1px vertical gradient:
+ * - Overhead light catch: subtle white/accent reflection on top edge
+ * - Ambient falloff: softened opacity on bottom edges
+ *
+ * Creates tactile physical separation between cards and background without heavy muddy shadows.
+ */
+fun Modifier.specularRimBorder(
+    shape: Shape = RoundedCornerShape(12.dp),
+    isDark: Boolean = true,
+    strokeWidth: Dp = 1.dp,
+    topAlpha: Float = if (isDark) 0.16f else 0.45f,
+    bottomAlpha: Float = if (isDark) 0.03f else 0.08f,
+    tintColor: Color? = null
+): Modifier = this.border(
+    width = strokeWidth,
+    brush = Brush.verticalGradient(
+        colors = if (tintColor != null) {
+            listOf(
+                tintColor.copy(alpha = topAlpha),
+                tintColor.copy(alpha = (topAlpha + bottomAlpha) * 0.45f),
+                tintColor.copy(alpha = bottomAlpha)
+            )
+        } else if (isDark) {
+            listOf(
+                Color.White.copy(alpha = topAlpha),
+                Color.White.copy(alpha = (topAlpha + bottomAlpha) * 0.45f),
+                Color.White.copy(alpha = bottomAlpha)
+            )
+        } else {
+            listOf(
+                Color.White.copy(alpha = topAlpha),
+                Color.Black.copy(alpha = (topAlpha + bottomAlpha) * 0.2f),
+                Color.Black.copy(alpha = bottomAlpha)
             )
         }
     ),
