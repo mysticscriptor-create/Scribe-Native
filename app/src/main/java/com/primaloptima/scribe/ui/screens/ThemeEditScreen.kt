@@ -70,6 +70,7 @@ import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.ui.theme.FontHelper
 import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.specularRimBorder
+import com.primaloptima.scribe.ui.theme.LocalBorderSubtle
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.components.ScribeTopBar
