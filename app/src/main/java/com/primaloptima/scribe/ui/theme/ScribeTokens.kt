@@ -9,6 +9,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -77,8 +78,9 @@ data class SemanticStatusColors(
 // ── 5. WRITING & PROSE LEXER ────────────────────────────────────────────────
 @Immutable
 data class WritingColors(
-    val dialogue: Color,    // Spoken dialogue highlighting
-    val monologue: Color,   // Internal monologue / thought text
+    val prose: Color,       // Primary narrative text / base prose foundation
+    val dialogue: Color,    // Spoken dialogue highlighting ("...", “...”)
+    val monologue: Color,   // Internal monologue / thought text (‘...’)
     val heading: Color,     // Chapter / Scene title highlighting
     val annotation: Color,  // Margin notes, inline editorial comments
     val highlight: Color    // User search & literary emphasis highlight
@@ -168,91 +170,152 @@ data class ScribeMetrics(
 
 // ── Typography ──────────────────────────────────────────────────────────────
 @Immutable
-data class ScribeTypography(
-    val displayLarge: TextStyle = TextStyle(
+data class ScribeAppTypography(
+    val display: TextStyle = TextStyle(
         fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Normal,
-        fontSize = 57.sp,
-        lineHeight = 64.sp,
+        fontWeight = FontWeight.Bold,
+        fontSize = 32.sp,
+        lineHeight = 38.sp,
+        letterSpacing = (-0.5).sp
+    ),
+    val headline: TextStyle = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Bold,
+        fontSize = 24.sp,
+        lineHeight = 30.sp,
         letterSpacing = (-0.25).sp
     ),
-    val displayMedium: TextStyle = TextStyle(
+    val title: TextStyle = TextStyle(
         fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Normal,
-        fontSize = 45.sp,
-        lineHeight = 52.sp,
-        letterSpacing = 0.sp
-    ),
-    val titleLarge: TextStyle = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Normal,
-        fontSize = 22.sp,
-        lineHeight = 28.sp,
-        letterSpacing = 0.sp
-    ),
-    val titleMedium: TextStyle = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Medium,
-        fontSize = 16.sp,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 18.sp,
         lineHeight = 24.sp,
+        letterSpacing = 0.sp
+    ),
+    val sectionTitle: TextStyle = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 14.sp,
+        lineHeight = 20.sp,
         letterSpacing = 0.15.sp
     ),
-    val titleSmall: TextStyle = TextStyle(
+    val body: TextStyle = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Normal,
+        fontSize = 15.sp,
+        lineHeight = 22.sp,
+        letterSpacing = 0.2.sp
+    ),
+    val bodySecondary: TextStyle = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Normal,
+        fontSize = 13.sp,
+        lineHeight = 18.sp,
+        letterSpacing = 0.2.sp
+    ),
+    val label: TextStyle = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Medium,
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
-        letterSpacing = 0.1.sp
+        fontSize = 13.sp,
+        lineHeight = 18.sp,
+        letterSpacing = 0.3.sp
     ),
-    val bodyLarge: TextStyle = TextStyle(
+    val caption: TextStyle = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Normal,
-        fontSize = 16.sp,
-        lineHeight = 24.sp,
-        letterSpacing = 0.5.sp
-    ),
-    val bodyMedium: TextStyle = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Normal,
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
-        letterSpacing = 0.25.sp
-    ),
-    val bodySmall: TextStyle = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Normal,
-        fontSize = 12.sp,
-        lineHeight = 16.sp,
+        fontSize = 11.sp,
+        lineHeight = 15.sp,
         letterSpacing = 0.4.sp
     ),
-    val labelLarge: TextStyle = TextStyle(
+    val statValue: TextStyle = TextStyle(
         fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Medium,
-        fontSize = 14.sp,
-        lineHeight = 20.sp,
-        letterSpacing = 0.1.sp
+        fontWeight = FontWeight.Bold,
+        fontSize = 24.sp,
+        lineHeight = 28.sp,
+        letterSpacing = (-0.5).sp
     ),
-    val labelMedium: TextStyle = TextStyle(
-        fontFamily = FontFamily.Default,
-        fontWeight = FontWeight.Medium,
-        fontSize = 12.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.5.sp
-    ),
-    val labelSmall: TextStyle = TextStyle(
+    val statLabel: TextStyle = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Medium,
         fontSize = 11.sp,
-        lineHeight = 16.sp,
-        letterSpacing = 0.5.sp
-    ),
+        lineHeight = 14.sp,
+        letterSpacing = 0.6.sp
+    )
+)
+
+@Immutable
+data class ScribeEditorTypography(
     val prose: TextStyle = TextStyle(
         fontFamily = FontFamily.Default,
         fontWeight = FontWeight.Normal,
         fontSize = 17.sp,
         lineHeight = 28.sp,
         letterSpacing = 0.sp
-    )
+    ),
+    val dialogue: TextStyle = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Normal,
+        fontSize = 17.sp,
+        lineHeight = 28.sp,
+        letterSpacing = 0.sp
+    ),
+    val monologue: TextStyle = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontStyle = FontStyle.Italic,
+        fontWeight = FontWeight.Normal,
+        fontSize = 17.sp,
+        lineHeight = 28.sp,
+        letterSpacing = 0.sp
+    ),
+    val heading: TextStyle = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Bold,
+        fontSize = 22.sp,
+        lineHeight = 32.sp,
+        letterSpacing = 0.sp
+    ),
+    val fontFamily: FontFamily = FontFamily.Default,
+    val fontSize: Int = 17,
+    val lineHeight: Float = 1.68f,
+    val letterSpacing: Float = 0f,
+    val paragraphSpacing: Int = 14,
+    val textAlignment: String = "left"
+)
+
+@Immutable
+data class ScribeTypography(
+    // App UI semantic typography (cards, dialogs, drawers, stats, worldbuilding)
+    val app: ScribeAppTypography = ScribeAppTypography(),
+    // Editor typography (user-controlled settings for writing canvas)
+    val editor: ScribeEditorTypography = ScribeEditorTypography(),
+
+    // Direct semantic convenience accessors
+    val display: TextStyle = app.display,
+    val headline: TextStyle = app.headline,
+    val title: TextStyle = app.title,
+    val sectionTitle: TextStyle = app.sectionTitle,
+    val body: TextStyle = app.body,
+    val bodySecondary: TextStyle = app.bodySecondary,
+    val label: TextStyle = app.label,
+    val caption: TextStyle = app.caption,
+    val statValue: TextStyle = app.statValue,
+    val statLabel: TextStyle = app.statLabel,
+
+    // Editor writing text style
+    val prose: TextStyle = editor.prose,
+
+    // Compatibility accessors
+    val displayLarge: TextStyle = app.display,
+    val displayMedium: TextStyle = app.headline,
+    val titleLarge: TextStyle = app.title,
+    val titleMedium: TextStyle = app.sectionTitle,
+    val titleSmall: TextStyle = app.label,
+    val bodyLarge: TextStyle = app.body,
+    val bodyMedium: TextStyle = app.bodySecondary,
+    val bodySmall: TextStyle = app.caption,
+    val labelLarge: TextStyle = app.label,
+    val labelMedium: TextStyle = app.caption,
+    val labelSmall: TextStyle = app.caption
 )
 
 // ── Composition Locals ───────────────────────────────────────────────────────

@@ -55,6 +55,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.ColorUtils
@@ -1420,6 +1422,7 @@ fun ScribeComposeTheme(
                 onInfoContainer = if (resolvedTheme.isDark) infoResolved else Color(0xFF075985)
             ),
             writing = WritingColors(
+                prose = text,
                 dialogue = dialogueResolved,
                 monologue = monologueResolved,
                 heading = headingResolved,
@@ -1456,16 +1459,138 @@ fun ScribeComposeTheme(
 
     val scribeShapes = remember { ScribeShapes() }
     val scribeMetrics = remember { ScribeMetrics() }
-    val scribeTypography = remember(resolvedTheme.fontFamily, resolvedTheme.fontSize, resolvedTheme.lineHeight, resolvedTheme.letterSpacing) {
+    val scribeTypography = remember(
+        resolvedTheme.fontFamily, resolvedTheme.fontSize, resolvedTheme.lineHeight,
+        resolvedTheme.letterSpacing, resolvedTheme.paragraphSpacing, resolvedTheme.textAlignment,
+        scribeColors
+    ) {
         val resolvedFontFamily = FontHelper.getFontFamily(resolvedTheme.fontFamily)
-        ScribeTypography(
+        val app = ScribeAppTypography(
+            display = TextStyle(
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.Bold,
+                fontSize = 32.sp,
+                lineHeight = 38.sp,
+                letterSpacing = (-0.5).sp,
+                color = scribeColors.content.primary
+            ),
+            headline = TextStyle(
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.Bold,
+                fontSize = 24.sp,
+                lineHeight = 30.sp,
+                letterSpacing = (-0.25).sp,
+                color = scribeColors.content.primary
+            ),
+            title = TextStyle(
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 18.sp,
+                lineHeight = 24.sp,
+                letterSpacing = 0.sp,
+                color = scribeColors.content.primary
+            ),
+            sectionTitle = TextStyle(
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
+                letterSpacing = 0.15.sp,
+                color = scribeColors.content.primary
+            ),
+            body = TextStyle(
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.Normal,
+                fontSize = 15.sp,
+                lineHeight = 22.sp,
+                letterSpacing = 0.2.sp,
+                color = scribeColors.content.primary
+            ),
+            bodySecondary = TextStyle(
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.Normal,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                letterSpacing = 0.2.sp,
+                color = scribeColors.content.secondary
+            ),
+            label = TextStyle(
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.Medium,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                letterSpacing = 0.3.sp,
+                color = scribeColors.content.primary
+            ),
+            caption = TextStyle(
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.Normal,
+                fontSize = 11.sp,
+                lineHeight = 15.sp,
+                letterSpacing = 0.4.sp,
+                color = scribeColors.content.tertiary
+            ),
+            statValue = TextStyle(
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.Bold,
+                fontSize = 24.sp,
+                lineHeight = 28.sp,
+                letterSpacing = (-0.5).sp,
+                color = scribeColors.content.primary
+            ),
+            statLabel = TextStyle(
+                fontFamily = FontFamily.Default,
+                fontWeight = FontWeight.Medium,
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                letterSpacing = 0.6.sp,
+                color = scribeColors.content.secondary
+            )
+        )
+        val editor = ScribeEditorTypography(
             prose = TextStyle(
                 fontFamily = resolvedFontFamily,
                 fontWeight = FontWeight.Normal,
                 fontSize = resolvedTheme.fontSize.sp,
                 lineHeight = (resolvedTheme.fontSize * resolvedTheme.lineHeight).sp,
-                letterSpacing = resolvedTheme.letterSpacing.sp
-            )
+                letterSpacing = resolvedTheme.letterSpacing.sp,
+                color = scribeColors.writing.prose
+            ),
+            dialogue = TextStyle(
+                fontFamily = resolvedFontFamily,
+                fontWeight = FontWeight.Normal,
+                fontSize = resolvedTheme.fontSize.sp,
+                lineHeight = (resolvedTheme.fontSize * resolvedTheme.lineHeight).sp,
+                letterSpacing = resolvedTheme.letterSpacing.sp,
+                color = scribeColors.writing.dialogue
+            ),
+            monologue = TextStyle(
+                fontFamily = resolvedFontFamily,
+                fontStyle = FontStyle.Italic,
+                fontWeight = FontWeight.Normal,
+                fontSize = resolvedTheme.fontSize.sp,
+                lineHeight = (resolvedTheme.fontSize * resolvedTheme.lineHeight).sp,
+                letterSpacing = resolvedTheme.letterSpacing.sp,
+                color = scribeColors.writing.monologue
+            ),
+            heading = TextStyle(
+                fontFamily = resolvedFontFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = (resolvedTheme.fontSize * 1.25f).sp,
+                lineHeight = (resolvedTheme.fontSize * 1.25f * resolvedTheme.lineHeight).sp,
+                letterSpacing = (resolvedTheme.letterSpacing * 1.1f).sp,
+                color = scribeColors.writing.heading
+            ),
+            fontFamily = resolvedFontFamily,
+            fontSize = resolvedTheme.fontSize,
+            lineHeight = resolvedTheme.lineHeight,
+            letterSpacing = resolvedTheme.letterSpacing,
+            paragraphSpacing = resolvedTheme.paragraphSpacing,
+            textAlignment = resolvedTheme.textAlignment
+        )
+        ScribeTypography(
+            app = app,
+            editor = editor
         )
     }
 

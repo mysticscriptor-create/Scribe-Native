@@ -30,6 +30,7 @@ import com.primaloptima.scribe.ui.theme.FrostedCardContent
 import com.primaloptima.scribe.ui.theme.LocalAccentColor
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.frostedCard
 import com.primaloptima.scribe.ui.theme.frostedContainerColor
 import com.primaloptima.scribe.ui.theme.localHasBgImage
@@ -249,11 +250,9 @@ fun ScribeContentCard(
         headerTrailing != null -> headerTrailing
         actionLabel != null && onAction != null -> ({
             Text(
-                text       = actionLabel,
-                fontSize   = 12.sp,
-                fontWeight = FontWeight.Medium,
-                color      = accentColor,
-                modifier   = Modifier.clickable(
+                text     = actionLabel,
+                style    = ScribeTheme.typography.label.copy(color = accentColor),
+                modifier = Modifier.clickable(
                     indication        = null,
                     interactionSource = remember { MutableInteractionSource() }
                 ) { onAction() }
@@ -287,12 +286,10 @@ fun ScribeContentCard(
                 ) {
                     headerLeading?.invoke()
                     Text(
-                        text       = title,
-                        fontSize   = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color      = onSurface,
-                        maxLines   = 1,
-                        overflow   = TextOverflow.Ellipsis
+                        text     = title,
+                        style    = ScribeTheme.typography.sectionTitle,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
                 // Right side: any trailing composable (action link, chip, icon…)
@@ -413,18 +410,16 @@ fun ScribeStripCard(
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     Text(
-                        text       = title,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize   = 13.sp,
-                        color      = onSurface,
-                        maxLines   = 1,
-                        overflow   = TextOverflow.Ellipsis
+                        text     = title,
+                        style    = ScribeTheme.typography.title.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
+                        color    = onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     if (subtitle != null) {
                         Text(
                             text     = subtitle,
-                            fontSize = 11.sp,
-                            color    = onSurface.copy(alpha = 0.50f),
+                            style    = ScribeTheme.typography.caption.copy(color = onSurface.copy(alpha = 0.50f)),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -432,11 +427,9 @@ fun ScribeStripCard(
                     if (preview != null) {
                         Text(
                             text      = preview,
-                            fontSize  = 12.sp,
-                            color     = onSurface.copy(alpha = 0.55f),
+                            style     = ScribeTheme.typography.bodySecondary.copy(fontSize = 12.sp, color = onSurface.copy(alpha = 0.55f), fontStyle = FontStyle.Italic),
                             maxLines  = previewMaxLines,
-                            overflow  = TextOverflow.Ellipsis,
-                            fontStyle = FontStyle.Italic
+                            overflow  = TextOverflow.Ellipsis
                         )
                     }
                     if (!footerLines.isNullOrEmpty()) {
@@ -444,8 +437,7 @@ fun ScribeStripCard(
                         footerLines.forEach { line ->
                             Text(
                                 text     = line,
-                                fontSize = 11.sp,
-                                color    = onSurface.copy(alpha = 0.38f),
+                                style    = ScribeTheme.typography.caption.copy(color = onSurface.copy(alpha = 0.38f)),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -494,18 +486,16 @@ fun ScribeStripCard(
                         verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         Text(
-                            text       = title,
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize   = 13.sp,
-                            color      = onSurface,
-                            maxLines   = 1,
-                            overflow   = TextOverflow.Ellipsis
+                            text     = title,
+                            style    = ScribeTheme.typography.title.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
+                            color    = onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         if (subtitle != null) {
                             Text(
                                 text     = subtitle,
-                                fontSize = 11.sp,
-                                color    = onSurface.copy(alpha = 0.50f),
+                                style    = ScribeTheme.typography.caption.copy(color = onSurface.copy(alpha = 0.50f)),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -513,11 +503,9 @@ fun ScribeStripCard(
                         if (preview != null) {
                             Text(
                                 text      = preview,
-                                fontSize  = 12.sp,
-                                color     = onSurface.copy(alpha = 0.55f),
+                                style     = ScribeTheme.typography.bodySecondary.copy(fontSize = 12.sp, color = onSurface.copy(alpha = 0.55f), fontStyle = FontStyle.Italic),
                                 maxLines  = previewMaxLines,
-                                overflow  = TextOverflow.Ellipsis,
-                                fontStyle = FontStyle.Italic
+                                overflow  = TextOverflow.Ellipsis
                             )
                         }
                         if (!footerLines.isNullOrEmpty()) {
@@ -525,8 +513,7 @@ fun ScribeStripCard(
                             footerLines.forEach { line ->
                                 Text(
                                     text     = line,
-                                    fontSize = 11.sp,
-                                    color    = onSurface.copy(alpha = 0.38f),
+                                    style    = ScribeTheme.typography.caption.copy(color = onSurface.copy(alpha = 0.38f)),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -643,12 +630,13 @@ fun ScribeActionTile(
                 }
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text       = label,
-                    fontSize   = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color      = if (isPrimary) onPrimary
-                                 else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                    maxLines   = 1
+                    text     = label,
+                    style    = ScribeTheme.typography.caption.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        color      = if (isPrimary) onPrimary
+                                     else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                    ),
+                    maxLines = 1
                 )
             }
         }
@@ -751,30 +739,26 @@ fun ScribeStatColumn(
             }
         }
         Text(
-            text       = label,
-            fontSize   = 10.sp,
-            fontWeight = FontWeight.Medium,
-            color      = onSurface.copy(alpha = 0.50f)
+            text  = label,
+            style = ScribeTheme.typography.statLabel
         )
         Text(
-            text       = value,
-            fontSize   = 26.sp,
-            fontWeight = FontWeight.Bold,
-            color      = onSurface
+            text  = value,
+            style = ScribeTheme.typography.statValue
         )
         if (subLabel != null) {
             Text(
-                text     = subLabel,
-                fontSize = 11.sp,
-                color    = onSurface.copy(alpha = 0.45f)
+                text  = subLabel,
+                style = ScribeTheme.typography.caption
             )
         }
         if (badge != null) {
             Text(
-                text       = badge,
-                fontSize   = 10.sp,
-                color      = accentColor,
-                fontWeight = FontWeight.SemiBold
+                text  = badge,
+                style = ScribeTheme.typography.caption.copy(
+                    color      = accentColor,
+                    fontWeight = FontWeight.SemiBold
+                )
             )
         }
         extra?.invoke()
@@ -812,12 +796,13 @@ fun ScribeSectionLabel(
 ) {
     val accentColor = LocalAccentColor.current
     Text(
-        text          = text.uppercase(),
-        fontSize      = 10.sp,
-        fontWeight    = FontWeight.Bold,
-        letterSpacing = 1.2.sp,
-        color         = accentColor.copy(alpha = 0.80f),
-        modifier      = modifier
+        text     = text.uppercase(),
+        style    = ScribeTheme.typography.caption.copy(
+            fontWeight    = FontWeight.Bold,
+            letterSpacing = 1.2.sp,
+            color         = accentColor.copy(alpha = 0.80f)
+        ),
+        modifier = modifier
     )
 }
 
@@ -843,10 +828,11 @@ fun ScribePill(
             .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
         Text(
-            text       = text,
-            fontSize   = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            color      = bg
+            text  = text,
+            style = ScribeTheme.typography.caption.copy(
+                fontWeight = FontWeight.SemiBold,
+                color      = bg
+            )
         )
     }
 }
