@@ -69,6 +69,7 @@ import com.primaloptima.scribe.ui.theme.computeZonalVarianceMatrix
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.ui.theme.FontHelper
 import com.primaloptima.scribe.ui.theme.FrostedDialog
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.specularRimBorder
 import com.primaloptima.scribe.ui.theme.LocalBorderSubtle
 import com.primaloptima.scribe.ui.theme.LocalHazeState
@@ -563,7 +564,7 @@ fun ThemeEditScreen(
                                                 .background(tokenColor)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text(label, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = parseComposeColor(derivedPreview.text, Color.White), maxLines = 1)
+                                        Text(label, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = parseComposeColor(derivedPreview.text, MaterialTheme.colorScheme.onSurface), maxLines = 1)
                                     }
                                 }
                             }
@@ -1025,11 +1026,13 @@ private fun ColorTile(
                 val squareSize = 8.dp.toPx()
                 val rows = (size.height / squareSize).toInt() + 1
                 val cols = (size.width / squareSize).toInt() + 1
+                val checkDark = ScribeTheme.colors.surfaces.surfaceRaised
+                val checkLight = ScribeTheme.colors.surfaces.surface
                 for (r in 0 until rows) {
                     for (c in 0 until cols) {
                         val isDark = (r + c) % 2 == 0
                         drawRect(
-                            color = if (isDark) Color(0xFFE0E0E0) else Color.White,
+                            color = if (isDark) checkDark else checkLight,
                             topLeft = androidx.compose.ui.geometry.Offset(c * squareSize, r * squareSize),
                             size = androidx.compose.ui.geometry.Size(squareSize, squareSize)
                         )
@@ -1313,15 +1316,22 @@ private fun CustomColorPicker(
                     .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
             )
             val presets = listOf("#FAFAF7", "#1E1E2E", "#0D1117", "#000000", "#3366FF", "#E11D48", "#10B981", "#F59E0B", "#8B5CF6")
+            val activeRingColor = ScribeTheme.colors.interaction.primary
+            val outlineColor = MaterialTheme.colorScheme.outline
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(presets) { p ->
                     val c = parseComposeColor(p)
+                    val isSelected = currentColor.toArgb() == c.toArgb()
                     Box(
                         modifier = Modifier
                             .size(32.dp)
                             .clip(CircleShape)
                             .background(c)
-                            .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
+                            .border(
+                                width = if (isSelected) 2.5.dp else 1.dp,
+                                color = if (isSelected) activeRingColor else outlineColor,
+                                shape = CircleShape
+                            )
                             .clickable {
                                 onColorChanged(c)
                             }
@@ -1366,7 +1376,7 @@ private fun ColorPickerBottomSheet(
     onDismiss: () -> Unit,
     onColorSelected: (String) -> Unit
 ) {
-    var selectedColor by remember { mutableStateOf(parseComposeColor(initialHex, Color.Red)) }
+    var selectedColor by remember { mutableStateOf(parseComposeColor(initialHex, MaterialTheme.colorScheme.primary)) }
     var hexText by remember { mutableStateOf(initialHex) }
 
     FrostedDialog(
