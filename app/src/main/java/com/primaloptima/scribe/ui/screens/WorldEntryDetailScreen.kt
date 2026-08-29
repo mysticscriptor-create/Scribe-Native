@@ -36,6 +36,7 @@ import com.primaloptima.scribe.ui.components.FullScreenImageViewer
 import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.util.WorldImageUtil
 import com.primaloptima.scribe.viewmodel.SheetsViewModel
@@ -663,6 +664,7 @@ private fun DetailAttributeRow(
             }
 
             if (isReorderMode) {
+                val subtleText = LocalSubtleTextColor.current
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(2.dp)
@@ -676,7 +678,7 @@ private fun DetailAttributeRow(
                             Icons.Default.ArrowUpward,
                             contentDescription = "Move Up",
                             modifier = Modifier.size(16.dp),
-                            tint = if (index > 0) MaterialTheme.colorScheme.onSurface else Color.Gray.copy(alpha = 0.3f)
+                            tint = if (index > 0) MaterialTheme.colorScheme.onSurface else subtleText.copy(alpha = 0.35f)
                         )
                     }
                     IconButton(
@@ -688,7 +690,7 @@ private fun DetailAttributeRow(
                             Icons.Default.ArrowDownward,
                             contentDescription = "Move Down",
                             modifier = Modifier.size(16.dp),
-                            tint = if (index < totalCount - 1) MaterialTheme.colorScheme.onSurface else Color.Gray.copy(alpha = 0.3f)
+                            tint = if (index < totalCount - 1) MaterialTheme.colorScheme.onSurface else subtleText.copy(alpha = 0.35f)
                         )
                     }
                 }

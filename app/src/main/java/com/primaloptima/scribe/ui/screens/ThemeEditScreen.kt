@@ -499,17 +499,18 @@ fun ThemeEditScreen(
                                     Pair("L3 Raised", derivedPreview.surfaceRaised),
                                     Pair("L4 Overlay", derivedPreview.surfaceOverlay)
                                 )
+                                val borderSubtle = parseComposeColor(derivedPreview.borderSubtle, MaterialTheme.colorScheme.outlineVariant)
                                 tiers.forEach { item ->
                                     val label = item.first
                                     val hex = item.second
-                                    val swatchColor = parseComposeColor(hex, Color.Gray)
+                                    val swatchColor = parseComposeColor(hex, MaterialTheme.colorScheme.surfaceVariant)
                                     val swatchText = autoTextColor(swatchColor)
                                     Column(
                                         modifier = Modifier
                                             .weight(1f)
                                             .clip(RoundedCornerShape(6.dp))
                                             .background(swatchColor)
-                                            .border(1.dp, parseComposeColor(derivedPreview.borderSubtle, Color.Gray), RoundedCornerShape(6.dp))
+                                            .border(1.dp, borderSubtle, RoundedCornerShape(6.dp))
                                             .padding(vertical = 6.dp, horizontal = 2.dp),
                                         horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
@@ -538,16 +539,18 @@ fun ThemeEditScreen(
                                     Pair("Heading", derivedPreview.headingText),
                                     Pair("Subtle", derivedPreview.subtleText)
                                 )
+                                val borderSubtle = parseComposeColor(derivedPreview.borderSubtle, MaterialTheme.colorScheme.outlineVariant)
+                                val surfaceRaised = parseComposeColor(derivedPreview.surfaceRaised, MaterialTheme.colorScheme.surfaceContainerHighest)
                                 proseTokens.forEach { item ->
                                     val label = item.first
                                     val hex = item.second
-                                    val tokenColor = parseComposeColor(hex, Color.Gray)
+                                    val tokenColor = parseComposeColor(hex, MaterialTheme.colorScheme.primary)
                                     Row(
                                         modifier = Modifier
                                             .weight(1f)
                                             .clip(RoundedCornerShape(6.dp))
-                                            .background(parseComposeColor(derivedPreview.surfaceRaised, Color.DarkGray))
-                                            .border(1.dp, parseComposeColor(derivedPreview.borderSubtle, Color.Gray), RoundedCornerShape(6.dp))
+                                            .background(surfaceRaised)
+                                            .border(1.dp, borderSubtle, RoundedCornerShape(6.dp))
                                             .padding(vertical = 5.dp, horizontal = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                         horizontalArrangement = Arrangement.Center
@@ -1004,7 +1007,8 @@ private fun ColorTile(
     hex: String,
     onClick: () -> Unit
 ) {
-    val color = parseComposeColor(hex, Color.Gray)
+    val color = parseComposeColor(hex, MaterialTheme.colorScheme.surfaceVariant)
+    val borderSubtle = LocalBorderSubtle.current
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.clickable { onClick() }
@@ -1014,7 +1018,7 @@ private fun ColorTile(
                 .width(72.dp)
                 .height(52.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .border(1.dp, Color.Gray, RoundedCornerShape(12.dp))
+                .border(1.dp, borderSubtle, RoundedCornerShape(12.dp))
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val squareSize = 8.dp.toPx()
@@ -1068,16 +1072,16 @@ private fun LivePreviewCard(
         )
     }
 
-    val bgColor = parseComposeColor(derived.background, Color.White)
+    val bgColor = parseComposeColor(derived.background, MaterialTheme.colorScheme.background)
     val surfaceColor = parseComposeColor(derived.surface, bgColor)
     val surfaceRaisedColor = parseComposeColor(derived.surfaceRaised, surfaceColor)
-    val textColor = parseComposeColor(derived.text, Color.Black)
+    val textColor = parseComposeColor(derived.text, MaterialTheme.colorScheme.onBackground)
     val mutedTextColor = parseComposeColor(derived.mutedText, textColor.copy(alpha = 0.7f))
-    val accentColor = parseComposeColor(derived.accent, Color.Blue)
+    val accentColor = parseComposeColor(derived.accent, MaterialTheme.colorScheme.primary)
     val dialogueColor = parseComposeColor(derived.dialogueText, accentColor)
     val monologueColor = parseComposeColor(derived.monologueText, textColor)
     val headingColor = parseComposeColor(derived.headingText, accentColor)
-    val borderSubtleColor = parseComposeColor(derived.borderSubtle, Color.Gray.copy(alpha = 0.2f))
+    val borderSubtleColor = parseComposeColor(derived.borderSubtle, MaterialTheme.colorScheme.outlineVariant)
     val font = FontHelper.getFontFamily(fontFamily)
 
     val textAlign = when (textAlignment) {

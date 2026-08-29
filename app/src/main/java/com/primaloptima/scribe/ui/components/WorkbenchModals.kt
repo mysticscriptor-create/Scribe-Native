@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.primaloptima.scribe.ui.theme.FrostedDialog
+import com.primaloptima.scribe.ui.theme.LocalBorderSubtle
 import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.data.WorldEntry
@@ -652,6 +653,7 @@ fun SectionAppearanceSheet(
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
 
+                    val borderSubtle = LocalBorderSubtle.current
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -680,7 +682,7 @@ fun SectionAppearanceSheet(
                                     Canvas(modifier = Modifier.size(20.dp)) {
                                         if (colorEnum == PaneAccentColor.NONE) {
                                             drawCircle(
-                                                color = Color.Gray,
+                                                color = borderSubtle,
                                                 radius = size.minDimension / 2 - 1.dp.toPx(),
                                                 style = Stroke(width = 1.5.dp.toPx())
                                             )

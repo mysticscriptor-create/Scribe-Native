@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import com.primaloptima.scribe.ui.theme.LocalBorderSubtle
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
 import com.primaloptima.scribe.ui.theme.frostedCard
@@ -51,6 +52,7 @@ fun SectionOverflowMenu(
     hazeState    : dev.chrisbanes.haze.HazeState? = LocalHazeState.current,
 ) {
     val solidSurface = LocalSolidSurface.current
+    val borderSubtle = LocalBorderSubtle.current
     val hasBgImage = localHasBgImage()
     val scopeTitle = when (val s = pane.primaryScope) {
         is PaneScope.Global -> "Everywhere"
@@ -79,7 +81,7 @@ fun SectionOverflowMenu(
             shadowElevation = 10.dp,
             border = androidx.compose.foundation.BorderStroke(
                 0.8.dp,
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                borderSubtle.copy(alpha = 0.45f)
             )
         ) {
             Column(
@@ -119,7 +121,7 @@ fun SectionOverflowMenu(
                 }
 
                 HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                    color = borderSubtle.copy(alpha = 0.4f),
                     thickness = 0.5.dp
                 )
 
@@ -139,7 +141,7 @@ fun SectionOverflowMenu(
                 )
 
                 HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                    color = borderSubtle.copy(alpha = 0.4f),
                     thickness = 0.5.dp
                 )
 
@@ -165,7 +167,7 @@ fun SectionOverflowMenu(
                         Canvas(modifier = Modifier.size(16.dp)) {
                             if (pane.accentColor == PaneAccentColor.NONE) {
                                 drawCircle(
-                                    color = Color.Gray,
+                                    color = borderSubtle,
                                     radius = size.minDimension / 2 - 1.dp.toPx(),
                                     style = Stroke(width = 1.5.dp.toPx())
                                 )
@@ -182,7 +184,7 @@ fun SectionOverflowMenu(
                 )
 
                 HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                    color = borderSubtle.copy(alpha = 0.4f),
                     thickness = 0.5.dp
                 )
 
@@ -195,7 +197,7 @@ fun SectionOverflowMenu(
                 )
 
                 HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                    color = borderSubtle.copy(alpha = 0.4f),
                     thickness = 0.5.dp
                 )
 

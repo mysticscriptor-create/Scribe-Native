@@ -622,7 +622,7 @@ fun SheetsScreen(
                                     key = "more",
                                     label = "More",
                                     icon = Icons.Default.AutoAwesome,
-                                    color = Color(0xFFA0AEC0),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     count = 0,
                                     selected = false,
                                     hazeState = hazeState,

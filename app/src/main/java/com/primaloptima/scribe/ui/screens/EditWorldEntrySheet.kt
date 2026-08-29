@@ -36,6 +36,7 @@ import com.primaloptima.scribe.ui.components.FrostedBottomSheet
 import com.primaloptima.scribe.ui.components.FullScreenImageViewer
 import com.primaloptima.scribe.ui.components.ImageCropperDialog
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.util.WorldImageUtil
 import com.primaloptima.scribe.viewmodel.SheetsViewModel
@@ -506,6 +507,7 @@ private fun AttributeEditCard(
                     shape = RoundedCornerShape(10.dp)
                 )
 
+                val subtleTextColor = LocalSubtleTextColor.current
                 // Move Up
                 IconButton(
                     onClick = onMoveUp,
@@ -516,7 +518,7 @@ private fun AttributeEditCard(
                         Icons.Default.ArrowUpward,
                         contentDescription = "Move Up",
                         modifier = Modifier.size(16.dp),
-                        tint = if (index > 0) MaterialTheme.colorScheme.onSurfaceVariant else Color.Gray.copy(alpha = 0.4f)
+                        tint = if (index > 0) MaterialTheme.colorScheme.onSurfaceVariant else subtleTextColor.copy(alpha = 0.35f)
                     )
                 }
 
@@ -530,7 +532,7 @@ private fun AttributeEditCard(
                         Icons.Default.ArrowDownward,
                         contentDescription = "Move Down",
                         modifier = Modifier.size(16.dp),
-                        tint = if (index < totalCount - 1) MaterialTheme.colorScheme.onSurfaceVariant else Color.Gray.copy(alpha = 0.4f)
+                        tint = if (index < totalCount - 1) MaterialTheme.colorScheme.onSurfaceVariant else subtleTextColor.copy(alpha = 0.35f)
                     )
                 }
 

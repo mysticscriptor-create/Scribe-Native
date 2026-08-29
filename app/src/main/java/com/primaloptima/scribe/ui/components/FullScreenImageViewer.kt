@@ -136,7 +136,7 @@ fun FullScreenImageViewer(
                             if (subtitle.isNotBlank()) {
                                 Text(
                                     text = subtitle,
-                                    color = Color.LightGray,
+                                    color = Color.White.copy(alpha = 0.70f),
                                     fontSize = 12.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis

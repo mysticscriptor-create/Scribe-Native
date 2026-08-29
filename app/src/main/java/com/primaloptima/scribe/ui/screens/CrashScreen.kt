@@ -30,13 +30,13 @@ fun CrashScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(Color.White)
+                .background(MaterialTheme.colorScheme.background)
                 .padding(16.dp)
         ) {
             SelectionContainer {
                 Text(
                     text = stackTrace,
-                    color = Color(0xFFCC0000),
+                    color = MaterialTheme.colorScheme.error,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
                     modifier = Modifier.verticalScroll(rememberScrollState())

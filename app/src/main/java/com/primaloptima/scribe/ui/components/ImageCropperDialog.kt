@@ -37,6 +37,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.primaloptima.scribe.ui.theme.LocalBorderSubtle
+import com.primaloptima.scribe.ui.theme.LocalHeadingColor
+import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
+import com.primaloptima.scribe.ui.theme.LocalSurfaceLowest
+import com.primaloptima.scribe.ui.theme.LocalSurfaceOverlay
+import com.primaloptima.scribe.ui.theme.LocalSurfaceRaised
 import com.primaloptima.scribe.util.WorldImageUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -64,6 +70,12 @@ fun ImageCropperDialog(
     // Canvas / Frame layout dimensions
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
 
+    val surfaceOverlay = LocalSurfaceOverlay.current
+    val surfaceLowest = LocalSurfaceLowest.current
+    val surfaceRaised = LocalSurfaceRaised.current
+    val borderSubtle = LocalBorderSubtle.current
+    val subtleText = LocalSubtleTextColor.current
+
     LaunchedEffect(sourceUri) {
         isLoading = true
         loadedBitmap = WorldImageUtil.loadBitmapFromUri(context, sourceUri)
@@ -80,7 +92,7 @@ fun ImageCropperDialog(
     ) {
         Surface(
             modifier = Modifier.fillMaxSize(),
-            color = Color(0xFF121316)
+            color = surfaceOverlay
         ) {
             Column(
                 modifier = Modifier
@@ -96,12 +108,12 @@ fun ImageCropperDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, contentDescription = "Cancel", tint = Color.White)
+                        Icon(Icons.Default.Close, contentDescription = "Cancel", tint = MaterialTheme.colorScheme.onSurface)
                     }
 
                     Text(
                         text = "Crop & Frame Image",
-                        color = Color.White,
+                        color = MaterialTheme.colorScheme.onSurface,
                         fontSize = 17.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -142,7 +154,7 @@ fun ImageCropperDialog(
                         .fillMaxWidth()
                         .padding(16.dp)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF1E2024))
+                        .background(surfaceLowest)
                         .onGloballyPositioned { coordinates ->
                             viewportSize = coordinates.size
                         }
@@ -253,7 +265,7 @@ fun ImageCropperDialog(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Color(0xFF16181C))
+                        .background(surfaceOverlay)
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
@@ -294,8 +306,8 @@ fun ImageCropperDialog(
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                                     selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    containerColor = Color(0xFF24272D),
-                                    labelColor = Color.LightGray
+                                    containerColor = surfaceRaised,
+                                    labelColor = subtleText
                                 )
                             )
                         }
@@ -315,8 +327,8 @@ fun ImageCropperDialog(
                                     offset = Offset.Zero
                                 },
                                 colors = IconButtonDefaults.filledTonalIconButtonColors(
-                                    containerColor = Color(0xFF2A2D34),
-                                    contentColor = Color.White
+                                    containerColor = surfaceRaised,
+                                    contentColor = MaterialTheme.colorScheme.onSurface
                                 )
                             ) {
                                 Icon(Icons.Default.RotateRight, contentDescription = "Rotate 90°")
@@ -329,8 +341,8 @@ fun ImageCropperDialog(
                                     rotationDegrees = 0f
                                 },
                                 colors = IconButtonDefaults.filledTonalIconButtonColors(
-                                    containerColor = Color(0xFF2A2D34),
-                                    contentColor = Color.White
+                                    containerColor = surfaceRaised,
+                                    contentColor = MaterialTheme.colorScheme.onSurface
                                 )
                             ) {
                                 Icon(Icons.Default.RestartAlt, contentDescription = "Reset Zoom & Pan")
@@ -343,20 +355,20 @@ fun ImageCropperDialog(
                         ) {
                             Text(
                                 text = "Zoom: ${(scale * 100).roundToInt()}%",
-                                color = Color.Gray,
+                                color = subtleText,
                                 fontSize = 12.sp
                             )
                             IconButton(
                                 onClick = { scale = (scale - 0.25f).coerceAtLeast(0.5f) },
                                 modifier = Modifier.size(36.dp)
                             ) {
-                                Icon(Icons.Default.ZoomOut, contentDescription = "Zoom Out", tint = Color.LightGray)
+                                Icon(Icons.Default.ZoomOut, contentDescription = "Zoom Out", tint = subtleText)
                             }
                             IconButton(
                                 onClick = { scale = (scale + 0.25f).coerceAtMost(5f) },
                                 modifier = Modifier.size(36.dp)
                             ) {
-                                Icon(Icons.Default.ZoomIn, contentDescription = "Zoom In", tint = Color.LightGray)
+                                Icon(Icons.Default.ZoomIn, contentDescription = "Zoom In", tint = subtleText)
                             }
                         }
                     }

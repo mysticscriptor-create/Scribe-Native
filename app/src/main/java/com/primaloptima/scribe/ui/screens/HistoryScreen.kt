@@ -260,8 +260,9 @@ fun HistoryScreen(
                             )
                             .padding(12.dp)
                     ) {
-                        val diffAnnotated = remember(currentNoteContent, ver.content) {
-                            buildDiffAnnotatedString(currentNoteContent, ver.content)
+                        val errorColor = MaterialTheme.colorScheme.error
+                        val diffAnnotated = remember(currentNoteContent, ver.content, errorColor) {
+                            buildDiffAnnotatedString(currentNoteContent, ver.content, errorColor)
                         }
                         Text(text = diffAnnotated, fontSize = 13.sp, lineHeight = 18.sp)
                     }
@@ -317,7 +318,7 @@ fun HistoryScreen(
     }
 }
 
-private fun buildDiffAnnotatedString(currentText: String, versionText: String) = buildAnnotatedString {
+private fun buildDiffAnnotatedString(currentText: String, versionText: String, errorColor: Color = Color(0xFFD32F2F)) = buildAnnotatedString {
     val currentLines = currentText.lines()
     val versionLines = versionText.lines()
 
@@ -345,9 +346,9 @@ private fun buildDiffAnnotatedString(currentText: String, versionText: String) =
             // Removed in this version
             withStyle(
                 style = SpanStyle(
-                    background = Color(0x33F44336),
+                    background = errorColor.copy(alpha = 0.2f),
                     textDecoration = TextDecoration.LineThrough,
-                    color = Color.Red
+                    color = errorColor
                 )
             ) {
                 append("- $line\n")

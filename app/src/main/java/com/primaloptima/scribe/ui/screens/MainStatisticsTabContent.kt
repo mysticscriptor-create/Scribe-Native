@@ -593,7 +593,7 @@ private fun CombinedBarTrendChart(entries: List<DailyWordEntry>) {
                     ) {
                         Text(
                             text = "${entry.fullDateStr}: ${entry.wordCount} words",
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onPrimary,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)

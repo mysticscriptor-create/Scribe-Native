@@ -36,6 +36,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.style.TextOverflow
 import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
+import com.primaloptima.scribe.ui.theme.LocalBorderSubtle
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
@@ -221,10 +222,11 @@ private fun ThemeCard(
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
-    val bgColor = parseComposeColor(theme.colors.background, Color.LightGray)
-    val textColor = parseComposeColor(theme.colors.text, Color.Black)
+    val borderSubtle = LocalBorderSubtle.current
+    val bgColor = parseComposeColor(theme.colors.background, MaterialTheme.colorScheme.surfaceVariant)
+    val textColor = parseComposeColor(theme.colors.text, MaterialTheme.colorScheme.onSurface)
     val mutedColor = parseComposeColor(theme.colors.mutedText, textColor.copy(alpha = 0.7f))
-    val accentColor = parseComposeColor(theme.colors.accent, Color.Blue)
+    val accentColor = parseComposeColor(theme.colors.accent, MaterialTheme.colorScheme.primary)
     val cardShape = RoundedCornerShape(12.dp)
 
     val displayName = if (!theme.emoji.isNullOrEmpty()) "${theme.emoji} ${theme.name}" else theme.name
@@ -246,7 +248,7 @@ private fun ThemeCard(
                     cardShape
                 ) else Modifier.border(
                     1.dp,
-                    parseComposeColor(theme.colors.border, Color.LightGray),
+                    parseComposeColor(theme.colors.border, borderSubtle),
                     cardShape
                 )
             )
