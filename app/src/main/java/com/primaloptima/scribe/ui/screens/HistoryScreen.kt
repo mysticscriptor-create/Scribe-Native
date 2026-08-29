@@ -46,6 +46,7 @@ import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
 import com.primaloptima.scribe.ui.theme.LocalSurfaceRaised
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.util.BitmapBlur
 import com.primaloptima.scribe.viewmodel.EditorViewModel
 import dev.chrisbanes.haze.hazeSource
