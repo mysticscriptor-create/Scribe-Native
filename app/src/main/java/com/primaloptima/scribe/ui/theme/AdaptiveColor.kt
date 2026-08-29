@@ -203,26 +203,35 @@ fun validateThemeSemanticContrast(
         SemanticContrastPair("Accent on Background", "Interactions", "Primary Accent", colors.interaction.primary, "Background", colors.surfaces.background, 60.0, 3.0),
         SemanticContrastPair("Accent on Surface", "Interactions", "Primary Accent", colors.interaction.primary, "Surface", colors.surfaces.surface, 60.0, 3.0),
         SemanticContrastPair("Text on Accent Container", "Interactions", "On-Accent", colors.interaction.onPrimary, "Primary Accent", colors.interaction.primary, 75.0, 4.5),
+        SemanticContrastPair("Accent on Primary Container", "Interactions", "On-Primary Container", colors.interaction.onPrimaryContainer, "Primary Container", colors.interaction.primaryContainer, 60.0, 3.5),
 
         // 4. Writing Colors on Editor Canvas
         SemanticContrastPair("Prose Text on Editor Canvas", "Writing Engine", "Prose", colors.writing.prose, "Background", colors.surfaces.background, 75.0, 4.5),
         SemanticContrastPair("Dialogue Text on Editor Canvas", "Writing Engine", "Dialogue", colors.writing.dialogue, "Background", colors.surfaces.background, 60.0, 3.5),
         SemanticContrastPair("Monologue Text on Editor Canvas", "Writing Engine", "Monologue", colors.writing.monologue, "Background", colors.surfaces.background, 60.0, 3.5),
         SemanticContrastPair("Heading Text on Editor Canvas", "Writing Engine", "Heading", colors.writing.heading, "Background", colors.surfaces.background, 65.0, 3.5),
+        SemanticContrastPair("Annotation Text on Editor Canvas", "Writing Engine", "Annotation", colors.writing.annotation, "Background", colors.surfaces.background, 50.0, 3.0, false),
 
         // 5. Semantic Status & Badges
         SemanticContrastPair("Success Status on Surface", "Status & Feedback", "Success", colors.semantic.success, "Surface", colors.surfaces.surface, 50.0, 3.0),
+        SemanticContrastPair("Success on Success Container", "Status & Feedback", "On-Success Container", colors.semantic.onSuccessContainer, "Success Container", colors.semantic.successContainer, 60.0, 3.5),
         SemanticContrastPair("Warning Status on Surface", "Status & Feedback", "Warning", colors.semantic.warning, "Surface", colors.surfaces.surface, 50.0, 3.0),
+        SemanticContrastPair("Warning on Warning Container", "Status & Feedback", "On-Warning Container", colors.semantic.onWarningContainer, "Warning Container", colors.semantic.warningContainer, 60.0, 3.5),
         SemanticContrastPair("Error Status on Surface", "Status & Feedback", "Error", colors.semantic.error, "Surface", colors.surfaces.surface, 60.0, 3.5),
+        SemanticContrastPair("Error on Error Container", "Status & Feedback", "On-Error Container", colors.semantic.onErrorContainer, "Error Container", colors.semantic.errorContainer, 60.0, 3.5),
         SemanticContrastPair("Info Status on Surface", "Status & Feedback", "Info", colors.semantic.info, "Surface", colors.surfaces.surface, 50.0, 3.0),
+        SemanticContrastPair("Info on Info Container", "Status & Feedback", "On-Info Container", colors.semantic.onInfoContainer, "Info Container", colors.semantic.infoContainer, 60.0, 3.5),
 
         // 6. Analytics on Raised Surfaces
         SemanticContrastPair("Chart Series 1 on Surface", "Analytics", "Series 1", colors.analytics.series1, "Surface", colors.surfaces.surfaceRaised, 45.0, 3.0, false),
         SemanticContrastPair("Chart Series 2 on Surface", "Analytics", "Series 2", colors.analytics.series2, "Surface", colors.surfaces.surfaceRaised, 45.0, 3.0, false),
+        SemanticContrastPair("Chart Series 3 on Surface", "Analytics", "Series 3", colors.analytics.series3, "Surface", colors.surfaces.surfaceRaised, 45.0, 3.0, false),
+        SemanticContrastPair("Chart Target on Surface", "Analytics", "Target", colors.analytics.target, "Surface", colors.surfaces.surfaceRaised, 45.0, 3.0, false),
 
         // 7. Functional Borders & Dividers
-        SemanticContrastPair("Focus Ring on Surface", "Borders", "Focus Ring", colors.borders.prominent, "Surface", colors.surfaces.surface, 45.0, 3.0, false),
-        SemanticContrastPair("Subtle Border on Surface", "Borders", "Border Subtle", colors.borders.subtle, "Surface", colors.surfaces.surface, 20.0, 1.3, false)
+        SemanticContrastPair("Prominent Border / Focus Ring on Surface", "Borders", "Prominent Border", colors.borders.prominent, "Surface", colors.surfaces.surface, 40.0, 2.5, false),
+        SemanticContrastPair("Normal Border on Surface", "Borders", "Normal Border", colors.borders.normal, "Surface", colors.surfaces.surface, 25.0, 1.5, false),
+        SemanticContrastPair("Subtle Border on Surface", "Borders", "Border Subtle", colors.borders.subtle, "Surface", colors.surfaces.surface, 15.0, 1.2, false)
     )
 
     val results = pairs.map { pair ->
