@@ -54,6 +54,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.WindowCompat
 import coil3.ImageLoader
@@ -965,7 +968,6 @@ fun ScribeComposeTheme(
     val configuredAccent = parseComposeColor(resolvedTheme.colors.accent, Color(0xFF333333))
     val border = parseComposeColor(resolvedTheme.colors.border, Color(0xFFE0E0D8))
     val borderSubtle = parseComposeColor(resolvedTheme.colors.borderSubtle, border)
-    val borderProminentResolved = parseComposeColor(resolvedTheme.colors.borderProminent, border)
     val surfaceVariant = surfaceRaised
 
     val bgLum = resolvedTheme.savedBgLuminance
@@ -1036,6 +1038,8 @@ fun ScribeComposeTheme(
         hasBgImage = hasBgImage,
         savedBgLuminance = bgLum
     )
+
+    val borderProminentResolved = parseComposeColor(resolvedTheme.colors.borderProminent, accentIcons)
 
     val onPrimaryColor = if (accentIcons.luminance() < 0.5f) Color.White else Color.Black
 
@@ -1358,8 +1362,6 @@ fun ScribeComposeTheme(
     )
 
     val selectionResolved = parseComposeColor(resolvedTheme.colors.selection, accentIcons.copy(alpha = 0.3f))
-    val accentMutedResolved = parseComposeColor(resolvedTheme.colors.accentMuted, surface)
-    val borderProminentResolved = parseComposeColor(resolvedTheme.colors.borderProminent, accentIcons)
 
     val surfaceSelectedResolved = if (resolvedTheme.isDark) surfaceRaised.copy(alpha = 0.6f) else accentMutedResolved
     val surfacePressedResolved = surface.copy(alpha = 0.8f)

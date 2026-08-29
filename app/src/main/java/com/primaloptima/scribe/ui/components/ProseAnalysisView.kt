@@ -473,7 +473,7 @@ fun ProseAnalysisView(
                             ) {
                                 analysis.overusedWords.forEach { item ->
                                     Surface(
-                                        shape = shapes.pill,
+                                        shape = shapes.full,
                                         color = colors.surfaces.surfaceLowest.copy(alpha = 0.85f),
                                         shadowElevation = 1.dp
                                     ) {
@@ -842,7 +842,7 @@ fun ProseAnalysisView(
                         ) {
                             analysis.weakAdverbsMatches.map { it.text }.distinct().take(16).forEach { adverb ->
                                 Surface(
-                                    shape = shapes.pill,
+                                    shape = shapes.full,
                                     color = colors.surfaces.surfaceLowest.copy(alpha = 0.85f),
                                     shadowElevation = 1.dp
                                 ) {

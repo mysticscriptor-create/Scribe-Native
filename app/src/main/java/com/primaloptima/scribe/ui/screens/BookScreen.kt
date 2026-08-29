@@ -1150,14 +1150,14 @@ private fun BookInfoHeader(
                         verticalAlignment     = Alignment.CenterVertically
                     ) {
                         Text("Summary", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = accentColor)
-                        Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(13.dp), tint = outline.copy(alpha = 0.7f))
+                        Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(13.dp), tint = onSurfaceVariant.copy(alpha = 0.7f))
                     }
                     Spacer(modifier = Modifier.height(5.dp))
                     if (book.summary.isBlank()) {
                         Text(
                             text      = "Tap to add a summary for this book…",
                             fontSize  = 13.sp,
-                            color     = outline.copy(alpha = 0.55f),
+                            color     = onSurfaceVariant.copy(alpha = 0.55f),
                             fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
                             maxLines  = 2
                         )
