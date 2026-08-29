@@ -1011,6 +1011,8 @@ private fun ColorTile(
 ) {
     val color = parseComposeColor(hex, MaterialTheme.colorScheme.surfaceVariant)
     val borderSubtle = LocalBorderSubtle.current
+    val checkDark = ScribeTheme.colors.surfaces.surfaceRaised
+    val checkLight = ScribeTheme.colors.surfaces.surface
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.clickable { onClick() }
@@ -1026,8 +1028,6 @@ private fun ColorTile(
                 val squareSize = 8.dp.toPx()
                 val rows = (size.height / squareSize).toInt() + 1
                 val cols = (size.width / squareSize).toInt() + 1
-                val checkDark = ScribeTheme.colors.surfaces.surfaceRaised
-                val checkLight = ScribeTheme.colors.surfaces.surface
                 for (r in 0 until rows) {
                     for (c in 0 until cols) {
                         val isDark = (r + c) % 2 == 0
@@ -1376,8 +1376,9 @@ private fun ColorPickerBottomSheet(
     onDismiss: () -> Unit,
     onColorSelected: (String) -> Unit
 ) {
-    var selectedColor by remember { mutableStateOf(parseComposeColor(initialHex, MaterialTheme.colorScheme.primary)) }
-    var hexText by remember { mutableStateOf(initialHex) }
+    val defaultColor = MaterialTheme.colorScheme.primary
+    var selectedColor by remember(initialHex) { mutableStateOf(parseComposeColor(initialHex, defaultColor)) }
+    var hexText by remember(initialHex) { mutableStateOf(initialHex) }
 
     FrostedDialog(
         onDismissRequest = onDismiss,
