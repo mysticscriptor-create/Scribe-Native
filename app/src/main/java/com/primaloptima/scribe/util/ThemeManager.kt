@@ -256,8 +256,15 @@ class ThemeManager(private val context: Context) {
         }
 
         /**
-         * Automatically calculates a 5-tier elevation ramp, semantic typography tokens,
-         * and boundary tokens from base background, text, and accent colors using OKLCH.
+         * Phase 11 Theme Generation Engine:
+         * Transforms the Source Palette into structured Semantic Roles via OKLCH Perceptual Derivation.
+         * 
+         * Pipeline:
+         * 1. Source Palette Ingestion (Background, Text, Accent, Base overrides)
+         * 2. OKLCH Perceptual Derivation (Uniform lightness and chroma adjustments independent of hue)
+         * 3. Semantic Role Synthesis (5-tier surface elevation ramp, typographical hierarchy,
+         *    state/feedback tokens, editor syntax colors, boundary systems)
+         * 4. Structured Output Generation (Mapped to ThemeColors)
          */
         fun deriveThemeColors(
             bgHex: String,
@@ -266,9 +273,14 @@ class ThemeManager(private val context: Context) {
             isDark: Boolean,
             base: ThemeColors? = null
         ): ThemeColors {
+            // ── Stage 1: Source Palette Ingestion ────────────────────────────────────
             val bgInt = parseColor(bgHex)
             val textInt = parseColor(textHex)
             val accentInt = parseColor(accentHex)
+
+            val bgOklch = colorToOklch(bgInt)
+            val textOklch = colorToOklch(textInt)
+            val accentOklch = colorToOklch(accentInt)
 
             fun blend(c1: Int, c2: Int, ratio: Float): String {
                 val r = (Color.red(c1) * (1f - ratio) + Color.red(c2) * ratio).toInt().coerceIn(0, 255)
@@ -277,31 +289,41 @@ class ThemeManager(private val context: Context) {
                 return String.format("#%02X%02X%02X", r, g, b)
             }
 
+            // ── Stage 2 & 3: Perceptual Derivation & Semantic Role Synthesis ──────────
             return if (isDark) {
-                val surfaceLowest = shiftOklch(bgInt, +0.022, 0.95)
-                val surface = shiftOklch(bgInt, +0.052, 0.92)
-                val surfaceRaised = shiftOklch(bgInt, +0.095, 0.88)
-                val surfaceOverlay = shiftOklch(bgInt, +0.155, 0.85)
+                // Dark Mode Elevation Ramp (preserving subtle hue and saturation with progressive lightness lift)
+                val surfaceLowest = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.01, 0.95), bgOklch.c * 0.95, bgOklch.h))
+                val surface = oklchToHex(Oklch((bgOklch.l + 0.055).coerceIn(0.01, 0.95), bgOklch.c * 0.90, bgOklch.h))
+                val surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.095).coerceIn(0.01, 0.95), bgOklch.c * 0.85, bgOklch.h))
+                val surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.145).coerceIn(0.01, 0.95), bgOklch.c * 0.80, bgOklch.h))
 
-                val mutedText = shiftOklch(textInt, -0.28, 0.70)
-                val subtleText = shiftOklch(textInt, -0.46, 0.50)
+                // Content & Typography Hierarchy (calculated relative to text luminance)
+                val mutedText = oklchToHex(Oklch((textOklch.l - 0.28).coerceIn(0.35, 0.85), (textOklch.c * 0.70).coerceAtLeast(0.0), textOklch.h))
+                val subtleText = oklchToHex(Oklch((textOklch.l - 0.45).coerceIn(0.25, 0.70), (textOklch.c * 0.50).coerceAtLeast(0.0), textOklch.h))
 
-                val secondaryDefault = shiftOklch(accentInt, -0.05, 0.85)
-                val tertiaryDefault = shiftOklch(accentInt, +0.06, 0.75)
-                val successDefault = createOklchColor(0.75, 0.14, 142.0)
-                val warningDefault = createOklchColor(0.82, 0.15, 85.0)
+                // Interactive & Secondary Harmonics (derived in OKLCH space from accent)
+                val secondaryDefault = oklchToHex(Oklch((accentOklch.l - 0.04).coerceIn(0.30, 0.85), (accentOklch.c * 0.85).coerceAtLeast(0.0), (accentOklch.h + 20.0) % 360.0))
+                val tertiaryDefault = oklchToHex(Oklch((accentOklch.l + 0.06).coerceIn(0.40, 0.90), (accentOklch.c * 0.75).coerceAtLeast(0.0), (accentOklch.h - 30.0 + 360.0) % 360.0))
+
+                // Perceptually tuned Semantic Feedback Roles (APCA readable on dark surfaces)
+                val successDefault = createOklchColor(0.76, 0.15, 142.0)
+                val warningDefault = createOklchColor(0.82, 0.16, 85.0)
                 val errorDefault = createOklchColor(0.72, 0.18, 25.0)
-                val specialHighlightDefault = createOklchColor(0.85, 0.14, 88.0)
+                val specialHighlightDefault = createOklchColor(0.86, 0.14, 88.0)
 
+                // Containers & Selection
                 val accentMuted = blend(accentInt, bgInt, 0.80f)
-                val selection = blend(accentInt, bgInt, 0.68f)
+                val selection = blend(accentInt, bgInt, 0.65f)
 
-                val borderSubtle = shiftOklch(bgInt, +0.075, 0.75)
+                // Boundaries & Focus
+                val borderSubtle = oklchToHex(Oklch((bgOklch.l + 0.08).coerceIn(0.01, 0.95), bgOklch.c * 0.75, bgOklch.h))
                 val borderProminent = accentHex
 
-                val dialogueDefault = createOklchColor(0.91, 0.12, 88.0)
-                val monologueDefault = createOklchColor(0.80, 0.08, 255.0)
+                // Lexer & Writing Engine Syntactical Roles
+                val dialogueDefault = createOklchColor(0.90, 0.13, 86.0)
+                val monologueDefault = createOklchColor(0.80, 0.09, 255.0)
 
+                // ── Stage 4: Structured Output Assembly ───────────────────────────────
                 ThemeColors(
                     background = bgHex,
                     surfaceLowest = base?.surfaceLowest?.takeIf { it != base.background } ?: surfaceLowest,
@@ -330,30 +352,40 @@ class ThemeManager(private val context: Context) {
                     toolbarText = textHex
                 )
             } else {
-                val surfaceLowest = shiftOklch(bgInt, -0.035, 1.05)
+                // Light Mode Elevation Ramp
+                // In light mode, surfaces subtly shift lighter while lowest surface grounds elements
+                val surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.035).coerceIn(0.05, 0.98), bgOklch.c * 1.05, bgOklch.h))
                 val surface = "#FFFFFF"
-                val surfaceRaised = "#FFFFFF"
-                val surfaceOverlay = "#FFFFFF"
+                val surfaceRaised = oklchToHex(Oklch(1.0, 0.0, 0.0)) // Pure clean elevated white
+                val surfaceOverlay = oklchToHex(Oklch(1.0, 0.0, 0.0))
 
-                val mutedText = shiftOklch(textInt, +0.32, 0.60)
-                val subtleText = shiftOklch(textInt, +0.48, 0.50)
+                // Content & Typography Hierarchy (increasing lightness in OKLCH with reduced chroma)
+                val mutedText = oklchToHex(Oklch((textOklch.l + 0.28).coerceIn(0.20, 0.75), (textOklch.c * 0.65).coerceAtLeast(0.0), textOklch.h))
+                val subtleText = oklchToHex(Oklch((textOklch.l + 0.44).coerceIn(0.30, 0.85), (textOklch.c * 0.50).coerceAtLeast(0.0), textOklch.h))
 
-                val secondaryDefault = shiftOklch(accentInt, +0.08, 0.85)
-                val tertiaryDefault = shiftOklch(accentInt, +0.14, 0.75)
+                // Interactive & Secondary Harmonics
+                val secondaryDefault = oklchToHex(Oklch((accentOklch.l + 0.08).coerceIn(0.20, 0.75), (accentOklch.c * 0.85).coerceAtLeast(0.0), (accentOklch.h + 15.0) % 360.0))
+                val tertiaryDefault = oklchToHex(Oklch((accentOklch.l + 0.14).coerceIn(0.25, 0.80), (accentOklch.c * 0.75).coerceAtLeast(0.0), (accentOklch.h - 25.0 + 360.0) % 360.0))
+
+                // Perceptually tuned Semantic Feedback Roles (APCA readable on light surfaces)
                 val successDefault = createOklchColor(0.48, 0.16, 142.0)
                 val warningDefault = createOklchColor(0.55, 0.16, 80.0)
                 val errorDefault = createOklchColor(0.50, 0.20, 25.0)
                 val specialHighlightDefault = createOklchColor(0.52, 0.15, 75.0)
 
+                // Containers & Selection
                 val accentMuted = blend(accentInt, bgInt, 0.88f)
                 val selection = blend(accentInt, bgInt, 0.78f)
 
-                val borderSubtle = shiftOklch(bgInt, -0.09, 0.60)
+                // Boundaries & Focus (derived with adequate contrast against light background)
+                val borderSubtle = oklchToHex(Oklch((bgOklch.l - 0.085).coerceIn(0.10, 0.98), bgOklch.c * 0.70, bgOklch.h))
                 val borderProminent = accentHex
 
-                val dialogueDefault = createOklchColor(0.42, 0.14, 75.0)
-                val monologueDefault = createOklchColor(0.35, 0.12, 260.0)
+                // Lexer & Writing Engine Syntactical Roles
+                val dialogueDefault = createOklchColor(0.45, 0.15, 65.0)
+                val monologueDefault = createOklchColor(0.40, 0.12, 255.0)
 
+                // ── Stage 4: Structured Output Assembly ───────────────────────────────
                 ThemeColors(
                     background = bgHex,
                     surfaceLowest = base?.surfaceLowest?.takeIf { it != base.background } ?: surfaceLowest,
