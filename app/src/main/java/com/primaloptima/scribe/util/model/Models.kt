@@ -152,7 +152,15 @@ data class AppTheme(
      * This single float drives text colour, frosted-panel content colour, and
      * accent-colour adaptation at runtime with zero bitmap processing on the device.
      */
-    val savedBgLuminance: Float = -1f
+    val savedBgLuminance: Float = -1f,
+    /**
+     * 3x3 Zonal Precomputation Matrix storing average perceptual lightness across:
+     * [0: TL, 1: TC (AppBar), 2: TR,
+     *  3: ML, 4: MC (Editor), 5: MR,
+     *  6: BL, 7: BC (Toolbar), 8: BR]
+     * Enables zero-allocation instant first-frame adaptation for top bars, editor, and toolbars.
+     */
+    val savedZonalLuminance: List<Float> = emptyList()
 )
 
 // ── SAF scan result ───────────────────────────────────────────────────────────

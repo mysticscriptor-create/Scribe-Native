@@ -63,6 +63,8 @@ import kotlinx.coroutines.launch
 import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.util.model.ThemeColors
 import com.primaloptima.scribe.ui.theme.autoTextColor
+import com.primaloptima.scribe.ui.theme.colorToPerceptualLightness
+import com.primaloptima.scribe.ui.theme.computeZonalLuminanceMatrix
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.ui.theme.FontHelper
 import com.primaloptima.scribe.ui.theme.FrostedDialog
@@ -132,6 +134,7 @@ fun ThemeEditScreen(
     // via Coil (same pipeline as ScribeComposeTheme) so content:// URIs work correctly.
     // -1f means not yet computed (no image, or pre-existing theme).
     var bgLuminance by remember(originalTheme) { mutableFloatStateOf(originalTheme.savedBgLuminance) }
+    var zonalLuminanceMatrix by remember(originalTheme) { mutableStateOf(originalTheme.savedZonalLuminance) }
 
     // Crop screen: shown after the user picks a new background image
     var showCropScreen by remember { mutableStateOf(false) }
@@ -214,6 +217,7 @@ fun ThemeEditScreen(
                                 themeScope = themeScope,
                                 emoji = emoji,
                                 savedBgLuminance = bgLuminance,
+                                savedZonalLuminance = zonalLuminanceMatrix,
                                 colors = ThemeManager.deriveThemeColors(
                                     bgHex = bgHex,
                                     textHex = textHex,
@@ -779,6 +783,7 @@ fun ThemeEditScreen(
                         themeScope = themeScope,
                         emoji = emoji,
                         savedBgLuminance = bgLuminance,
+                        savedZonalLuminance = zonalLuminanceMatrix,
                         colors = ThemeManager.deriveThemeColors(
                             bgHex = bgHex,
                             textHex = textHex,
@@ -840,6 +845,8 @@ fun ThemeEditScreen(
                                 textAlignment = textAlignment,
                                 themeScope = themeScope,
                                 emoji = emoji,
+                                savedBgLuminance = bgLuminance,
+                                savedZonalLuminance = zonalLuminanceMatrix,
                                 colors = ThemeManager.deriveThemeColors(
                                     bgHex = bgHex,
                                     textHex = textHex,
@@ -950,7 +957,9 @@ fun ThemeEditScreen(
                     // and cause the text colour to auto-compute from the wrong luminance).
                     isLuminancePending = true
                     scope.launch {
-                        bgLuminance = computeBgLuminance(context, croppedUri)
+                        val (avgL, zonal) = computeBgAnalysis(context, croppedUri)
+                        bgLuminance = avgL
+                        zonalLuminanceMatrix = zonal
                         isLuminancePending = false
                     }
                 },
@@ -1889,17 +1898,18 @@ private fun ImageCropScreen(
 
 /**
  * Loads [imageUri] through Coil at a tiny 32×32 resolution (same as ScribeComposeTheme's
- * analysisBitmap) and returns the average linear luminance across all pixels.
+ * analysisBitmap) and returns the average perceptual OKLCH lightness across all pixels
+ * along with the 3x3 Zonal Precomputation Matrix.
  *
  * Using Coil — not BitmapFactory.decodeFile — is critical because [imageUri] may be a
  * content:// URI (produced by SAF after a crop). BitmapFactory.decodeFile only handles
  * file:// paths and returns null for content:// URIs, making luminance always -1f.
  * Coil resolves both URI types correctly on all API levels.
  *
- * Returns -1f on any error so callers can treat it as "not computed".
+ * Returns Pair(-1f, emptyList()) on any error so callers can treat it as "not computed".
  * This function is suspend so it must be called from a coroutine (e.g. scope.launch).
  */
-private suspend fun computeBgLuminance(context: android.content.Context, imageUri: String): Float {
+private suspend fun computeBgAnalysis(context: android.content.Context, imageUri: String): Pair<Float, List<Float>> {
     return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         try {
             val request = coil3.request.ImageRequest.Builder(context)
@@ -1910,27 +1920,25 @@ private suspend fun computeBgLuminance(context: android.content.Context, imageUr
             val bitmap = (coil3.ImageLoader(context).execute(request) as? coil3.request.SuccessResult)
                 ?.image
                 ?.let { (it as? coil3.BitmapImage)?.bitmap }
-                ?: return@withContext -1f
+                ?: return@withContext Pair(-1f, emptyList())
 
             val w = bitmap.width
             val h = bitmap.height
-            if (w == 0 || h == 0) return@withContext -1f
+            if (w == 0 || h == 0) return@withContext Pair(-1f, emptyList())
 
             var total = 0.0
             for (x in 0 until w) {
                 for (y in 0 until h) {
                     val pixel = bitmap.getPixel(x, y)
-                    // Convert sRGB channels to linear luminance (WCAG relative luminance formula)
-                    val r = android.graphics.Color.red(pixel) / 255.0
-                    val g = android.graphics.Color.green(pixel) / 255.0
-                    val b = android.graphics.Color.blue(pixel) / 255.0
-                    total += 0.2126 * r + 0.7152 * g + 0.0722 * b
+                    total += colorToPerceptualLightness(pixel)
                 }
             }
+            val avgL = (total / (w * h)).toFloat().coerceIn(0f, 1f)
+            val zonal = computeZonalLuminanceMatrix(bitmap)
             bitmap.recycle()
-            (total / (w * h)).toFloat().coerceIn(0f, 1f)
+            Pair(avgL, zonal)
         } catch (_: Exception) {
-            -1f
+            Pair(-1f, emptyList())
         }
     }
 }
