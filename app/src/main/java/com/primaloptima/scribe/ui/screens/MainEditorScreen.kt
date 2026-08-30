@@ -42,7 +42,7 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.Constraints
-import com.primaloptima.scribe.ui.theme.LocalAccentColor
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.LocalBarBlurBitmap
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
@@ -834,7 +834,7 @@ private fun EditorTopBar(
                 LinearProgressIndicator(
                     progress   = { goalProgress },
                     modifier   = Modifier.fillMaxWidth().height(3.dp),
-                    color      = LocalAccentColor.current,
+                    color      = ScribeTheme.colors.interaction.primary,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                 )
             }
@@ -925,7 +925,7 @@ private fun EditorOptionsBottomSheet(
                 text = "EXPORT NOTE",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = LocalAccentColor.current,
+                color = ScribeTheme.colors.interaction.primary,
                 letterSpacing = 0.5.sp,
                 modifier = Modifier.padding(start = 2.dp, top = 4.dp, bottom = 8.dp)
             )
@@ -961,7 +961,7 @@ private fun EditorOptionsBottomSheet(
                                     else -> Icons.Default.PictureAsPdf
                                 },
                                 contentDescription = null,
-                                tint = LocalAccentColor.current,
+                                tint = ScribeTheme.colors.interaction.primary,
                                 modifier = Modifier.size(18.dp)
                             )
                             Spacer(Modifier.height(4.dp))
@@ -1034,14 +1034,14 @@ private fun EditorTrayActionCard(
         ) {
             Surface(
                 shape = CircleShape,
-                color = LocalAccentColor.current.copy(alpha = 0.15f),
+                color = ScribeTheme.colors.interaction.primary.copy(alpha = 0.15f),
                 modifier = Modifier.size(34.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
-                        tint = LocalAccentColor.current,
+                        tint = ScribeTheme.colors.interaction.primary,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -1092,7 +1092,7 @@ private fun EditorTrayMenuItem(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = LocalAccentColor.current,
+                tint = ScribeTheme.colors.interaction.primary,
                 modifier = Modifier.size(20.dp)
             )
             Spacer(Modifier.width(14.dp))
@@ -1262,7 +1262,7 @@ private fun FormatButton(
     Surface(
         onClick      = onClick,
         shape        = CircleShape,
-        color        = if (isSelected) LocalAccentColor.current
+        color        = if (isSelected) ScribeTheme.colors.interaction.primary
                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
         contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary
                        else MaterialTheme.colorScheme.onSurfaceVariant,

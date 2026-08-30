@@ -64,8 +64,8 @@ fun MainStatisticsTabContent(
     bookWordCounts: Map<String, Int>
 ) {
     var selectedTopTab by remember { mutableIntStateOf(0) } // 0: Statistics, 1: Wordmap
-    val accent = LocalAccentColor.current
-    val subtle = LocalSubtleTextColor.current
+    val accent = ScribeTheme.colors.interaction.primary
+    val subtle = ScribeTheme.colors.content.tertiary
 
     Column(modifier = Modifier.fillMaxSize()) {
         Surface(
@@ -149,8 +149,8 @@ private fun DetailedStatisticsTab(
     val dailyGoal   by dashboardVm.dailyGoal.collectAsStateWithLifecycle()
     val chartData   by statsVm.chartData.collectAsStateWithLifecycle()
 
-    val accentColor = LocalAccentColor.current
-    val subtleColor = LocalSubtleTextColor.current
+    val accentColor = ScribeTheme.colors.interaction.primary
+    val subtleColor = ScribeTheme.colors.content.tertiary
     val resolvedSubtle = if (subtleColor != Color.Unspecified) subtleColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
 
     LaunchedEffect(selectedRange) {
@@ -538,8 +538,8 @@ private fun DetailedWordmapTab(
 
     val folderWordTotals by statsVm.folderWordTotals.collectAsStateWithLifecycle()
     val bookWordTotals = bookWordCounts
-    val accentColor = LocalAccentColor.current
-    val subtleText = LocalSubtleTextColor.current
+    val accentColor = ScribeTheme.colors.interaction.primary
+    val subtleText = ScribeTheme.colors.content.tertiary
     val resolvedSubtle = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurfaceVariant
 
     Column(
@@ -643,8 +643,8 @@ private fun AnimatedRankCard(
     index: Int
 ) {
     var isVisible by remember { mutableStateOf(false) }
-    val accentColor = LocalAccentColor.current
-    val subtleText = LocalSubtleTextColor.current
+    val accentColor = ScribeTheme.colors.interaction.primary
+    val subtleText = ScribeTheme.colors.content.tertiary
     val resolvedSubtle = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
 
     LaunchedEffect(Unit) {

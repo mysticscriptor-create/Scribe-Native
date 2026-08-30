@@ -40,12 +40,8 @@ import com.primaloptima.scribe.ui.components.ScribeCardTokens
 import com.primaloptima.scribe.ui.components.ScribePill
 import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.theme.FrostedDialog
-import com.primaloptima.scribe.ui.theme.LocalAccentColor
-import com.primaloptima.scribe.ui.theme.LocalBorderSubtle
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
-import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
-import com.primaloptima.scribe.ui.theme.LocalSurfaceRaised
 import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.util.BitmapBlur
 import com.primaloptima.scribe.viewmodel.EditorViewModel
@@ -66,8 +62,8 @@ fun HistoryScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val app = context.applicationContext as ScribeApp
-    val accentColor = LocalAccentColor.current
-    val subtleText = LocalSubtleTextColor.current
+    val accentColor = ScribeTheme.colors.interaction.primary
+    val subtleText = ScribeTheme.colors.content.tertiary
 
     val activeNoteIdState by app.dataStore.activeNoteIdFlow.collectAsStateWithLifecycle(initialValue = null)
     val noteId = activeNoteIdState ?: ""
@@ -259,8 +255,8 @@ fun HistoryScreen(
             val dateStr = remember(ver.timestamp) {
                 SimpleDateFormat("MMM d, yyyy · h:mm a", Locale.getDefault()).format(Date(ver.timestamp))
             }
-            val raisedSurface = LocalSurfaceRaised.current
-            val borderSubtle = LocalBorderSubtle.current
+            val raisedSurface = ScribeTheme.colors.surfaces.surfaceRaised
+            val borderSubtle = ScribeTheme.colors.borders.subtle
 
             FrostedDialog(
                 onDismissRequest = { selectedVersion = null },

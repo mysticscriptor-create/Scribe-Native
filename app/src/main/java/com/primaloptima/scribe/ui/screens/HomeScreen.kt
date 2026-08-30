@@ -31,7 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import com.primaloptima.scribe.ui.theme.LocalAccentColor
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import android.graphics.Bitmap
 import android.os.Build
 import androidx.core.view.WindowInsetsControllerCompat
@@ -285,7 +285,7 @@ fun HomeScreen(
                     .frostedPanel(hazeState)
             ) {
                 FrostedPanelContent {
-                val accentColor = LocalAccentColor.current
+                val accentColor = ScribeTheme.colors.interaction.primary
                 val (adaptiveTextColor, adaptiveTextModifier) = rememberAdaptiveTextColor(
                     fallback = MaterialTheme.colorScheme.onSurface
                 )

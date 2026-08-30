@@ -14,7 +14,7 @@ import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.ui.components.ScribeContentCard
 import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.theme.LocalHazeState
-import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import dev.chrisbanes.haze.hazeSource
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -58,7 +58,7 @@ fun GuideScreen(
 
 @Composable
 private fun GuideSection(title: String, description: String) {
-    val subtle = LocalSubtleTextColor.current
+    val subtle = ScribeTheme.colors.content.tertiary
     val onSurface = MaterialTheme.colorScheme.onSurface
     val textColor = if (subtle != Color.Unspecified) subtle else onSurface.copy(alpha = 0.85f)
 

@@ -36,7 +36,7 @@ import com.primaloptima.scribe.ui.components.FrostedBottomSheet
 import com.primaloptima.scribe.ui.components.FullScreenImageViewer
 import com.primaloptima.scribe.ui.components.ImageCropperDialog
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
-import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.util.WorldImageUtil
 import com.primaloptima.scribe.viewmodel.SheetsViewModel
@@ -507,7 +507,7 @@ private fun AttributeEditCard(
                     shape = RoundedCornerShape(10.dp)
                 )
 
-                val subtleTextColor = LocalSubtleTextColor.current
+                val subtleTextColor = ScribeTheme.colors.content.tertiary
                 // Move Up
                 IconButton(
                     onClick = onMoveUp,
