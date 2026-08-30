@@ -385,13 +385,15 @@ fun Modifier.drawWithBackdropBitmap(
     tint: Color,
     shape: Shape = RectangleShape,
     isDark: Boolean = LocalAppTheme.current?.isDark == true,
-    fallbackColor: Color = ScribeTheme.colors.surfaces.surface
+    fallbackColor: Color = ScribeTheme.colors.surfaces.surface,
+    topColor: Color? = null,
+    bottomColor: Color? = null
 ): Modifier {
     if (bitmap == null) {
         return this
             .clip(shape)
             .background(fallbackColor, shape = shape)
-            .specularGlassBorder(shape, isDark)
+            .specularGlassBorder(shape, isDark, topColor = topColor, bottomColor = bottomColor)
     }
 
     val view = LocalView.current
@@ -456,7 +458,7 @@ fun Modifier.drawWithBackdropBitmap(
 
             drawContent()
         }
-        .specularGlassBorder(shape, isDark)
+        .specularGlassBorder(shape, isDark, topColor = topColor, bottomColor = bottomColor)
 }
 
 @Composable
@@ -472,7 +474,7 @@ fun Modifier.frostedBar(
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
     val bgLum = theme?.zonalLuminance(AmbientZone.TOP_APP_BAR) ?: (if (isDark) 0.15f else 0.90f)
-    val adaptiveTokens = remember(bgLum) { deriveAdaptiveTokens(bgLum) }
+    val adaptiveTokens = remember(bgLum, theme?.colors) { deriveAdaptiveTokens(bgLum, baseColors = theme?.colors) }
     val tintColor = if (tintEnabled) {
         if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.35f)
     } else {
@@ -492,7 +494,7 @@ fun Modifier.frostedBar(
     } else if (barBlurBitmap != null) {
         this
             .clip(shape)
-            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.92f))
+            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.92f), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else {
         this
             .clip(shape)
@@ -519,7 +521,7 @@ fun Modifier.frostedFab(
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
     val bgLum = theme?.zonalLuminance(AmbientZone.BOTTOM_RIGHT) ?: (if (isDark) 0.15f else 0.90f)
-    val adaptiveTokens = remember(bgLum) { deriveAdaptiveTokens(bgLum) }
+    val adaptiveTokens = remember(bgLum, theme?.colors) { deriveAdaptiveTokens(bgLum, baseColors = theme?.colors) }
     val tintColor = if (tintEnabled) {
         if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.35f)
     } else {
@@ -539,7 +541,7 @@ fun Modifier.frostedFab(
     } else if (barBlurBitmap != null) {
         this
             .clip(shape)
-            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.90f))
+            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.90f), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else {
         this
             .clip(shape)
@@ -564,7 +566,7 @@ fun Modifier.frostedPanel(
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
     val bgLum = theme?.zonalLuminance(AmbientZone.GLOBAL) ?: (if (isDark) 0.15f else 0.90f)
-    val adaptiveTokens = remember(bgLum) { deriveAdaptiveTokens(bgLum) }
+    val adaptiveTokens = remember(bgLum, theme?.colors) { deriveAdaptiveTokens(bgLum, baseColors = theme?.colors) }
     val tintColor = if (tintEnabled) {
         if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.25f)
     } else {
@@ -584,7 +586,7 @@ fun Modifier.frostedPanel(
     } else if (barBlurBitmap != null) {
         this
             .clip(shape)
-            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.95f))
+            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.95f), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else {
         this
             .clip(shape)
@@ -609,7 +611,7 @@ fun Modifier.frostedMenu(
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
     val bgLum = theme?.zonalLuminance(AmbientZone.GLOBAL) ?: (if (isDark) 0.15f else 0.90f)
-    val adaptiveTokens = remember(bgLum) { deriveAdaptiveTokens(bgLum) }
+    val adaptiveTokens = remember(bgLum, theme?.colors) { deriveAdaptiveTokens(bgLum, baseColors = theme?.colors) }
     val tintColor = if (tintEnabled) {
         if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.25f)
     } else {
@@ -629,7 +631,7 @@ fun Modifier.frostedMenu(
     } else if (barBlurBitmap != null) {
         this
             .clip(shape)
-            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.94f))
+            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.94f), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else {
         this
             .clip(shape)
@@ -686,7 +688,7 @@ fun Modifier.frostedCard(
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
     val bgLum = theme?.zonalLuminance(AmbientZone.MAIN_CONTENT) ?: (if (isDark) 0.15f else 0.90f)
-    val adaptiveTokens = remember(bgLum) { deriveAdaptiveTokens(bgLum) }
+    val adaptiveTokens = remember(bgLum, theme?.colors) { deriveAdaptiveTokens(bgLum, baseColors = theme?.colors) }
     val tintColor = if (tintEnabled) {
         if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.25f)
     } else {
@@ -710,7 +712,7 @@ fun Modifier.frostedCard(
     } else if (barBlurBitmap != null) {
         this
             .clip(shape)
-            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = solidAlpha))
+            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = solidAlpha), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else {
         this
             .clip(shape)
@@ -740,7 +742,7 @@ fun Modifier.frostedChip(
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
     val bgLum = theme?.zonalLuminance(AmbientZone.MAIN_CONTENT) ?: (if (isDark) 0.15f else 0.90f)
-    val adaptiveTokens = remember(bgLum) { deriveAdaptiveTokens(bgLum) }
+    val adaptiveTokens = remember(bgLum, theme?.colors) { deriveAdaptiveTokens(bgLum, baseColors = theme?.colors) }
 
     val baseTint = if (isSelected) accentColor else (if (hasBgImage) adaptiveTokens.glassTint else solidSurface)
     val tintAlpha = if (isSelected) selectedAlpha else unselectedAlpha
@@ -761,7 +763,7 @@ fun Modifier.frostedChip(
         val fallbackBg = if (isSelected) accentColor.copy(alpha = 0.18f) else solidSurface.copy(alpha = solidAlpha)
         this
             .clip(shape)
-            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, fallbackBg)
+            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, fallbackBg, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else {
         val fallbackBg = if (isSelected) accentColor.copy(alpha = 0.18f) else solidSurface.copy(alpha = solidAlpha)
         this
@@ -788,7 +790,7 @@ fun Modifier.frostedSearchBox(
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
     val bgLum = theme?.zonalLuminance(AmbientZone.TOP_APP_BAR) ?: (if (isDark) 0.15f else 0.90f)
-    val adaptiveTokens = remember(bgLum) { deriveAdaptiveTokens(bgLum) }
+    val adaptiveTokens = remember(bgLum, theme?.colors) { deriveAdaptiveTokens(bgLum, baseColors = theme?.colors) }
     val tintColor = if (tintEnabled) {
         if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.22f)
     } else {
@@ -808,7 +810,7 @@ fun Modifier.frostedSearchBox(
     } else if (barBlurBitmap != null) {
         this
             .clip(shape)
-            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = solidAlpha))
+            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = solidAlpha), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else {
         this
             .clip(shape)

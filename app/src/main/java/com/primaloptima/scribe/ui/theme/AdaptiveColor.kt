@@ -501,9 +501,9 @@ data class AdaptiveTokenSuite(
     val specularRimAlpha: Float,
     val isDarkBackground: Boolean,
     val requiresShadowScrim: Boolean,
-    val glassTint: Color = if (isDarkBackground) Color(0xFF141416).copy(alpha = 0.20f) else Color(0xFFFAF9F8).copy(alpha = 0.25f),
-    val glassSpecularTop: Color = if (isDarkBackground) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.65f),
-    val glassSpecularBottom: Color = if (isDarkBackground) Color.White.copy(alpha = 0.03f) else Color.Black.copy(alpha = 0.06f),
+    val glassTint: Color = if (isDarkBackground) Color(0xFF0F172A).copy(alpha = 0.12f) else Color(0xFFF8FAFC).copy(alpha = 0.15f),
+    val glassSpecularTop: Color = if (isDarkBackground) Color.White.copy(alpha = 0.30f) else Color.White.copy(alpha = 0.60f),
+    val glassSpecularBottom: Color = if (isDarkBackground) Color.Black.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.06f),
     val writing: WritingColors = WritingColors(
         prose = text,
         dialogue = dialogueText,
@@ -562,25 +562,63 @@ fun deriveAdaptiveTokens(
         (0.06f * (1f - backgroundLightness * 0.3f)).coerceIn(0.03f, 0.09f)
     }
 
-    // High-clarity refraction tint (CAM16 / OKLCH calibrated: 8%–18% opacity)
+    // Source image/theme hues for chromatic refraction & directional specular rim
+    val accentInt = baseColors?.accent?.let { ThemeManager.parseColor(it) }
+        ?: (if (isDark) 0xFF38BDF8.toInt() else 0xFF0284C7.toInt())
+    val accentOklch = ThemeManager.colorToOklch(accentInt)
+
+    val bgInt = baseColors?.background?.let { ThemeManager.parseColor(it) }
+        ?: (if (isDark) 0xFF0F172A.toInt() else 0xFFF8FAFC.toInt())
+    val bgOklch = ThemeManager.colorToOklch(bgInt)
+
+    // Layer 3: Chromatic Refraction Tint (CAM16 / OKLCH calibrated: 8%–18% opacity derived from image hue)
     val glassTint = if (isDark) {
-        Color(0xFF0F172A).copy(alpha = (0.10f + (1f - backgroundLightness) * 0.04f).coerceIn(0.08f, 0.14f))
+        val darkTintHex = ThemeManager.createOklchColor(
+            targetL = 0.12,
+            targetC = (bgOklch.c * 0.80).coerceIn(0.01, 0.08),
+            targetH = bgOklch.h
+        )
+        val darkTintAlpha = (0.10f + (1f - backgroundLightness) * 0.04f).coerceIn(0.10f, 0.14f)
+        parseComposeColor(darkTintHex, Color(0xFF0F172A)).copy(alpha = darkTintAlpha)
     } else {
-        Color(0xFFF8FAFC).copy(alpha = (0.12f + backgroundLightness * 0.06f).coerceIn(0.12f, 0.18f))
+        val lightTintHex = ThemeManager.createOklchColor(
+            targetL = 0.96,
+            targetC = (bgOklch.c * 0.60).coerceIn(0.01, 0.06),
+            targetH = bgOklch.h
+        )
+        val lightTintAlpha = (0.12f + backgroundLightness * 0.06f).coerceIn(0.12f, 0.18f)
+        parseComposeColor(lightTintHex, Color(0xFFF8FAFC)).copy(alpha = lightTintAlpha)
     }
 
-    // Directional Specular Rim: Top overhead light catch (+20% higher lightness, 25-35% alpha in dark, 50-70% in light)
+    // Layer 1: Directional Specular Rim (Lighting Physics)
+    // Top overhead light catch: extracted image/accent hue shifted +20% higher in lightness with 25-35% alpha in dark, 50-70% in light
     val glassSpecularTop = if (isDark) {
-        Color.White.copy(alpha = (0.25f + (1f - backgroundLightness) * 0.10f).coerceIn(0.25f, 0.35f))
+        val topL = (backgroundLightness.toDouble() + 0.25).coerceIn(0.86, 0.98)
+        val topC = (accentOklch.c * 0.35).coerceIn(0.005, 0.04)
+        val topHex = ThemeManager.createOklchColor(topL, topC, accentOklch.h)
+        val topAlpha = (0.25f + (1f - backgroundLightness) * 0.10f).coerceIn(0.25f, 0.35f)
+        parseComposeColor(topHex, Color.White).copy(alpha = topAlpha)
     } else {
-        Color.White.copy(alpha = (0.55f + (1f - backgroundLightness) * 0.15f).coerceIn(0.50f, 0.70f))
+        val topL = (backgroundLightness.toDouble() + 0.15).coerceIn(0.94, 0.99)
+        val topC = (accentOklch.c * 0.25).coerceIn(0.003, 0.03)
+        val topHex = ThemeManager.createOklchColor(topL, topC, accentOklch.h)
+        val topAlpha = (0.50f + (1f - backgroundLightness) * 0.20f).coerceIn(0.50f, 0.70f)
+        parseComposeColor(topHex, Color.White).copy(alpha = topAlpha)
     }
 
-    // Ambient Bottom Falloff Shadow (10%-15% in dark, 4%-10% in light)
+    // Bottom ambient shadow falloff: extracted hue shifted darker in lightness with 10-15% alpha in dark, 4-10% in light
     val glassSpecularBottom = if (isDark) {
-        Color.Black.copy(alpha = (0.10f + (1f - backgroundLightness) * 0.05f).coerceIn(0.10f, 0.15f))
+        val bottomL = (backgroundLightness.toDouble() - 0.20).coerceIn(0.02, 0.10)
+        val bottomC = (accentOklch.c * 0.40).coerceIn(0.005, 0.04)
+        val bottomHex = ThemeManager.createOklchColor(bottomL, bottomC, accentOklch.h)
+        val bottomAlpha = (0.10f + (1f - backgroundLightness) * 0.05f).coerceIn(0.10f, 0.15f)
+        parseComposeColor(bottomHex, Color.Black).copy(alpha = bottomAlpha)
     } else {
-        Color.Black.copy(alpha = (0.04f + backgroundLightness * 0.06f).coerceIn(0.04f, 0.10f))
+        val bottomL = (backgroundLightness.toDouble() - 0.25).coerceIn(0.12, 0.30)
+        val bottomC = (accentOklch.c * 0.35).coerceIn(0.005, 0.04)
+        val bottomHex = ThemeManager.createOklchColor(bottomL, bottomC, accentOklch.h)
+        val bottomAlpha = (0.04f + backgroundLightness * 0.06f).coerceIn(0.04f, 0.10f)
+        parseComposeColor(bottomHex, Color.Black).copy(alpha = bottomAlpha)
     }
 
     return AdaptiveTokenSuite(
