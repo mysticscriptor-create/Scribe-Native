@@ -285,11 +285,12 @@ class ThemeManager(private val context: Context) {
             // Check if base theme's background was changed
             val bgChangedFromBase = base != null && !bgHex.equals(base.background, ignoreCase = true)
 
-            // Polarity Auto-Adjustment: Ensure text color contrast against background
+            // Polarity Auto-Adjustment: Ensure text color has strong perceptual contrast relative to background
+            // ΔL between background and text must be sufficient for high APCA readability
             val effectiveTextHex: String
             if (isDark) {
-                // Dark mode requires high lightness text (L >= 0.70)
-                if (textOklch.l < 0.50) {
+                // Dark background: text must be perceptually light (L >= 0.75, ideal ~0.92)
+                if (textOklch.l < 0.60) {
                     textOklch = Oklch(0.92, (textOklch.c * 0.4).coerceAtMost(0.04), textOklch.h)
                     effectiveTextHex = oklchToHex(textOklch)
                     textInt = parseColor(effectiveTextHex)
@@ -297,9 +298,9 @@ class ThemeManager(private val context: Context) {
                     effectiveTextHex = textHex
                 }
             } else {
-                // Light mode requires low lightness text (L <= 0.35)
-                if (textOklch.l > 0.55) {
-                    textOklch = Oklch(0.18, (textOklch.c * 0.4).coerceAtMost(0.04), textOklch.h)
+                // Light or medium-bright background: text must be perceptually dark (L <= 0.30, ideal ~0.16)
+                if (textOklch.l > 0.40) {
+                    textOklch = Oklch(0.16, (textOklch.c * 0.4).coerceAtMost(0.04), textOklch.h)
                     effectiveTextHex = oklchToHex(textOklch)
                     textInt = parseColor(effectiveTextHex)
                 } else {
@@ -377,12 +378,12 @@ class ThemeManager(private val context: Context) {
                     toolbarText = effectiveTextHex
                 )
             } else {
-                // Light Mode Elevation Ramp
-                // In light mode, surfaces subtly shift lighter while lowest surface grounds elements
+                // Light & Tinted Mode Elevation Ramp
+                // Surfaces shift smoothly lighter or towards elevated tonal lightness without hardcoded white jumps
                 val surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.035).coerceIn(0.05, 0.98), bgOklch.c * 1.05, bgOklch.h))
-                val surface = "#FFFFFF"
-                val surfaceRaised = oklchToHex(Oklch(1.0, 0.0, 0.0)) // Pure clean elevated white
-                val surfaceOverlay = oklchToHex(Oklch(1.0, 0.0, 0.0))
+                val surface = oklchToHex(Oklch((bgOklch.l + 0.045).coerceIn(0.05, 0.99), bgOklch.c * 0.88, bgOklch.h))
+                val surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.085).coerceIn(0.05, 1.0), bgOklch.c * 0.75, bgOklch.h))
+                val surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.130).coerceIn(0.05, 1.0), bgOklch.c * 0.65, bgOklch.h))
 
                 // Content & Typography Hierarchy (increasing lightness in OKLCH with reduced chroma)
                 val mutedText = oklchToHex(Oklch((textOklch.l + 0.28).coerceIn(0.20, 0.75), (textOklch.c * 0.65).coerceAtLeast(0.0), textOklch.h))

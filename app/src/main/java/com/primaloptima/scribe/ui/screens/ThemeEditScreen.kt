@@ -191,6 +191,16 @@ fun ThemeEditScreen(
         }
     }
 
+    val derivedPreview = remember(bgHex, textHex, accentHex, originalTheme.isDark) {
+        ThemeManager.deriveThemeColors(
+            bgHex = bgHex,
+            textHex = textHex,
+            accentHex = accentHex,
+            isDark = ThemeManager.isDarkColor(bgHex),
+            base = originalTheme.colors
+        )
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime),
@@ -223,13 +233,7 @@ fun ThemeEditScreen(
                                 savedBgLuminance = bgLuminance,
                                 savedZonalLuminance = zonalLuminanceMatrix,
                                 savedZonalVariance = zonalVarianceMatrix,
-                                colors = ThemeManager.deriveThemeColors(
-                                    bgHex = bgHex,
-                                    textHex = textHex,
-                                    accentHex = accentHex,
-                                    isDark = originalTheme.isDark,
-                                    base = originalTheme.colors
-                                )
+                                colors = derivedPreview
                             )
                             vm.save(updated)
                             Toast.makeText(context, "Theme saved", Toast.LENGTH_SHORT).show()
@@ -260,7 +264,7 @@ fun ThemeEditScreen(
                 LivePreviewCard(
                     themeName = if (emoji.isNotBlank()) "$emoji $name" else name,
                     bgHex = bgHex,
-                    textHex = textHex,
+                    textHex = derivedPreview.text,
                     accentHex = accentHex,
                     bgMode = bgMode,
                     bgUri = bgUri,
@@ -456,7 +460,7 @@ fun ThemeEditScreen(
                             )
                             ColorTile(
                                 label = "Text",
-                                hex = textHex,
+                                hex = derivedPreview.text,
                                 onClick = { activeColorPickerTarget = ColorPickerTarget.TEXT }
                             )
                             ColorTile(
@@ -466,22 +470,11 @@ fun ThemeEditScreen(
                             )
                         }
 
-                        // Smart Palette Derivation Preview (Phase 3)
-                        val derivedPreview = remember(bgHex, textHex, accentHex, originalTheme.isDark) {
-                            ThemeManager.deriveThemeColors(
-                                bgHex = bgHex,
-                                textHex = textHex,
-                                accentHex = accentHex,
-                                isDark = ThemeManager.isDarkColor(bgHex),
-                                base = originalTheme.colors
-                            )
-                        }
-
                         // Semantic Contrast & Accessibility Report (Phase 10)
-                        val contrastReport = remember(bgHex, textHex, accentHex) {
+                        val contrastReport = remember(bgHex, derivedPreview.text, accentHex) {
                             ThemeManager.validateSemanticContrast(
                                 bgHex = bgHex,
-                                textHex = textHex,
+                                textHex = derivedPreview.text,
                                 accentHex = accentHex,
                                 dialogueHex = derivedPreview.dialogueText,
                                 monologueHex = derivedPreview.monologueText,
@@ -879,13 +872,7 @@ fun ThemeEditScreen(
                         savedBgLuminance = bgLuminance,
                         savedZonalLuminance = zonalLuminanceMatrix,
                         savedZonalVariance = zonalVarianceMatrix,
-                        colors = ThemeManager.deriveThemeColors(
-                            bgHex = bgHex,
-                            textHex = textHex,
-                            accentHex = accentHex,
-                            isDark = originalTheme.isDark,
-                            base = originalTheme.colors
-                        )
+                        colors = derivedPreview
                     )
                     vm.save(updated)
                     Toast.makeText(context, "Theme saved", Toast.LENGTH_SHORT).show()
@@ -943,13 +930,7 @@ fun ThemeEditScreen(
                                 savedBgLuminance = bgLuminance,
                                 savedZonalLuminance = zonalLuminanceMatrix,
                                 savedZonalVariance = zonalVarianceMatrix,
-                                colors = ThemeManager.deriveThemeColors(
-                                    bgHex = bgHex,
-                                    textHex = textHex,
-                                    accentHex = accentHex,
-                                    isDark = originalTheme.isDark,
-                                    base = originalTheme.colors
-                                )
+                                colors = derivedPreview
                             )
                             exportThemeJson(context, currentThemeToExport)
                         },
