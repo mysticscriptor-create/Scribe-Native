@@ -26,9 +26,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
-import com.primaloptima.scribe.ui.theme.LocalBorderSubtle
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.frostedCard
 import com.primaloptima.scribe.ui.theme.localHasBgImage
 import com.primaloptima.scribe.util.model.PaneAccentColor
@@ -52,7 +52,7 @@ fun SectionOverflowMenu(
     hazeState    : dev.chrisbanes.haze.HazeState? = LocalHazeState.current,
 ) {
     val solidSurface = LocalSolidSurface.current
-    val borderSubtle = LocalBorderSubtle.current
+    val borderSubtle = ScribeTheme.colors.borders.subtle
     val hasBgImage = localHasBgImage()
     val scopeTitle = when (val s = pane.primaryScope) {
         is PaneScope.Global -> "Everywhere"

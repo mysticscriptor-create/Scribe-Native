@@ -37,12 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.primaloptima.scribe.ui.theme.LocalBorderSubtle
-import com.primaloptima.scribe.ui.theme.LocalHeadingColor
-import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
-import com.primaloptima.scribe.ui.theme.LocalSurfaceLowest
-import com.primaloptima.scribe.ui.theme.LocalSurfaceOverlay
-import com.primaloptima.scribe.ui.theme.LocalSurfaceRaised
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.util.WorldImageUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -70,11 +65,11 @@ fun ImageCropperDialog(
     // Canvas / Frame layout dimensions
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
 
-    val surfaceOverlay = LocalSurfaceOverlay.current
-    val surfaceLowest = LocalSurfaceLowest.current
-    val surfaceRaised = LocalSurfaceRaised.current
-    val borderSubtle = LocalBorderSubtle.current
-    val subtleText = LocalSubtleTextColor.current
+    val surfaceOverlay = ScribeTheme.colors.surfaces.surfaceOverlay
+    val surfaceLowest = ScribeTheme.colors.surfaces.surfaceLowest
+    val surfaceRaised = ScribeTheme.colors.surfaces.surfaceRaised
+    val borderSubtle = ScribeTheme.colors.borders.subtle
+    val subtleText = ScribeTheme.colors.content.tertiary
 
     LaunchedEffect(sourceUri) {
         isLoading = true

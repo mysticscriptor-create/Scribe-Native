@@ -20,11 +20,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.ui.components.FrostedBottomSheet
-import com.primaloptima.scribe.ui.theme.LocalAccentColor
-import com.primaloptima.scribe.ui.theme.LocalBorderSubtle
 import com.primaloptima.scribe.ui.theme.LocalHazeState
-import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
-import com.primaloptima.scribe.ui.theme.LocalSurfaceRaised
 import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.frostedChip
 import com.primaloptima.scribe.viewmodel.SheetsViewModel
@@ -33,7 +29,7 @@ import com.primaloptima.scribe.viewmodel.SheetsViewModel
 @ReadOnlyComposable
 fun categoryColor(key: String): Color {
     val world = ScribeTheme.colors.world
-    val subtle = LocalSubtleTextColor.current
+    val subtle = ScribeTheme.colors.content.tertiary
     val fallbackSubtle = if (subtle != Color.Unspecified) subtle else MaterialTheme.colorScheme.onSurfaceVariant
     return when (key.lowercase()) {
         "character" -> world.character
@@ -83,10 +79,10 @@ fun CreateWorldEntrySheet(
     }
     val typeKeys = listOf("character", "location", "faction", "item", "lore", "timeline")
     val hazeState = LocalHazeState.current
-    val accentColor = LocalAccentColor.current
-    val subtleText = LocalSubtleTextColor.current
-    val surfaceRaised = LocalSurfaceRaised.current
-    val borderSubtle = LocalBorderSubtle.current
+    val accentColor = ScribeTheme.colors.interaction.primary
+    val subtleText = ScribeTheme.colors.content.tertiary
+    val surfaceRaised = ScribeTheme.colors.surfaces.surfaceRaised
+    val borderSubtle = ScribeTheme.colors.borders.subtle
     val resolvedSubtle = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
 
     FrostedBottomSheet(

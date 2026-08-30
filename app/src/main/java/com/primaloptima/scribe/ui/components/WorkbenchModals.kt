@@ -29,7 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.primaloptima.scribe.ui.theme.FrostedDialog
-import com.primaloptima.scribe.ui.theme.LocalBorderSubtle
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.data.WorldEntry
@@ -653,7 +653,7 @@ fun SectionAppearanceSheet(
                         modifier = Modifier.padding(bottom = 8.dp)
                     )
 
-                    val borderSubtle = LocalBorderSubtle.current
+                    val borderSubtle = ScribeTheme.colors.borders.subtle
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
