@@ -473,8 +473,51 @@ fun Modifier.frostedBar(
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
-    val bgLum = theme?.zonalLuminance(AmbientZone.TOP_APP_BAR) ?: (if (isDark) 0.15f else 0.90f)
-    val adaptiveTokens = remember(bgLum, theme?.colors) { deriveAdaptiveTokens(bgLum, baseColors = theme?.colors) }
+    val view = LocalView.current
+    val (screenWFromLocal, screenHFromLocal) = LocalScreenSize.current
+    val (rootWFromLocal, rootHFromLocal) = LocalRootGeometry.current
+
+    var currentZone by remember { mutableIntStateOf(1) } // Fallback: zone 1 (top center)
+
+    val positionModifier = Modifier.onGloballyPositioned { coords ->
+        val viewLocation = IntArray(2)
+        view.getLocationOnScreen(viewLocation)
+        val windowPos = coords.positionInWindow()
+        val globalX = viewLocation[0] + windowPos.x
+        val globalY = viewLocation[1] + windowPos.y
+
+        val screenW = when {
+            rootWFromLocal > 0f -> rootWFromLocal
+            screenWFromLocal > 0f -> screenWFromLocal
+            view.resources.displayMetrics.widthPixels > 0 -> view.resources.displayMetrics.widthPixels.toFloat()
+            else -> 1080f
+        }
+        val screenH = when {
+            rootHFromLocal > 0f -> rootHFromLocal
+            screenHFromLocal > 0f -> screenHFromLocal
+            view.resources.displayMetrics.heightPixels > 0 -> view.resources.displayMetrics.heightPixels.toFloat()
+            else -> 1920f
+        }
+        val zone = resolveZoneIndex(
+            screenOffsetX = globalX,
+            screenOffsetY = globalY,
+            componentWidth = coords.size.width.toFloat(),
+            componentHeight = coords.size.height.toFloat(),
+            screenW = screenW,
+            screenH = screenH,
+            defaultZoneIndex = 1
+        )
+        if (zone != currentZone) {
+            currentZone = zone
+        }
+    }
+
+    val bgLum = theme?.zonalLuminance(currentZone) ?: (if (isDark) 0.15f else 0.90f)
+    val zoneSourceHex = theme?.zonalColor(currentZone)
+    val zoneSourceColor = remember(zoneSourceHex) { zoneSourceHex?.let { parseComposeColor(it) } }
+    val adaptiveTokens = remember(bgLum, theme?.colors, zoneSourceColor) {
+        deriveAdaptiveTokens(bgLum, baseColors = theme?.colors, sourceImageColor = zoneSourceColor)
+    }
     val tintColor = if (tintEnabled) {
         if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.35f)
     } else {
@@ -485,6 +528,7 @@ fun Modifier.frostedBar(
         this.background(solidSurface, shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
         this
+            .then(positionModifier)
             .clip(shape)
             .hazeEffect(
                 state = hazeState,
@@ -493,10 +537,12 @@ fun Modifier.frostedBar(
             .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else if (barBlurBitmap != null) {
         this
+            .then(positionModifier)
             .clip(shape)
             .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.92f), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else {
         this
+            .then(positionModifier)
             .clip(shape)
             .background(solidSurface.copy(alpha = 0.92f), shape = shape)
             .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
@@ -520,8 +566,51 @@ fun Modifier.frostedFab(
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
-    val bgLum = theme?.zonalLuminance(AmbientZone.BOTTOM_RIGHT) ?: (if (isDark) 0.15f else 0.90f)
-    val adaptiveTokens = remember(bgLum, theme?.colors) { deriveAdaptiveTokens(bgLum, baseColors = theme?.colors) }
+    val view = LocalView.current
+    val (screenWFromLocal, screenHFromLocal) = LocalScreenSize.current
+    val (rootWFromLocal, rootHFromLocal) = LocalRootGeometry.current
+
+    var currentZone by remember { mutableIntStateOf(8) } // Fallback: zone 8 (bottom right)
+
+    val positionModifier = Modifier.onGloballyPositioned { coords ->
+        val viewLocation = IntArray(2)
+        view.getLocationOnScreen(viewLocation)
+        val windowPos = coords.positionInWindow()
+        val globalX = viewLocation[0] + windowPos.x
+        val globalY = viewLocation[1] + windowPos.y
+
+        val screenW = when {
+            rootWFromLocal > 0f -> rootWFromLocal
+            screenWFromLocal > 0f -> screenWFromLocal
+            view.resources.displayMetrics.widthPixels > 0 -> view.resources.displayMetrics.widthPixels.toFloat()
+            else -> 1080f
+        }
+        val screenH = when {
+            rootHFromLocal > 0f -> rootHFromLocal
+            screenHFromLocal > 0f -> screenHFromLocal
+            view.resources.displayMetrics.heightPixels > 0 -> view.resources.displayMetrics.heightPixels.toFloat()
+            else -> 1920f
+        }
+        val zone = resolveZoneIndex(
+            screenOffsetX = globalX,
+            screenOffsetY = globalY,
+            componentWidth = coords.size.width.toFloat(),
+            componentHeight = coords.size.height.toFloat(),
+            screenW = screenW,
+            screenH = screenH,
+            defaultZoneIndex = 8
+        )
+        if (zone != currentZone) {
+            currentZone = zone
+        }
+    }
+
+    val bgLum = theme?.zonalLuminance(currentZone) ?: (if (isDark) 0.15f else 0.90f)
+    val zoneSourceHex = theme?.zonalColor(currentZone)
+    val zoneSourceColor = remember(zoneSourceHex) { zoneSourceHex?.let { parseComposeColor(it) } }
+    val adaptiveTokens = remember(bgLum, theme?.colors, zoneSourceColor) {
+        deriveAdaptiveTokens(bgLum, baseColors = theme?.colors, sourceImageColor = zoneSourceColor)
+    }
     val tintColor = if (tintEnabled) {
         if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.35f)
     } else {
@@ -532,6 +621,7 @@ fun Modifier.frostedFab(
         this.clip(shape).background(solidSurface, shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
         this
+            .then(positionModifier)
             .clip(shape)
             .hazeEffect(
                 state = hazeState,
@@ -540,10 +630,12 @@ fun Modifier.frostedFab(
             .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else if (barBlurBitmap != null) {
         this
+            .then(positionModifier)
             .clip(shape)
             .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.90f), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else {
         this
+            .then(positionModifier)
             .clip(shape)
             .background(solidSurface.copy(alpha = 0.90f), shape = shape)
             .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
@@ -565,8 +657,51 @@ fun Modifier.frostedPanel(
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
-    val bgLum = theme?.zonalLuminance(AmbientZone.GLOBAL) ?: (if (isDark) 0.15f else 0.90f)
-    val adaptiveTokens = remember(bgLum, theme?.colors) { deriveAdaptiveTokens(bgLum, baseColors = theme?.colors) }
+    val view = LocalView.current
+    val (screenWFromLocal, screenHFromLocal) = LocalScreenSize.current
+    val (rootWFromLocal, rootHFromLocal) = LocalRootGeometry.current
+
+    var currentZone by remember { mutableIntStateOf(4) } // Fallback: zone 4 (center)
+
+    val positionModifier = Modifier.onGloballyPositioned { coords ->
+        val viewLocation = IntArray(2)
+        view.getLocationOnScreen(viewLocation)
+        val windowPos = coords.positionInWindow()
+        val globalX = viewLocation[0] + windowPos.x
+        val globalY = viewLocation[1] + windowPos.y
+
+        val screenW = when {
+            rootWFromLocal > 0f -> rootWFromLocal
+            screenWFromLocal > 0f -> screenWFromLocal
+            view.resources.displayMetrics.widthPixels > 0 -> view.resources.displayMetrics.widthPixels.toFloat()
+            else -> 1080f
+        }
+        val screenH = when {
+            rootHFromLocal > 0f -> rootHFromLocal
+            screenHFromLocal > 0f -> screenHFromLocal
+            view.resources.displayMetrics.heightPixels > 0 -> view.resources.displayMetrics.heightPixels.toFloat()
+            else -> 1920f
+        }
+        val zone = resolveZoneIndex(
+            screenOffsetX = globalX,
+            screenOffsetY = globalY,
+            componentWidth = coords.size.width.toFloat(),
+            componentHeight = coords.size.height.toFloat(),
+            screenW = screenW,
+            screenH = screenH,
+            defaultZoneIndex = 4
+        )
+        if (zone != currentZone) {
+            currentZone = zone
+        }
+    }
+
+    val bgLum = theme?.zonalLuminance(currentZone) ?: (if (isDark) 0.15f else 0.90f)
+    val zoneSourceHex = theme?.zonalColor(currentZone)
+    val zoneSourceColor = remember(zoneSourceHex) { zoneSourceHex?.let { parseComposeColor(it) } }
+    val adaptiveTokens = remember(bgLum, theme?.colors, zoneSourceColor) {
+        deriveAdaptiveTokens(bgLum, baseColors = theme?.colors, sourceImageColor = zoneSourceColor)
+    }
     val tintColor = if (tintEnabled) {
         if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.25f)
     } else {
@@ -577,6 +712,7 @@ fun Modifier.frostedPanel(
         this.clip(shape).background(solidSurface, shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
         this
+            .then(positionModifier)
             .clip(shape)
             .hazeEffect(
                 state = hazeState,
@@ -585,10 +721,12 @@ fun Modifier.frostedPanel(
             .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else if (barBlurBitmap != null) {
         this
+            .then(positionModifier)
             .clip(shape)
             .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.95f), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else {
         this
+            .then(positionModifier)
             .clip(shape)
             .background(solidSurface.copy(alpha = 0.94f), shape = shape)
             .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
@@ -610,8 +748,51 @@ fun Modifier.frostedMenu(
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
-    val bgLum = theme?.zonalLuminance(AmbientZone.GLOBAL) ?: (if (isDark) 0.15f else 0.90f)
-    val adaptiveTokens = remember(bgLum, theme?.colors) { deriveAdaptiveTokens(bgLum, baseColors = theme?.colors) }
+    val view = LocalView.current
+    val (screenWFromLocal, screenHFromLocal) = LocalScreenSize.current
+    val (rootWFromLocal, rootHFromLocal) = LocalRootGeometry.current
+
+    var currentZone by remember { mutableIntStateOf(1) } // Fallback: zone 1 (top center)
+
+    val positionModifier = Modifier.onGloballyPositioned { coords ->
+        val viewLocation = IntArray(2)
+        view.getLocationOnScreen(viewLocation)
+        val windowPos = coords.positionInWindow()
+        val globalX = viewLocation[0] + windowPos.x
+        val globalY = viewLocation[1] + windowPos.y
+
+        val screenW = when {
+            rootWFromLocal > 0f -> rootWFromLocal
+            screenWFromLocal > 0f -> screenWFromLocal
+            view.resources.displayMetrics.widthPixels > 0 -> view.resources.displayMetrics.widthPixels.toFloat()
+            else -> 1080f
+        }
+        val screenH = when {
+            rootHFromLocal > 0f -> rootHFromLocal
+            screenHFromLocal > 0f -> screenHFromLocal
+            view.resources.displayMetrics.heightPixels > 0 -> view.resources.displayMetrics.heightPixels.toFloat()
+            else -> 1920f
+        }
+        val zone = resolveZoneIndex(
+            screenOffsetX = globalX,
+            screenOffsetY = globalY,
+            componentWidth = coords.size.width.toFloat(),
+            componentHeight = coords.size.height.toFloat(),
+            screenW = screenW,
+            screenH = screenH,
+            defaultZoneIndex = 1
+        )
+        if (zone != currentZone) {
+            currentZone = zone
+        }
+    }
+
+    val bgLum = theme?.zonalLuminance(currentZone) ?: (if (isDark) 0.15f else 0.90f)
+    val zoneSourceHex = theme?.zonalColor(currentZone)
+    val zoneSourceColor = remember(zoneSourceHex) { zoneSourceHex?.let { parseComposeColor(it) } }
+    val adaptiveTokens = remember(bgLum, theme?.colors, zoneSourceColor) {
+        deriveAdaptiveTokens(bgLum, baseColors = theme?.colors, sourceImageColor = zoneSourceColor)
+    }
     val tintColor = if (tintEnabled) {
         if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.25f)
     } else {
@@ -622,6 +803,7 @@ fun Modifier.frostedMenu(
         this.clip(shape).background(solidSurface, shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
         this
+            .then(positionModifier)
             .clip(shape)
             .hazeEffect(
                 state = hazeState,
@@ -630,10 +812,12 @@ fun Modifier.frostedMenu(
             .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else if (barBlurBitmap != null) {
         this
+            .then(positionModifier)
             .clip(shape)
             .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.94f), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else {
         this
+            .then(positionModifier)
             .clip(shape)
             .background(solidSurface.copy(alpha = 0.94f), shape = shape)
             .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
@@ -687,8 +871,51 @@ fun Modifier.frostedCard(
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
-    val bgLum = theme?.zonalLuminance(AmbientZone.MAIN_CONTENT) ?: (if (isDark) 0.15f else 0.90f)
-    val adaptiveTokens = remember(bgLum, theme?.colors) { deriveAdaptiveTokens(bgLum, baseColors = theme?.colors) }
+    val view = LocalView.current
+    val (screenWFromLocal, screenHFromLocal) = LocalScreenSize.current
+    val (rootWFromLocal, rootHFromLocal) = LocalRootGeometry.current
+
+    var currentZone by remember { mutableIntStateOf(4) } // Fallback: zone 4 (center)
+
+    val positionModifier = Modifier.onGloballyPositioned { coords ->
+        val viewLocation = IntArray(2)
+        view.getLocationOnScreen(viewLocation)
+        val windowPos = coords.positionInWindow()
+        val globalX = viewLocation[0] + windowPos.x
+        val globalY = viewLocation[1] + windowPos.y
+
+        val screenW = when {
+            rootWFromLocal > 0f -> rootWFromLocal
+            screenWFromLocal > 0f -> screenWFromLocal
+            view.resources.displayMetrics.widthPixels > 0 -> view.resources.displayMetrics.widthPixels.toFloat()
+            else -> 1080f
+        }
+        val screenH = when {
+            rootHFromLocal > 0f -> rootHFromLocal
+            screenHFromLocal > 0f -> screenHFromLocal
+            view.resources.displayMetrics.heightPixels > 0 -> view.resources.displayMetrics.heightPixels.toFloat()
+            else -> 1920f
+        }
+        val zone = resolveZoneIndex(
+            screenOffsetX = globalX,
+            screenOffsetY = globalY,
+            componentWidth = coords.size.width.toFloat(),
+            componentHeight = coords.size.height.toFloat(),
+            screenW = screenW,
+            screenH = screenH,
+            defaultZoneIndex = 4
+        )
+        if (zone != currentZone) {
+            currentZone = zone
+        }
+    }
+
+    val bgLum = theme?.zonalLuminance(currentZone) ?: (if (isDark) 0.15f else 0.90f)
+    val zoneSourceHex = theme?.zonalColor(currentZone)
+    val zoneSourceColor = remember(zoneSourceHex) { zoneSourceHex?.let { parseComposeColor(it) } }
+    val adaptiveTokens = remember(bgLum, theme?.colors, zoneSourceColor) {
+        deriveAdaptiveTokens(bgLum, baseColors = theme?.colors, sourceImageColor = zoneSourceColor)
+    }
     val tintColor = if (tintEnabled) {
         if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.25f)
     } else {
@@ -703,6 +930,7 @@ fun Modifier.frostedCard(
         }
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
         this
+            .then(positionModifier)
             .clip(shape)
             .hazeEffect(
                 state = hazeState,
@@ -711,10 +939,12 @@ fun Modifier.frostedCard(
             .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else if (barBlurBitmap != null) {
         this
+            .then(positionModifier)
             .clip(shape)
             .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = solidAlpha), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else {
         this
+            .then(positionModifier)
             .clip(shape)
             .background(solidSurface.copy(alpha = solidAlpha), shape = shape)
             .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
@@ -741,8 +971,51 @@ fun Modifier.frostedChip(
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
-    val bgLum = theme?.zonalLuminance(AmbientZone.MAIN_CONTENT) ?: (if (isDark) 0.15f else 0.90f)
-    val adaptiveTokens = remember(bgLum, theme?.colors) { deriveAdaptiveTokens(bgLum, baseColors = theme?.colors) }
+    val view = LocalView.current
+    val (screenWFromLocal, screenHFromLocal) = LocalScreenSize.current
+    val (rootWFromLocal, rootHFromLocal) = LocalRootGeometry.current
+
+    var currentZone by remember { mutableIntStateOf(4) } // Fallback: zone 4 (center)
+
+    val positionModifier = Modifier.onGloballyPositioned { coords ->
+        val viewLocation = IntArray(2)
+        view.getLocationOnScreen(viewLocation)
+        val windowPos = coords.positionInWindow()
+        val globalX = viewLocation[0] + windowPos.x
+        val globalY = viewLocation[1] + windowPos.y
+
+        val screenW = when {
+            rootWFromLocal > 0f -> rootWFromLocal
+            screenWFromLocal > 0f -> screenWFromLocal
+            view.resources.displayMetrics.widthPixels > 0 -> view.resources.displayMetrics.widthPixels.toFloat()
+            else -> 1080f
+        }
+        val screenH = when {
+            rootHFromLocal > 0f -> rootHFromLocal
+            screenHFromLocal > 0f -> screenHFromLocal
+            view.resources.displayMetrics.heightPixels > 0 -> view.resources.displayMetrics.heightPixels.toFloat()
+            else -> 1920f
+        }
+        val zone = resolveZoneIndex(
+            screenOffsetX = globalX,
+            screenOffsetY = globalY,
+            componentWidth = coords.size.width.toFloat(),
+            componentHeight = coords.size.height.toFloat(),
+            screenW = screenW,
+            screenH = screenH,
+            defaultZoneIndex = 4
+        )
+        if (zone != currentZone) {
+            currentZone = zone
+        }
+    }
+
+    val bgLum = theme?.zonalLuminance(currentZone) ?: (if (isDark) 0.15f else 0.90f)
+    val zoneSourceHex = theme?.zonalColor(currentZone)
+    val zoneSourceColor = remember(zoneSourceHex) { zoneSourceHex?.let { parseComposeColor(it) } }
+    val adaptiveTokens = remember(bgLum, theme?.colors, zoneSourceColor) {
+        deriveAdaptiveTokens(bgLum, baseColors = theme?.colors, sourceImageColor = zoneSourceColor)
+    }
 
     val baseTint = if (isSelected) accentColor else (if (hasBgImage) adaptiveTokens.glassTint else solidSurface)
     val tintAlpha = if (isSelected) selectedAlpha else unselectedAlpha
@@ -753,6 +1026,7 @@ fun Modifier.frostedChip(
         this.clip(shape).background(fallbackBg, shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
         this
+            .then(positionModifier)
             .clip(shape)
             .hazeEffect(
                 state = hazeState,
@@ -762,11 +1036,13 @@ fun Modifier.frostedChip(
     } else if (barBlurBitmap != null) {
         val fallbackBg = if (isSelected) accentColor.copy(alpha = 0.18f) else solidSurface.copy(alpha = solidAlpha)
         this
+            .then(positionModifier)
             .clip(shape)
             .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, fallbackBg, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else {
         val fallbackBg = if (isSelected) accentColor.copy(alpha = 0.18f) else solidSurface.copy(alpha = solidAlpha)
         this
+            .then(positionModifier)
             .clip(shape)
             .background(fallbackBg, shape = shape)
             .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
@@ -789,8 +1065,51 @@ fun Modifier.frostedSearchBox(
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
-    val bgLum = theme?.zonalLuminance(AmbientZone.TOP_APP_BAR) ?: (if (isDark) 0.15f else 0.90f)
-    val adaptiveTokens = remember(bgLum, theme?.colors) { deriveAdaptiveTokens(bgLum, baseColors = theme?.colors) }
+    val view = LocalView.current
+    val (screenWFromLocal, screenHFromLocal) = LocalScreenSize.current
+    val (rootWFromLocal, rootHFromLocal) = LocalRootGeometry.current
+
+    var currentZone by remember { mutableIntStateOf(1) } // Fallback: zone 1 (top center)
+
+    val positionModifier = Modifier.onGloballyPositioned { coords ->
+        val viewLocation = IntArray(2)
+        view.getLocationOnScreen(viewLocation)
+        val windowPos = coords.positionInWindow()
+        val globalX = viewLocation[0] + windowPos.x
+        val globalY = viewLocation[1] + windowPos.y
+
+        val screenW = when {
+            rootWFromLocal > 0f -> rootWFromLocal
+            screenWFromLocal > 0f -> screenWFromLocal
+            view.resources.displayMetrics.widthPixels > 0 -> view.resources.displayMetrics.widthPixels.toFloat()
+            else -> 1080f
+        }
+        val screenH = when {
+            rootHFromLocal > 0f -> rootHFromLocal
+            screenHFromLocal > 0f -> screenHFromLocal
+            view.resources.displayMetrics.heightPixels > 0 -> view.resources.displayMetrics.heightPixels.toFloat()
+            else -> 1920f
+        }
+        val zone = resolveZoneIndex(
+            screenOffsetX = globalX,
+            screenOffsetY = globalY,
+            componentWidth = coords.size.width.toFloat(),
+            componentHeight = coords.size.height.toFloat(),
+            screenW = screenW,
+            screenH = screenH,
+            defaultZoneIndex = 1
+        )
+        if (zone != currentZone) {
+            currentZone = zone
+        }
+    }
+
+    val bgLum = theme?.zonalLuminance(currentZone) ?: (if (isDark) 0.15f else 0.90f)
+    val zoneSourceHex = theme?.zonalColor(currentZone)
+    val zoneSourceColor = remember(zoneSourceHex) { zoneSourceHex?.let { parseComposeColor(it) } }
+    val adaptiveTokens = remember(bgLum, theme?.colors, zoneSourceColor) {
+        deriveAdaptiveTokens(bgLum, baseColors = theme?.colors, sourceImageColor = zoneSourceColor)
+    }
     val tintColor = if (tintEnabled) {
         if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.22f)
     } else {
@@ -801,6 +1120,7 @@ fun Modifier.frostedSearchBox(
         this.clip(shape).background(solidSurface.copy(alpha = solidAlpha), shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
         this
+            .then(positionModifier)
             .clip(shape)
             .hazeEffect(
                 state = hazeState,
@@ -809,10 +1129,12 @@ fun Modifier.frostedSearchBox(
             .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else if (barBlurBitmap != null) {
         this
+            .then(positionModifier)
             .clip(shape)
             .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = solidAlpha), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else {
         this
+            .then(positionModifier)
             .clip(shape)
             .background(solidSurface.copy(alpha = solidAlpha), shape = shape)
             .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
@@ -1052,16 +1374,18 @@ fun ScribeComposeTheme(
     val screenHeightPx = remember(view) { view.resources.displayMetrics.heightPixels.toFloat() }
     var analysisBitmap by remember(bgUri, hasBgImage) { mutableStateOf<Bitmap?>(null) }
 
-    LaunchedEffect(bgUri, hasBgImage) {
+    LaunchedEffect(bgUri, hasBgImage, screenWidthPx, screenHeightPx) {
         if (!hasBgImage || bgUri.isNullOrEmpty()) {
             analysisBitmap = null
             return@LaunchedEffect
         }
         analysisBitmap = withContext(Dispatchers.IO) {
             try {
+                val targetW = 200
+                val targetH = ((200f * screenHeightPx) / screenWidthPx.coerceAtLeast(1f)).toInt().coerceAtLeast(200)
                 val request = ImageRequest.Builder(context)
                     .data(bgUri)
-                    .size(32, 32)
+                    .size(coil3.size.Size(targetW, targetH))
                     .allowHardware(false) // Prevents hardware bitmap; getPixel() requires software config
                     .build()
                 (ImageLoader(context).execute(request).image as? BitmapImage)?.bitmap

@@ -68,6 +68,8 @@ import com.primaloptima.scribe.ui.theme.calculateApcaContrast
 import com.primaloptima.scribe.ui.theme.colorToPerceptualLightness
 import com.primaloptima.scribe.ui.theme.computeZonalLuminanceMatrix
 import com.primaloptima.scribe.ui.theme.computeZonalVarianceMatrix
+import com.primaloptima.scribe.ui.theme.computeZonalDominantColorMatrix
+import com.primaloptima.scribe.ui.theme.computeGlobalDominantColor
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.ui.theme.FontHelper
 import com.primaloptima.scribe.ui.theme.FrostedDialog
@@ -141,6 +143,8 @@ fun ThemeEditScreen(
     var bgLuminance by remember(originalTheme) { mutableFloatStateOf(originalTheme.savedBgLuminance) }
     var zonalLuminanceMatrix by remember(originalTheme) { mutableStateOf(originalTheme.savedZonalLuminance) }
     var zonalVarianceMatrix by remember(originalTheme) { mutableStateOf(originalTheme.savedZonalVariance) }
+    var bgDominantColor by remember(originalTheme) { mutableStateOf(originalTheme.savedBgDominantColor) }
+    var zonalColorsMatrix by remember(originalTheme) { mutableStateOf(originalTheme.savedBgZonalColors) }
 
     // Crop screen: shown after the user picks a new background image
     var showCropScreen by remember { mutableStateOf(false) }
@@ -235,6 +239,8 @@ fun ThemeEditScreen(
                                 savedBgLuminance = bgLuminance,
                                 savedZonalLuminance = zonalLuminanceMatrix,
                                 savedZonalVariance = zonalVarianceMatrix,
+                                savedBgDominantColor = bgDominantColor,
+                                savedBgZonalColors = zonalColorsMatrix,
                                 colors = derivedPreview
                             )
                             vm.save(updated)
@@ -983,6 +989,8 @@ fun ThemeEditScreen(
                         savedBgLuminance = bgLuminance,
                         savedZonalLuminance = zonalLuminanceMatrix,
                         savedZonalVariance = zonalVarianceMatrix,
+                        savedBgDominantColor = bgDominantColor,
+                        savedBgZonalColors = zonalColorsMatrix,
                         colors = derivedPreview
                     )
                     vm.save(updated)
@@ -1041,6 +1049,8 @@ fun ThemeEditScreen(
                                 savedBgLuminance = bgLuminance,
                                 savedZonalLuminance = zonalLuminanceMatrix,
                                 savedZonalVariance = zonalVarianceMatrix,
+                                savedBgDominantColor = bgDominantColor,
+                                savedBgZonalColors = zonalColorsMatrix,
                                 colors = derivedPreview
                             )
                             exportThemeJson(context, currentThemeToExport)
@@ -1145,10 +1155,12 @@ fun ThemeEditScreen(
                     // and cause the text colour to auto-compute from the wrong luminance).
                     isLuminancePending = true
                     scope.launch {
-                        val (avgL, zonal, variance) = computeBgAnalysis(context, croppedUri)
-                        bgLuminance = avgL
-                        zonalLuminanceMatrix = zonal
-                        zonalVarianceMatrix = variance
+                        val analysis = computeBgAnalysis(context, croppedUri)
+                        bgLuminance = analysis.avgLightness
+                        zonalLuminanceMatrix = analysis.zonalLuminance
+                        zonalVarianceMatrix = analysis.zonalVariance
+                        bgDominantColor = analysis.dominantColor
+                        zonalColorsMatrix = analysis.zonalColors
                         isLuminancePending = false
                     }
                 },
@@ -2096,35 +2108,46 @@ private fun ImageCropScreen(
     }
 }
 
+data class BgAnalysisResult(
+    val avgLightness: Float,
+    val zonalLuminance: List<Float>,
+    val zonalVariance: List<Float>,
+    val dominantColor: String?,
+    val zonalColors: List<String>
+)
+
 /**
- * Loads [imageUri] through Coil at a tiny 32×32 resolution (same as ScribeComposeTheme's
- * analysisBitmap) and returns the average perceptual OKLCH lightness across all pixels
- * along with the 3x3 Zonal Precomputation Matrix.
+ * Loads [imageUri] through Coil at an aspect-ratio-correct 200px resolution (same as ScribeComposeTheme's
+ * analysisBitmap) and returns the average perceptual OKLCH lightness across all pixels,
+ * the 3x3 Zonal Precomputation Matrix, spatial variance, global dominant color, and 3x3 zonal dominant color matrix.
  *
  * Using Coil — not BitmapFactory.decodeFile — is critical because [imageUri] may be a
  * content:// URI (produced by SAF after a crop). BitmapFactory.decodeFile only handles
  * file:// paths and returns null for content:// URIs, making luminance always -1f.
  * Coil resolves both URI types correctly on all API levels.
- *
- * Returns Pair(-1f, emptyList()) on any error so callers can treat it as "not computed".
- * This function is suspend so it must be called from a coroutine (e.g. scope.launch).
  */
-private suspend fun computeBgAnalysis(context: android.content.Context, imageUri: String): Triple<Float, List<Float>, List<Float>> {
+private suspend fun computeBgAnalysis(context: android.content.Context, imageUri: String): BgAnalysisResult {
     return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         try {
+            val dm = context.resources.displayMetrics
+            val screenW = dm.widthPixels.coerceAtLeast(1)
+            val screenH = dm.heightPixels.coerceAtLeast(1)
+            val targetW = 200
+            val targetH = ((200f * screenH) / screenW).toInt().coerceAtLeast(200)
+
             val request = coil3.request.ImageRequest.Builder(context)
                 .data(imageUri)
-                .size(coil3.size.Size(48, 48))
-                .allowHardware(false) // getPixel() requires software bitmap config
+                .size(coil3.size.Size(targetW, targetH))
+                .allowHardware(false) // getPixel() / MCU quantizer requires software bitmap config
                 .build()
             val bitmap = (coil3.ImageLoader(context).execute(request) as? coil3.request.SuccessResult)
                 ?.image
                 ?.let { (it as? coil3.BitmapImage)?.bitmap }
-                ?: return@withContext Triple(-1f, emptyList(), emptyList())
+                ?: return@withContext BgAnalysisResult(-1f, emptyList(), emptyList(), null, emptyList())
 
             val w = bitmap.width
             val h = bitmap.height
-            if (w == 0 || h == 0) return@withContext Triple(-1f, emptyList(), emptyList())
+            if (w == 0 || h == 0) return@withContext BgAnalysisResult(-1f, emptyList(), emptyList(), null, emptyList())
 
             var total = 0.0
             for (x in 0 until w) {
@@ -2136,10 +2159,15 @@ private suspend fun computeBgAnalysis(context: android.content.Context, imageUri
             val avgL = (total / (w * h)).toFloat().coerceIn(0f, 1f)
             val zonal = computeZonalLuminanceMatrix(bitmap)
             val zonalVar = computeZonalVarianceMatrix(bitmap)
+            val globalDomInt = computeGlobalDominantColor(bitmap)
+            val globalDomHex = String.format("#%06X", 0xFFFFFF and globalDomInt)
+            val zonalDomInts = computeZonalDominantColorMatrix(bitmap)
+            val zonalDomHexes = zonalDomInts.map { String.format("#%06X", 0xFFFFFF and it) }
+
             bitmap.recycle()
-            Triple(avgL, zonal, zonalVar)
+            BgAnalysisResult(avgL, zonal, zonalVar, globalDomHex, zonalDomHexes)
         } catch (_: Exception) {
-            Triple(-1f, emptyList(), emptyList())
+            BgAnalysisResult(-1f, emptyList(), emptyList(), null, emptyList())
         }
     }
 }

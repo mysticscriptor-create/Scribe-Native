@@ -19,6 +19,8 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onLayoutRectChanged
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.sp
+import com.google.android.material.color.utilities.QuantizerCelebi
+import com.google.android.material.color.utilities.Score
 import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.ThemeColors
@@ -389,25 +391,48 @@ enum class AmbientZone(val matrixIndex: Int) {
 /**
  * Resolves zonal lightness from an [AppTheme] instantly on the first frame.
  */
-fun AppTheme?.zonalLuminance(zone: AmbientZone = AmbientZone.GLOBAL): Float {
+fun AppTheme?.zonalLuminance(zoneIndex: Int): Float {
     if (this == null) return 0.5f
-    if (savedZonalLuminance.size == 9 && zone.matrixIndex in 0..8) {
-        val zonal = savedZonalLuminance[zone.matrixIndex]
+    if (savedZonalLuminance.size == 9 && zoneIndex in 0..8) {
+        val zonal = savedZonalLuminance[zoneIndex]
         if (zonal >= 0f) return zonal
     }
     return if (savedBgLuminance >= 0f) savedBgLuminance else (if (isDark) 0.12f else 0.92f)
 }
 
+fun AppTheme?.zonalLuminance(zone: AmbientZone = AmbientZone.GLOBAL): Float =
+    if (zone == AmbientZone.GLOBAL) (if (this?.savedBgLuminance ?: -1f >= 0f) this!!.savedBgLuminance else (if (this?.isDark == true) 0.12f else 0.92f))
+    else zonalLuminance(zone.matrixIndex)
+
 /**
  * Resolves zonal spatial variance / standard deviation from [AppTheme].
  */
-fun AppTheme?.zonalVariance(zone: AmbientZone = AmbientZone.GLOBAL): Float {
+fun AppTheme?.zonalVariance(zoneIndex: Int): Float {
     if (this == null) return 0f
-    if (savedZonalVariance.size == 9 && zone.matrixIndex in 0..8) {
-        return savedZonalVariance[zone.matrixIndex]
+    if (savedZonalVariance.size == 9 && zoneIndex in 0..8) {
+        return savedZonalVariance[zoneIndex]
     }
     return 0f
 }
+
+fun AppTheme?.zonalVariance(zone: AmbientZone = AmbientZone.GLOBAL): Float =
+    if (zone == AmbientZone.GLOBAL) (this?.savedZonalVariance?.average()?.toFloat()?.takeIf { !it.isNaN() } ?: 0f)
+    else zonalVariance(zone.matrixIndex)
+
+/**
+ * Resolves zonal dominant color hex from an [AppTheme] instantly on the first frame.
+ */
+fun AppTheme?.zonalColor(zoneIndex: Int): String? {
+    if (this == null) return null
+    if (savedBgZonalColors.size == 9 && zoneIndex in 0..8) {
+        return savedBgZonalColors[zoneIndex]
+    }
+    return savedBgDominantColor
+}
+
+fun AppTheme?.zonalColor(zone: AmbientZone = AmbientZone.GLOBAL): String? =
+    if (zone == AmbientZone.GLOBAL) this?.savedBgDominantColor
+    else zonalColor(zone.matrixIndex)
 
 /**
  * Precomputes a 3x3 Zonal Luminance Matrix across a software bitmap.
@@ -488,6 +513,103 @@ fun computeZonalVarianceMatrix(bitmap: Bitmap): List<Float> {
     return matrix
 }
 
+/**
+ * Precomputes a 3x3 Zonal Dominant Color Matrix using Material Color Utilities (MCU) QuantizerCelebi + Score.
+ * Returns 9 ARGB color integers in row-major order:
+ * [0: TL, 1: TC, 2: TR,
+ *  3: ML, 4: MC, 5: MR,
+ *  6: BL, 7: BC, 8: BR]
+ */
+fun computeZonalDominantColorMatrix(bitmap: Bitmap, cols: Int = 3, rows: Int = 3): List<Int> {
+    if (bitmap.config == Bitmap.Config.HARDWARE || bitmap.width == 0 || bitmap.height == 0) {
+        return emptyList()
+    }
+    val w = bitmap.width
+    val h = bitmap.height
+    val matrix = ArrayList<Int>(cols * rows)
+
+    for (row in 0 until rows) {
+        val y0 = (row * h) / rows
+        val y1 = ((row + 1) * h) / rows
+        val zoneH = (y1 - y0).coerceAtLeast(1)
+
+        for (col in 0 until cols) {
+            val x0 = (col * w) / cols
+            val x1 = ((col + 1) * w) / cols
+            val zoneW = (x1 - x0).coerceAtLeast(1)
+
+            val zonePixelCount = zoneW * zoneH
+            val pixels = IntArray(zonePixelCount)
+            bitmap.getPixels(pixels, 0, zoneW, x0, y0, zoneW, zoneH)
+
+            val quantizerResult = QuantizerCelebi.quantize(pixels, 128)
+            val scoredColors = Score.score(quantizerResult.colorToCount)
+            val dominantColor = scoredColors.firstOrNull() ?: 0xFF808080.toInt()
+            matrix.add(dominantColor)
+        }
+    }
+    return matrix
+}
+
+/**
+ * Computes the global dominant color across the entire bitmap using Material Color Utilities (MCU).
+ */
+fun computeGlobalDominantColor(bitmap: Bitmap): Int {
+    if (bitmap.config == Bitmap.Config.HARDWARE || bitmap.width == 0 || bitmap.height == 0) {
+        return 0xFF808080.toInt()
+    }
+    val w = bitmap.width
+    val h = bitmap.height
+    val pixels = IntArray(w * h)
+    bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+    val quantizerResult = QuantizerCelebi.quantize(pixels, 128)
+    val scoredColors = Score.score(quantizerResult.colorToCount)
+    return scoredColors.firstOrNull() ?: 0xFF808080.toInt()
+}
+
+/**
+ * Resolves the 3x3 zone index (0..8) for a component based on its screen coordinates.
+ * Returns [defaultZoneIndex] if screen or component bounds are invalid.
+ */
+fun resolveZoneIndex(
+    screenOffsetX: Float,
+    screenOffsetY: Float,
+    componentWidth: Float,
+    componentHeight: Float,
+    screenW: Float,
+    screenH: Float,
+    defaultZoneIndex: Int = 4
+): Int {
+    if (screenW <= 0f || screenH <= 0f || componentWidth <= 0f || componentHeight <= 0f) {
+        return defaultZoneIndex.coerceIn(0, 8)
+    }
+    val centerX = screenOffsetX + componentWidth / 2f
+    val centerY = screenOffsetY + componentHeight / 2f
+    val col = ((centerX / screenW) * 3).toInt().coerceIn(0, 2)
+    val row = ((centerY / screenH) * 3).toInt().coerceIn(0, 2)
+    return (row * 3 + col).coerceIn(0, 8)
+}
+
+/**
+ * Resolves the dominant color for a specific component's bounding box from the 3x3 zonal colors matrix.
+ * If position data is not yet available (e.g. initial layout pass), falls back to [fallback] or [defaultZoneIndex].
+ */
+fun resolveZoneColor(
+    screenOffsetX: Float,
+    screenOffsetY: Float,
+    componentWidth: Float,
+    componentHeight: Float,
+    screenW: Float,
+    screenH: Float,
+    zonalColors: List<Color>,
+    fallback: Color? = null,
+    defaultZoneIndex: Int = 4
+): Color? {
+    if (zonalColors.size < 9) return fallback
+    val index = resolveZoneIndex(screenOffsetX, screenOffsetY, componentWidth, componentHeight, screenW, screenH, defaultZoneIndex)
+    return zonalColors.getOrNull(index) ?: fallback
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Pillar 4: Semantic Palette Derivation (Beyond Binary Black/White)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -520,7 +642,8 @@ data class AdaptiveTokenSuite(
 fun deriveAdaptiveTokens(
     backgroundLightness: Float,
     hasHighVariance: Boolean = false,
-    baseColors: ThemeColors? = null
+    baseColors: ThemeColors? = null,
+    sourceImageColor: Color? = null
 ): AdaptiveTokenSuite {
     val isDark = backgroundLightness < 0.45f
 
@@ -563,11 +686,17 @@ fun deriveAdaptiveTokens(
     }
 
     // Source image/theme hues for chromatic refraction & directional specular rim
-    val accentInt = baseColors?.accent?.let { ThemeManager.parseColor(it) }
+    val sourceInt = if (sourceImageColor != null && sourceImageColor != Color.Unspecified) {
+        sourceImageColor.toArgb()
+    } else null
+
+    val accentInt = sourceInt
+        ?: baseColors?.accent?.let { ThemeManager.parseColor(it) }
         ?: (if (isDark) 0xFF38BDF8.toInt() else 0xFF0284C7.toInt())
     val accentOklch = ThemeManager.colorToOklch(accentInt)
 
-    val bgInt = baseColors?.background?.let { ThemeManager.parseColor(it) }
+    val bgInt = sourceInt
+        ?: baseColors?.background?.let { ThemeManager.parseColor(it) }
         ?: (if (isDark) 0xFF0F172A.toInt() else 0xFFF8FAFC.toInt())
     val bgOklch = ThemeManager.colorToOklch(bgInt)
 
@@ -668,17 +797,19 @@ fun rememberAdaptiveContentColor(
 @Composable
 fun rememberAdaptiveTokenSuite(
     zone: AmbientZone = AmbientZone.GLOBAL,
-    baseColors: ThemeColors? = LocalAppTheme.current?.colors
+    baseColors: ThemeColors? = LocalAppTheme.current?.colors,
+    sourceImageColor: Color? = null
 ): AdaptiveTokenSuite {
     val theme = LocalAppTheme.current
     val lum = theme.zonalLuminance(zone)
     val variance = theme.zonalVariance(zone)
     val isHighVariance = variance >= 0.065f
-    return remember(lum, variance, isHighVariance, baseColors) {
+    return remember(lum, variance, isHighVariance, baseColors, sourceImageColor) {
         deriveAdaptiveTokens(
             backgroundLightness = lum,
             hasHighVariance = isHighVariance,
-            baseColors = baseColors
+            baseColors = baseColors,
+            sourceImageColor = sourceImageColor
         )
     }
 }

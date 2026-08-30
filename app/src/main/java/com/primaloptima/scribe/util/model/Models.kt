@@ -175,7 +175,11 @@ data class AppTheme(
      * 3x3 Zonal Spatial Variance Matrix (RMS Contrast / Standard Deviation).
      * High variance (>= 0.065) automatically activates directional contrast shadows and adaptive micro-scrims.
      */
-    val savedZonalVariance: List<Float> = emptyList()
+    val savedZonalVariance: List<Float> = emptyList(),
+    /** Global dominant color hex (e.g. "#4A6572") extracted from the background image via Material Color Utilities. */
+    val savedBgDominantColor: String? = null,
+    /** 3x3 Zonal Dominant Colors (9 hex strings in row-major order: TL, TC, TR, ML, MC, MR, BL, BC, BR). */
+    val savedBgZonalColors: List<String> = emptyList()
 )
 
 // ── SAF scan result ───────────────────────────────────────────────────────────
