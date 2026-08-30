@@ -101,6 +101,8 @@ import androidx.compose.material3.LocalContentColor
 val LocalHazeState = compositionLocalOf<HazeState?> { null }
 val LocalAppTheme = compositionLocalOf<AppTheme?> { null }
 val LocalBgAnalysisBitmap = compositionLocalOf<Bitmap?> { null }
+val LocalBgZonalColors = compositionLocalOf<List<Color>> { emptyList() }
+val LocalBgImageDominantColor = compositionLocalOf<Color?> { null }
 val LocalScreenSize = compositionLocalOf { Pair(1080f, 1920f) }
 val LocalRootGeometry = compositionLocalOf { Pair(0f, 0f) }
 /**
@@ -474,11 +476,13 @@ fun Modifier.frostedBar(
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
+    val zonalColors = LocalBgZonalColors.current
     val view = LocalView.current
     val (screenWFromLocal, screenHFromLocal) = LocalScreenSize.current
     val (rootWFromLocal, rootHFromLocal) = LocalRootGeometry.current
 
     var currentZone by remember { mutableIntStateOf(1) } // Fallback: zone 1 (top center)
+    var resolvedZoneColor by remember { mutableStateOf<Color?>(null) }
 
     val positionModifier = Modifier.onGloballyPositioned { coords ->
         val viewLocation = IntArray(2)
@@ -511,11 +515,26 @@ fun Modifier.frostedBar(
         if (zone != currentZone) {
             currentZone = zone
         }
+        val color = resolveZoneColor(
+            screenOffsetX = globalX,
+            screenOffsetY = globalY,
+            componentWidth = coords.size.width.toFloat(),
+            componentHeight = coords.size.height.toFloat(),
+            screenW = screenW,
+            screenH = screenH,
+            zonalColors = zonalColors,
+            fallback = null,
+            defaultZoneIndex = 1
+        )
+        if (color != resolvedZoneColor) {
+            resolvedZoneColor = color
+        }
     }
 
     val bgLum = theme?.zonalLuminance(currentZone) ?: (if (isDark) 0.15f else 0.90f)
-    val zoneSourceHex = theme?.zonalColor(currentZone)
-    val zoneSourceColor = remember(zoneSourceHex) { zoneSourceHex?.let { parseComposeColor(it) } }
+    val fallbackHex = theme?.zonalColor(currentZone)
+    val fallbackColor = remember(fallbackHex) { fallbackHex?.let { parseComposeColor(it) } }
+    val zoneSourceColor = resolvedZoneColor ?: zonalColors.getOrNull(currentZone) ?: fallbackColor
     val adaptiveTokens = remember(bgLum, theme?.colors, zoneSourceColor) {
         deriveAdaptiveTokens(bgLum, baseColors = theme?.colors, sourceImageColor = zoneSourceColor)
     }
@@ -567,11 +586,13 @@ fun Modifier.frostedFab(
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
+    val zonalColors = LocalBgZonalColors.current
     val view = LocalView.current
     val (screenWFromLocal, screenHFromLocal) = LocalScreenSize.current
     val (rootWFromLocal, rootHFromLocal) = LocalRootGeometry.current
 
     var currentZone by remember { mutableIntStateOf(8) } // Fallback: zone 8 (bottom right)
+    var resolvedZoneColor by remember { mutableStateOf<Color?>(null) }
 
     val positionModifier = Modifier.onGloballyPositioned { coords ->
         val viewLocation = IntArray(2)
@@ -604,11 +625,26 @@ fun Modifier.frostedFab(
         if (zone != currentZone) {
             currentZone = zone
         }
+        val color = resolveZoneColor(
+            screenOffsetX = globalX,
+            screenOffsetY = globalY,
+            componentWidth = coords.size.width.toFloat(),
+            componentHeight = coords.size.height.toFloat(),
+            screenW = screenW,
+            screenH = screenH,
+            zonalColors = zonalColors,
+            fallback = null,
+            defaultZoneIndex = 8
+        )
+        if (color != resolvedZoneColor) {
+            resolvedZoneColor = color
+        }
     }
 
     val bgLum = theme?.zonalLuminance(currentZone) ?: (if (isDark) 0.15f else 0.90f)
-    val zoneSourceHex = theme?.zonalColor(currentZone)
-    val zoneSourceColor = remember(zoneSourceHex) { zoneSourceHex?.let { parseComposeColor(it) } }
+    val fallbackHex = theme?.zonalColor(currentZone)
+    val fallbackColor = remember(fallbackHex) { fallbackHex?.let { parseComposeColor(it) } }
+    val zoneSourceColor = resolvedZoneColor ?: zonalColors.getOrNull(currentZone) ?: fallbackColor
     val adaptiveTokens = remember(bgLum, theme?.colors, zoneSourceColor) {
         deriveAdaptiveTokens(bgLum, baseColors = theme?.colors, sourceImageColor = zoneSourceColor)
     }
@@ -658,11 +694,13 @@ fun Modifier.frostedPanel(
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
+    val zonalColors = LocalBgZonalColors.current
     val view = LocalView.current
     val (screenWFromLocal, screenHFromLocal) = LocalScreenSize.current
     val (rootWFromLocal, rootHFromLocal) = LocalRootGeometry.current
 
     var currentZone by remember { mutableIntStateOf(4) } // Fallback: zone 4 (center)
+    var resolvedZoneColor by remember { mutableStateOf<Color?>(null) }
 
     val positionModifier = Modifier.onGloballyPositioned { coords ->
         val viewLocation = IntArray(2)
@@ -695,11 +733,26 @@ fun Modifier.frostedPanel(
         if (zone != currentZone) {
             currentZone = zone
         }
+        val color = resolveZoneColor(
+            screenOffsetX = globalX,
+            screenOffsetY = globalY,
+            componentWidth = coords.size.width.toFloat(),
+            componentHeight = coords.size.height.toFloat(),
+            screenW = screenW,
+            screenH = screenH,
+            zonalColors = zonalColors,
+            fallback = null,
+            defaultZoneIndex = 4
+        )
+        if (color != resolvedZoneColor) {
+            resolvedZoneColor = color
+        }
     }
 
     val bgLum = theme?.zonalLuminance(currentZone) ?: (if (isDark) 0.15f else 0.90f)
-    val zoneSourceHex = theme?.zonalColor(currentZone)
-    val zoneSourceColor = remember(zoneSourceHex) { zoneSourceHex?.let { parseComposeColor(it) } }
+    val fallbackHex = theme?.zonalColor(currentZone)
+    val fallbackColor = remember(fallbackHex) { fallbackHex?.let { parseComposeColor(it) } }
+    val zoneSourceColor = resolvedZoneColor ?: zonalColors.getOrNull(currentZone) ?: fallbackColor
     val adaptiveTokens = remember(bgLum, theme?.colors, zoneSourceColor) {
         deriveAdaptiveTokens(bgLum, baseColors = theme?.colors, sourceImageColor = zoneSourceColor)
     }
@@ -749,11 +802,13 @@ fun Modifier.frostedMenu(
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
+    val zonalColors = LocalBgZonalColors.current
     val view = LocalView.current
     val (screenWFromLocal, screenHFromLocal) = LocalScreenSize.current
     val (rootWFromLocal, rootHFromLocal) = LocalRootGeometry.current
 
     var currentZone by remember { mutableIntStateOf(1) } // Fallback: zone 1 (top center)
+    var resolvedZoneColor by remember { mutableStateOf<Color?>(null) }
 
     val positionModifier = Modifier.onGloballyPositioned { coords ->
         val viewLocation = IntArray(2)
@@ -786,11 +841,26 @@ fun Modifier.frostedMenu(
         if (zone != currentZone) {
             currentZone = zone
         }
+        val color = resolveZoneColor(
+            screenOffsetX = globalX,
+            screenOffsetY = globalY,
+            componentWidth = coords.size.width.toFloat(),
+            componentHeight = coords.size.height.toFloat(),
+            screenW = screenW,
+            screenH = screenH,
+            zonalColors = zonalColors,
+            fallback = null,
+            defaultZoneIndex = 1
+        )
+        if (color != resolvedZoneColor) {
+            resolvedZoneColor = color
+        }
     }
 
     val bgLum = theme?.zonalLuminance(currentZone) ?: (if (isDark) 0.15f else 0.90f)
-    val zoneSourceHex = theme?.zonalColor(currentZone)
-    val zoneSourceColor = remember(zoneSourceHex) { zoneSourceHex?.let { parseComposeColor(it) } }
+    val fallbackHex = theme?.zonalColor(currentZone)
+    val fallbackColor = remember(fallbackHex) { fallbackHex?.let { parseComposeColor(it) } }
+    val zoneSourceColor = resolvedZoneColor ?: zonalColors.getOrNull(currentZone) ?: fallbackColor
     val adaptiveTokens = remember(bgLum, theme?.colors, zoneSourceColor) {
         deriveAdaptiveTokens(bgLum, baseColors = theme?.colors, sourceImageColor = zoneSourceColor)
     }
@@ -872,11 +942,13 @@ fun Modifier.frostedCard(
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
+    val zonalColors = LocalBgZonalColors.current
     val view = LocalView.current
     val (screenWFromLocal, screenHFromLocal) = LocalScreenSize.current
     val (rootWFromLocal, rootHFromLocal) = LocalRootGeometry.current
 
     var currentZone by remember { mutableIntStateOf(4) } // Fallback: zone 4 (center)
+    var resolvedZoneColor by remember { mutableStateOf<Color?>(null) }
 
     val positionModifier = Modifier.onGloballyPositioned { coords ->
         val viewLocation = IntArray(2)
@@ -909,11 +981,26 @@ fun Modifier.frostedCard(
         if (zone != currentZone) {
             currentZone = zone
         }
+        val color = resolveZoneColor(
+            screenOffsetX = globalX,
+            screenOffsetY = globalY,
+            componentWidth = coords.size.width.toFloat(),
+            componentHeight = coords.size.height.toFloat(),
+            screenW = screenW,
+            screenH = screenH,
+            zonalColors = zonalColors,
+            fallback = null,
+            defaultZoneIndex = 4
+        )
+        if (color != resolvedZoneColor) {
+            resolvedZoneColor = color
+        }
     }
 
     val bgLum = theme?.zonalLuminance(currentZone) ?: (if (isDark) 0.15f else 0.90f)
-    val zoneSourceHex = theme?.zonalColor(currentZone)
-    val zoneSourceColor = remember(zoneSourceHex) { zoneSourceHex?.let { parseComposeColor(it) } }
+    val fallbackHex = theme?.zonalColor(currentZone)
+    val fallbackColor = remember(fallbackHex) { fallbackHex?.let { parseComposeColor(it) } }
+    val zoneSourceColor = resolvedZoneColor ?: zonalColors.getOrNull(currentZone) ?: fallbackColor
     val adaptiveTokens = remember(bgLum, theme?.colors, zoneSourceColor) {
         deriveAdaptiveTokens(bgLum, baseColors = theme?.colors, sourceImageColor = zoneSourceColor)
     }
@@ -972,11 +1059,13 @@ fun Modifier.frostedChip(
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
+    val zonalColors = LocalBgZonalColors.current
     val view = LocalView.current
     val (screenWFromLocal, screenHFromLocal) = LocalScreenSize.current
     val (rootWFromLocal, rootHFromLocal) = LocalRootGeometry.current
 
     var currentZone by remember { mutableIntStateOf(4) } // Fallback: zone 4 (center)
+    var resolvedZoneColor by remember { mutableStateOf<Color?>(null) }
 
     val positionModifier = Modifier.onGloballyPositioned { coords ->
         val viewLocation = IntArray(2)
@@ -1009,11 +1098,26 @@ fun Modifier.frostedChip(
         if (zone != currentZone) {
             currentZone = zone
         }
+        val color = resolveZoneColor(
+            screenOffsetX = globalX,
+            screenOffsetY = globalY,
+            componentWidth = coords.size.width.toFloat(),
+            componentHeight = coords.size.height.toFloat(),
+            screenW = screenW,
+            screenH = screenH,
+            zonalColors = zonalColors,
+            fallback = null,
+            defaultZoneIndex = 4
+        )
+        if (color != resolvedZoneColor) {
+            resolvedZoneColor = color
+        }
     }
 
     val bgLum = theme?.zonalLuminance(currentZone) ?: (if (isDark) 0.15f else 0.90f)
-    val zoneSourceHex = theme?.zonalColor(currentZone)
-    val zoneSourceColor = remember(zoneSourceHex) { zoneSourceHex?.let { parseComposeColor(it) } }
+    val fallbackHex = theme?.zonalColor(currentZone)
+    val fallbackColor = remember(fallbackHex) { fallbackHex?.let { parseComposeColor(it) } }
+    val zoneSourceColor = resolvedZoneColor ?: zonalColors.getOrNull(currentZone) ?: fallbackColor
     val adaptiveTokens = remember(bgLum, theme?.colors, zoneSourceColor) {
         deriveAdaptiveTokens(bgLum, baseColors = theme?.colors, sourceImageColor = zoneSourceColor)
     }
@@ -1066,11 +1170,13 @@ fun Modifier.frostedSearchBox(
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
+    val zonalColors = LocalBgZonalColors.current
     val view = LocalView.current
     val (screenWFromLocal, screenHFromLocal) = LocalScreenSize.current
     val (rootWFromLocal, rootHFromLocal) = LocalRootGeometry.current
 
     var currentZone by remember { mutableIntStateOf(1) } // Fallback: zone 1 (top center)
+    var resolvedZoneColor by remember { mutableStateOf<Color?>(null) }
 
     val positionModifier = Modifier.onGloballyPositioned { coords ->
         val viewLocation = IntArray(2)
@@ -1103,11 +1209,26 @@ fun Modifier.frostedSearchBox(
         if (zone != currentZone) {
             currentZone = zone
         }
+        val color = resolveZoneColor(
+            screenOffsetX = globalX,
+            screenOffsetY = globalY,
+            componentWidth = coords.size.width.toFloat(),
+            componentHeight = coords.size.height.toFloat(),
+            screenW = screenW,
+            screenH = screenH,
+            zonalColors = zonalColors,
+            fallback = null,
+            defaultZoneIndex = 1
+        )
+        if (color != resolvedZoneColor) {
+            resolvedZoneColor = color
+        }
     }
 
     val bgLum = theme?.zonalLuminance(currentZone) ?: (if (isDark) 0.15f else 0.90f)
-    val zoneSourceHex = theme?.zonalColor(currentZone)
-    val zoneSourceColor = remember(zoneSourceHex) { zoneSourceHex?.let { parseComposeColor(it) } }
+    val fallbackHex = theme?.zonalColor(currentZone)
+    val fallbackColor = remember(fallbackHex) { fallbackHex?.let { parseComposeColor(it) } }
+    val zoneSourceColor = resolvedZoneColor ?: zonalColors.getOrNull(currentZone) ?: fallbackColor
     val adaptiveTokens = remember(bgLum, theme?.colors, zoneSourceColor) {
         deriveAdaptiveTokens(bgLum, baseColors = theme?.colors, sourceImageColor = zoneSourceColor)
     }
@@ -1395,6 +1516,46 @@ fun ScribeComposeTheme(
             }
         }
     }
+
+    // Fast path: precomputed 9 zonal dominant colors from saved theme
+    val savedZonalColors = remember(resolvedTheme.savedBgZonalColors) {
+        if (resolvedTheme.savedBgZonalColors.size >= 9) {
+            resolvedTheme.savedBgZonalColors.map { parseComposeColor(it) }
+        } else {
+            emptyList()
+        }
+    }
+
+    // Live fallback if savedBgZonalColors is empty but analysisBitmap is loaded
+    var liveZonalColors by remember(bgUri, hasBgImage) { mutableStateOf<List<Color>>(emptyList()) }
+    LaunchedEffect(analysisBitmap, savedZonalColors.size, hasBgImage) {
+        if (hasBgImage && savedZonalColors.isEmpty() && analysisBitmap != null) {
+            val ints = withContext(Dispatchers.IO) {
+                computeZonalDominantColorMatrix(analysisBitmap!!)
+            }
+            if (ints.size >= 9) {
+                liveZonalColors = ints.map { Color(it) }
+            }
+        } else if (savedZonalColors.isNotEmpty()) {
+            liveZonalColors = emptyList()
+        }
+    }
+
+    val activeZonalColors = if (savedZonalColors.isNotEmpty()) savedZonalColors else liveZonalColors
+
+    val savedDominantColor = remember(resolvedTheme.savedBgDominantColor) {
+        resolvedTheme.savedBgDominantColor?.let { parseComposeColor(it) }
+    }
+    var liveDominantColor by remember(bgUri, hasBgImage) { mutableStateOf<Color?>(null) }
+    LaunchedEffect(analysisBitmap, savedDominantColor, hasBgImage) {
+        if (hasBgImage && savedDominantColor == null && analysisBitmap != null) {
+            val domInt = withContext(Dispatchers.IO) {
+                computeGlobalDominantColor(analysisBitmap!!)
+            }
+            liveDominantColor = Color(domInt)
+        }
+    }
+    val activeDominantColor = savedDominantColor ?: liveDominantColor
 
     val bg = parseComposeColor(resolvedTheme.colors.background, Color(0xFFFAFAF7))
     val surfaceLowest = parseComposeColor(resolvedTheme.colors.surfaceLowest, bg)
@@ -2070,6 +2231,8 @@ fun ScribeComposeTheme(
                     LocalHazeState provides hazeState,
                     LocalAppTheme provides resolvedTheme,
                     LocalBgAnalysisBitmap provides analysisBitmap,
+                    LocalBgZonalColors provides activeZonalColors,
+                    LocalBgImageDominantColor provides activeDominantColor,
                     LocalScreenSize provides Pair(screenWidthPx, screenHeightPx),
                     LocalRootGeometry provides rootDimensions,
                     LocalInWindowMenuHost provides menuHostState,
