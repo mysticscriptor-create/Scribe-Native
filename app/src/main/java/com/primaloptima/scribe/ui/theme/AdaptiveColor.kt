@@ -562,23 +562,25 @@ fun deriveAdaptiveTokens(
         (0.06f * (1f - backgroundLightness * 0.3f)).coerceIn(0.03f, 0.09f)
     }
 
-    // High-clarity refraction tint (CAM16 / OKLCH calibrated)
+    // High-clarity refraction tint (CAM16 / OKLCH calibrated: 8%–18% opacity)
     val glassTint = if (isDark) {
-        Color(0xFF0F172A).copy(alpha = 0.20f)
+        Color(0xFF0F172A).copy(alpha = (0.10f + (1f - backgroundLightness) * 0.04f).coerceIn(0.08f, 0.14f))
     } else {
-        Color(0xFFF8FAFC).copy(alpha = 0.25f)
+        Color(0xFFF8FAFC).copy(alpha = (0.12f + backgroundLightness * 0.06f).coerceIn(0.12f, 0.18f))
     }
 
+    // Directional Specular Rim: Top overhead light catch (+20% higher lightness, 25-35% alpha in dark, 50-70% in light)
     val glassSpecularTop = if (isDark) {
-        Color.White.copy(alpha = (0.24f * (1f - backgroundLightness * 0.4f)).coerceIn(0.14f, 0.30f))
+        Color.White.copy(alpha = (0.25f + (1f - backgroundLightness) * 0.10f).coerceIn(0.25f, 0.35f))
     } else {
-        Color.White.copy(alpha = (0.70f * (1f - backgroundLightness * 0.2f)).coerceIn(0.50f, 0.80f))
+        Color.White.copy(alpha = (0.55f + (1f - backgroundLightness) * 0.15f).coerceIn(0.50f, 0.70f))
     }
 
+    // Ambient Bottom Falloff Shadow (10%-15% in dark, 4%-10% in light)
     val glassSpecularBottom = if (isDark) {
-        Color.White.copy(alpha = 0.03f)
+        Color.Black.copy(alpha = (0.10f + (1f - backgroundLightness) * 0.05f).coerceIn(0.10f, 0.15f))
     } else {
-        Color.Black.copy(alpha = (0.06f + backgroundLightness * 0.04f).coerceIn(0.04f, 0.10f))
+        Color.Black.copy(alpha = (0.04f + backgroundLightness * 0.06f).coerceIn(0.04f, 0.10f))
     }
 
     return AdaptiveTokenSuite(

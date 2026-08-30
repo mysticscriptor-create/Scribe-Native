@@ -910,7 +910,6 @@ fun FrostedDialog(
     shape: Shape = RoundedCornerShape(28.dp),
 ) {
     val hazeState = LocalHazeState.current
-    val solidSurface = LocalSolidSurface.current
     val isDark = LocalAppTheme.current?.isDark == true
 
     BackHandler { onDismissRequest() }
@@ -925,7 +924,7 @@ fun FrostedDialog(
             ) { onDismissRequest() },
         contentAlignment = Alignment.Center
     ) {
-        val dialogContentColor = autoTextColor(solidSurface)
+        val dialogContentColor = ScribeTheme.colors.content.primary
         CompositionLocalProvider(LocalContentColor provides dialogContentColor) {
             Column(
                 modifier = modifier
