@@ -574,17 +574,17 @@ fun deriveAdaptiveTokens(
     // Layer 3: Chromatic Refraction Tint (CAM16 / OKLCH calibrated: 8%–18% opacity derived from image hue)
     val glassTint = if (isDark) {
         val darkTintHex = ThemeManager.createOklchColor(
-            targetL = 0.12,
-            targetC = (bgOklch.c * 0.80).coerceIn(0.01, 0.08),
-            targetH = bgOklch.h
+            l = 0.12,
+            c = (bgOklch.c * 0.80).coerceIn(0.01, 0.08),
+            h = bgOklch.h
         )
         val darkTintAlpha = (0.10f + (1f - backgroundLightness) * 0.04f).coerceIn(0.10f, 0.14f)
         parseComposeColor(darkTintHex, Color(0xFF0F172A)).copy(alpha = darkTintAlpha)
     } else {
         val lightTintHex = ThemeManager.createOklchColor(
-            targetL = 0.96,
-            targetC = (bgOklch.c * 0.60).coerceIn(0.01, 0.06),
-            targetH = bgOklch.h
+            l = 0.96,
+            c = (bgOklch.c * 0.60).coerceIn(0.01, 0.06),
+            h = bgOklch.h
         )
         val lightTintAlpha = (0.12f + backgroundLightness * 0.06f).coerceIn(0.12f, 0.18f)
         parseComposeColor(lightTintHex, Color(0xFFF8FAFC)).copy(alpha = lightTintAlpha)
