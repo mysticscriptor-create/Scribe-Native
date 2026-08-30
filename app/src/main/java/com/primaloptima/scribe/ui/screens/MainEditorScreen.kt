@@ -63,7 +63,6 @@ import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
 import com.primaloptima.scribe.ui.theme.frostedContainerColor
 import com.primaloptima.scribe.ui.theme.LocalAppTheme
 import com.primaloptima.scribe.ui.theme.ScribeColorScheme
-import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.engine.ProseDiagnosticProvider
 import com.primaloptima.scribe.engine.ProseInlayHintProvider
 import com.primaloptima.scribe.util.BitmapBlur
