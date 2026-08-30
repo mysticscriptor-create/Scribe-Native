@@ -294,15 +294,25 @@ fun localHasBgImage(): Boolean {
 /**
  * Directional specular rim lighting for frosted surfaces.
  * Simulates physical overhead light catch via a vertical linear gradient.
+ * When a custom [tintColor] is passed (e.g. from background image extraction),
+ * it illuminates the specular rim with the background's chromatic character.
  */
 fun Modifier.specularGlassBorder(
     shape: Shape,
     isDark: Boolean,
-    strokeWidth: Dp = 1.dp
+    strokeWidth: Dp = 1.dp,
+    topColor: Color? = null,
+    bottomColor: Color? = null
 ): Modifier = this.border(
     width = strokeWidth,
     brush = Brush.verticalGradient(
-        colors = if (isDark) {
+        colors = if (topColor != null && bottomColor != null) {
+            listOf(
+                topColor,
+                topColor.copy(alpha = (topColor.alpha + bottomColor.alpha) * 0.35f),
+                bottomColor
+            )
+        } else if (isDark) {
             listOf(
                 Color.White.copy(alpha = 0.22f), // Overhead light reflection
                 Color.White.copy(alpha = 0.08f),
@@ -375,7 +385,7 @@ fun Modifier.drawWithBackdropBitmap(
     tint: Color,
     shape: Shape = RectangleShape,
     isDark: Boolean = LocalAppTheme.current?.isDark == true,
-    fallbackColor: Color = LocalSolidSurface.current
+    fallbackColor: Color = ScribeTheme.colors.surfaces.surface
 ): Modifier {
     if (bitmap == null) {
         return this
@@ -455,12 +465,20 @@ fun Modifier.frostedBar(
     shape: Shape = RectangleShape,
     isDark: Boolean = LocalAppTheme.current?.isDark == true
 ): Modifier {
-    val solidSurface = LocalSolidSurface.current
+    val theme = LocalAppTheme.current
+    val solidSurface = ScribeTheme.colors.surfaces.surface
     val hasBgImage = localHasBgImage()
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
-    val tintColor = if (tintEnabled) solidSurface.copy(alpha = 0.35f) else Color.Transparent
+    val bgLum = theme?.zonalLuminance(AmbientZone.TOP_BAR) ?: (if (isDark) 0.15f else 0.90f)
+    val adaptiveTokens = remember(bgLum) { deriveAdaptiveTokens(bgLum) }
+    val tintColor = if (tintEnabled) {
+        if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.35f)
+    } else {
+        Color.Transparent
+    }
+
     return if (!hasBgImage) {
         this.background(solidSurface, shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
@@ -470,7 +488,7 @@ fun Modifier.frostedBar(
                 state = hazeState,
                 style = HazeStyle(blurRadius = blurRadius.dp, tint = HazeTint(tintColor), noiseFactor = 0f)
             )
-            .specularGlassBorder(shape, isDark)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else if (barBlurBitmap != null) {
         this
             .clip(shape)
@@ -479,7 +497,7 @@ fun Modifier.frostedBar(
         this
             .clip(shape)
             .background(solidSurface.copy(alpha = 0.92f), shape = shape)
-            .specularGlassBorder(shape, isDark)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     }
 }
 
@@ -494,12 +512,20 @@ fun Modifier.frostedFab(
     shape: Shape = androidx.compose.foundation.shape.CircleShape,
     isDark: Boolean = LocalAppTheme.current?.isDark == true
 ): Modifier {
-    val solidSurface = LocalSolidSurface.current
+    val theme = LocalAppTheme.current
+    val solidSurface = ScribeTheme.colors.surfaces.surfaceRaised
     val hasBgImage = localHasBgImage()
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
-    val tintColor = if (tintEnabled) solidSurface.copy(alpha = 0.35f) else Color.Transparent
+    val bgLum = theme?.zonalLuminance(AmbientZone.BOTTOM_RIGHT) ?: (if (isDark) 0.15f else 0.90f)
+    val adaptiveTokens = remember(bgLum) { deriveAdaptiveTokens(bgLum) }
+    val tintColor = if (tintEnabled) {
+        if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.35f)
+    } else {
+        Color.Transparent
+    }
+
     return if (!hasBgImage) {
         this.clip(shape).background(solidSurface, shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
@@ -509,7 +535,7 @@ fun Modifier.frostedFab(
                 state = hazeState,
                 style = HazeStyle(blurRadius = blurRadius.dp, tint = HazeTint(tintColor), noiseFactor = 0f)
             )
-            .specularGlassBorder(shape, isDark)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else if (barBlurBitmap != null) {
         this
             .clip(shape)
@@ -518,7 +544,7 @@ fun Modifier.frostedFab(
         this
             .clip(shape)
             .background(solidSurface.copy(alpha = 0.90f), shape = shape)
-            .specularGlassBorder(shape, isDark)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     }
 }
 
@@ -531,12 +557,20 @@ fun Modifier.frostedPanel(
     shape: Shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
     isDark: Boolean = LocalAppTheme.current?.isDark == true
 ): Modifier {
-    val solidSurface = LocalSolidSurface.current
+    val theme = LocalAppTheme.current
+    val solidSurface = ScribeTheme.colors.surfaces.surface
     val hasBgImage = localHasBgImage()
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
-    val tintColor = if (tintEnabled) solidSurface.copy(alpha = 0.25f) else Color.Transparent
+    val bgLum = theme?.zonalLuminance(AmbientZone.GLOBAL) ?: (if (isDark) 0.15f else 0.90f)
+    val adaptiveTokens = remember(bgLum) { deriveAdaptiveTokens(bgLum) }
+    val tintColor = if (tintEnabled) {
+        if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.25f)
+    } else {
+        Color.Transparent
+    }
+
     return if (!hasBgImage) {
         this.clip(shape).background(solidSurface, shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
@@ -546,7 +580,7 @@ fun Modifier.frostedPanel(
                 state = hazeState,
                 style = HazeStyle(blurRadius = blurRadius.dp, tint = HazeTint(tintColor), noiseFactor = 0f)
             )
-            .specularGlassBorder(shape, isDark)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else if (barBlurBitmap != null) {
         this
             .clip(shape)
@@ -555,7 +589,7 @@ fun Modifier.frostedPanel(
         this
             .clip(shape)
             .background(solidSurface.copy(alpha = 0.94f), shape = shape)
-            .specularGlassBorder(shape, isDark)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     }
 }
 
@@ -568,12 +602,20 @@ fun Modifier.frostedMenu(
     shape: Shape = RoundedCornerShape(14.dp),
     isDark: Boolean = LocalAppTheme.current?.isDark == true
 ): Modifier {
-    val solidSurface = LocalSolidSurface.current
+    val theme = LocalAppTheme.current
+    val solidSurface = ScribeTheme.colors.surfaces.surfaceOverlay
     val hasBgImage = localHasBgImage()
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
-    val tintColor = if (tintEnabled) solidSurface.copy(alpha = 0.25f) else Color.Transparent
+    val bgLum = theme?.zonalLuminance(AmbientZone.GLOBAL) ?: (if (isDark) 0.15f else 0.90f)
+    val adaptiveTokens = remember(bgLum) { deriveAdaptiveTokens(bgLum) }
+    val tintColor = if (tintEnabled) {
+        if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.25f)
+    } else {
+        Color.Transparent
+    }
+
     return if (!hasBgImage) {
         this.clip(shape).background(solidSurface, shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
@@ -583,7 +625,7 @@ fun Modifier.frostedMenu(
                 state = hazeState,
                 style = HazeStyle(blurRadius = blurRadius.dp, tint = HazeTint(tintColor), noiseFactor = 0f)
             )
-            .specularGlassBorder(shape, isDark)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else if (barBlurBitmap != null) {
         this
             .clip(shape)
@@ -592,7 +634,7 @@ fun Modifier.frostedMenu(
         this
             .clip(shape)
             .background(solidSurface.copy(alpha = 0.94f), shape = shape)
-            .specularGlassBorder(shape, isDark)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     }
 }
 
@@ -637,12 +679,20 @@ fun Modifier.frostedCard(
     solidAlpha: Float = 0.92f,
     applyFallbackBackground: Boolean = true
 ): Modifier {
-    val solidSurface = LocalSolidSurface.current
+    val theme = LocalAppTheme.current
+    val solidSurface = ScribeTheme.colors.surfaces.surfaceRaised
     val hasBgImage = localHasBgImage()
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
-    val tintColor = if (tintEnabled) solidSurface.copy(alpha = 0.25f) else Color.Transparent
+    val bgLum = theme?.zonalLuminance(AmbientZone.MAIN_CONTENT) ?: (if (isDark) 0.15f else 0.90f)
+    val adaptiveTokens = remember(bgLum) { deriveAdaptiveTokens(bgLum) }
+    val tintColor = if (tintEnabled) {
+        if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.25f)
+    } else {
+        Color.Transparent
+    }
+
     return if (!hasBgImage) {
         if (applyFallbackBackground) {
             this.clip(shape).background(solidSurface.copy(alpha = solidAlpha), shape = shape)
@@ -656,7 +706,7 @@ fun Modifier.frostedCard(
                 state = hazeState,
                 style = HazeStyle(blurRadius = blurRadius.dp, tint = HazeTint(tintColor), noiseFactor = 0f)
             )
-            .specularGlassBorder(shape, isDark)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else if (barBlurBitmap != null) {
         this
             .clip(shape)
@@ -665,7 +715,7 @@ fun Modifier.frostedCard(
         this
             .clip(shape)
             .background(solidSurface.copy(alpha = solidAlpha), shape = shape)
-            .specularGlassBorder(shape, isDark)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     }
 }
 
@@ -682,13 +732,17 @@ fun Modifier.frostedChip(
     unselectedAlpha: Float = 0.12f,
     solidAlpha: Float = 0.90f
 ): Modifier {
-    val solidSurface = LocalSolidSurface.current
-    val accentColor = LocalAccentColor.current
+    val theme = LocalAppTheme.current
+    val solidSurface = ScribeTheme.colors.surfaces.surface
+    val accentColor = ScribeTheme.colors.interaction.primary
     val hasBgImage = localHasBgImage()
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
-    val baseTint = if (isSelected) accentColor else solidSurface
+    val bgLum = theme?.zonalLuminance(AmbientZone.MAIN_CONTENT) ?: (if (isDark) 0.15f else 0.90f)
+    val adaptiveTokens = remember(bgLum) { deriveAdaptiveTokens(bgLum) }
+
+    val baseTint = if (isSelected) accentColor else (if (hasBgImage) adaptiveTokens.glassTint else solidSurface)
     val tintAlpha = if (isSelected) selectedAlpha else unselectedAlpha
     val tintColor = if (tintEnabled) baseTint.copy(alpha = tintAlpha) else (if (isSelected) accentColor.copy(alpha = 0.18f) else Color.Transparent)
 
@@ -702,7 +756,7 @@ fun Modifier.frostedChip(
                 state = hazeState,
                 style = HazeStyle(blurRadius = blurRadius.dp, tint = HazeTint(tintColor), noiseFactor = 0f)
             )
-            .specularGlassBorder(shape, isDark)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else if (barBlurBitmap != null) {
         val fallbackBg = if (isSelected) accentColor.copy(alpha = 0.18f) else solidSurface.copy(alpha = solidAlpha)
         this
@@ -713,7 +767,7 @@ fun Modifier.frostedChip(
         this
             .clip(shape)
             .background(fallbackBg, shape = shape)
-            .specularGlassBorder(shape, isDark)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     }
 }
 
@@ -727,12 +781,19 @@ fun Modifier.frostedSearchBox(
     isDark: Boolean = LocalAppTheme.current?.isDark == true,
     solidAlpha: Float = 0.92f
 ): Modifier {
-    val solidSurface = LocalSolidSurface.current
+    val theme = LocalAppTheme.current
+    val solidSurface = ScribeTheme.colors.surfaces.surfaceLowest
     val hasBgImage = localHasBgImage()
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
-    val tintColor = if (tintEnabled) solidSurface.copy(alpha = 0.22f) else Color.Transparent
+    val bgLum = theme?.zonalLuminance(AmbientZone.TOP_BAR) ?: (if (isDark) 0.15f else 0.90f)
+    val adaptiveTokens = remember(bgLum) { deriveAdaptiveTokens(bgLum) }
+    val tintColor = if (tintEnabled) {
+        if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.22f)
+    } else {
+        Color.Transparent
+    }
 
     return if (!hasBgImage) {
         this.clip(shape).background(solidSurface.copy(alpha = solidAlpha), shape = shape)
@@ -743,7 +804,7 @@ fun Modifier.frostedSearchBox(
                 state = hazeState,
                 style = HazeStyle(blurRadius = blurRadius.dp, tint = HazeTint(tintColor), noiseFactor = 0f)
             )
-            .specularGlassBorder(shape, isDark)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else if (barBlurBitmap != null) {
         this
             .clip(shape)
@@ -752,7 +813,7 @@ fun Modifier.frostedSearchBox(
         this
             .clip(shape)
             .background(solidSurface.copy(alpha = solidAlpha), shape = shape)
-            .specularGlassBorder(shape, isDark)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     }
 }
 
@@ -774,13 +835,12 @@ fun Modifier.frostedSearchBox(
  */
 @Composable
 fun FrostedBarContent(content: @Composable () -> Unit) {
-    val solidSurface = LocalSolidSurface.current
     val theme = LocalAppTheme.current
-    val savedLum = theme?.savedBgLuminance ?: -1f
+    val savedLum = theme?.zonalLuminance(AmbientZone.TOP_BAR) ?: (theme?.savedBgLuminance ?: -1f)
     val hasBgImage = localHasBgImage()
     val contentColor = when {
-        hasBgImage && savedLum >= 0f -> if (savedLum < 0.45f) Color.White else Color(0xFF1A1A1A)
-        else -> autoTextColor(solidSurface)
+        hasBgImage && savedLum >= 0f -> if (savedLum < 0.45f) Color(0xFFFAF9F8) else Color(0xFF141416)
+        else -> ScribeTheme.colors.content.primary
     }
     CompositionLocalProvider(LocalContentColor provides contentColor) {
         content()
@@ -797,13 +857,12 @@ fun FrostedBarContent(content: @Composable () -> Unit) {
  */
 @Composable
 fun FrostedPanelContent(content: @Composable () -> Unit) {
-    val solidSurface = LocalSolidSurface.current
     val theme = LocalAppTheme.current
-    val savedLum = theme?.savedBgLuminance ?: -1f
+    val savedLum = theme?.zonalLuminance(AmbientZone.GLOBAL) ?: (theme?.savedBgLuminance ?: -1f)
     val hasBgImage = localHasBgImage()
     val contentColor = when {
-        hasBgImage && savedLum >= 0f -> if (savedLum < 0.45f) Color.White else Color(0xFF1A1A1A)
-        else -> autoTextColor(solidSurface)
+        hasBgImage && savedLum >= 0f -> if (savedLum < 0.45f) Color(0xFFFAF9F8) else Color(0xFF141416)
+        else -> ScribeTheme.colors.content.primary
     }
     CompositionLocalProvider(LocalContentColor provides contentColor) {
         content()
@@ -816,9 +875,14 @@ fun FrostedPanelContent(content: @Composable () -> Unit) {
  */
 @Composable
 fun FrostedCardContent(content: @Composable () -> Unit) {
-    val solidSurface = LocalSolidSurface.current
+    val theme = LocalAppTheme.current
     val hasBgImage = localHasBgImage()
-    val contentColor = if (hasBgImage) autoTextColor(solidSurface) else LocalContentColor.current
+    val savedLum = theme?.zonalLuminance(AmbientZone.MAIN_CONTENT) ?: (theme?.savedBgLuminance ?: -1f)
+    val contentColor = if (hasBgImage && savedLum >= 0f) {
+        if (savedLum < 0.45f) Color(0xFFFAF9F8) else Color(0xFF141416)
+    } else {
+        ScribeTheme.colors.content.primary
+    }
     CompositionLocalProvider(LocalContentColor provides contentColor) {
         content()
     }

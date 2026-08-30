@@ -501,6 +501,9 @@ data class AdaptiveTokenSuite(
     val specularRimAlpha: Float,
     val isDarkBackground: Boolean,
     val requiresShadowScrim: Boolean,
+    val glassTint: Color = if (isDarkBackground) Color(0xFF141416).copy(alpha = 0.20f) else Color(0xFFFAF9F8).copy(alpha = 0.25f),
+    val glassSpecularTop: Color = if (isDarkBackground) Color.White.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.65f),
+    val glassSpecularBottom: Color = if (isDarkBackground) Color.White.copy(alpha = 0.03f) else Color.Black.copy(alpha = 0.06f),
     val writing: WritingColors = WritingColors(
         prose = text,
         dialogue = dialogueText,
@@ -512,7 +515,7 @@ data class AdaptiveTokenSuite(
 )
 
 /**
- * Dynamically derives high-contrast adaptive prose and elevation tokens from background lightness.
+ * Dynamically derives high-contrast adaptive prose, glass refraction, and elevation tokens from background lightness.
  */
 fun deriveAdaptiveTokens(
     backgroundLightness: Float,
@@ -552,11 +555,30 @@ fun deriveAdaptiveTokens(
     val headingHex = ThemeManager.createOklchColor(targetHeadingL, headingOklch.c, headingOklch.h)
     val headingText = parseComposeColor(headingHex, text)
 
-    // 4. Adaptive Specular Rim Alpha (scales dynamically with local brightness)
+    // 4. Adaptive Specular Rim Alpha & Chromatic Glass Tints
     val specularRimAlpha = if (isDark) {
         (0.24f * (1f - backgroundLightness * 0.5f)).coerceIn(0.12f, 0.28f)
     } else {
         (0.06f * (1f - backgroundLightness * 0.3f)).coerceIn(0.03f, 0.09f)
+    }
+
+    // High-clarity refraction tint (CAM16 / OKLCH calibrated)
+    val glassTint = if (isDark) {
+        Color(0xFF0F172A).copy(alpha = 0.20f)
+    } else {
+        Color(0xFFF8FAFC).copy(alpha = 0.25f)
+    }
+
+    val glassSpecularTop = if (isDark) {
+        Color.White.copy(alpha = (0.24f * (1f - backgroundLightness * 0.4f)).coerceIn(0.14f, 0.30f))
+    } else {
+        Color.White.copy(alpha = (0.70f * (1f - backgroundLightness * 0.2f)).coerceIn(0.50f, 0.80f))
+    }
+
+    val glassSpecularBottom = if (isDark) {
+        Color.White.copy(alpha = 0.03f)
+    } else {
+        Color.Black.copy(alpha = (0.06f + backgroundLightness * 0.04f).coerceIn(0.04f, 0.10f))
     }
 
     return AdaptiveTokenSuite(
@@ -567,7 +589,10 @@ fun deriveAdaptiveTokens(
         headingText = headingText,
         specularRimAlpha = specularRimAlpha,
         isDarkBackground = isDark,
-        requiresShadowScrim = hasHighVariance
+        requiresShadowScrim = hasHighVariance,
+        glassTint = glassTint,
+        glassSpecularTop = glassSpecularTop,
+        glassSpecularBottom = glassSpecularBottom
     )
 }
 
