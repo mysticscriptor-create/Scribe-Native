@@ -42,9 +42,8 @@ import com.primaloptima.scribe.ui.components.ScribeSectionLabel
 import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
-import com.primaloptima.scribe.ui.theme.LocalAccentColor
 import com.primaloptima.scribe.ui.theme.LocalHazeState
-import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.util.WorldImageUtil
 import com.primaloptima.scribe.viewmodel.SheetsViewModel
@@ -67,8 +66,8 @@ fun WorldEntryDetailScreen(
     val context = LocalContext.current
     val meta = categoryMeta(entry.type)
     val hazeState = LocalHazeState.current
-    val accentColor = LocalAccentColor.current
-    val subtleText = LocalSubtleTextColor.current
+    val accentColor = ScribeTheme.colors.interaction.primary
+    val subtleText = ScribeTheme.colors.content.tertiary
     val resolvedSubtle = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
 
     var showImageViewer by remember { mutableStateOf(false) }
@@ -456,7 +455,7 @@ private fun HeaderTitleAndMetadata(
     formattedCreated: String,
     formattedUpdated: String
 ) {
-    val subtle = LocalSubtleTextColor.current
+    val subtle = ScribeTheme.colors.content.tertiary
     val resolvedSubtle = if (subtle != Color.Unspecified) subtle else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
 
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -525,7 +524,7 @@ private fun DetailAttributeRow(
             emptyList()
         }
     }
-    val subtle = LocalSubtleTextColor.current
+    val subtle = ScribeTheme.colors.content.tertiary
     val resolvedSubtle = if (subtle != Color.Unspecified) subtle else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
 
     ScribeCard(

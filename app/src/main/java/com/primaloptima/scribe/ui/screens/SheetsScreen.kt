@@ -62,8 +62,8 @@ import com.primaloptima.scribe.ui.components.ScribeCard
 import com.primaloptima.scribe.ui.components.ScribeSingleFab
 import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
-import com.primaloptima.scribe.ui.theme.LocalAccentColor
 import com.primaloptima.scribe.ui.theme.LocalHazeState
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.frostedChip
 import com.primaloptima.scribe.ui.theme.frostedSearchBox
 import com.primaloptima.scribe.util.AppJson
@@ -313,7 +313,7 @@ fun SheetsScreen(
                                     fontSize = 13.sp,
                                     color = MaterialTheme.colorScheme.onSurface
                                 ),
-                                cursorBrush = SolidColor(LocalAccentColor.current),
+                                cursorBrush = SolidColor(ScribeTheme.colors.interaction.primary),
                                 decorationBox = { innerTextField ->
                                     Row(
                                         modifier = Modifier

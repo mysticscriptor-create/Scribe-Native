@@ -75,7 +75,6 @@ import com.primaloptima.scribe.ui.theme.FontHelper
 import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.specularRimBorder
-import com.primaloptima.scribe.ui.theme.LocalBorderSubtle
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.components.ScribeTopBar
@@ -1200,7 +1199,7 @@ private fun ColorTile(
     onClick: () -> Unit
 ) {
     val color = parseComposeColor(hex, MaterialTheme.colorScheme.surfaceVariant)
-    val borderSubtle = LocalBorderSubtle.current
+    val borderSubtle = ScribeTheme.colors.borders.subtle
     val checkDark = ScribeTheme.colors.surfaces.surfaceRaised
     val checkLight = ScribeTheme.colors.surfaces.surface
     Column(

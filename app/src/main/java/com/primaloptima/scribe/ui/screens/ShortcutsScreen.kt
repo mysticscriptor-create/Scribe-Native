@@ -30,10 +30,9 @@ import com.primaloptima.scribe.ui.components.ScribeCardTokens
 import com.primaloptima.scribe.ui.components.ScribeStripCard
 import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
-import com.primaloptima.scribe.ui.theme.LocalAccentColor
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
-import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.components.ScribeBarAction
 import com.primaloptima.scribe.ui.components.ScribeSingleFab
@@ -58,7 +57,7 @@ fun ShortcutsScreen(
     val view = LocalView.current
     val blurRadiusPx = com.primaloptima.scribe.ui.theme.LocalFrostedBlurRadius.current.toInt().coerceIn(1, 25)
     val hazeState = LocalHazeState.current
-    val subtleText = LocalSubtleTextColor.current
+    val subtleText = ScribeTheme.colors.content.tertiary
 
     var dialogOneShotBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var dialogCaptured by remember { mutableStateOf(false) }
@@ -184,7 +183,7 @@ private fun ShortcutRow(
     onDelete: () -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
-    val accentColor = LocalAccentColor.current
+    val accentColor = ScribeTheme.colors.interaction.primary
 
     ScribeStripCard(
         title = shortcut.label,

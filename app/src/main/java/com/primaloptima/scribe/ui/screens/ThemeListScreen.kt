@@ -36,10 +36,10 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.style.TextOverflow
 import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
-import com.primaloptima.scribe.ui.theme.LocalBorderSubtle
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.components.ScribeBarAction
 import com.primaloptima.scribe.ui.components.ScribeBarIconButton
@@ -222,7 +222,7 @@ private fun ThemeCard(
 ) {
     var showMenu by remember { mutableStateOf(false) }
 
-    val borderSubtle = LocalBorderSubtle.current
+    val borderSubtle = ScribeTheme.colors.borders.subtle
     val bgColor = parseComposeColor(theme.colors.background, MaterialTheme.colorScheme.surfaceVariant)
     val textColor = parseComposeColor(theme.colors.text, MaterialTheme.colorScheme.onSurface)
     val mutedColor = parseComposeColor(theme.colors.mutedText, textColor.copy(alpha = 0.7f))

@@ -27,10 +27,8 @@ import com.primaloptima.scribe.ui.components.ScribeContentCard
 import com.primaloptima.scribe.ui.components.ScribeSectionLabel
 import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.theme.FrostedDialog
-import com.primaloptima.scribe.ui.theme.LocalAccentColor
-import com.primaloptima.scribe.ui.theme.LocalBorderSubtle
 import com.primaloptima.scribe.ui.theme.LocalHazeState
-import com.primaloptima.scribe.ui.theme.LocalSubtleTextColor
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.frostedChip
 import com.primaloptima.scribe.viewmodel.SettingsViewModel
 import dev.chrisbanes.haze.hazeSource
@@ -46,8 +44,8 @@ fun SettingsScreen(
     val themeManager = remember { app.themeManager }
     val vm: SettingsViewModel = viewModel()
     val hazeState = LocalHazeState.current
-    val accentColor = LocalAccentColor.current
-    val subtleText = LocalSubtleTextColor.current
+    val accentColor = ScribeTheme.colors.interaction.primary
+    val subtleText = ScribeTheme.colors.content.tertiary
 
     val showWordCount by vm.showWordCount.collectAsStateWithLifecycle()
     val typewriterMode by vm.typewriterMode.collectAsStateWithLifecycle()
