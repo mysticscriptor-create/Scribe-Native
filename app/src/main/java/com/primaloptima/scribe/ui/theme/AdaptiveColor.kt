@@ -543,7 +543,7 @@ fun computeZonalDominantColorMatrix(bitmap: Bitmap, cols: Int = 3, rows: Int = 3
             bitmap.getPixels(pixels, 0, zoneW, x0, y0, zoneW, zoneH)
 
             val quantizerResult = QuantizerCelebi.quantize(pixels, 128)
-            val scoredColors = Score.score(quantizerResult.colorToCount)
+            val scoredColors = Score.score(quantizerResult)
             val dominantColor = scoredColors.firstOrNull() ?: 0xFF808080.toInt()
             matrix.add(dominantColor)
         }
@@ -563,7 +563,7 @@ fun computeGlobalDominantColor(bitmap: Bitmap): Int {
     val pixels = IntArray(w * h)
     bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
     val quantizerResult = QuantizerCelebi.quantize(pixels, 128)
-    val scoredColors = Score.score(quantizerResult.colorToCount)
+    val scoredColors = Score.score(quantizerResult)
     return scoredColors.firstOrNull() ?: 0xFF808080.toInt()
 }
 
