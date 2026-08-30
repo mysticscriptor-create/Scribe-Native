@@ -1,5 +1,6 @@
 package com.primaloptima.scribe.util
 
+import com.primaloptima.scribe.util.model.AppTheme
 import kotlinx.serialization.json.Json
 
 /**

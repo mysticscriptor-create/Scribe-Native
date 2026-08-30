@@ -178,8 +178,9 @@ class ThemeManager(private val context: Context) {
                 } else {
                     // Migration path from legacy (schemaVersion 0 or missing):
                     // Derive full semantic tokens and set schemaVersion = CURRENT_SCHEMA_VERSION
-                    val derivedColors = deriveSemanticTokens(
+                    val derivedColors = deriveThemeColors(
                         bgHex = theme.colors.background,
+                        textHex = theme.colors.text,
                         accentHex = theme.colors.accent,
                         isDark = theme.isDark,
                         base = theme.colors
