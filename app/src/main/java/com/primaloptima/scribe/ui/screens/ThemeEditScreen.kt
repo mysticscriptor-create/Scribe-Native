@@ -63,6 +63,8 @@ import kotlinx.coroutines.launch
 import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.util.model.ThemeColors
 import com.primaloptima.scribe.ui.theme.autoTextColor
+import com.primaloptima.scribe.ui.theme.calculateWcagContrastRatio
+import com.primaloptima.scribe.ui.theme.calculateApcaContrast
 import com.primaloptima.scribe.ui.theme.colorToPerceptualLightness
 import com.primaloptima.scribe.ui.theme.computeZonalLuminanceMatrix
 import com.primaloptima.scribe.ui.theme.computeZonalVarianceMatrix
@@ -440,7 +442,7 @@ fun ThemeEditScreen(
                 }
             }
 
-            // Theme Colors
+            // Theme Colors (Curated Semantic Control Sections)
             item {
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(
@@ -449,25 +451,129 @@ fun ThemeEditScreen(
                     ) {
                         Text("Theme Master Colors", fontWeight = FontWeight.Bold, fontSize = 15.sp)
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly
-                        ) {
-                            ColorTile(
-                                label = "Background",
-                                hex = bgHex,
-                                onClick = { activeColorPickerTarget = ColorPickerTarget.BACKGROUND }
+                        // 1. FOUNDATION
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "FOUNDATION",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                letterSpacing = 0.5.sp
                             )
-                            ColorTile(
-                                label = "Text",
-                                hex = derivedPreview.text,
-                                onClick = { activeColorPickerTarget = ColorPickerTarget.TEXT }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Start
+                            ) {
+                                ColorTile(
+                                    label = "Background",
+                                    hex = bgHex,
+                                    onClick = { activeColorPickerTarget = ColorPickerTarget.BACKGROUND }
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                        // 2. BRAND
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "BRAND",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                letterSpacing = 0.5.sp
                             )
-                            ColorTile(
-                                label = "Accent",
-                                hex = accentHex,
-                                onClick = { activeColorPickerTarget = ColorPickerTarget.ACCENT }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                ColorTile(
+                                    label = "Primary",
+                                    hex = accentHex,
+                                    onClick = { activeColorPickerTarget = ColorPickerTarget.ACCENT }
+                                )
+                                ColorTile(
+                                    label = "Secondary",
+                                    hex = derivedPreview.secondary,
+                                    onClick = {}
+                                )
+                                ColorTile(
+                                    label = "Tertiary",
+                                    hex = derivedPreview.tertiary,
+                                    onClick = {}
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                        // 3. STATUS
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "STATUS",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                letterSpacing = 0.5.sp
                             )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                ColorTile(
+                                    label = "Success",
+                                    hex = derivedPreview.success,
+                                    onClick = {}
+                                )
+                                ColorTile(
+                                    label = "Warning",
+                                    hex = derivedPreview.warning,
+                                    onClick = {}
+                                )
+                                ColorTile(
+                                    label = "Error",
+                                    hex = derivedPreview.error,
+                                    onClick = {}
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+
+                        // 4. EDITOR
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = "EDITOR",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                letterSpacing = 0.5.sp
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                ColorTile(
+                                    label = "Text",
+                                    hex = derivedPreview.text,
+                                    onClick = { activeColorPickerTarget = ColorPickerTarget.TEXT }
+                                )
+                                ColorTile(
+                                    label = "Dialogue",
+                                    hex = derivedPreview.dialogueText,
+                                    onClick = {}
+                                )
+                                ColorTile(
+                                    label = "Monologue",
+                                    hex = derivedPreview.monologueText,
+                                    onClick = {}
+                                )
+                                ColorTile(
+                                    label = "Heading",
+                                    hex = derivedPreview.headingText,
+                                    onClick = {}
+                                )
+                            }
                         }
 
                         // Semantic Contrast & Accessibility Report (Phase 10)
@@ -650,6 +756,11 @@ fun ThemeEditScreen(
                         }
                     }
                 }
+            }
+
+            // Phase 12 Live Accessibility Sample Preview
+            item {
+                AccessibilitySampleCard(colors = derivedPreview)
             }
 
             // SECTION 2: TYPOGRAPHY
@@ -2029,6 +2140,308 @@ private suspend fun computeBgAnalysis(context: android.content.Context, imageUri
             Triple(avgL, zonal, zonalVar)
         } catch (_: Exception) {
             Triple(-1f, emptyList(), emptyList())
+        }
+    }
+}
+
+/**
+ * Phase 12 Live Accessibility Preview Component
+ * Self-contained composable rendering actual real-time UI component samples with live contrast verification.
+ */
+@Composable
+fun AccessibilitySampleCard(
+    colors: ThemeColors,
+    modifier: Modifier = Modifier
+) {
+    // ScribeTheme calls strictly at top-level of function (outside any lambda/composable slot)
+    val scribeThemeColors = ScribeTheme.colors
+    val appSurfaces = scribeThemeColors.surfaces
+    val appContent = scribeThemeColors.content
+    val appInteraction = scribeThemeColors.interaction
+    val appSemantic = scribeThemeColors.semantic
+    val appWriting = scribeThemeColors.writing
+    val appBorders = scribeThemeColors.borders
+
+    // Convert active theme tokens to Compose Color objects for live preview
+    val bg = parseComposeColor(colors.background, appSurfaces.background)
+    val surface = parseComposeColor(colors.surface, appSurfaces.surface)
+    val primaryText = parseComposeColor(colors.text, appContent.primary)
+    val secondaryText = parseComposeColor(colors.mutedText, appContent.secondary)
+    val tertiaryText = parseComposeColor(colors.subtleText, appContent.tertiary)
+    val accent = parseComposeColor(colors.accent, appInteraction.primary)
+    val onAccent = if (ThemeManager.isDarkColor(colors.accent)) Color.White else Color.Black
+    val borderSubtle = parseComposeColor(colors.borderSubtle, appBorders.subtle)
+    val dialogueText = parseComposeColor(colors.dialogueText, accent)
+    val warningColor = if (colors.warning.isNotEmpty()) parseComposeColor(colors.warning, appSemantic.warning) else if (ThemeManager.isDarkColor(colors.background)) Color(0xFFFBBF24) else Color(0xFFD97706)
+    val errorColor = if (colors.error.isNotEmpty()) parseComposeColor(colors.error, appSemantic.error) else if (ThemeManager.isDarkColor(colors.background)) Color(0xFFF87171) else Color(0xFFDC2626)
+
+    Card(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Live Accessibility Samples",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp
+                )
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(50)
+                ) {
+                    Text(
+                        text = "Real-time Verification",
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            // Container showcasing components on the actual theme's surface
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(surface)
+                    .border(1.dp, borderSubtle, RoundedCornerShape(10.dp))
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // 1. Primary Text
+                AccessibilitySampleRow(
+                    label = "Primary Text",
+                    foreground = primaryText,
+                    background = surface
+                ) {
+                    Text(
+                        text = "The quick brown fox jumps over the lazy dog.",
+                        color = primaryText,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Normal
+                    )
+                }
+
+                HorizontalDivider(color = borderSubtle.copy(alpha = 0.5f))
+
+                // 2. Secondary Text
+                AccessibilitySampleRow(
+                    label = "Secondary Text",
+                    foreground = secondaryText,
+                    background = surface
+                ) {
+                    Text(
+                        text = "Chapter 3 • 2,450 words • 8 min read",
+                        color = secondaryText,
+                        fontSize = 12.sp
+                    )
+                }
+
+                HorizontalDivider(color = borderSubtle.copy(alpha = 0.5f))
+
+                // 3. Tertiary Text
+                AccessibilitySampleRow(
+                    label = "Tertiary Text",
+                    foreground = tertiaryText,
+                    background = surface
+                ) {
+                    Text(
+                        text = "Saved 2 minutes ago • Plain text mode",
+                        color = tertiaryText,
+                        fontSize = 11.sp
+                    )
+                }
+
+                HorizontalDivider(color = borderSubtle.copy(alpha = 0.5f))
+
+                // 4. Button (Primary Action)
+                AccessibilitySampleRow(
+                    label = "Button",
+                    foreground = onAccent,
+                    background = accent
+                ) {
+                    Surface(
+                        color = accent,
+                        shape = RoundedCornerShape(8.dp),
+                        shadowElevation = 1.dp
+                    ) {
+                        Text(
+                            text = "Save Chapter",
+                            color = onAccent,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = borderSubtle.copy(alpha = 0.5f))
+
+                // 5. Selected Tab
+                AccessibilitySampleRow(
+                    label = "Selected Tab",
+                    foreground = accent,
+                    background = surface
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            color = accent.copy(alpha = 0.15f),
+                            shape = RoundedCornerShape(6.dp),
+                            border = BorderStroke(1.dp, accent.copy(alpha = 0.4f))
+                        ) {
+                            Text(
+                                text = "Editor (Active)",
+                                color = accent,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                        Text(
+                            text = "Outlines",
+                            color = secondaryText,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = borderSubtle.copy(alpha = 0.5f))
+
+                // 6. Dialogue
+                AccessibilitySampleRow(
+                    label = "Dialogue",
+                    foreground = dialogueText,
+                    background = surface
+                ) {
+                    Text(
+                        text = "“We cross the mountains at first light,” she said.",
+                        color = dialogueText,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                HorizontalDivider(color = borderSubtle.copy(alpha = 0.5f))
+
+                // 7. Warning
+                AccessibilitySampleRow(
+                    label = "Warning",
+                    foreground = warningColor,
+                    background = surface
+                ) {
+                    Surface(
+                        color = warningColor.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, warningColor.copy(alpha = 0.35f))
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text("⚠️", fontSize = 10.sp)
+                            Text(
+                                text = "Passive Voice Detected",
+                                color = warningColor,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = borderSubtle.copy(alpha = 0.5f))
+
+                // 8. Error
+                AccessibilitySampleRow(
+                    label = "Error",
+                    foreground = errorColor,
+                    background = surface
+                ) {
+                    Surface(
+                        color = errorColor.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, errorColor.copy(alpha = 0.35f))
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text("❌", fontSize = 10.sp)
+                            Text(
+                                text = "Repeated Word Conflict",
+                                color = errorColor,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccessibilitySampleRow(
+    label: String,
+    foreground: Color,
+    background: Color,
+    content: @Composable () -> Unit
+) {
+    val wcagRatio = remember(foreground, background) {
+        calculateWcagContrastRatio(foreground, background)
+    }
+    val apcaLc = remember(foreground, background) {
+        calculateApcaContrast(foreground, background)
+    }
+    val passes = wcagRatio >= 3.0 || Math.abs(apcaLc) >= 45.0
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    color = if (passes) Color(0xFF10B981).copy(alpha = 0.15f) else Color(0xFFEF4444).copy(alpha = 0.15f),
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Text(
+                        text = if (wcagRatio >= 4.5) "AA Pass (${String.format(java.util.Locale.US, "%.1f:1", wcagRatio)})"
+                        else if (passes) "UI Pass (${String.format(java.util.Locale.US, "%.1f:1", wcagRatio)})"
+                        else "Low (${String.format(java.util.Locale.US, "%.1f:1", wcagRatio)})",
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (passes) Color(0xFF059669) else Color(0xFFDC2626)
+                    )
+                }
+            }
+        }
+        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+            content()
         }
     }
 }
