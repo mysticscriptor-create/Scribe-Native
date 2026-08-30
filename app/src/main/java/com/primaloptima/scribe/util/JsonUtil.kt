@@ -19,3 +19,19 @@ val AppJson = Json {
     encodeDefaults = true
     coerceInputValues = true
 }
+
+/**
+ * Decodes an AppTheme with automatic centralized schema migration.
+ */
+fun Json.decodeAppTheme(string: String): AppTheme {
+    val decoded = decodeFromString<AppTheme>(string)
+    return ThemeManager.migrateTheme(decoded)
+}
+
+/**
+ * Decodes a list of AppThemes with automatic centralized schema migration.
+ */
+fun Json.decodeAppThemes(string: String): List<AppTheme> {
+    val decodedList = decodeFromString<List<AppTheme>>(string)
+    return decodedList.map { ThemeManager.migrateTheme(it) }
+}

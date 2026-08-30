@@ -134,6 +134,8 @@ data class AppTheme(
     val paddingHorizontal: Int,
     val paddingVertical: Int,
     val maxWidth: Int,
+    /** Explicit schema version for safe forward-compatible serialization & migration */
+    val schemaVersion: Int = 1,
     val backgroundImageUri: String? = null,
     /** The original full-resolution image the user picked, before cropping.
      *  Preserved so the user can re-crop later without quality loss, and so

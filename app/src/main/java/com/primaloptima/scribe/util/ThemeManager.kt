@@ -67,7 +67,7 @@ class ThemeManager(private val context: Context) {
     fun allThemes(): List<AppTheme> {
         val json = cachedCustomThemesJson ?: "[]"
         val custom = try {
-            AppJson.decodeFromString<List<AppTheme>>(json)
+            AppJson.decodeFromString<List<AppTheme>>(json).map { migrateTheme(it) }
         } catch (_: Exception) { emptyList() }
         val builtInIds = DefaultThemes.all.map { it.id }.toSet()
         val customMap = custom.associateBy { it.id }
@@ -87,9 +87,10 @@ class ThemeManager(private val context: Context) {
     }
 
     fun saveCustomTheme(theme: AppTheme) {
+        val migrated = migrateTheme(theme)
         val list = allCustomThemes().toMutableList()
-        val idx = list.indexOfFirst { it.id == theme.id }
-        if (idx >= 0) list[idx] = theme else list.add(theme)
+        val idx = list.indexOfFirst { it.id == migrated.id }
+        if (idx >= 0) list[idx] = migrated else list.add(migrated)
         val json = AppJson.encodeToString(list)
         cachedCustomThemesJson = json
     }
@@ -117,7 +118,7 @@ class ThemeManager(private val context: Context) {
     fun allCustomThemes(): List<AppTheme> {
         val json = cachedCustomThemesJson ?: "[]"
         return try {
-            AppJson.decodeFromString<List<AppTheme>>(json)
+            AppJson.decodeFromString<List<AppTheme>>(json).map { migrateTheme(it) }
         } catch (_: Exception) { emptyList() }
     }
 
@@ -162,6 +163,37 @@ class ThemeManager(private val context: Context) {
     }
 
     companion object {
+        /** Current schema version for theme serialization & migration */
+        const val CURRENT_SCHEMA_VERSION = 1
+
+        /**
+         * Defensive centralized migration strategy.
+         * Upgrades older theme instances to the latest schema version.
+         * If the theme is already current or unrecognised, returns it safely without throwing.
+         */
+        fun migrateTheme(theme: AppTheme): AppTheme {
+            return try {
+                if (theme.schemaVersion >= CURRENT_SCHEMA_VERSION) {
+                    theme
+                } else {
+                    // Migration path from legacy (schemaVersion 0 or missing):
+                    // Derive full semantic tokens and set schemaVersion = CURRENT_SCHEMA_VERSION
+                    val derivedColors = deriveSemanticTokens(
+                        bgHex = theme.colors.background,
+                        accentHex = theme.colors.accent,
+                        isDark = theme.isDark,
+                        base = theme.colors
+                    )
+                    theme.copy(
+                        schemaVersion = CURRENT_SCHEMA_VERSION,
+                        colors = derivedColors
+                    )
+                }
+            } catch (_: Exception) {
+                // Defensive fallback: return original theme unchanged
+                theme
+            }
+        }
 
         fun parseColor(hex: String): Int = try {
             Color.parseColor(hex)
