@@ -471,7 +471,7 @@ fun Modifier.frostedBar(
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
-    val bgLum = theme?.zonalLuminance(AmbientZone.TOP_BAR) ?: (if (isDark) 0.15f else 0.90f)
+    val bgLum = theme?.zonalLuminance(AmbientZone.TOP_APP_BAR) ?: (if (isDark) 0.15f else 0.90f)
     val adaptiveTokens = remember(bgLum) { deriveAdaptiveTokens(bgLum) }
     val tintColor = if (tintEnabled) {
         if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.35f)
@@ -787,7 +787,7 @@ fun Modifier.frostedSearchBox(
     val barBlurBitmap = LocalBarBlurBitmap.current
     val tintEnabled = LocalFrostedTint.current
     val blurRadius = LocalFrostedBlurRadius.current
-    val bgLum = theme?.zonalLuminance(AmbientZone.TOP_BAR) ?: (if (isDark) 0.15f else 0.90f)
+    val bgLum = theme?.zonalLuminance(AmbientZone.TOP_APP_BAR) ?: (if (isDark) 0.15f else 0.90f)
     val adaptiveTokens = remember(bgLum) { deriveAdaptiveTokens(bgLum) }
     val tintColor = if (tintEnabled) {
         if (hasBgImage) adaptiveTokens.glassTint else solidSurface.copy(alpha = 0.22f)
@@ -836,7 +836,7 @@ fun Modifier.frostedSearchBox(
 @Composable
 fun FrostedBarContent(content: @Composable () -> Unit) {
     val theme = LocalAppTheme.current
-    val savedLum = theme?.zonalLuminance(AmbientZone.TOP_BAR) ?: (theme?.savedBgLuminance ?: -1f)
+    val savedLum = theme?.zonalLuminance(AmbientZone.TOP_APP_BAR) ?: (theme?.savedBgLuminance ?: -1f)
     val hasBgImage = localHasBgImage()
     val contentColor = when {
         hasBgImage && savedLum >= 0f -> if (savedLum < 0.45f) Color(0xFFFAF9F8) else Color(0xFF141416)
