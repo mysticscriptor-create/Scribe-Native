@@ -65,7 +65,7 @@ fun MainStatisticsTabContent(
 ) {
     var selectedTopTab by remember { mutableIntStateOf(0) } // 0: Statistics, 1: Wordmap
     val accent = ScribeTheme.colors.interaction.primary
-    val subtle = ScribeTheme.colors.content.tertiary
+    val subtle = ScribeTheme.colors.content.secondary
 
     Column(modifier = Modifier.fillMaxSize()) {
         Surface(
@@ -150,7 +150,7 @@ private fun DetailedStatisticsTab(
     val chartData   by statsVm.chartData.collectAsStateWithLifecycle()
 
     val accentColor = ScribeTheme.colors.interaction.primary
-    val subtleColor = ScribeTheme.colors.content.tertiary
+    val subtleColor = ScribeTheme.colors.content.secondary
     val resolvedSubtle = if (subtleColor != Color.Unspecified) subtleColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
 
     LaunchedEffect(selectedRange) {
@@ -539,7 +539,7 @@ private fun DetailedWordmapTab(
     val folderWordTotals by statsVm.folderWordTotals.collectAsStateWithLifecycle()
     val bookWordTotals = bookWordCounts
     val accentColor = ScribeTheme.colors.interaction.primary
-    val subtleText = ScribeTheme.colors.content.tertiary
+    val subtleText = ScribeTheme.colors.content.secondary
     val resolvedSubtle = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurfaceVariant
 
     Column(
@@ -644,7 +644,7 @@ private fun AnimatedRankCard(
 ) {
     var isVisible by remember { mutableStateOf(false) }
     val accentColor = ScribeTheme.colors.interaction.primary
-    val subtleText = ScribeTheme.colors.content.tertiary
+    val subtleText = ScribeTheme.colors.content.secondary
     val resolvedSubtle = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
 
     LaunchedEffect(Unit) {
@@ -693,7 +693,7 @@ private fun AnimatedRankCard(
                         text = "${item.wordCount} words",
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
-                        color = accentColor
+                        color = ScribeTheme.colors.analytics.series1
                     )
                 }
                 if (item.breadcrumb.isNotBlank()) {
@@ -712,7 +712,7 @@ private fun AnimatedRankCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(6.dp),
-                    color = accentColor
+                    color = ScribeTheme.colors.analytics.series1
                 )
             }
         }

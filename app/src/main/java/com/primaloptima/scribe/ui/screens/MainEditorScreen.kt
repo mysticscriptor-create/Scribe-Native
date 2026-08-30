@@ -834,7 +834,7 @@ private fun EditorTopBar(
                 LinearProgressIndicator(
                     progress   = { goalProgress },
                     modifier   = Modifier.fillMaxWidth().height(3.dp),
-                    color      = ScribeTheme.colors.interaction.primary,
+                    color      = ScribeTheme.colors.analytics.target,
                     trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                 )
             }
@@ -925,7 +925,7 @@ private fun EditorOptionsBottomSheet(
                 text = "EXPORT NOTE",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = ScribeTheme.colors.interaction.primary,
+                color = ScribeTheme.colors.content.secondary,
                 letterSpacing = 0.5.sp,
                 modifier = Modifier.padding(start = 2.dp, top = 4.dp, bottom = 8.dp)
             )

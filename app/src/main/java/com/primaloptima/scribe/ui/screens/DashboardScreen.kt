@@ -86,7 +86,7 @@ fun DashboardTabContent(
     var showBookPicker  by remember { mutableStateOf(false) }
     var showGoalDialog  by remember { mutableStateOf(false) }
 
-    val accentColor = LocalAccentColor.current
+    val accentColor = ScribeTheme.colors.interaction.primary
 
     // Fix 3: LaunchedEffect(Unit) removed — weeklyWordData, todayWords, and
     // currentStreak is a live StateFlow in DashboardViewModel that updates
@@ -256,7 +256,7 @@ private fun DashboardGreeting(streak: Int, accentColor: Color) {
         if (streak > 0) {
             ScribePill(
                 text  = "🔥 $streak ${if (streak == 1) "Day" else "Days"}",
-                color = accentColor
+                color = ScribeTheme.colors.analytics.positive
             )
         }
     }

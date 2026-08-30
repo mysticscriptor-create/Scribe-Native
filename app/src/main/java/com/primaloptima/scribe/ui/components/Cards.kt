@@ -27,7 +27,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.ui.theme.FrostedCardContent
-import com.primaloptima.scribe.ui.theme.LocalAccentColor
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
 import com.primaloptima.scribe.ui.theme.ScribeTheme
@@ -124,7 +123,7 @@ fun ScribeCard(
     content: @Composable BoxScope.() -> Unit
 ) {
     val hazeState    = LocalHazeState.current
-    val accentColor  = LocalAccentColor.current
+    val accentColor  = ScribeTheme.colors.interaction.primary
     val hasBgImage   = localHasBgImage()
     val solidSurface = LocalSolidSurface.current
     val shape        = RoundedCornerShape(cornerRadius)
@@ -240,7 +239,7 @@ fun ScribeContentCard(
     footer: (@Composable ColumnScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val accentColor = LocalAccentColor.current
+    val accentColor = ScribeTheme.colors.interaction.primary
     val onSurface = MaterialTheme.colorScheme.onSurface
     val outlineVariant = MaterialTheme.colorScheme.outlineVariant
 
@@ -565,7 +564,7 @@ fun ScribeActionTile(
     isPrimary: Boolean = false,
     badge: (@Composable BoxScope.() -> Unit)? = null
 ) {
-    val accentColor  = LocalAccentColor.current
+    val accentColor  = ScribeTheme.colors.interaction.primary
     val hazeState    = LocalHazeState.current
     val hasBgImage   = localHasBgImage()
     val solidSurface = LocalSolidSurface.current
@@ -712,7 +711,7 @@ fun ScribeStatColumn(
     badge: String? = null,
     extra: (@Composable () -> Unit)? = null
 ) {
-    val accentColor = LocalAccentColor.current
+    val accentColor = ScribeTheme.colors.interaction.primary
     val onSurface   = MaterialTheme.colorScheme.onSurface
     val tint        = iconTint ?: accentColor
 
@@ -794,7 +793,7 @@ fun ScribeSectionLabel(
     text: String,
     modifier: Modifier = Modifier
 ) {
-    val accentColor = LocalAccentColor.current
+    val accentColor = ScribeTheme.colors.content.secondary
     Text(
         text     = text.uppercase(),
         style    = ScribeTheme.typography.caption.copy(
@@ -818,7 +817,7 @@ fun ScribePill(
     modifier: Modifier = Modifier,
     color: Color? = null
 ) {
-    val accentColor = LocalAccentColor.current
+    val accentColor = ScribeTheme.colors.interaction.primary
     val bg = color ?: accentColor
     Box(
         modifier = modifier
@@ -851,7 +850,7 @@ fun ScribeProgressBar(
     modifier: Modifier = Modifier,
     color: Color? = null
 ) {
-    val accentColor = LocalAccentColor.current
+    val accentColor = ScribeTheme.colors.interaction.primary
     val barColor    = color ?: accentColor
     val animated by animateFloatAsState(
         targetValue   = progress.coerceIn(0f, 1f),

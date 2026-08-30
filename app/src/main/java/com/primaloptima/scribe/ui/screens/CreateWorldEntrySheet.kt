@@ -29,7 +29,7 @@ import com.primaloptima.scribe.viewmodel.SheetsViewModel
 @ReadOnlyComposable
 fun categoryColor(key: String): Color {
     val world = ScribeTheme.colors.world
-    val subtle = ScribeTheme.colors.content.tertiary
+    val subtle = ScribeTheme.colors.content.secondary
     val fallbackSubtle = if (subtle != Color.Unspecified) subtle else MaterialTheme.colorScheme.onSurfaceVariant
     return when (key.lowercase()) {
         "character" -> world.character
@@ -80,7 +80,7 @@ fun CreateWorldEntrySheet(
     val typeKeys = listOf("character", "location", "faction", "item", "lore", "timeline")
     val hazeState = LocalHazeState.current
     val accentColor = ScribeTheme.colors.interaction.primary
-    val subtleText = ScribeTheme.colors.content.tertiary
+    val subtleText = ScribeTheme.colors.content.secondary
     val surfaceRaised = ScribeTheme.colors.surfaces.surfaceRaised
     val borderSubtle = ScribeTheme.colors.borders.subtle
     val resolvedSubtle = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)

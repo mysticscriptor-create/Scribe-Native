@@ -69,7 +69,7 @@ fun ImageCropperDialog(
     val surfaceLowest = ScribeTheme.colors.surfaces.surfaceLowest
     val surfaceRaised = ScribeTheme.colors.surfaces.surfaceRaised
     val borderSubtle = ScribeTheme.colors.borders.subtle
-    val subtleText = ScribeTheme.colors.content.tertiary
+    val subtleText = ScribeTheme.colors.content.secondary
 
     LaunchedEffect(sourceUri) {
         isLoading = true

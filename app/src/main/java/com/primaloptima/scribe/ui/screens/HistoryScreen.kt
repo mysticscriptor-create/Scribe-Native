@@ -63,7 +63,7 @@ fun HistoryScreen(
     val scope = rememberCoroutineScope()
     val app = context.applicationContext as ScribeApp
     val accentColor = ScribeTheme.colors.interaction.primary
-    val subtleText = ScribeTheme.colors.content.tertiary
+    val subtleText = ScribeTheme.colors.content.secondary
 
     val activeNoteIdState by app.dataStore.activeNoteIdFlow.collectAsStateWithLifecycle(initialValue = null)
     val noteId = activeNoteIdState ?: ""

@@ -88,7 +88,7 @@ import com.primaloptima.scribe.ui.components.ScribeCard
 import com.primaloptima.scribe.ui.components.ScribeCardTokens
 import com.primaloptima.scribe.ui.components.ScribeContentCard
 import com.primaloptima.scribe.ui.components.ScribeProgressBar
-import com.primaloptima.scribe.ui.theme.LocalAccentColor
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -531,7 +531,7 @@ fun BookScreen(
                                     containerColor   = Color.Transparent,
                                     indicator        = { tabPositions ->
                                         // Pill indicator behind selected tab
-                                        val accentColor = LocalAccentColor.current
+                                        val accentColor = ScribeTheme.colors.interaction.primary
                                         if (pagerState.currentPage < tabPositions.size) {
                                             val pos = tabPositions[pagerState.currentPage]
                                             Box(
@@ -949,7 +949,7 @@ private fun BookInfoHeader(
     onSummaryClick: () -> Unit
 ) {
     val context     = LocalContext.current
-    val accentColor = LocalAccentColor.current
+    val accentColor = ScribeTheme.colors.interaction.primary
     val onSurface   = MaterialTheme.colorScheme.onSurface
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
     val surface     = MaterialTheme.colorScheme.surface
@@ -1112,7 +1112,7 @@ private fun BookInfoHeader(
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                         verticalAlignment     = Alignment.CenterVertically
                     ) {
-                        StatChip(Icons.Outlined.TextFields, formatWordCount(totalWords), accentColor)
+                        StatChip(Icons.Outlined.TextFields, formatWordCount(totalWords), ScribeTheme.colors.analytics.series1)
                         StatChip(Icons.Outlined.Description, "$fileCount", onSurfaceVariant)
                         StatChip(Icons.Outlined.Folder, "$folderCount", onSurfaceVariant)
                     }
@@ -1203,7 +1203,6 @@ private fun TreeFolderHeader(
     onNoteClick: (Note) -> Unit
 ) {
     var isExpanded by remember { mutableStateOf(true) }
-    val accentColor = LocalAccentColor.current
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -1255,7 +1254,7 @@ private fun NoteListRowStateless(
 
 @Composable
 private fun BookStatisticsTab(notes: List<Note>, bookTitle: String) {
-    val accentColor = LocalAccentColor.current
+    val accentColor = ScribeTheme.colors.analytics.series1
     val onSurface   = MaterialTheme.colorScheme.onSurface
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
 
@@ -1337,7 +1336,7 @@ private fun NoteListRow(
     onDelete:    () -> Unit
 ) {
     var showMenu    by remember { mutableStateOf(false) }
-    val accentColor = LocalAccentColor.current
+    val accentColor = ScribeTheme.colors.analytics.series1
     val onSurface   = MaterialTheme.colorScheme.onSurface
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
 

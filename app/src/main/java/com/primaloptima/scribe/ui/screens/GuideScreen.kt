@@ -58,9 +58,9 @@ fun GuideScreen(
 
 @Composable
 private fun GuideSection(title: String, description: String) {
-    val subtle = ScribeTheme.colors.content.tertiary
+    val bodyColor = ScribeTheme.colors.content.secondary
     val onSurface = MaterialTheme.colorScheme.onSurface
-    val textColor = if (subtle != Color.Unspecified) subtle else onSurface.copy(alpha = 0.85f)
+    val textColor = if (bodyColor != Color.Unspecified) bodyColor else onSurface.copy(alpha = 0.85f)
 
     ScribeContentCard(
         title = title,

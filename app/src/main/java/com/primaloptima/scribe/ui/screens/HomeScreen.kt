@@ -286,6 +286,7 @@ fun HomeScreen(
             ) {
                 FrostedPanelContent {
                 val accentColor = ScribeTheme.colors.interaction.primary
+                val streakColor = ScribeTheme.colors.analytics.positive
                 val (adaptiveTextColor, adaptiveTextModifier) = rememberAdaptiveTextColor(
                     fallback = MaterialTheme.colorScheme.onSurface
                 )
@@ -349,13 +350,13 @@ fun HomeScreen(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(50))
-                                .background(accentColor.copy(alpha = 0.20f))
+                                .background(streakColor.copy(alpha = 0.20f))
                                 .padding(horizontal = 8.dp, vertical = 3.dp)
                         ) {
                             Text(
                                 text = "🔥 $currentStreak ${if (currentStreak == 1) "Day" else "Days"}",
                                 fontSize = 11.sp,
-                                color = accentColor,
+                                color = streakColor,
                                 fontWeight = FontWeight.Medium
                             )
                         }
@@ -388,7 +389,7 @@ fun HomeScreen(
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
                             letterSpacing = 1.5.sp,
-                            color = LocalContentColor.current.copy(alpha = 0.45f),
+                            color = ScribeTheme.colors.content.tertiary,
                             modifier = Modifier.padding(start = 16.dp, bottom = 4.dp)
                         )
 
@@ -411,7 +412,7 @@ fun HomeScreen(
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
                             letterSpacing = 1.5.sp,
-                            color = LocalContentColor.current.copy(alpha = 0.45f),
+                            color = ScribeTheme.colors.content.tertiary,
                             modifier = Modifier.padding(start = 16.dp, bottom = 4.dp)
                         )
 
@@ -857,7 +858,7 @@ fun HomeScreen(
 private fun DrawerNavItem(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
-    accentColor: Color,
+    accentColor: Color = ScribeTheme.colors.content.secondary,
     onClick: () -> Unit
 ) {
     Row(
@@ -871,7 +872,7 @@ private fun DrawerNavItem(
             imageVector = icon,
             contentDescription = null,
             modifier = Modifier.size(20.dp),
-            tint = accentColor
+            tint = ScribeTheme.colors.content.secondary
         )
         Spacer(modifier = Modifier.width(14.dp))
         Text(

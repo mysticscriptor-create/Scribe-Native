@@ -19,10 +19,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.ui.theme.AmbientZone
 import com.primaloptima.scribe.ui.theme.FrostedBarContent
-import com.primaloptima.scribe.ui.theme.LocalAccentColor
 import com.primaloptima.scribe.ui.theme.LocalBarBlurBitmap
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.frostedBar
 import com.primaloptima.scribe.ui.theme.rememberAdaptiveTextColor
 
@@ -161,7 +161,7 @@ private fun ScribeTopBarSurface(
     content: @Composable RowScope.() -> Unit,
 ) {
     val hazeState   = LocalHazeState.current
-    val accentColor = LocalAccentColor.current
+    val accentColor = ScribeTheme.colors.interaction.primary
 
     // Wire LocalOneShotBitmap → LocalBarBlurBitmap so frostedBar picks up the
     // pre-blurred wallpaper on pre-API-31 devices (same pattern as HomeScreen).
@@ -240,7 +240,7 @@ private fun ScribeBottomBarSurface(
     content: @Composable RowScope.() -> Unit,
 ) {
     val hazeState   = LocalHazeState.current
-    val accentColor = LocalAccentColor.current
+    val accentColor = ScribeTheme.colors.interaction.primary
 
     CompositionLocalProvider(LocalOneShotBitmap provides LocalBarBlurBitmap.current) {
         FrostedBarContent {
@@ -597,7 +597,7 @@ fun ScribeNavBar(
     selectedIndex: Int,
     onTabSelected: (Int) -> Unit,
 ) {
-    val accentColor = LocalAccentColor.current
+    val accentColor = ScribeTheme.colors.interaction.primary
 
     ScribeBottomBarSurface {
         items.forEachIndexed { index, item ->

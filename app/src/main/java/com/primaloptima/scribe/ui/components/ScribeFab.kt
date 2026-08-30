@@ -29,9 +29,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.primaloptima.scribe.ui.theme.LocalAccentColor
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.frostedContainerColor
 import com.primaloptima.scribe.ui.theme.frostedFab
 import com.primaloptima.scribe.ui.theme.localHasBgImage
@@ -173,7 +173,7 @@ fun ScribeFab(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val hazeState   = LocalHazeState.current
-    val accentColor = LocalAccentColor.current
+    val accentColor = ScribeTheme.colors.interaction.primary
     val shape       = RoundedCornerShape(cornerRadius)
 
     // Press-scale — interaction source drives both the scale and suppresses
@@ -459,7 +459,7 @@ private fun SpeedDialCard(
     onCollapse: () -> Unit,
 ) {
     val hazeState   = LocalHazeState.current
-    val accentColor = LocalAccentColor.current
+    val accentColor = ScribeTheme.colors.interaction.primary
     val hasBgImage  = localHasBgImage()
     val solidSurface = LocalSolidSurface.current
     val shape       = RoundedCornerShape(ScribeFabTokens.SpeedDialRadius)

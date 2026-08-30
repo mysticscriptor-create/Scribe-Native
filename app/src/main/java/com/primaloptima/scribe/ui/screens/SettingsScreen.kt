@@ -45,7 +45,7 @@ fun SettingsScreen(
     val vm: SettingsViewModel = viewModel()
     val hazeState = LocalHazeState.current
     val accentColor = ScribeTheme.colors.interaction.primary
-    val subtleText = ScribeTheme.colors.content.tertiary
+    val subtleText = ScribeTheme.colors.content.secondary
 
     val showWordCount by vm.showWordCount.collectAsStateWithLifecycle()
     val typewriterMode by vm.typewriterMode.collectAsStateWithLifecycle()

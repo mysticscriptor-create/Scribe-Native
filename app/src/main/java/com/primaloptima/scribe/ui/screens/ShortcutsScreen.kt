@@ -57,7 +57,7 @@ fun ShortcutsScreen(
     val view = LocalView.current
     val blurRadiusPx = com.primaloptima.scribe.ui.theme.LocalFrostedBlurRadius.current.toInt().coerceIn(1, 25)
     val hazeState = LocalHazeState.current
-    val subtleText = ScribeTheme.colors.content.tertiary
+    val subtleText = ScribeTheme.colors.content.secondary
 
     var dialogOneShotBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var dialogCaptured by remember { mutableStateOf(false) }

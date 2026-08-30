@@ -143,79 +143,6 @@ val LocalBarBlurBitmap = compositionLocalOf<Bitmap?> { null }
  */
 val LocalSolidSurface = compositionLocalOf { Color.White }
 
-/**
- * The resolved, adaptive accent color for the active theme.
- *
- * Computed once inside [ScribeComposeTheme] from [adaptiveAccentColor] with the
- * real background luminance, then provided here so every screen reads a single
- * consistent value instead of each calling parseComposeColor + adaptiveAccentColor
- * independently.
- *
- * On plain-colour themes (no background image) this equals the raw accent from the
- * theme JSON. On image themes it is shifted if necessary to maintain 3:1 contrast
- * against the wallpaper luminance.
- *
- * Usage: val accent = LocalAccentColor.current
- */
-/**
- * Legacy individual color locals maintained as a non-breaking bridge for existing consumers.
- * @deprecated Prefer structured theme tokens via [ScribeTheme.colors], [ScribeTheme.typography],
- * [ScribeTheme.shapes], [ScribeTheme.metrics], and [ScribeTheme.spacing].
- */
-@Deprecated(
-    message = "Use ScribeTheme.colors.interaction.primary instead",
-    replaceWith = ReplaceWith("ScribeTheme.colors.interaction.primary", "com.primaloptima.scribe.ui.theme.ScribeTheme")
-)
-val LocalAccentColor = compositionLocalOf { Color.Unspecified }
-
-@Deprecated(
-    message = "Use ScribeTheme.colors.writing.dialogue instead",
-    replaceWith = ReplaceWith("ScribeTheme.colors.writing.dialogue", "com.primaloptima.scribe.ui.theme.ScribeTheme")
-)
-val LocalDialogueColor = compositionLocalOf { Color.Unspecified }
-
-@Deprecated(
-    message = "Use ScribeTheme.colors.writing.monologue instead",
-    replaceWith = ReplaceWith("ScribeTheme.colors.writing.monologue", "com.primaloptima.scribe.ui.theme.ScribeTheme")
-)
-val LocalMonologueColor = compositionLocalOf { Color.Unspecified }
-
-@Deprecated(
-    message = "Use ScribeTheme.colors.writing.heading instead",
-    replaceWith = ReplaceWith("ScribeTheme.colors.writing.heading", "com.primaloptima.scribe.ui.theme.ScribeTheme")
-)
-val LocalHeadingColor = compositionLocalOf { Color.Unspecified }
-
-@Deprecated(
-    message = "Use ScribeTheme.colors.content.tertiary instead",
-    replaceWith = ReplaceWith("ScribeTheme.colors.content.tertiary", "com.primaloptima.scribe.ui.theme.ScribeTheme")
-)
-val LocalSubtleTextColor = compositionLocalOf { Color.Unspecified }
-
-@Deprecated(
-    message = "Use ScribeTheme.colors.surfaces.surfaceLowest instead",
-    replaceWith = ReplaceWith("ScribeTheme.colors.surfaces.surfaceLowest", "com.primaloptima.scribe.ui.theme.ScribeTheme")
-)
-val LocalSurfaceLowest = compositionLocalOf { Color.Unspecified }
-
-@Deprecated(
-    message = "Use ScribeTheme.colors.surfaces.surfaceRaised instead",
-    replaceWith = ReplaceWith("ScribeTheme.colors.surfaces.surfaceRaised", "com.primaloptima.scribe.ui.theme.ScribeTheme")
-)
-val LocalSurfaceRaised = compositionLocalOf { Color.Unspecified }
-
-@Deprecated(
-    message = "Use ScribeTheme.colors.surfaces.surfaceOverlay instead",
-    replaceWith = ReplaceWith("ScribeTheme.colors.surfaces.surfaceOverlay", "com.primaloptima.scribe.ui.theme.ScribeTheme")
-)
-val LocalSurfaceOverlay = compositionLocalOf { Color.Unspecified }
-
-@Deprecated(
-    message = "Use ScribeTheme.colors.borders.subtle instead",
-    replaceWith = ReplaceWith("ScribeTheme.colors.borders.subtle", "com.primaloptima.scribe.ui.theme.ScribeTheme")
-)
-val LocalBorderSubtle = compositionLocalOf { Color.Unspecified }
-
 fun autoTextColor(bg: Color): Color {
     val luminance = bg.luminance()
     return if (luminance > 0.5f) Color.Black else Color.White
@@ -2243,17 +2170,6 @@ fun ScribeComposeTheme(
                     LocalFrostedBlurRadius provides frostedBlurRadius,
                     LocalSolidSurface provides animSurface,
                     LocalBarBlurBitmap provides barBlurBitmap,
-                    // Adaptive accent resolved once here — screens read LocalAccentColor.current
-                    // instead of calling parseComposeColor + adaptiveAccentColor themselves.
-                    LocalAccentColor provides accentIcons,
-                    LocalDialogueColor provides dialogueResolved,
-                    LocalMonologueColor provides monologueResolved,
-                    LocalHeadingColor provides headingResolved,
-                    LocalSubtleTextColor provides subtleTextResolved,
-                    LocalSurfaceLowest provides animSurfaceLowest,
-                    LocalSurfaceRaised provides animSurfaceRaised,
-                    LocalSurfaceOverlay provides animSurfaceOverlay,
-                    LocalBorderSubtle provides animOutline,
                     // One-shot bitmap starts null; screens set it via their own
                     // CompositionLocalProvider wrapping the drawer/dialog content.
                     LocalOneShotBitmap provides null

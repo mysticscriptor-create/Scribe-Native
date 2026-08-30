@@ -67,7 +67,7 @@ fun WorldEntryDetailScreen(
     val meta = categoryMeta(entry.type)
     val hazeState = LocalHazeState.current
     val accentColor = ScribeTheme.colors.interaction.primary
-    val subtleText = ScribeTheme.colors.content.tertiary
+    val subtleText = ScribeTheme.colors.content.secondary
     val resolvedSubtle = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
 
     var showImageViewer by remember { mutableStateOf(false) }
