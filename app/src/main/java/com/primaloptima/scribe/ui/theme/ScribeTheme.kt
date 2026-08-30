@@ -1494,9 +1494,9 @@ fun ScribeComposeTheme(
     val view = LocalView.current
     val screenWidthPx = remember(view) { view.resources.displayMetrics.widthPixels.toFloat() }
     val screenHeightPx = remember(view) { view.resources.displayMetrics.heightPixels.toFloat() }
-    var analysisBitmap by remember(bgUri, hasBgImage) { mutableStateOf<Bitmap?>(null) }
+    var analysisBitmap by remember(resolvedTheme.id, bgUri, hasBgImage) { mutableStateOf<Bitmap?>(null) }
 
-    LaunchedEffect(bgUri, hasBgImage, screenWidthPx, screenHeightPx) {
+    LaunchedEffect(resolvedTheme.id, bgUri, hasBgImage, screenWidthPx, screenHeightPx) {
         if (!hasBgImage || bgUri.isNullOrEmpty()) {
             analysisBitmap = null
             return@LaunchedEffect
@@ -1518,7 +1518,7 @@ fun ScribeComposeTheme(
     }
 
     // Fast path: precomputed 9 zonal dominant colors from saved theme
-    val savedZonalColors = remember(resolvedTheme.savedBgZonalColors) {
+    val savedZonalColors = remember(resolvedTheme.id, resolvedTheme.savedBgZonalColors) {
         if (resolvedTheme.savedBgZonalColors.size >= 9) {
             resolvedTheme.savedBgZonalColors.map { parseComposeColor(it) }
         } else {
@@ -1527,8 +1527,8 @@ fun ScribeComposeTheme(
     }
 
     // Live fallback if savedBgZonalColors is empty but analysisBitmap is loaded
-    var liveZonalColors by remember(bgUri, hasBgImage) { mutableStateOf<List<Color>>(emptyList()) }
-    LaunchedEffect(analysisBitmap, savedZonalColors.size, hasBgImage) {
+    var liveZonalColors by remember(resolvedTheme.id, bgUri, hasBgImage) { mutableStateOf<List<Color>>(emptyList()) }
+    LaunchedEffect(resolvedTheme.id, analysisBitmap, savedZonalColors.size, hasBgImage) {
         if (hasBgImage && savedZonalColors.isEmpty() && analysisBitmap != null) {
             val ints = withContext(Dispatchers.IO) {
                 computeZonalDominantColorMatrix(analysisBitmap!!)
@@ -1536,23 +1536,25 @@ fun ScribeComposeTheme(
             if (ints.size >= 9) {
                 liveZonalColors = ints.map { Color(it) }
             }
-        } else if (savedZonalColors.isNotEmpty()) {
+        } else if (savedZonalColors.isNotEmpty() || !hasBgImage) {
             liveZonalColors = emptyList()
         }
     }
 
     val activeZonalColors = if (savedZonalColors.isNotEmpty()) savedZonalColors else liveZonalColors
 
-    val savedDominantColor = remember(resolvedTheme.savedBgDominantColor) {
+    val savedDominantColor = remember(resolvedTheme.id, resolvedTheme.savedBgDominantColor) {
         resolvedTheme.savedBgDominantColor?.let { parseComposeColor(it) }
     }
-    var liveDominantColor by remember(bgUri, hasBgImage) { mutableStateOf<Color?>(null) }
-    LaunchedEffect(analysisBitmap, savedDominantColor, hasBgImage) {
+    var liveDominantColor by remember(resolvedTheme.id, bgUri, hasBgImage) { mutableStateOf<Color?>(null) }
+    LaunchedEffect(resolvedTheme.id, analysisBitmap, savedDominantColor, hasBgImage) {
         if (hasBgImage && savedDominantColor == null && analysisBitmap != null) {
             val domInt = withContext(Dispatchers.IO) {
                 computeGlobalDominantColor(analysisBitmap!!)
             }
             liveDominantColor = Color(domInt)
+        } else if (savedDominantColor != null || !hasBgImage) {
+            liveDominantColor = null
         }
     }
     val activeDominantColor = savedDominantColor ?: liveDominantColor
