@@ -109,7 +109,6 @@ object ScribeCardTokens {
  * @param modifier      Applied to the outer card. Use for size and padding.
  * @param cornerRadius  Corner rounding. Default: RadiusLarge.
  * @param onClick       Optional. Enables press animation and ripple.
- * @param accentBorder  Whether to show the hairline accent border. Default true.
  * @param shine         Whether to show the subtle top shine. Default true.
  * @param content       Card body — a BoxScope slot. Put anything here.
  */
@@ -118,12 +117,10 @@ fun ScribeCard(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = ScribeCardTokens.RadiusLarge,
     onClick: (() -> Unit)? = null,
-    accentBorder: Boolean = true,
     shine: Boolean = true,
     content: @Composable BoxScope.() -> Unit
 ) {
     val hazeState    = LocalHazeState.current
-    val accentColor  = ScribeTheme.colors.interaction.primary
     val hasBgImage   = localHasBgImage()
     val solidSurface = LocalSolidSurface.current
     val shape        = RoundedCornerShape(cornerRadius)
@@ -144,19 +141,6 @@ fun ScribeCard(
     Box(
         modifier = modifier
             .scale(scale)
-            // Border BEFORE clip — sits on the edge itself, catches light like the FAB
-            .then(
-                if (accentBorder) Modifier.border(
-                    width = 0.7.dp,
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            accentColor.copy(alpha = 0.28f),
-                            Color.Transparent
-                        )
-                    ),
-                    shape = shape
-                ) else Modifier
-            )
             .clip(shape)
             // Solid fallback fill — transparent when frosted glass is active
             .background(containerColor)
@@ -264,7 +248,6 @@ fun ScribeContentCard(
         modifier     = modifier,
         cornerRadius = cornerRadius,
         onClick      = onClick,
-        accentBorder = true,
         shine        = true,
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -465,7 +448,6 @@ fun ScribeStripCard(
             modifier     = modifier,
             cornerRadius = cornerRadius,
             onClick      = onClick,
-            accentBorder = true,
             shine        = true
         ) {
             // When wrapInCard = true, ScribeCard already handles the click,
@@ -587,16 +569,6 @@ fun ScribeActionTile(
     Box(
         modifier = modifier
             .scale(scale)
-            // Border before clip — same light-catch edge as FAB and ScribeCard
-            .then(
-                if (isPrimary) Modifier else Modifier.border(
-                    width = 0.7.dp,
-                    brush = Brush.verticalGradient(
-                        colors = listOf(accentColor.copy(alpha = 0.28f), Color.Transparent)
-                    ),
-                    shape = shape
-                )
-            )
             .clip(shape)
             .background(containerColor)
             .then(if (!isPrimary) Modifier.frostedCard(hazeState, shape = shape) else Modifier)

@@ -1277,14 +1277,14 @@ private fun BookStatisticsTab(notes: List<Note>, bookTitle: String) {
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment     = Alignment.CenterVertically
             ) {
-                ScribeCard(modifier = Modifier.weight(1f), cornerRadius = ScribeCardTokens.RadiusMedium, accentBorder = true, shine = true) {
+                ScribeCard(modifier = Modifier.weight(1f), cornerRadius = ScribeCardTokens.RadiusMedium, shine = true) {
                     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(text = "${notes.size}", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = onSurface)
                         Text(text = "Total Files", fontSize = 12.sp, color = onSurfaceVariant)
                     }
                 }
                 Spacer(modifier = Modifier.width(12.dp))
-                ScribeCard(modifier = Modifier.weight(1f), cornerRadius = ScribeCardTokens.RadiusMedium, accentBorder = true, shine = true) {
+                ScribeCard(modifier = Modifier.weight(1f), cornerRadius = ScribeCardTokens.RadiusMedium, shine = true) {
                     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(text = "$totalWords", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = accentColor)
                         Text(text = "Total Words", fontSize = 12.sp, color = onSurfaceVariant)
@@ -1355,7 +1355,6 @@ private fun NoteListRow(
         modifier     = modifier.fillMaxWidth(),
         cornerRadius = ScribeCardTokens.RadiusMedium,
         onClick      = onClick,
-        accentBorder = true,
         shine        = true
     ) {
         Column(

@@ -199,17 +199,6 @@ fun ScribeFab(
             }
             // Frosted glass modifier — no-ops gracefully when no bg image
             .frostedFab(hazeState, shape = shape)
-            // Hairline accent border — "light-catch" depth cue
-            .border(
-                width = 0.7.dp,
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        accentColor.copy(alpha = 0.28f),
-                        Color.Transparent
-                    )
-                ),
-                shape = shape
-            )
             .clip(shape)
             .clickable(
                 interactionSource = interactionSource,
@@ -480,17 +469,6 @@ private fun SpeedDialCard(
         modifier = Modifier
             .width(ScribeFabTokens.SpeedDialWidth)
             .frostedFab(hazeState, shape = shape)
-            // Accent border — top-glow cue same as ScribeCard
-            .border(
-                width = 0.7.dp,
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        accentColor.copy(alpha = 0.22f),
-                        Color.Transparent
-                    )
-                ),
-                shape = shape
-            )
     ) {
         Column {
             items.forEachIndexed { index, item ->

@@ -160,8 +160,7 @@ private fun ScribeTopBarSurface(
     contentHeight: Dp = ScribeBarTokens.TopBarContentHeight,
     content: @Composable RowScope.() -> Unit,
 ) {
-    val hazeState   = LocalHazeState.current
-    val accentColor = ScribeTheme.colors.interaction.primary
+    val hazeState = LocalHazeState.current
 
     // Wire LocalOneShotBitmap → LocalBarBlurBitmap so frostedBar picks up the
     // pre-blurred wallpaper on pre-API-31 devices (same pattern as HomeScreen).
@@ -172,17 +171,6 @@ private fun ScribeTopBarSurface(
                     .fillMaxWidth()
                     // Frosted glass covers status bar + content height
                     .frostedBar(hazeState)
-                    // Gradient border along the bottom edge of the bar
-                    .border(
-                        width = ScribeBarTokens.BorderWidth,
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                accentColor.copy(alpha = ScribeBarTokens.BorderAccentAlpha)
-                            )
-                        ),
-                        shape = ScribeBarTokens.Shape
-                    )
             ) {
                 // Subtle top shine — identical to Cards.kt and ScribeFab.kt
                 Box(
@@ -229,7 +217,6 @@ private fun ScribeTopBarSurface(
  * The frosted glass surface that every bottom bar in the app sits on.
  *
  * Mirrors [ScribeTopBarSurface] but for the bottom:
- *  • Gradient border along the TOP edge (bright at top, fades downward)
  *  • Navigation-bar inset: a transparent region below [contentHeight] lets
  *    the frosted glass extend behind the navigation bar
  *  • Shine along the top edge (same as top bar)
@@ -239,8 +226,7 @@ private fun ScribeBottomBarSurface(
     contentHeight: Dp = ScribeBarTokens.NavBarContentHeight,
     content: @Composable RowScope.() -> Unit,
 ) {
-    val hazeState   = LocalHazeState.current
-    val accentColor = ScribeTheme.colors.interaction.primary
+    val hazeState = LocalHazeState.current
 
     CompositionLocalProvider(LocalOneShotBitmap provides LocalBarBlurBitmap.current) {
         FrostedBarContent {
@@ -248,17 +234,6 @@ private fun ScribeBottomBarSurface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .frostedBar(hazeState)
-                    // Gradient border along the top edge of the bar
-                    .border(
-                        width = ScribeBarTokens.BorderWidth,
-                        brush = Brush.verticalGradient(
-                            colors = listOf(
-                                accentColor.copy(alpha = ScribeBarTokens.BorderAccentAlpha),
-                                Color.Transparent
-                            )
-                        ),
-                        shape = ScribeBarTokens.Shape
-                    )
             ) {
                 // Subtle top shine
                 Box(
