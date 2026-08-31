@@ -181,7 +181,10 @@ data class AppTheme(
     val savedBgDominantColor: String? = null,
     /** 3x3 Zonal Dominant Colors (9 hex strings in row-major order: TL, TC, TR, ML, MC, MR, BL, BC, BR). */
     @SerialName("savedBgZonalColors")
-    val savedBgZonalColors: List<String> = emptyList()
+    val savedBgZonalColors: List<String> = emptyList(),
+    /** 8x8 precomputed box-averaged luminance field for subtle environmental edge-light modulation. */
+    @SerialName("savedBgLuminanceField")
+    val savedBgLuminanceField: List<Float> = emptyList()
 )
 
 // ── SAF scan result ───────────────────────────────────────────────────────────

@@ -69,6 +69,7 @@ import com.primaloptima.scribe.ui.theme.colorToPerceptualLightness
 import com.primaloptima.scribe.ui.theme.computeZonalLuminanceMatrix
 import com.primaloptima.scribe.ui.theme.computeZonalVarianceMatrix
 import com.primaloptima.scribe.ui.theme.computeZonalDominantColorMatrix
+import com.primaloptima.scribe.ui.theme.computeBgLuminanceField
 import com.primaloptima.scribe.ui.theme.computeGlobalDominantColor
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.ui.theme.FontHelper
@@ -144,6 +145,7 @@ fun ThemeEditScreen(
     var zonalVarianceMatrix by remember(originalTheme) { mutableStateOf(originalTheme.savedZonalVariance) }
     var bgDominantColor by remember(originalTheme) { mutableStateOf(originalTheme.savedBgDominantColor) }
     var zonalColorsMatrix by remember(originalTheme) { mutableStateOf(originalTheme.savedBgZonalColors) }
+    var luminanceFieldMatrix by remember(originalTheme) { mutableStateOf(originalTheme.savedBgLuminanceField) }
 
     // Crop screen: shown after the user picks a new background image
     var showCropScreen by remember { mutableStateOf(false) }
@@ -240,6 +242,7 @@ fun ThemeEditScreen(
                                 savedZonalVariance = zonalVarianceMatrix,
                                 savedBgDominantColor = bgDominantColor,
                                 savedBgZonalColors = zonalColorsMatrix,
+                                savedBgLuminanceField = luminanceFieldMatrix,
                                 colors = derivedPreview
                             )
                             vm.save(updated)
@@ -990,6 +993,7 @@ fun ThemeEditScreen(
                         savedZonalVariance = zonalVarianceMatrix,
                         savedBgDominantColor = bgDominantColor,
                         savedBgZonalColors = zonalColorsMatrix,
+                        savedBgLuminanceField = luminanceFieldMatrix,
                         colors = derivedPreview
                     )
                     vm.save(updated)
@@ -1050,6 +1054,7 @@ fun ThemeEditScreen(
                                 savedZonalVariance = zonalVarianceMatrix,
                                 savedBgDominantColor = bgDominantColor,
                                 savedBgZonalColors = zonalColorsMatrix,
+                                savedBgLuminanceField = luminanceFieldMatrix,
                                 colors = derivedPreview
                             )
                             exportThemeJson(context, currentThemeToExport)
@@ -1160,6 +1165,7 @@ fun ThemeEditScreen(
                         zonalVarianceMatrix = analysis.zonalVariance
                         bgDominantColor = analysis.dominantColor
                         zonalColorsMatrix = analysis.zonalColors
+                        luminanceFieldMatrix = analysis.bgLuminanceField
                         isLuminancePending = false
                     }
                 },
@@ -2112,7 +2118,8 @@ data class BgAnalysisResult(
     val zonalLuminance: List<Float>,
     val zonalVariance: List<Float>,
     val dominantColor: String?,
-    val zonalColors: List<String>
+    val zonalColors: List<String>,
+    val bgLuminanceField: List<Float> = emptyList()
 )
 
 /**
@@ -2142,11 +2149,11 @@ private suspend fun computeBgAnalysis(context: android.content.Context, imageUri
             val bitmap = (coil3.ImageLoader(context).execute(request) as? coil3.request.SuccessResult)
                 ?.image
                 ?.let { (it as? coil3.BitmapImage)?.bitmap }
-                ?: return@withContext BgAnalysisResult(-1f, emptyList(), emptyList(), null, emptyList())
+                ?: return@withContext BgAnalysisResult(-1f, emptyList(), emptyList(), null, emptyList(), emptyList())
 
             val w = bitmap.width
             val h = bitmap.height
-            if (w == 0 || h == 0) return@withContext BgAnalysisResult(-1f, emptyList(), emptyList(), null, emptyList())
+            if (w == 0 || h == 0) return@withContext BgAnalysisResult(-1f, emptyList(), emptyList(), null, emptyList(), emptyList())
 
             var total = 0.0
             for (x in 0 until w) {
@@ -2162,11 +2169,12 @@ private suspend fun computeBgAnalysis(context: android.content.Context, imageUri
             val globalDomHex = String.format("#%06X", 0xFFFFFF and globalDomInt)
             val zonalDomInts = computeZonalDominantColorMatrix(bitmap)
             val zonalDomHexes = zonalDomInts.map { String.format("#%06X", 0xFFFFFF and it) }
+            val lumField = computeBgLuminanceField(bitmap, 8, 8)
 
             bitmap.recycle()
-            BgAnalysisResult(avgL, zonal, zonalVar, globalDomHex, zonalDomHexes)
+            BgAnalysisResult(avgL, zonal, zonalVar, globalDomHex, zonalDomHexes, lumField)
         } catch (_: Exception) {
-            BgAnalysisResult(-1f, emptyList(), emptyList(), null, emptyList())
+            BgAnalysisResult(-1f, emptyList(), emptyList(), null, emptyList(), emptyList())
         }
     }
 }

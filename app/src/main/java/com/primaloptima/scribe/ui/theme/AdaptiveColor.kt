@@ -568,6 +568,182 @@ fun computeGlobalDominantColor(bitmap: Bitmap): Int {
 }
 
 /**
+ * Precomputes an 8x8 box-averaged relative luminance field across a software bitmap.
+ * Produces 64 normalized Float32 values [0.0, 1.0] in row-major order:
+ * [row 0 (top): 8 values left-to-right,
+ *  ...
+ *  row 7 (bottom): 8 values left-to-right]
+ */
+fun computeBgLuminanceField(bitmap: Bitmap, cols: Int = 8, rows: Int = 8): List<Float> {
+    if (bitmap.config == Bitmap.Config.HARDWARE || bitmap.width == 0 || bitmap.height == 0) {
+        return emptyList()
+    }
+    val w = bitmap.width
+    val h = bitmap.height
+    val matrix = ArrayList<Float>(cols * rows)
+
+    for (row in 0 until rows) {
+        val y0 = (row * h) / rows
+        val y1 = ((row + 1) * h) / rows
+        for (col in 0 until cols) {
+            val x0 = (col * w) / cols
+            val x1 = ((col + 1) * w) / cols
+
+            var sumL = 0.0
+            var count = 0
+            for (x in x0 until x1) {
+                for (y in y0 until y1) {
+                    val p = bitmap.getPixel(x, y)
+                    sumL += colorToPerceptualLightness(p)
+                    count++
+                }
+            }
+            val avgL = if (count > 0) (sumL / count).toFloat().coerceIn(0f, 1f) else 0.5f
+            matrix.add(avgL)
+        }
+    }
+    return matrix
+}
+
+/**
+ * Continuously samples luminance at normalized coordinates (u, v) in [0, 1] using bilinear interpolation
+ * across the 8x8 precomputed luminance field.
+ * Falls back to continuous 3x3 zonal interpolation or [fallbackLuminance] if the 8x8 field is unavailable.
+ */
+fun sampleLuminanceField(
+    u: Float,
+    v: Float,
+    field: List<Float>?,
+    zonalFallback: List<Float>?,
+    fallbackLuminance: Float = 0.5f
+): Float {
+    if (field != null && field.size >= 64) {
+        val uClamped = u.coerceIn(0f, 1f)
+        val vClamped = v.coerceIn(0f, 1f)
+        val gx = (uClamped * 8f - 0.5f).coerceIn(0f, 7f)
+        val gy = (vClamped * 8f - 0.5f).coerceIn(0f, 7f)
+
+        val col0 = gx.toInt().coerceIn(0, 6)
+        val col1 = (col0 + 1).coerceIn(0, 7)
+        val row0 = gy.toInt().coerceIn(0, 6)
+        val row1 = (row0 + 1).coerceIn(0, 7)
+        val wx = (gx - col0).coerceIn(0f, 1f)
+        val wy = (gy - row0).coerceIn(0f, 1f)
+
+        val l00 = field[row0 * 8 + col0]
+        val l01 = field[row0 * 8 + col1]
+        val l10 = field[row1 * 8 + col0]
+        val l11 = field[row1 * 8 + col1]
+
+        val top = l00 + wx * (l01 - l00)
+        val bottom = l10 + wx * (l11 - l10)
+        return (top + wy * (bottom - top)).coerceIn(0f, 1f)
+    }
+
+    if (zonalFallback != null && zonalFallback.size >= 9) {
+        val uClamped = u.coerceIn(0f, 1f)
+        val vClamped = v.coerceIn(0f, 1f)
+        val gx = (uClamped * 3f - 0.5f).coerceIn(0f, 2f)
+        val gy = (vClamped * 3f - 0.5f).coerceIn(0f, 2f)
+
+        val col0 = gx.toInt().coerceIn(0, 1)
+        val col1 = (col0 + 1).coerceIn(0, 2)
+        val row0 = gy.toInt().coerceIn(0, 1)
+        val row1 = (row0 + 1).coerceIn(0, 2)
+        val wx = (gx - col0).coerceIn(0f, 1f)
+        val wy = (gy - row0).coerceIn(0f, 1f)
+
+        val l00 = zonalFallback[row0 * 3 + col0]
+        val l01 = zonalFallback[row0 * 3 + col1]
+        val l10 = zonalFallback[row1 * 3 + col0]
+        val l11 = zonalFallback[row1 * 3 + col1]
+
+        val top = l00 + wx * (l01 - l00)
+        val bottom = l10 + wx * (l11 - l10)
+        return (top + wy * (bottom - top)).coerceIn(0f, 1f)
+    }
+
+    return fallbackLuminance.coerceIn(0f, 1f)
+}
+
+/**
+ * Modulated directional specular edge colors derived from background environmental luminance.
+ * Preserves the base glassSpecularTop / glassSpecularBottom hue and structure while subtly
+ * catching ambient environmental highlights.
+ */
+data class EnvironmentalSpecularEdges(
+    val topLeft: Color,
+    val topCenter: Color,
+    val topRight: Color,
+    val bottomLeft: Color,
+    val bottomCenter: Color,
+    val bottomRight: Color
+)
+
+/**
+ * Computes subtle environmental specular edge colors modulated by the 8x8 luminance field.
+ * Samples 3 points across the top edge (Left, Center, Right) and 3 points across the bottom edge (Left, Center, Right).
+ * Modulation is strictly luminance-driven in the range [0.85, 1.15] around the base specular colors.
+ */
+fun computeEnvironmentalSpecularEdges(
+    screenOffsetX: Float,
+    screenOffsetY: Float,
+    componentWidth: Float,
+    componentHeight: Float,
+    screenW: Float,
+    screenH: Float,
+    luminanceField: List<Float>?,
+    zonalLuminance: List<Float>?,
+    baseTopColor: Color,
+    baseBottomColor: Color,
+    fallbackLuminance: Float = 0.5f
+): EnvironmentalSpecularEdges {
+    if (screenW <= 0f || screenH <= 0f || componentWidth <= 0f || componentHeight <= 0f) {
+        return EnvironmentalSpecularEdges(
+            topLeft = baseTopColor,
+            topCenter = baseTopColor,
+            topRight = baseTopColor,
+            bottomLeft = baseBottomColor,
+            bottomCenter = baseBottomColor,
+            bottomRight = baseBottomColor
+        )
+    }
+
+    val uLeft = (screenOffsetX / screenW).coerceIn(0f, 1f)
+    val uCenter = ((screenOffsetX + componentWidth / 2f) / screenW).coerceIn(0f, 1f)
+    val uRight = ((screenOffsetX + componentWidth) / screenW).coerceIn(0f, 1f)
+
+    val vTop = (screenOffsetY / screenH).coerceIn(0f, 1f)
+    val vBottom = ((screenOffsetY + componentHeight) / screenH).coerceIn(0f, 1f)
+
+    val lumTL = sampleLuminanceField(uLeft, vTop, luminanceField, zonalLuminance, fallbackLuminance)
+    val lumTC = sampleLuminanceField(uCenter, vTop, luminanceField, zonalLuminance, fallbackLuminance)
+    val lumTR = sampleLuminanceField(uRight, vTop, luminanceField, zonalLuminance, fallbackLuminance)
+
+    val lumBL = sampleLuminanceField(uLeft, vBottom, luminanceField, zonalLuminance, fallbackLuminance)
+    val lumBC = sampleLuminanceField(uCenter, vBottom, luminanceField, zonalLuminance, fallbackLuminance)
+    val lumBR = sampleLuminanceField(uRight, vBottom, luminanceField, zonalLuminance, fallbackLuminance)
+
+    // Multiplier strictly within [0.85, 1.15]
+    fun mod(l: Float): Float = 0.85f + 0.30f * l.coerceIn(0f, 1f)
+
+    fun modulateColor(base: Color, lum: Float): Color {
+        val multiplier = mod(lum)
+        val newAlpha = (base.alpha * multiplier).coerceIn(0.01f, 0.95f)
+        return base.copy(alpha = newAlpha)
+    }
+
+    return EnvironmentalSpecularEdges(
+        topLeft = modulateColor(baseTopColor, lumTL),
+        topCenter = modulateColor(baseTopColor, lumTC),
+        topRight = modulateColor(baseTopColor, lumTR),
+        bottomLeft = modulateColor(baseBottomColor, lumBL),
+        bottomCenter = modulateColor(baseBottomColor, lumBC),
+        bottomRight = modulateColor(baseBottomColor, lumBR)
+    )
+}
+
+/**
  * Linearly interpolates two OKLCH colors [a] and [b] by fraction [t] in [0.0, 1.0].
  * Lightness and chroma are interpolated linearly, and hue follows the shortest circular path across 360 degrees.
  */

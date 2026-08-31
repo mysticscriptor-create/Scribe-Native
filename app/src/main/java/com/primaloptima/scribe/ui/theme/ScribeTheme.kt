@@ -78,6 +78,12 @@ import com.primaloptima.scribe.util.ScribeDataStore
 import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.util.model.AppTheme
 import androidx.compose.foundation.border
+import android.graphics.SweepGradient
+import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.Shader
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.lerp
+import kotlin.math.atan2
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
@@ -224,42 +230,99 @@ fun localHasBgImage(): Boolean {
 }
 
 /**
+ * Creates a continuous ShaderBrush that wraps around the card perimeters with an Android SweepGradient.
+ * Interpolates from Top-Left, through Top-Center, Top-Right, down the Right edge to Bottom-Right,
+ * through Bottom-Center to Bottom-Left, and up the Left edge back to Top-Left.
+ */
+fun createEnvironmentalSpecularBrush(edges: EnvironmentalSpecularEdges): Brush {
+    return object : ShaderBrush() {
+        override fun createShader(size: Size): Shader {
+            val w = size.width.coerceAtLeast(1f)
+            val h = size.height.coerceAtLeast(1f)
+            val alpha = (atan2(h / 2f, w / 2f) / (2f * Math.PI.toFloat())).coerceIn(0.01f, 0.24f)
+
+            val pBR = alpha
+            val pBC = 0.25f
+            val pBL = (0.50f - alpha).coerceIn(0.26f, 0.49f)
+            val pML = 0.50f
+            val pTL = (0.50f + alpha).coerceIn(0.51f, 0.74f)
+            val pTC = 0.75f
+            val pTR = (1.00f - alpha).coerceIn(0.76f, 0.99f)
+
+            val midRight = lerp(edges.topRight, edges.bottomRight, 0.5f)
+            val midLeft = lerp(edges.topLeft, edges.bottomLeft, 0.5f)
+
+            val colors = intArrayOf(
+                midRight.toArgb(),
+                edges.bottomRight.toArgb(),
+                edges.bottomCenter.toArgb(),
+                edges.bottomLeft.toArgb(),
+                midLeft.toArgb(),
+                edges.topLeft.toArgb(),
+                edges.topCenter.toArgb(),
+                edges.topRight.toArgb(),
+                midRight.toArgb()
+            )
+            val positions = floatArrayOf(
+                0.0f,
+                pBR,
+                pBC,
+                pBL,
+                pML,
+                pTL,
+                pTC,
+                pTR,
+                1.0f
+            )
+            return SweepGradient(w / 2f, h / 2f, colors, positions)
+        }
+    }
+}
+
+/**
  * Directional specular rim lighting for frosted surfaces.
  * Simulates physical overhead light catch via a vertical linear gradient.
- * When a custom [tintColor] is passed (e.g. from background image extraction),
- * it illuminates the specular rim with the background's chromatic character.
+ * When [edgeLighting] is passed, it modulates the specular rim with the background's
+ * environmental luminance field across all edges in one continuous function.
  */
 fun Modifier.specularGlassBorder(
     shape: Shape,
     isDark: Boolean,
     strokeWidth: Dp = 1.dp,
     topColor: Color? = null,
-    bottomColor: Color? = null
-): Modifier = this.border(
-    width = strokeWidth,
-    brush = Brush.verticalGradient(
-        colors = if (topColor != null && bottomColor != null) {
-            listOf(
+    bottomColor: Color? = null,
+    edgeLighting: EnvironmentalSpecularEdges? = null
+): Modifier {
+    val brush = when {
+        edgeLighting != null -> createEnvironmentalSpecularBrush(edgeLighting)
+        topColor != null && bottomColor != null -> Brush.verticalGradient(
+            colors = listOf(
                 topColor,
                 topColor.copy(alpha = (topColor.alpha + bottomColor.alpha) * 0.35f),
                 bottomColor
             )
-        } else if (isDark) {
-            listOf(
+        )
+        isDark -> Brush.verticalGradient(
+            colors = listOf(
                 Color.White.copy(alpha = 0.22f), // Overhead light reflection
                 Color.White.copy(alpha = 0.08f),
                 Color.White.copy(alpha = 0.02f)  // Ambient bottom falloff
             )
-        } else {
-            listOf(
+        )
+        else -> Brush.verticalGradient(
+            colors = listOf(
                 Color.White.copy(alpha = 0.70f), // Crisp light sheen
                 Color.White.copy(alpha = 0.25f),
                 Color.Black.copy(alpha = 0.06f)
             )
-        }
-    ),
-    shape = shape
-)
+        )
+    }
+    return this.border(
+        width = strokeWidth,
+        brush = brush,
+        shape = shape
+    )
+}
 
 /**
  * Specular Micro-Borders & Directional Rim Lighting for solid elevated cards (surfaceRaised)
@@ -319,13 +382,14 @@ fun Modifier.drawWithBackdropBitmap(
     isDark: Boolean = LocalAppTheme.current?.isDark == true,
     fallbackColor: Color = ScribeTheme.colors.surfaces.surface,
     topColor: Color? = null,
-    bottomColor: Color? = null
+    bottomColor: Color? = null,
+    edgeLighting: EnvironmentalSpecularEdges? = null
 ): Modifier {
     if (bitmap == null) {
         return this
             .clip(shape)
             .background(fallbackColor, shape = shape)
-            .specularGlassBorder(shape, isDark, topColor = topColor, bottomColor = bottomColor)
+            .specularGlassBorder(shape, isDark, topColor = topColor, bottomColor = bottomColor, edgeLighting = edgeLighting)
     }
 
     val view = LocalView.current
@@ -390,7 +454,7 @@ fun Modifier.drawWithBackdropBitmap(
 
             drawContent()
         }
-        .specularGlassBorder(shape, isDark, topColor = topColor, bottomColor = bottomColor)
+        .specularGlassBorder(shape, isDark, topColor = topColor, bottomColor = bottomColor, edgeLighting = edgeLighting)
 }
 
 @Composable
@@ -413,6 +477,7 @@ fun Modifier.frostedBar(
     val defaultLum = if (isDark) 0.15f else 0.90f
     var currentLuminance by remember { mutableFloatStateOf(defaultLum) }
     var currentAmbientColor by remember { mutableStateOf<Color?>(null) }
+    var componentBounds by remember { mutableStateOf(Rect(0f, 0f, 0f, 0f)) }
 
     val positionModifier = Modifier.onGloballyPositioned { coords ->
         val viewLocation = IntArray(2)
@@ -420,6 +485,15 @@ fun Modifier.frostedBar(
         val windowPos = coords.positionInWindow()
         val globalX = viewLocation[0] + windowPos.x
         val globalY = viewLocation[1] + windowPos.y
+
+        val newBounds = Rect(globalX, globalY, coords.size.width.toFloat(), coords.size.height.toFloat())
+        if (abs(newBounds.left - componentBounds.left) > 1f ||
+            abs(newBounds.top - componentBounds.top) > 1f ||
+            abs(newBounds.right - componentBounds.right) > 1f ||
+            abs(newBounds.bottom - componentBounds.bottom) > 1f
+        ) {
+            componentBounds = newBounds
+        }
 
         val screenW = when {
             rootWFromLocal > 0f -> rootWFromLocal
@@ -479,6 +553,46 @@ fun Modifier.frostedBar(
         Color.Transparent
     }
 
+    val specularEdges = remember(
+        componentBounds,
+        adaptiveTokens.glassSpecularTop,
+        adaptiveTokens.glassSpecularBottom,
+        theme?.savedBgLuminanceField,
+        theme?.savedZonalLuminance,
+        screenWFromLocal,
+        screenHFromLocal
+    ) {
+        if (componentBounds.right > 0f && componentBounds.bottom > 0f) {
+            val screenW = when {
+                rootWFromLocal > 0f -> rootWFromLocal
+                screenWFromLocal > 0f -> screenWFromLocal
+                view.resources.displayMetrics.widthPixels > 0 -> view.resources.displayMetrics.widthPixels.toFloat()
+                else -> 1080f
+            }
+            val screenH = when {
+                rootHFromLocal > 0f -> rootHFromLocal
+                screenHFromLocal > 0f -> screenHFromLocal
+                view.resources.displayMetrics.heightPixels > 0 -> view.resources.displayMetrics.heightPixels.toFloat()
+                else -> 1920f
+            }
+            computeEnvironmentalSpecularEdges(
+                screenOffsetX = componentBounds.left,
+                screenOffsetY = componentBounds.top,
+                componentWidth = componentBounds.right,
+                componentHeight = componentBounds.bottom,
+                screenW = screenW,
+                screenH = screenH,
+                luminanceField = theme?.savedBgLuminanceField,
+                zonalLuminance = theme?.savedZonalLuminance,
+                baseTopColor = adaptiveTokens.glassSpecularTop,
+                baseBottomColor = adaptiveTokens.glassSpecularBottom,
+                fallbackLuminance = defaultLum
+            )
+        } else {
+            null
+        }
+    }
+
     return if (!hasBgImage) {
         this.background(solidSurface, shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
@@ -494,13 +608,13 @@ fun Modifier.frostedBar(
         this
             .then(positionModifier)
             .clip(shape)
-            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.92f), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
+            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.92f), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom, edgeLighting = specularEdges)
     } else {
         this
             .then(positionModifier)
             .clip(shape)
             .background(solidSurface.copy(alpha = 0.92f), shape = shape)
-            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom, edgeLighting = specularEdges)
     }
 }
 
@@ -529,6 +643,7 @@ fun Modifier.frostedFab(
     val defaultLum = if (isDark) 0.15f else 0.90f
     var currentLuminance by remember { mutableFloatStateOf(defaultLum) }
     var currentAmbientColor by remember { mutableStateOf<Color?>(null) }
+    var componentBounds by remember { mutableStateOf(Rect(0f, 0f, 0f, 0f)) }
 
     val positionModifier = Modifier.onGloballyPositioned { coords ->
         val viewLocation = IntArray(2)
@@ -536,6 +651,15 @@ fun Modifier.frostedFab(
         val windowPos = coords.positionInWindow()
         val globalX = viewLocation[0] + windowPos.x
         val globalY = viewLocation[1] + windowPos.y
+
+        val newBounds = Rect(globalX, globalY, coords.size.width.toFloat(), coords.size.height.toFloat())
+        if (abs(newBounds.left - componentBounds.left) > 1f ||
+            abs(newBounds.top - componentBounds.top) > 1f ||
+            abs(newBounds.right - componentBounds.right) > 1f ||
+            abs(newBounds.bottom - componentBounds.bottom) > 1f
+        ) {
+            componentBounds = newBounds
+        }
 
         val screenW = when {
             rootWFromLocal > 0f -> rootWFromLocal
@@ -595,6 +719,46 @@ fun Modifier.frostedFab(
         Color.Transparent
     }
 
+    val specularEdges = remember(
+        componentBounds,
+        adaptiveTokens.glassSpecularTop,
+        adaptiveTokens.glassSpecularBottom,
+        theme?.savedBgLuminanceField,
+        theme?.savedZonalLuminance,
+        screenWFromLocal,
+        screenHFromLocal
+    ) {
+        if (componentBounds.right > 0f && componentBounds.bottom > 0f) {
+            val screenW = when {
+                rootWFromLocal > 0f -> rootWFromLocal
+                screenWFromLocal > 0f -> screenWFromLocal
+                view.resources.displayMetrics.widthPixels > 0 -> view.resources.displayMetrics.widthPixels.toFloat()
+                else -> 1080f
+            }
+            val screenH = when {
+                rootHFromLocal > 0f -> rootHFromLocal
+                screenHFromLocal > 0f -> screenHFromLocal
+                view.resources.displayMetrics.heightPixels > 0 -> view.resources.displayMetrics.heightPixels.toFloat()
+                else -> 1920f
+            }
+            computeEnvironmentalSpecularEdges(
+                screenOffsetX = componentBounds.left,
+                screenOffsetY = componentBounds.top,
+                componentWidth = componentBounds.right,
+                componentHeight = componentBounds.bottom,
+                screenW = screenW,
+                screenH = screenH,
+                luminanceField = theme?.savedBgLuminanceField,
+                zonalLuminance = theme?.savedZonalLuminance,
+                baseTopColor = adaptiveTokens.glassSpecularTop,
+                baseBottomColor = adaptiveTokens.glassSpecularBottom,
+                fallbackLuminance = defaultLum
+            )
+        } else {
+            null
+        }
+    }
+
     return if (!hasBgImage) {
         this.clip(shape).background(solidSurface, shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
@@ -610,13 +774,13 @@ fun Modifier.frostedFab(
         this
             .then(positionModifier)
             .clip(shape)
-            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.90f), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
+            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.90f), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom, edgeLighting = specularEdges)
     } else {
         this
             .then(positionModifier)
             .clip(shape)
             .background(solidSurface.copy(alpha = 0.90f), shape = shape)
-            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom, edgeLighting = specularEdges)
     }
 }
 
@@ -643,6 +807,7 @@ fun Modifier.frostedPanel(
     val defaultLum = if (isDark) 0.15f else 0.90f
     var currentLuminance by remember { mutableFloatStateOf(defaultLum) }
     var currentAmbientColor by remember { mutableStateOf<Color?>(null) }
+    var componentBounds by remember { mutableStateOf(Rect(0f, 0f, 0f, 0f)) }
 
     val positionModifier = Modifier.onGloballyPositioned { coords ->
         val viewLocation = IntArray(2)
@@ -650,6 +815,15 @@ fun Modifier.frostedPanel(
         val windowPos = coords.positionInWindow()
         val globalX = viewLocation[0] + windowPos.x
         val globalY = viewLocation[1] + windowPos.y
+
+        val newBounds = Rect(globalX, globalY, coords.size.width.toFloat(), coords.size.height.toFloat())
+        if (abs(newBounds.left - componentBounds.left) > 1f ||
+            abs(newBounds.top - componentBounds.top) > 1f ||
+            abs(newBounds.right - componentBounds.right) > 1f ||
+            abs(newBounds.bottom - componentBounds.bottom) > 1f
+        ) {
+            componentBounds = newBounds
+        }
 
         val screenW = when {
             rootWFromLocal > 0f -> rootWFromLocal
@@ -709,6 +883,46 @@ fun Modifier.frostedPanel(
         Color.Transparent
     }
 
+    val specularEdges = remember(
+        componentBounds,
+        adaptiveTokens.glassSpecularTop,
+        adaptiveTokens.glassSpecularBottom,
+        theme?.savedBgLuminanceField,
+        theme?.savedZonalLuminance,
+        screenWFromLocal,
+        screenHFromLocal
+    ) {
+        if (componentBounds.right > 0f && componentBounds.bottom > 0f) {
+            val screenW = when {
+                rootWFromLocal > 0f -> rootWFromLocal
+                screenWFromLocal > 0f -> screenWFromLocal
+                view.resources.displayMetrics.widthPixels > 0 -> view.resources.displayMetrics.widthPixels.toFloat()
+                else -> 1080f
+            }
+            val screenH = when {
+                rootHFromLocal > 0f -> rootHFromLocal
+                screenHFromLocal > 0f -> screenHFromLocal
+                view.resources.displayMetrics.heightPixels > 0 -> view.resources.displayMetrics.heightPixels.toFloat()
+                else -> 1920f
+            }
+            computeEnvironmentalSpecularEdges(
+                screenOffsetX = componentBounds.left,
+                screenOffsetY = componentBounds.top,
+                componentWidth = componentBounds.right,
+                componentHeight = componentBounds.bottom,
+                screenW = screenW,
+                screenH = screenH,
+                luminanceField = theme?.savedBgLuminanceField,
+                zonalLuminance = theme?.savedZonalLuminance,
+                baseTopColor = adaptiveTokens.glassSpecularTop,
+                baseBottomColor = adaptiveTokens.glassSpecularBottom,
+                fallbackLuminance = defaultLum
+            )
+        } else {
+            null
+        }
+    }
+
     return if (!hasBgImage) {
         this.clip(shape).background(solidSurface, shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
@@ -724,13 +938,13 @@ fun Modifier.frostedPanel(
         this
             .then(positionModifier)
             .clip(shape)
-            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.95f), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
+            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.95f), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom, edgeLighting = specularEdges)
     } else {
         this
             .then(positionModifier)
             .clip(shape)
             .background(solidSurface.copy(alpha = 0.94f), shape = shape)
-            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom, edgeLighting = specularEdges)
     }
 }
 
@@ -757,6 +971,7 @@ fun Modifier.frostedMenu(
     val defaultLum = if (isDark) 0.15f else 0.90f
     var currentLuminance by remember { mutableFloatStateOf(defaultLum) }
     var currentAmbientColor by remember { mutableStateOf<Color?>(null) }
+    var componentBounds by remember { mutableStateOf(Rect(0f, 0f, 0f, 0f)) }
 
     val positionModifier = Modifier.onGloballyPositioned { coords ->
         val viewLocation = IntArray(2)
@@ -764,6 +979,15 @@ fun Modifier.frostedMenu(
         val windowPos = coords.positionInWindow()
         val globalX = viewLocation[0] + windowPos.x
         val globalY = viewLocation[1] + windowPos.y
+
+        val newBounds = Rect(globalX, globalY, coords.size.width.toFloat(), coords.size.height.toFloat())
+        if (abs(newBounds.left - componentBounds.left) > 1f ||
+            abs(newBounds.top - componentBounds.top) > 1f ||
+            abs(newBounds.right - componentBounds.right) > 1f ||
+            abs(newBounds.bottom - componentBounds.bottom) > 1f
+        ) {
+            componentBounds = newBounds
+        }
 
         val screenW = when {
             rootWFromLocal > 0f -> rootWFromLocal
@@ -823,6 +1047,46 @@ fun Modifier.frostedMenu(
         Color.Transparent
     }
 
+    val specularEdges = remember(
+        componentBounds,
+        adaptiveTokens.glassSpecularTop,
+        adaptiveTokens.glassSpecularBottom,
+        theme?.savedBgLuminanceField,
+        theme?.savedZonalLuminance,
+        screenWFromLocal,
+        screenHFromLocal
+    ) {
+        if (componentBounds.right > 0f && componentBounds.bottom > 0f) {
+            val screenW = when {
+                rootWFromLocal > 0f -> rootWFromLocal
+                screenWFromLocal > 0f -> screenWFromLocal
+                view.resources.displayMetrics.widthPixels > 0 -> view.resources.displayMetrics.widthPixels.toFloat()
+                else -> 1080f
+            }
+            val screenH = when {
+                rootHFromLocal > 0f -> rootHFromLocal
+                screenHFromLocal > 0f -> screenHFromLocal
+                view.resources.displayMetrics.heightPixels > 0 -> view.resources.displayMetrics.heightPixels.toFloat()
+                else -> 1920f
+            }
+            computeEnvironmentalSpecularEdges(
+                screenOffsetX = componentBounds.left,
+                screenOffsetY = componentBounds.top,
+                componentWidth = componentBounds.right,
+                componentHeight = componentBounds.bottom,
+                screenW = screenW,
+                screenH = screenH,
+                luminanceField = theme?.savedBgLuminanceField,
+                zonalLuminance = theme?.savedZonalLuminance,
+                baseTopColor = adaptiveTokens.glassSpecularTop,
+                baseBottomColor = adaptiveTokens.glassSpecularBottom,
+                fallbackLuminance = defaultLum
+            )
+        } else {
+            null
+        }
+    }
+
     return if (!hasBgImage) {
         this.clip(shape).background(solidSurface, shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
@@ -838,13 +1102,13 @@ fun Modifier.frostedMenu(
         this
             .then(positionModifier)
             .clip(shape)
-            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.94f), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
+            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = 0.94f), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom, edgeLighting = specularEdges)
     } else {
         this
             .then(positionModifier)
             .clip(shape)
             .background(solidSurface.copy(alpha = 0.94f), shape = shape)
-            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom, edgeLighting = specularEdges)
     }
 }
 
@@ -903,6 +1167,7 @@ fun Modifier.frostedCard(
     val defaultLum = if (isDark) 0.15f else 0.90f
     var currentLuminance by remember { mutableFloatStateOf(defaultLum) }
     var currentAmbientColor by remember { mutableStateOf<Color?>(null) }
+    var componentBounds by remember { mutableStateOf(Rect(0f, 0f, 0f, 0f)) }
 
     val positionModifier = Modifier.onGloballyPositioned { coords ->
         val viewLocation = IntArray(2)
@@ -910,6 +1175,15 @@ fun Modifier.frostedCard(
         val windowPos = coords.positionInWindow()
         val globalX = viewLocation[0] + windowPos.x
         val globalY = viewLocation[1] + windowPos.y
+
+        val newBounds = Rect(globalX, globalY, coords.size.width.toFloat(), coords.size.height.toFloat())
+        if (abs(newBounds.left - componentBounds.left) > 1f ||
+            abs(newBounds.top - componentBounds.top) > 1f ||
+            abs(newBounds.right - componentBounds.right) > 1f ||
+            abs(newBounds.bottom - componentBounds.bottom) > 1f
+        ) {
+            componentBounds = newBounds
+        }
 
         val screenW = when {
             rootWFromLocal > 0f -> rootWFromLocal
@@ -969,6 +1243,46 @@ fun Modifier.frostedCard(
         Color.Transparent
     }
 
+    val specularEdges = remember(
+        componentBounds,
+        adaptiveTokens.glassSpecularTop,
+        adaptiveTokens.glassSpecularBottom,
+        theme?.savedBgLuminanceField,
+        theme?.savedZonalLuminance,
+        screenWFromLocal,
+        screenHFromLocal
+    ) {
+        if (componentBounds.right > 0f && componentBounds.bottom > 0f) {
+            val screenW = when {
+                rootWFromLocal > 0f -> rootWFromLocal
+                screenWFromLocal > 0f -> screenWFromLocal
+                view.resources.displayMetrics.widthPixels > 0 -> view.resources.displayMetrics.widthPixels.toFloat()
+                else -> 1080f
+            }
+            val screenH = when {
+                rootHFromLocal > 0f -> rootHFromLocal
+                screenHFromLocal > 0f -> screenHFromLocal
+                view.resources.displayMetrics.heightPixels > 0 -> view.resources.displayMetrics.heightPixels.toFloat()
+                else -> 1920f
+            }
+            computeEnvironmentalSpecularEdges(
+                screenOffsetX = componentBounds.left,
+                screenOffsetY = componentBounds.top,
+                componentWidth = componentBounds.right,
+                componentHeight = componentBounds.bottom,
+                screenW = screenW,
+                screenH = screenH,
+                luminanceField = theme?.savedBgLuminanceField,
+                zonalLuminance = theme?.savedZonalLuminance,
+                baseTopColor = adaptiveTokens.glassSpecularTop,
+                baseBottomColor = adaptiveTokens.glassSpecularBottom,
+                fallbackLuminance = defaultLum
+            )
+        } else {
+            null
+        }
+    }
+
     return if (!hasBgImage) {
         if (applyFallbackBackground) {
             this.clip(shape).background(solidSurface.copy(alpha = solidAlpha), shape = shape)
@@ -988,13 +1302,13 @@ fun Modifier.frostedCard(
         this
             .then(positionModifier)
             .clip(shape)
-            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = solidAlpha), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
+            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = solidAlpha), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom, edgeLighting = specularEdges)
     } else {
         this
             .then(positionModifier)
             .clip(shape)
             .background(solidSurface.copy(alpha = solidAlpha), shape = shape)
-            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom, edgeLighting = specularEdges)
     }
 }
 
@@ -1026,6 +1340,7 @@ fun Modifier.frostedChip(
     val defaultLum = if (isDark) 0.15f else 0.90f
     var currentLuminance by remember { mutableFloatStateOf(defaultLum) }
     var currentAmbientColor by remember { mutableStateOf<Color?>(null) }
+    var componentBounds by remember { mutableStateOf(Rect(0f, 0f, 0f, 0f)) }
 
     val positionModifier = Modifier.onGloballyPositioned { coords ->
         val viewLocation = IntArray(2)
@@ -1033,6 +1348,15 @@ fun Modifier.frostedChip(
         val windowPos = coords.positionInWindow()
         val globalX = viewLocation[0] + windowPos.x
         val globalY = viewLocation[1] + windowPos.y
+
+        val newBounds = Rect(globalX, globalY, coords.size.width.toFloat(), coords.size.height.toFloat())
+        if (abs(newBounds.left - componentBounds.left) > 1f ||
+            abs(newBounds.top - componentBounds.top) > 1f ||
+            abs(newBounds.right - componentBounds.right) > 1f ||
+            abs(newBounds.bottom - componentBounds.bottom) > 1f
+        ) {
+            componentBounds = newBounds
+        }
 
         val screenW = when {
             rootWFromLocal > 0f -> rootWFromLocal
@@ -1091,6 +1415,46 @@ fun Modifier.frostedChip(
     val tintAlpha = if (isSelected) selectedAlpha else unselectedAlpha
     val tintColor = if (tintEnabled) baseTint.copy(alpha = tintAlpha) else (if (isSelected) accentColor.copy(alpha = 0.18f) else Color.Transparent)
 
+    val specularEdges = remember(
+        componentBounds,
+        adaptiveTokens.glassSpecularTop,
+        adaptiveTokens.glassSpecularBottom,
+        theme?.savedBgLuminanceField,
+        theme?.savedZonalLuminance,
+        screenWFromLocal,
+        screenHFromLocal
+    ) {
+        if (componentBounds.right > 0f && componentBounds.bottom > 0f) {
+            val screenW = when {
+                rootWFromLocal > 0f -> rootWFromLocal
+                screenWFromLocal > 0f -> screenWFromLocal
+                view.resources.displayMetrics.widthPixels > 0 -> view.resources.displayMetrics.widthPixels.toFloat()
+                else -> 1080f
+            }
+            val screenH = when {
+                rootHFromLocal > 0f -> rootHFromLocal
+                screenHFromLocal > 0f -> screenHFromLocal
+                view.resources.displayMetrics.heightPixels > 0 -> view.resources.displayMetrics.heightPixels.toFloat()
+                else -> 1920f
+            }
+            computeEnvironmentalSpecularEdges(
+                screenOffsetX = componentBounds.left,
+                screenOffsetY = componentBounds.top,
+                componentWidth = componentBounds.right,
+                componentHeight = componentBounds.bottom,
+                screenW = screenW,
+                screenH = screenH,
+                luminanceField = theme?.savedBgLuminanceField,
+                zonalLuminance = theme?.savedZonalLuminance,
+                baseTopColor = adaptiveTokens.glassSpecularTop,
+                baseBottomColor = adaptiveTokens.glassSpecularBottom,
+                fallbackLuminance = defaultLum
+            )
+        } else {
+            null
+        }
+    }
+
     return if (!hasBgImage) {
         val fallbackBg = if (isSelected) accentColor.copy(alpha = 0.18f) else solidSurface.copy(alpha = solidAlpha)
         this.clip(shape).background(fallbackBg, shape = shape)
@@ -1108,14 +1472,14 @@ fun Modifier.frostedChip(
         this
             .then(positionModifier)
             .clip(shape)
-            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, fallbackBg, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
+            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, fallbackBg, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom, edgeLighting = specularEdges)
     } else {
         val fallbackBg = if (isSelected) accentColor.copy(alpha = 0.18f) else solidSurface.copy(alpha = solidAlpha)
         this
             .then(positionModifier)
             .clip(shape)
             .background(fallbackBg, shape = shape)
-            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom, edgeLighting = specularEdges)
     }
 }
 
@@ -1143,6 +1507,7 @@ fun Modifier.frostedSearchBox(
     val defaultLum = if (isDark) 0.15f else 0.90f
     var currentLuminance by remember { mutableFloatStateOf(defaultLum) }
     var currentAmbientColor by remember { mutableStateOf<Color?>(null) }
+    var componentBounds by remember { mutableStateOf(Rect(0f, 0f, 0f, 0f)) }
 
     val positionModifier = Modifier.onGloballyPositioned { coords ->
         val viewLocation = IntArray(2)
@@ -1150,6 +1515,15 @@ fun Modifier.frostedSearchBox(
         val windowPos = coords.positionInWindow()
         val globalX = viewLocation[0] + windowPos.x
         val globalY = viewLocation[1] + windowPos.y
+
+        val newBounds = Rect(globalX, globalY, coords.size.width.toFloat(), coords.size.height.toFloat())
+        if (abs(newBounds.left - componentBounds.left) > 1f ||
+            abs(newBounds.top - componentBounds.top) > 1f ||
+            abs(newBounds.right - componentBounds.right) > 1f ||
+            abs(newBounds.bottom - componentBounds.bottom) > 1f
+        ) {
+            componentBounds = newBounds
+        }
 
         val screenW = when {
             rootWFromLocal > 0f -> rootWFromLocal
@@ -1209,6 +1583,46 @@ fun Modifier.frostedSearchBox(
         Color.Transparent
     }
 
+    val specularEdges = remember(
+        componentBounds,
+        adaptiveTokens.glassSpecularTop,
+        adaptiveTokens.glassSpecularBottom,
+        theme?.savedBgLuminanceField,
+        theme?.savedZonalLuminance,
+        screenWFromLocal,
+        screenHFromLocal
+    ) {
+        if (componentBounds.right > 0f && componentBounds.bottom > 0f) {
+            val screenW = when {
+                rootWFromLocal > 0f -> rootWFromLocal
+                screenWFromLocal > 0f -> screenWFromLocal
+                view.resources.displayMetrics.widthPixels > 0 -> view.resources.displayMetrics.widthPixels.toFloat()
+                else -> 1080f
+            }
+            val screenH = when {
+                rootHFromLocal > 0f -> rootHFromLocal
+                screenHFromLocal > 0f -> screenHFromLocal
+                view.resources.displayMetrics.heightPixels > 0 -> view.resources.displayMetrics.heightPixels.toFloat()
+                else -> 1920f
+            }
+            computeEnvironmentalSpecularEdges(
+                screenOffsetX = componentBounds.left,
+                screenOffsetY = componentBounds.top,
+                componentWidth = componentBounds.right,
+                componentHeight = componentBounds.bottom,
+                screenW = screenW,
+                screenH = screenH,
+                luminanceField = theme?.savedBgLuminanceField,
+                zonalLuminance = theme?.savedZonalLuminance,
+                baseTopColor = adaptiveTokens.glassSpecularTop,
+                baseBottomColor = adaptiveTokens.glassSpecularBottom,
+                fallbackLuminance = defaultLum
+            )
+        } else {
+            null
+        }
+    }
+
     return if (!hasBgImage) {
         this.clip(shape).background(solidSurface.copy(alpha = solidAlpha), shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
@@ -1224,13 +1638,13 @@ fun Modifier.frostedSearchBox(
         this
             .then(positionModifier)
             .clip(shape)
-            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = solidAlpha), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
+            .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, solidSurface.copy(alpha = solidAlpha), topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom, edgeLighting = specularEdges)
     } else {
         this
             .then(positionModifier)
             .clip(shape)
             .background(solidSurface.copy(alpha = solidAlpha), shape = shape)
-            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
+            .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom, edgeLighting = specularEdges)
     }
 }
 
