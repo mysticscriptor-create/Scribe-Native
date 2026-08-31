@@ -568,6 +568,116 @@ fun computeGlobalDominantColor(bitmap: Bitmap): Int {
 }
 
 /**
+ * Linearly interpolates two OKLCH colors [a] and [b] by fraction [t] in [0.0, 1.0].
+ * Lightness and chroma are interpolated linearly, and hue follows the shortest circular path across 360 degrees.
+ */
+fun lerpOklch(a: ThemeManager.Companion.Oklch, b: ThemeManager.Companion.Oklch, t: Float): ThemeManager.Companion.Oklch {
+    val tClamped = t.coerceIn(0f, 1f).toDouble()
+    val l = a.l + tClamped * (b.l - a.l)
+    val c = a.c + tClamped * (b.c - a.c)
+    val deltaH = ((b.h - a.h + 540.0) % 360.0) - 180.0
+    val h = (a.h + tClamped * deltaH + 360.0) % 360.0
+    return ThemeManager.Companion.Oklch(l.coerceIn(0.0, 1.0), c.coerceAtLeast(0.0), h)
+}
+
+/**
+ * Continuously interpolates background luminance across the 3x3 zonal matrix using bilinear weighting.
+ * Ensures zero spatial discontinuity when scrolling across screen coordinates.
+ */
+fun interpolateSpatialLuminance(
+    screenOffsetX: Float,
+    screenOffsetY: Float,
+    componentWidth: Float,
+    componentHeight: Float,
+    screenW: Float,
+    screenH: Float,
+    zonalLuminance: List<Float>?,
+    fallbackLuminance: Float = 0.5f
+): Float {
+    if (zonalLuminance == null || zonalLuminance.size < 9) return fallbackLuminance
+    if (screenW <= 0f || screenH <= 0f || componentWidth <= 0f || componentHeight <= 0f) {
+        return zonalLuminance.getOrNull(4) ?: fallbackLuminance
+    }
+    val centerX = screenOffsetX + componentWidth / 2f
+    val centerY = screenOffsetY + componentHeight / 2f
+    val u = (centerX / screenW).coerceIn(0f, 1f)
+    val v = (centerY / screenH).coerceIn(0f, 1f)
+
+    // Map normalized [0, 1] screen coordinates to continuous [0, 2] 3x3 grid coordinates
+    val gx = (u * 3f - 0.5f).coerceIn(0f, 2f)
+    val gy = (v * 3f - 0.5f).coerceIn(0f, 2f)
+
+    val col0 = gx.toInt().coerceIn(0, 1)
+    val col1 = (col0 + 1).coerceIn(0, 2)
+    val row0 = gy.toInt().coerceIn(0, 1)
+    val row1 = (row0 + 1).coerceIn(0, 2)
+    val wx = (gx - col0).coerceIn(0f, 1f)
+    val wy = (gy - row0).coerceIn(0f, 1f)
+
+    val l00 = zonalLuminance[row0 * 3 + col0]
+    val l01 = zonalLuminance[row0 * 3 + col1]
+    val l10 = zonalLuminance[row1 * 3 + col0]
+    val l11 = zonalLuminance[row1 * 3 + col1]
+
+    val top = l00 + wx * (l01 - l00)
+    val bottom = l10 + wx * (l11 - l10)
+    val result = top + wy * (bottom - top)
+    return result.coerceIn(0f, 1f)
+}
+
+/**
+ * Continuously interpolates ambient dominant color across the 3x3 zonal matrix in OKLCH color space.
+ * Interpolates lightness and chroma continuously, and traverses hue via the shortest circular path.
+ */
+fun interpolateSpatialColor(
+    screenOffsetX: Float,
+    screenOffsetY: Float,
+    componentWidth: Float,
+    componentHeight: Float,
+    screenW: Float,
+    screenH: Float,
+    zonalColors: List<Color>,
+    fallback: Color? = null
+): Color? {
+    if (zonalColors.size < 9) return fallback
+    if (screenW <= 0f || screenH <= 0f || componentWidth <= 0f || componentHeight <= 0f) {
+        return zonalColors.getOrNull(4) ?: fallback
+    }
+    val centerX = screenOffsetX + componentWidth / 2f
+    val centerY = screenOffsetY + componentHeight / 2f
+    val u = (centerX / screenW).coerceIn(0f, 1f)
+    val v = (centerY / screenH).coerceIn(0f, 1f)
+
+    // Map normalized [0, 1] screen coordinates to continuous [0, 2] 3x3 grid coordinates
+    val gx = (u * 3f - 0.5f).coerceIn(0f, 2f)
+    val gy = (v * 3f - 0.5f).coerceIn(0f, 2f)
+
+    val col0 = gx.toInt().coerceIn(0, 1)
+    val col1 = (col0 + 1).coerceIn(0, 2)
+    val row0 = gy.toInt().coerceIn(0, 1)
+    val row1 = (row0 + 1).coerceIn(0, 2)
+    val wx = (gx - col0).coerceIn(0f, 1f)
+    val wy = (gy - row0).coerceIn(0f, 1f)
+
+    val c00 = zonalColors[row0 * 3 + col0]
+    val c01 = zonalColors[row0 * 3 + col1]
+    val c10 = zonalColors[row1 * 3 + col0]
+    val c11 = zonalColors[row1 * 3 + col1]
+
+    val o00 = ThemeManager.colorToOklch(c00.toArgb())
+    val o01 = ThemeManager.colorToOklch(c01.toArgb())
+    val o10 = ThemeManager.colorToOklch(c10.toArgb())
+    val o11 = ThemeManager.colorToOklch(c11.toArgb())
+
+    val top = lerpOklch(o00, o01, wx)
+    val bottom = lerpOklch(o10, o11, wx)
+    val blended = lerpOklch(top, bottom, wy)
+
+    val argb = ThemeManager.oklchToColor(blended)
+    return Color(argb)
+}
+
+/**
  * Resolves the 3x3 zone index (0..8) for a component based on its screen coordinates.
  * Returns [defaultZoneIndex] if screen or component bounds are invalid.
  */
@@ -638,16 +748,20 @@ data class AdaptiveTokenSuite(
 
 /**
  * Dynamically derives high-contrast adaptive prose, glass refraction, and elevation tokens from background lightness.
+ * The active theme mode [isThemeDark] authoritatively dictates the theme polarity (dark vs light glass),
+ * while [backgroundLightness] continuously controls the degree of adaptation without binary flips.
  */
 fun deriveAdaptiveTokens(
     backgroundLightness: Float,
     hasHighVariance: Boolean = false,
     baseColors: ThemeColors? = null,
-    sourceImageColor: Color? = null
+    sourceImageColor: Color? = null,
+    isThemeDark: Boolean = true
 ): AdaptiveTokenSuite {
-    val isDark = backgroundLightness < 0.45f
+    val isDark = isThemeDark
+    val bgLumClamped = backgroundLightness.coerceIn(0f, 1f)
 
-    // 1. Primary Text (anti-halated high contrast: OKLCH L=0.98 for dark zones, L=0.10 for light zones)
+    // 1. Primary Text (anti-halated high contrast: OKLCH L=0.98 for dark theme, L=0.10 for light theme)
     val text = if (isDark) Color(0xFFFAF9F8) else Color(0xFF141416)
 
     // 2. Subtle & Metadata Text (calibrated at APCA Lc >= 60 threshold)
@@ -680,9 +794,9 @@ fun deriveAdaptiveTokens(
 
     // 4. Adaptive Specular Rim Alpha & Chromatic Glass Tints
     val specularRimAlpha = if (isDark) {
-        (0.24f * (1f - backgroundLightness * 0.5f)).coerceIn(0.12f, 0.28f)
+        (0.24f * (1f - bgLumClamped * 0.5f)).coerceIn(0.12f, 0.28f)
     } else {
-        (0.06f * (1f - backgroundLightness * 0.3f)).coerceIn(0.03f, 0.09f)
+        (0.06f * (1f - bgLumClamped * 0.3f)).coerceIn(0.03f, 0.09f)
     }
 
     // Source image/theme hues for chromatic refraction & directional specular rim
@@ -700,53 +814,52 @@ fun deriveAdaptiveTokens(
         ?: (if (isDark) 0xFF0F172A.toInt() else 0xFFF8FAFC.toInt())
     val bgOklch = ThemeManager.colorToOklch(bgInt)
 
-    // Layer 3: Chromatic Refraction Tint (CAM16 / OKLCH calibrated: 8%–18% opacity derived from image hue)
+    // Layer 3: Chromatic Refraction Tint (continuous adaptation within the theme mode)
     val glassTint = if (isDark) {
         val darkTintHex = ThemeManager.createOklchColor(
-            l = 0.12,
+            l = (0.10 + bgLumClamped * 0.04).coerceIn(0.08, 0.16),
             c = (bgOklch.c * 0.80).coerceIn(0.01, 0.08),
             h = bgOklch.h
         )
-        val darkTintAlpha = (0.10f + (1f - backgroundLightness) * 0.04f).coerceIn(0.10f, 0.14f)
+        val darkTintAlpha = (0.10f + (1f - bgLumClamped) * 0.04f).coerceIn(0.10f, 0.14f)
         parseComposeColor(darkTintHex, Color(0xFF0F172A)).copy(alpha = darkTintAlpha)
     } else {
         val lightTintHex = ThemeManager.createOklchColor(
-            l = 0.96,
+            l = (0.94 + bgLumClamped * 0.04).coerceIn(0.92, 0.98),
             c = (bgOklch.c * 0.60).coerceIn(0.01, 0.06),
             h = bgOklch.h
         )
-        val lightTintAlpha = (0.12f + backgroundLightness * 0.06f).coerceIn(0.12f, 0.18f)
+        val lightTintAlpha = (0.12f + bgLumClamped * 0.06f).coerceIn(0.12f, 0.18f)
         parseComposeColor(lightTintHex, Color(0xFFF8FAFC)).copy(alpha = lightTintAlpha)
     }
 
     // Layer 1: Directional Specular Rim (Lighting Physics)
-    // Top overhead light catch: extracted image/accent hue shifted +20% higher in lightness with 25-35% alpha in dark, 50-70% in light
     val glassSpecularTop = if (isDark) {
-        val topL = (backgroundLightness.toDouble() + 0.25).coerceIn(0.86, 0.98)
+        val topL = (0.86 + bgLumClamped.toDouble() * 0.10).coerceIn(0.86, 0.98)
         val topC = (accentOklch.c * 0.35).coerceIn(0.005, 0.04)
         val topHex = ThemeManager.createOklchColor(topL, topC, accentOklch.h)
-        val topAlpha = (0.25f + (1f - backgroundLightness) * 0.10f).coerceIn(0.25f, 0.35f)
+        val topAlpha = (0.25f + (1f - bgLumClamped) * 0.10f).coerceIn(0.25f, 0.35f)
         parseComposeColor(topHex, Color.White).copy(alpha = topAlpha)
     } else {
-        val topL = (backgroundLightness.toDouble() + 0.15).coerceIn(0.94, 0.99)
+        val topL = (0.94 + bgLumClamped.toDouble() * 0.05).coerceIn(0.94, 0.99)
         val topC = (accentOklch.c * 0.25).coerceIn(0.003, 0.03)
         val topHex = ThemeManager.createOklchColor(topL, topC, accentOklch.h)
-        val topAlpha = (0.50f + (1f - backgroundLightness) * 0.20f).coerceIn(0.50f, 0.70f)
+        val topAlpha = (0.50f + (1f - bgLumClamped) * 0.20f).coerceIn(0.50f, 0.70f)
         parseComposeColor(topHex, Color.White).copy(alpha = topAlpha)
     }
 
-    // Bottom ambient shadow falloff: extracted hue shifted darker in lightness with 10-15% alpha in dark, 4-10% in light
+    // Bottom ambient shadow falloff
     val glassSpecularBottom = if (isDark) {
-        val bottomL = (backgroundLightness.toDouble() - 0.20).coerceIn(0.02, 0.10)
+        val bottomL = (0.02 + bgLumClamped.toDouble() * 0.08).coerceIn(0.02, 0.10)
         val bottomC = (accentOklch.c * 0.40).coerceIn(0.005, 0.04)
         val bottomHex = ThemeManager.createOklchColor(bottomL, bottomC, accentOklch.h)
-        val bottomAlpha = (0.10f + (1f - backgroundLightness) * 0.05f).coerceIn(0.10f, 0.15f)
+        val bottomAlpha = (0.10f + (1f - bgLumClamped) * 0.05f).coerceIn(0.10f, 0.15f)
         parseComposeColor(bottomHex, Color.Black).copy(alpha = bottomAlpha)
     } else {
-        val bottomL = (backgroundLightness.toDouble() - 0.25).coerceIn(0.12, 0.30)
+        val bottomL = (0.12 + bgLumClamped.toDouble() * 0.15).coerceIn(0.12, 0.30)
         val bottomC = (accentOklch.c * 0.35).coerceIn(0.005, 0.04)
         val bottomHex = ThemeManager.createOklchColor(bottomL, bottomC, accentOklch.h)
-        val bottomAlpha = (0.04f + backgroundLightness * 0.06f).coerceIn(0.04f, 0.10f)
+        val bottomAlpha = (0.04f + bgLumClamped * 0.06f).coerceIn(0.04f, 0.10f)
         parseComposeColor(bottomHex, Color.Black).copy(alpha = bottomAlpha)
     }
 
@@ -798,18 +911,20 @@ fun rememberAdaptiveContentColor(
 fun rememberAdaptiveTokenSuite(
     zone: AmbientZone = AmbientZone.GLOBAL,
     baseColors: ThemeColors? = LocalAppTheme.current?.colors,
-    sourceImageColor: Color? = null
+    sourceImageColor: Color? = null,
+    isThemeDark: Boolean = LocalAppTheme.current?.isDark ?: true
 ): AdaptiveTokenSuite {
     val theme = LocalAppTheme.current
     val lum = theme.zonalLuminance(zone)
     val variance = theme.zonalVariance(zone)
     val isHighVariance = variance >= 0.065f
-    return remember(lum, variance, isHighVariance, baseColors, sourceImageColor) {
+    return remember(lum, variance, isHighVariance, baseColors, sourceImageColor, isThemeDark) {
         deriveAdaptiveTokens(
             backgroundLightness = lum,
             hasHighVariance = isHighVariance,
             baseColors = baseColors,
-            sourceImageColor = sourceImageColor
+            sourceImageColor = sourceImageColor,
+            isThemeDark = isThemeDark
         )
     }
 }
