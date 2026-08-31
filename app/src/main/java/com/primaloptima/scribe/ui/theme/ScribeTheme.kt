@@ -249,19 +249,16 @@ fun createEnvironmentalSpecularBrush(edges: EnvironmentalSpecularEdges): Brush {
             val pTC = 0.75f
             val pTR = (1.00f - alpha).coerceIn(0.76f, 0.99f)
 
-            val midRight = lerp(edges.topRight, edges.bottomRight, 0.5f)
-            val midLeft = lerp(edges.topLeft, edges.bottomLeft, 0.5f)
-
             val colors = intArrayOf(
-                midRight.toArgb(),
+                edges.midRight.toArgb(),
                 edges.bottomRight.toArgb(),
                 edges.bottomCenter.toArgb(),
                 edges.bottomLeft.toArgb(),
-                midLeft.toArgb(),
+                edges.midLeft.toArgb(),
                 edges.topLeft.toArgb(),
                 edges.topCenter.toArgb(),
                 edges.topRight.toArgb(),
-                midRight.toArgb()
+                edges.midRight.toArgb()
             )
             val positions = floatArrayOf(
                 0.0f,

@@ -14,6 +14,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onLayoutRectChanged
@@ -669,7 +670,7 @@ fun sampleLuminanceField(
 /**
  * Modulated directional specular edge colors derived from background environmental luminance.
  * Preserves the base glassSpecularTop / glassSpecularBottom hue and structure while subtly
- * catching ambient environmental highlights.
+ * catching ambient environmental highlights across all 8 perimeter key points.
  */
 data class EnvironmentalSpecularEdges(
     val topLeft: Color,
@@ -677,13 +678,16 @@ data class EnvironmentalSpecularEdges(
     val topRight: Color,
     val bottomLeft: Color,
     val bottomCenter: Color,
-    val bottomRight: Color
+    val bottomRight: Color,
+    val midLeft: Color = lerp(topLeft, bottomLeft, 0.5f),
+    val midRight: Color = lerp(topRight, bottomRight, 0.5f)
 )
 
 /**
- * Computes subtle environmental specular edge colors modulated by the 8x8 luminance field.
- * Samples 3 points across the top edge (Left, Center, Right) and 3 points across the bottom edge (Left, Center, Right).
- * Modulation is strictly luminance-driven in the range [0.85, 1.15] around the base specular colors.
+ * Computes directional environmental specular edge colors modulated by the 8x8 luminance field.
+ * Samples perimeter points (Top-Left, Top-Center, Top-Right, Mid-Right, Bottom-Right, Bottom-Center, Bottom-Left, Mid-Left).
+ * Applies a subtle physical overhead material prior (0.28 weight) combined with environmental luminance (0.72 weight)
+ * smoothly interpolated between baseBottomColor and baseTopColor.
  */
 fun computeEnvironmentalSpecularEdges(
     screenOffsetX: Float,
@@ -699,13 +703,16 @@ fun computeEnvironmentalSpecularEdges(
     fallbackLuminance: Float = 0.5f
 ): EnvironmentalSpecularEdges {
     if (screenW <= 0f || screenH <= 0f || componentWidth <= 0f || componentHeight <= 0f) {
+        val mid = lerp(baseBottomColor, baseTopColor, 0.5f)
         return EnvironmentalSpecularEdges(
             topLeft = baseTopColor,
             topCenter = baseTopColor,
             topRight = baseTopColor,
             bottomLeft = baseBottomColor,
             bottomCenter = baseBottomColor,
-            bottomRight = baseBottomColor
+            bottomRight = baseBottomColor,
+            midLeft = mid,
+            midRight = mid
         )
     }
 
@@ -714,32 +721,44 @@ fun computeEnvironmentalSpecularEdges(
     val uRight = ((screenOffsetX + componentWidth) / screenW).coerceIn(0f, 1f)
 
     val vTop = (screenOffsetY / screenH).coerceIn(0f, 1f)
+    val vCenter = ((screenOffsetY + componentHeight / 2f) / screenH).coerceIn(0f, 1f)
     val vBottom = ((screenOffsetY + componentHeight) / screenH).coerceIn(0f, 1f)
 
     val lumTL = sampleLuminanceField(uLeft, vTop, luminanceField, zonalLuminance, fallbackLuminance)
     val lumTC = sampleLuminanceField(uCenter, vTop, luminanceField, zonalLuminance, fallbackLuminance)
     val lumTR = sampleLuminanceField(uRight, vTop, luminanceField, zonalLuminance, fallbackLuminance)
 
-    val lumBL = sampleLuminanceField(uLeft, vBottom, luminanceField, zonalLuminance, fallbackLuminance)
-    val lumBC = sampleLuminanceField(uCenter, vBottom, luminanceField, zonalLuminance, fallbackLuminance)
+    val lumMR = sampleLuminanceField(uRight, vCenter, luminanceField, zonalLuminance, fallbackLuminance)
     val lumBR = sampleLuminanceField(uRight, vBottom, luminanceField, zonalLuminance, fallbackLuminance)
+    val lumBC = sampleLuminanceField(uCenter, vBottom, luminanceField, zonalLuminance, fallbackLuminance)
+    val lumBL = sampleLuminanceField(uLeft, vBottom, luminanceField, zonalLuminance, fallbackLuminance)
+    val lumML = sampleLuminanceField(uLeft, vCenter, luminanceField, zonalLuminance, fallbackLuminance)
 
-    // Multiplier strictly within [0.85, 1.15]
-    fun mod(l: Float): Float = 0.85f + 0.30f * l.coerceIn(0f, 1f)
-
-    fun modulateColor(base: Color, lum: Float): Color {
-        val multiplier = mod(lum)
-        val newAlpha = (base.alpha * multiplier).coerceIn(0.01f, 0.95f)
-        return base.copy(alpha = newAlpha)
+    // Blend material prior (0.28) with environmental luminance (0.72)
+    // Physical priors: Top Center 0.55, Top Corners 0.45, Sides 0.35, Bottom 0.20
+    fun resolveEdgeColor(lum: Float, prior: Float): Color {
+        val intensity = (0.28f * prior + 0.72f * lum.coerceIn(0f, 1f)).coerceIn(0f, 1f)
+        return lerp(baseBottomColor, baseTopColor, intensity)
     }
 
+    val colTL = resolveEdgeColor(lumTL, 0.45f)
+    val colTC = resolveEdgeColor(lumTC, 0.55f)
+    val colTR = resolveEdgeColor(lumTR, 0.45f)
+    val colMR = resolveEdgeColor(lumMR, 0.35f)
+    val colBR = resolveEdgeColor(lumBR, 0.20f)
+    val colBC = resolveEdgeColor(lumBC, 0.20f)
+    val colBL = resolveEdgeColor(lumBL, 0.20f)
+    val colML = resolveEdgeColor(lumML, 0.35f)
+
     return EnvironmentalSpecularEdges(
-        topLeft = modulateColor(baseTopColor, lumTL),
-        topCenter = modulateColor(baseTopColor, lumTC),
-        topRight = modulateColor(baseTopColor, lumTR),
-        bottomLeft = modulateColor(baseBottomColor, lumBL),
-        bottomCenter = modulateColor(baseBottomColor, lumBC),
-        bottomRight = modulateColor(baseBottomColor, lumBR)
+        topLeft = colTL,
+        topCenter = colTC,
+        topRight = colTR,
+        bottomLeft = colBL,
+        bottomCenter = colBC,
+        bottomRight = colBR,
+        midLeft = colML,
+        midRight = colMR
     )
 }
 
