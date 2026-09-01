@@ -236,6 +236,10 @@ private data class FourCorners(val tl: Float, val tr: Float, val br: Float, val 
 /**
  * Draws an environmental specular glass border around the shape using 4 straight-edge linear
  * gradients and 4 solid corner arcs.
+ * Implements a 3-tier concentric optical edge spread with shared centerline:
+ * - Tier 2 (Distal Halo): 2.20dp soft outer dispersion (alpha <= 0.04)
+ * - Tier 1 (Proximal Skirt): 1.50dp intermediate caustic spread (alpha <= 0.14)
+ * - Tier 0 (Core Specular): 1.00dp crisp primary glass boundary (rendered on top)
  *
  * Straight edge spans:
  * - Top: (R_tl, 0) -> (W - R_tr, 0) with stops TL -> TC -> TR
@@ -249,7 +253,7 @@ private data class FourCorners(val tl: Float, val tr: Float, val br: Float, val 
  * - Bottom-Left arc (90° -> 180°): solid color BL
  * - Top-Left arc (180° -> 270°): solid color TL
  *
- * Stroke width is fixed at [strokeWidth] (1dp) with inset centerlines and Butt caps for seamless tangent continuity.
+ * Rendered in order: Halo -> Skirt -> Core with Butt caps and inset centerlines for seamless tangent continuity.
  */
 fun Modifier.drawEnvironmentalSpecularBorder(
     shape: Shape,
@@ -311,6 +315,14 @@ fun Modifier.drawEnvironmentalSpecularBorder(
 
     val topXStart = left + rTL
     val topXEnd = right - rTR
+    val rightYStart = top + rTR
+    val rightYEnd = bottom - rBR
+    val bottomXStart = right - rBR
+    val bottomXEnd = left + rBL
+    val leftYStart = bottom - rBL
+    val leftYEnd = top + rTL
+
+    // Tier 0 - Core Specular Brushes (1.00dp)
     val topBrush = if (topXEnd > topXStart) {
         val xCenter = w / 2f
         val tCenter = ((xCenter - topXStart) / (topXEnd - topXStart)).coerceIn(0.01f, 0.99f)
@@ -325,8 +337,6 @@ fun Modifier.drawEnvironmentalSpecularBorder(
         )
     } else null
 
-    val rightYStart = top + rTR
-    val rightYEnd = bottom - rBR
     val rightBrush = if (rightYEnd > rightYStart) {
         val yCenter = h / 2f
         val tCenter = ((yCenter - rightYStart) / (rightYEnd - rightYStart)).coerceIn(0.01f, 0.99f)
@@ -341,8 +351,6 @@ fun Modifier.drawEnvironmentalSpecularBorder(
         )
     } else null
 
-    val bottomXStart = right - rBR
-    val bottomXEnd = left + rBL
     val bottomBrush = if (bottomXStart > bottomXEnd) {
         val xCenter = w / 2f
         val tCenter = ((bottomXStart - xCenter) / (bottomXStart - bottomXEnd)).coerceIn(0.01f, 0.99f)
@@ -357,8 +365,6 @@ fun Modifier.drawEnvironmentalSpecularBorder(
         )
     } else null
 
-    val leftYStart = bottom - rBL
-    val leftYEnd = top + rTL
     val leftBrush = if (leftYStart > leftYEnd) {
         val yCenter = h / 2f
         val tCenter = ((leftYStart - yCenter) / (leftYStart - leftYEnd)).coerceIn(0.01f, 0.99f)
@@ -373,53 +379,338 @@ fun Modifier.drawEnvironmentalSpecularBorder(
         )
     } else null
 
-    val strokeStyle = Stroke(width = strokeWidthPx, cap = StrokeCap.Butt)
+    // Tier 1 - Proximal Skirt Brushes (1.50dp)
+    val topSkirtBrush = if (topXEnd > topXStart) {
+        val xCenter = w / 2f
+        val tCenter = ((xCenter - topXStart) / (topXEnd - topXStart)).coerceIn(0.01f, 0.99f)
+        Brush.linearGradient(
+            colorStops = arrayOf(
+                0.0f to edges.skirtTopLeft,
+                tCenter to edges.skirtTopCenter,
+                1.0f to edges.skirtTopRight
+            ),
+            start = Offset(topXStart, top),
+            end = Offset(topXEnd, top)
+        )
+    } else null
+
+    val rightSkirtBrush = if (rightYEnd > rightYStart) {
+        val yCenter = h / 2f
+        val tCenter = ((yCenter - rightYStart) / (rightYEnd - rightYStart)).coerceIn(0.01f, 0.99f)
+        Brush.linearGradient(
+            colorStops = arrayOf(
+                0.0f to edges.skirtTopRight,
+                tCenter to edges.skirtMidRight,
+                1.0f to edges.skirtBottomRight
+            ),
+            start = Offset(right, rightYStart),
+            end = Offset(right, rightYEnd)
+        )
+    } else null
+
+    val bottomSkirtBrush = if (bottomXStart > bottomXEnd) {
+        val xCenter = w / 2f
+        val tCenter = ((bottomXStart - xCenter) / (bottomXStart - bottomXEnd)).coerceIn(0.01f, 0.99f)
+        Brush.linearGradient(
+            colorStops = arrayOf(
+                0.0f to edges.skirtBottomRight,
+                tCenter to edges.skirtBottomCenter,
+                1.0f to edges.skirtBottomLeft
+            ),
+            start = Offset(bottomXStart, bottom),
+            end = Offset(bottomXEnd, bottom)
+        )
+    } else null
+
+    val leftSkirtBrush = if (leftYStart > leftYEnd) {
+        val yCenter = h / 2f
+        val tCenter = ((leftYStart - yCenter) / (leftYStart - leftYEnd)).coerceIn(0.01f, 0.99f)
+        Brush.linearGradient(
+            colorStops = arrayOf(
+                0.0f to edges.skirtBottomLeft,
+                tCenter to edges.skirtMidLeft,
+                1.0f to edges.skirtTopLeft
+            ),
+            start = Offset(left, leftYStart),
+            end = Offset(left, leftYEnd)
+        )
+    } else null
+
+    // Tier 2 - Distal Halo Brushes (2.20dp)
+    val topHaloBrush = if (topXEnd > topXStart) {
+        val xCenter = w / 2f
+        val tCenter = ((xCenter - topXStart) / (topXEnd - topXStart)).coerceIn(0.01f, 0.99f)
+        Brush.linearGradient(
+            colorStops = arrayOf(
+                0.0f to edges.haloTopLeft,
+                tCenter to edges.haloTopCenter,
+                1.0f to edges.haloTopRight
+            ),
+            start = Offset(topXStart, top),
+            end = Offset(topXEnd, top)
+        )
+    } else null
+
+    val rightHaloBrush = if (rightYEnd > rightYStart) {
+        val yCenter = h / 2f
+        val tCenter = ((yCenter - rightYStart) / (rightYEnd - rightYStart)).coerceIn(0.01f, 0.99f)
+        Brush.linearGradient(
+            colorStops = arrayOf(
+                0.0f to edges.haloTopRight,
+                tCenter to edges.haloMidRight,
+                1.0f to edges.haloBottomRight
+            ),
+            start = Offset(right, rightYStart),
+            end = Offset(right, rightYEnd)
+        )
+    } else null
+
+    val bottomHaloBrush = if (bottomXStart > bottomXEnd) {
+        val xCenter = w / 2f
+        val tCenter = ((bottomXStart - xCenter) / (bottomXStart - bottomXEnd)).coerceIn(0.01f, 0.99f)
+        Brush.linearGradient(
+            colorStops = arrayOf(
+                0.0f to edges.haloBottomRight,
+                tCenter to edges.haloBottomCenter,
+                1.0f to edges.haloBottomLeft
+            ),
+            start = Offset(bottomXStart, bottom),
+            end = Offset(bottomXEnd, bottom)
+        )
+    } else null
+
+    val leftHaloBrush = if (leftYStart > leftYEnd) {
+        val yCenter = h / 2f
+        val tCenter = ((leftYStart - yCenter) / (leftYStart - leftYEnd)).coerceIn(0.01f, 0.99f)
+        Brush.linearGradient(
+            colorStops = arrayOf(
+                0.0f to edges.haloBottomLeft,
+                tCenter to edges.haloMidLeft,
+                1.0f to edges.haloTopLeft
+            ),
+            start = Offset(left, leftYStart),
+            end = Offset(left, leftYEnd)
+        )
+    } else null
+
+    val haloStrokePx = 2.20.dp.toPx()
+    val skirtStrokePx = 1.50.dp.toPx()
+    val coreStrokePx = strokeWidthPx
+
+    val haloStrokeStyle = Stroke(width = haloStrokePx, cap = StrokeCap.Butt)
+    val skirtStrokeStyle = Stroke(width = skirtStrokePx, cap = StrokeCap.Butt)
+    val coreStrokeStyle = Stroke(width = coreStrokePx, cap = StrokeCap.Butt)
 
     onDrawWithContent {
         drawContent()
 
-        // 1. Straight edge gradients
+        // ─────────────────────────────────────────────────────────────────
+        // 1. Tier 2: Distal Radiance Halo (2.20dp, soft outer dispersion)
+        // ─────────────────────────────────────────────────────────────────
+        if (topHaloBrush != null && topXEnd > topXStart) {
+            drawLine(
+                brush = topHaloBrush,
+                start = Offset(topXStart, top),
+                end = Offset(topXEnd, top),
+                strokeWidth = haloStrokePx,
+                cap = StrokeCap.Butt
+            )
+        }
+        if (rightHaloBrush != null && rightYEnd > rightYStart) {
+            drawLine(
+                brush = rightHaloBrush,
+                start = Offset(right, rightYStart),
+                end = Offset(right, rightYEnd),
+                strokeWidth = haloStrokePx,
+                cap = StrokeCap.Butt
+            )
+        }
+        if (bottomHaloBrush != null && bottomXStart > bottomXEnd) {
+            drawLine(
+                brush = bottomHaloBrush,
+                start = Offset(bottomXStart, bottom),
+                end = Offset(bottomXEnd, bottom),
+                strokeWidth = haloStrokePx,
+                cap = StrokeCap.Butt
+            )
+        }
+        if (leftHaloBrush != null && leftYStart > leftYEnd) {
+            drawLine(
+                brush = leftHaloBrush,
+                start = Offset(left, leftYStart),
+                end = Offset(left, leftYEnd),
+                strokeWidth = haloStrokePx,
+                cap = StrokeCap.Butt
+            )
+        }
+        if (rTR > 0f) {
+            drawArc(
+                color = edges.haloTopRight,
+                startAngle = 270f,
+                sweepAngle = 90f,
+                useCenter = false,
+                topLeft = Offset(right - 2 * rTR, top),
+                size = Size(2 * rTR, 2 * rTR),
+                style = haloStrokeStyle
+            )
+        }
+        if (rBR > 0f) {
+            drawArc(
+                color = edges.haloBottomRight,
+                startAngle = 0f,
+                sweepAngle = 90f,
+                useCenter = false,
+                topLeft = Offset(right - 2 * rBR, bottom - 2 * rBR),
+                size = Size(2 * rBR, 2 * rBR),
+                style = haloStrokeStyle
+            )
+        }
+        if (rBL > 0f) {
+            drawArc(
+                color = edges.haloBottomLeft,
+                startAngle = 90f,
+                sweepAngle = 90f,
+                useCenter = false,
+                topLeft = Offset(left, bottom - 2 * rBL),
+                size = Size(2 * rBL, 2 * rBL),
+                style = haloStrokeStyle
+            )
+        }
+        if (rTL > 0f) {
+            drawArc(
+                color = edges.haloTopLeft,
+                startAngle = 180f,
+                sweepAngle = 90f,
+                useCenter = false,
+                topLeft = Offset(left, top),
+                size = Size(2 * rTL, 2 * rTL),
+                style = haloStrokeStyle
+            )
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // 2. Tier 1: Proximal Radiance Skirt (1.50dp, intermediate spread)
+        // ─────────────────────────────────────────────────────────────────
+        if (topSkirtBrush != null && topXEnd > topXStart) {
+            drawLine(
+                brush = topSkirtBrush,
+                start = Offset(topXStart, top),
+                end = Offset(topXEnd, top),
+                strokeWidth = skirtStrokePx,
+                cap = StrokeCap.Butt
+            )
+        }
+        if (rightSkirtBrush != null && rightYEnd > rightYStart) {
+            drawLine(
+                brush = rightSkirtBrush,
+                start = Offset(right, rightYStart),
+                end = Offset(right, rightYEnd),
+                strokeWidth = skirtStrokePx,
+                cap = StrokeCap.Butt
+            )
+        }
+        if (bottomSkirtBrush != null && bottomXStart > bottomXEnd) {
+            drawLine(
+                brush = bottomSkirtBrush,
+                start = Offset(bottomXStart, bottom),
+                end = Offset(bottomXEnd, bottom),
+                strokeWidth = skirtStrokePx,
+                cap = StrokeCap.Butt
+            )
+        }
+        if (leftSkirtBrush != null && leftYStart > leftYEnd) {
+            drawLine(
+                brush = leftSkirtBrush,
+                start = Offset(left, leftYStart),
+                end = Offset(left, leftYEnd),
+                strokeWidth = skirtStrokePx,
+                cap = StrokeCap.Butt
+            )
+        }
+        if (rTR > 0f) {
+            drawArc(
+                color = edges.skirtTopRight,
+                startAngle = 270f,
+                sweepAngle = 90f,
+                useCenter = false,
+                topLeft = Offset(right - 2 * rTR, top),
+                size = Size(2 * rTR, 2 * rTR),
+                style = skirtStrokeStyle
+            )
+        }
+        if (rBR > 0f) {
+            drawArc(
+                color = edges.skirtBottomRight,
+                startAngle = 0f,
+                sweepAngle = 90f,
+                useCenter = false,
+                topLeft = Offset(right - 2 * rBR, bottom - 2 * rBR),
+                size = Size(2 * rBR, 2 * rBR),
+                style = skirtStrokeStyle
+            )
+        }
+        if (rBL > 0f) {
+            drawArc(
+                color = edges.skirtBottomLeft,
+                startAngle = 90f,
+                sweepAngle = 90f,
+                useCenter = false,
+                topLeft = Offset(left, bottom - 2 * rBL),
+                size = Size(2 * rBL, 2 * rBL),
+                style = skirtStrokeStyle
+            )
+        }
+        if (rTL > 0f) {
+            drawArc(
+                color = edges.skirtTopLeft,
+                startAngle = 180f,
+                sweepAngle = 90f,
+                useCenter = false,
+                topLeft = Offset(left, top),
+                size = Size(2 * rTL, 2 * rTL),
+                style = skirtStrokeStyle
+            )
+        }
+
+        // ─────────────────────────────────────────────────────────────────
+        // 3. Tier 0: Core Specular Rim (1.00dp, crisp optical apex on top)
+        // ─────────────────────────────────────────────────────────────────
         if (topBrush != null && topXEnd > topXStart) {
             drawLine(
                 brush = topBrush,
                 start = Offset(topXStart, top),
                 end = Offset(topXEnd, top),
-                strokeWidth = strokeWidthPx,
+                strokeWidth = coreStrokePx,
                 cap = StrokeCap.Butt
             )
         }
-
         if (rightBrush != null && rightYEnd > rightYStart) {
             drawLine(
                 brush = rightBrush,
                 start = Offset(right, rightYStart),
                 end = Offset(right, rightYEnd),
-                strokeWidth = strokeWidthPx,
+                strokeWidth = coreStrokePx,
                 cap = StrokeCap.Butt
             )
         }
-
         if (bottomBrush != null && bottomXStart > bottomXEnd) {
             drawLine(
                 brush = bottomBrush,
                 start = Offset(bottomXStart, bottom),
                 end = Offset(bottomXEnd, bottom),
-                strokeWidth = strokeWidthPx,
+                strokeWidth = coreStrokePx,
                 cap = StrokeCap.Butt
             )
         }
-
         if (leftBrush != null && leftYStart > leftYEnd) {
             drawLine(
                 brush = leftBrush,
                 start = Offset(left, leftYStart),
                 end = Offset(left, leftYEnd),
-                strokeWidth = strokeWidthPx,
+                strokeWidth = coreStrokePx,
                 cap = StrokeCap.Butt
             )
         }
-
-        // 2. Corner solid arcs
         if (rTR > 0f) {
             drawArc(
                 color = edges.topRight,
@@ -428,10 +719,9 @@ fun Modifier.drawEnvironmentalSpecularBorder(
                 useCenter = false,
                 topLeft = Offset(right - 2 * rTR, top),
                 size = Size(2 * rTR, 2 * rTR),
-                style = strokeStyle
+                style = coreStrokeStyle
             )
         }
-
         if (rBR > 0f) {
             drawArc(
                 color = edges.bottomRight,
@@ -440,10 +730,9 @@ fun Modifier.drawEnvironmentalSpecularBorder(
                 useCenter = false,
                 topLeft = Offset(right - 2 * rBR, bottom - 2 * rBR),
                 size = Size(2 * rBR, 2 * rBR),
-                style = strokeStyle
+                style = coreStrokeStyle
             )
         }
-
         if (rBL > 0f) {
             drawArc(
                 color = edges.bottomLeft,
@@ -452,10 +741,9 @@ fun Modifier.drawEnvironmentalSpecularBorder(
                 useCenter = false,
                 topLeft = Offset(left, bottom - 2 * rBL),
                 size = Size(2 * rBL, 2 * rBL),
-                style = strokeStyle
+                style = coreStrokeStyle
             )
         }
-
         if (rTL > 0f) {
             drawArc(
                 color = edges.topLeft,
@@ -464,7 +752,7 @@ fun Modifier.drawEnvironmentalSpecularBorder(
                 useCenter = false,
                 topLeft = Offset(left, top),
                 size = Size(2 * rTL, 2 * rTL),
-                style = strokeStyle
+                style = coreStrokeStyle
             )
         }
     }

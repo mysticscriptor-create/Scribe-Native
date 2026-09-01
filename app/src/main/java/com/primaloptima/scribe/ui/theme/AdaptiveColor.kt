@@ -669,10 +669,13 @@ fun sampleLuminanceField(
 
 /**
  * Modulated directional specular edge colors derived from background environmental luminance.
- * Preserves the base glassSpecularTop / glassSpecularBottom hue and structure while subtly
- * catching ambient environmental highlights across all 8 perimeter key points.
+ * Contains 3 concentric tiers for directional optical edge spread:
+ * - Tier 0 (Core): Crisp 1.00dp primary glass perimeter (priors + environmental response)
+ * - Tier 1 (Skirt): 1.50dp proximal caustic skirt (alpha = 0.14 * L^2.20, zero prior bias)
+ * - Tier 2 (Halo): 2.20dp distal optical halo (alpha = 0.04 * L^3.20, zero prior bias)
  */
 data class EnvironmentalSpecularEdges(
+    // Tier 0 - Core (1.00dp)
     val topLeft: Color,
     val topCenter: Color,
     val topRight: Color,
@@ -680,18 +683,34 @@ data class EnvironmentalSpecularEdges(
     val bottomRight: Color,
     val bottomCenter: Color,
     val bottomLeft: Color,
-    val midLeft: Color
+    val midLeft: Color,
+    // Tier 1 - Proximal Skirt (1.50dp)
+    val skirtTopLeft: Color = topLeft.copy(alpha = 0f),
+    val skirtTopCenter: Color = topCenter.copy(alpha = 0f),
+    val skirtTopRight: Color = topRight.copy(alpha = 0f),
+    val skirtMidRight: Color = midRight.copy(alpha = 0f),
+    val skirtBottomRight: Color = bottomRight.copy(alpha = 0f),
+    val skirtBottomCenter: Color = bottomCenter.copy(alpha = 0f),
+    val skirtBottomLeft: Color = bottomLeft.copy(alpha = 0f),
+    val skirtMidLeft: Color = midLeft.copy(alpha = 0f),
+    // Tier 2 - Distal Halo (2.20dp)
+    val haloTopLeft: Color = topLeft.copy(alpha = 0f),
+    val haloTopCenter: Color = topCenter.copy(alpha = 0f),
+    val haloTopRight: Color = topRight.copy(alpha = 0f),
+    val haloMidRight: Color = midRight.copy(alpha = 0f),
+    val haloBottomRight: Color = bottomRight.copy(alpha = 0f),
+    val haloBottomCenter: Color = bottomCenter.copy(alpha = 0f),
+    val haloBottomLeft: Color = bottomLeft.copy(alpha = 0f),
+    val haloMidLeft: Color = midLeft.copy(alpha = 0f)
 )
 
 /**
  * Computes directional environmental specular edge colors modulated by the 8x8 luminance field.
  * Samples perimeter points (Top-Left, Top-Center, Top-Right, Mid-Right, Bottom-Right, Bottom-Center, Bottom-Left, Mid-Left).
- * Applies the approved physical model combining material priors with environmental response:
- * E_i = 0.65 * pow(L_i, 1.2)
- * I_raw_i = P_i + E_i
- * I_i = clamp(I_raw_i, 0.04, 0.70)
- * alpha_i = 0.04 + I_i * 0.56
- * col_i = baseSpecularColor.copy(alpha = alpha_i)
+ * Computes:
+ * - Tier 0 Core: E_i = 0.65 * pow(L_i, 1.2), I_raw_i = P_i + E_i, I_i = clamp(I_raw_i, 0.04, 0.70), alpha_i = 0.04 + I_i * 0.56
+ * - Tier 1 Skirt: alphaSkirt_i = 0.14 * pow(L_i, 2.20)
+ * - Tier 2 Halo: alphaHalo_i = 0.04 * pow(L_i, 3.20)
  */
 fun computeEnvironmentalSpecularEdges(
     screenOffsetX: Float,
@@ -717,6 +736,18 @@ fun computeEnvironmentalSpecularEdges(
         return baseSpecularColor.copy(alpha = alpha)
     }
 
+    fun computeSkirtColor(lum: Float): Color {
+        val lClamped = lum.coerceIn(0f, 1f).toDouble()
+        val alphaSkirt = (0.14f * Math.pow(lClamped, 2.20)).toFloat().coerceIn(0f, 0.14f)
+        return baseSpecularColor.copy(alpha = alphaSkirt)
+    }
+
+    fun computeHaloColor(lum: Float): Color {
+        val lClamped = lum.coerceIn(0f, 1f).toDouble()
+        val alphaHalo = (0.04f * Math.pow(lClamped, 3.20)).toFloat().coerceIn(0f, 0.04f)
+        return baseSpecularColor.copy(alpha = alphaHalo)
+    }
+
     if (screenW <= 0f || screenH <= 0f || componentWidth <= 0f || componentHeight <= 0f) {
         return EnvironmentalSpecularEdges(
             topLeft = computePointColor(fallbackLuminance, 0.24f),
@@ -726,7 +757,23 @@ fun computeEnvironmentalSpecularEdges(
             bottomRight = computePointColor(fallbackLuminance, 0.08f),
             bottomCenter = computePointColor(fallbackLuminance, 0.06f),
             bottomLeft = computePointColor(fallbackLuminance, 0.08f),
-            midLeft = computePointColor(fallbackLuminance, 0.14f)
+            midLeft = computePointColor(fallbackLuminance, 0.14f),
+            skirtTopLeft = computeSkirtColor(fallbackLuminance),
+            skirtTopCenter = computeSkirtColor(fallbackLuminance),
+            skirtTopRight = computeSkirtColor(fallbackLuminance),
+            skirtMidRight = computeSkirtColor(fallbackLuminance),
+            skirtBottomRight = computeSkirtColor(fallbackLuminance),
+            skirtBottomCenter = computeSkirtColor(fallbackLuminance),
+            skirtBottomLeft = computeSkirtColor(fallbackLuminance),
+            skirtMidLeft = computeSkirtColor(fallbackLuminance),
+            haloTopLeft = computeHaloColor(fallbackLuminance),
+            haloTopCenter = computeHaloColor(fallbackLuminance),
+            haloTopRight = computeHaloColor(fallbackLuminance),
+            haloMidRight = computeHaloColor(fallbackLuminance),
+            haloBottomRight = computeHaloColor(fallbackLuminance),
+            haloBottomCenter = computeHaloColor(fallbackLuminance),
+            haloBottomLeft = computeHaloColor(fallbackLuminance),
+            haloMidLeft = computeHaloColor(fallbackLuminance)
         )
     }
 
@@ -748,7 +795,7 @@ fun computeEnvironmentalSpecularEdges(
     val lumBL = sampleLuminanceField(uLeft, vBottom, luminanceField, zonalLuminance, fallbackLuminance)
     val lumML = sampleLuminanceField(uLeft, vCenter, luminanceField, zonalLuminance, fallbackLuminance)
 
-    // Material priors: P_TC = 0.32, P_TL = 0.24, P_TR = 0.24, P_ML = 0.14, P_MR = 0.14, P_BL = 0.08, P_BR = 0.08, P_BC = 0.06
+    // Tier 0 - Core (1.00dp) with Material priors: P_TC = 0.32, P_TL = 0.24, P_TR = 0.24, P_ML = 0.14, P_MR = 0.14, P_BL = 0.08, P_BR = 0.08, P_BC = 0.06
     val colTL = computePointColor(lumTL, 0.24f)
     val colTC = computePointColor(lumTC, 0.32f)
     val colTR = computePointColor(lumTR, 0.24f)
@@ -758,6 +805,26 @@ fun computeEnvironmentalSpecularEdges(
     val colBL = computePointColor(lumBL, 0.08f)
     val colML = computePointColor(lumML, 0.14f)
 
+    // Tier 1 - Proximal Skirt (1.50dp) with zero prior bias
+    val skirtTL = computeSkirtColor(lumTL)
+    val skirtTC = computeSkirtColor(lumTC)
+    val skirtTR = computeSkirtColor(lumTR)
+    val skirtMR = computeSkirtColor(lumMR)
+    val skirtBR = computeSkirtColor(lumBR)
+    val skirtBC = computeSkirtColor(lumBC)
+    val skirtBL = computeSkirtColor(lumBL)
+    val skirtML = computeSkirtColor(lumML)
+
+    // Tier 2 - Distal Halo (2.20dp) with zero prior bias
+    val haloTL = computeHaloColor(lumTL)
+    val haloTC = computeHaloColor(lumTC)
+    val haloTR = computeHaloColor(lumTR)
+    val haloMR = computeHaloColor(lumMR)
+    val haloBR = computeHaloColor(lumBR)
+    val haloBC = computeHaloColor(lumBC)
+    val haloBL = computeHaloColor(lumBL)
+    val haloML = computeHaloColor(lumML)
+
     return EnvironmentalSpecularEdges(
         topLeft = colTL,
         topCenter = colTC,
@@ -766,7 +833,23 @@ fun computeEnvironmentalSpecularEdges(
         bottomRight = colBR,
         bottomCenter = colBC,
         bottomLeft = colBL,
-        midLeft = colML
+        midLeft = colML,
+        skirtTopLeft = skirtTL,
+        skirtTopCenter = skirtTC,
+        skirtTopRight = skirtTR,
+        skirtMidRight = skirtMR,
+        skirtBottomRight = skirtBR,
+        skirtBottomCenter = skirtBC,
+        skirtBottomLeft = skirtBL,
+        skirtMidLeft = skirtML,
+        haloTopLeft = haloTL,
+        haloTopCenter = haloTC,
+        haloTopRight = haloTR,
+        haloMidRight = haloMR,
+        haloBottomRight = haloBR,
+        haloBottomCenter = haloBC,
+        haloBottomLeft = haloBL,
+        haloMidLeft = haloML
     )
 }
 
