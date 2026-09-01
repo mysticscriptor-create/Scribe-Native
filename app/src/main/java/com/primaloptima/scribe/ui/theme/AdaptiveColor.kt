@@ -681,30 +681,7 @@ data class EnvironmentalSpecularEdges(
     val bottomCenter: Color,
     val bottomLeft: Color,
     val midLeft: Color
-) {
-    /**
-     * Secondary constructor supporting positional arguments in legacy order for compatibility.
-     */
-    constructor(
-        topLeft: Color,
-        topCenter: Color,
-        topRight: Color,
-        bottomLeft: Color,
-        bottomCenter: Color,
-        bottomRight: Color,
-        midLeft: Color,
-        midRight: Color
-    ) : this(
-        topLeft = topLeft,
-        topCenter = topCenter,
-        topRight = topRight,
-        midRight = midRight,
-        bottomRight = bottomRight,
-        bottomCenter = bottomCenter,
-        bottomLeft = bottomLeft,
-        midLeft = midLeft
-    )
-}
+)
 
 /**
  * Computes directional environmental specular edge colors modulated by the 8x8 luminance field.

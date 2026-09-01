@@ -273,6 +273,7 @@ fun Modifier.drawEnvironmentalSpecularBorder(
     val bottom = h - halfStroke
 
     val (rTL_outer, rTR_outer, rBR_outer, rBL_outer) = when (shape) {
+        RectangleShape -> FourCorners(0f, 0f, 0f, 0f)
         is CornerBasedShape -> {
             val maxR = minOf(w, h) / 2f
             val tl = shape.topStart.toPx(size, this).coerceIn(0f, maxR)
@@ -281,7 +282,6 @@ fun Modifier.drawEnvironmentalSpecularBorder(
             val bl = shape.bottomStart.toPx(size, this).coerceIn(0f, maxR)
             FourCorners(tl, tr, br, bl)
         }
-        is RectangleShape -> FourCorners(0f, 0f, 0f, 0f)
         else -> {
             val outline = shape.createOutline(size, layoutDirection, this)
             when (outline) {
