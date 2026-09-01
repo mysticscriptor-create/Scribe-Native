@@ -21,6 +21,8 @@ import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.primaloptima.scribe.R
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.ThemeColors
+import com.primaloptima.scribe.util.model.ThemeColorOverrides
+import com.primaloptima.scribe.util.model.ThemeSourcePalette
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlin.math.roundToInt
@@ -178,16 +180,16 @@ class ThemeManager(private val context: Context) {
                 } else {
                     // Migration path from legacy (schemaVersion 0 or missing):
                     // Derive full semantic tokens and set schemaVersion = CURRENT_SCHEMA_VERSION
-                    val derivedColors = deriveThemeColors(
+                    val resolvedColors = resolveThemeColors(
                         bgHex = theme.colors.background,
                         textHex = theme.colors.text,
                         accentHex = theme.colors.accent,
                         isDark = theme.isDark,
-                        base = theme.colors
+                        overrides = theme.overrides
                     )
                     theme.copy(
                         schemaVersion = CURRENT_SCHEMA_VERSION,
-                        colors = derivedColors
+                        colors = resolvedColors
                     )
                 }
             } catch (_: Exception) {
@@ -197,7 +199,22 @@ class ThemeManager(private val context: Context) {
         }
 
         fun parseColor(hex: String): Int = try {
-            Color.parseColor(hex)
+            if (hex.startsWith("#")) {
+                val clean = hex.removePrefix("#")
+                when (clean.length) {
+                    6 -> (0xFF000000.toInt()) or clean.toLong(16).toInt()
+                    8 -> clean.toLong(16).toInt()
+                    3 -> {
+                        val r = clean[0].toString().repeat(2).toInt(16)
+                        val g = clean[1].toString().repeat(2).toInt(16)
+                        val b = clean[2].toString().repeat(2).toInt(16)
+                        (0xFF000000.toInt()) or (r shl 16) or (g shl 8) or b
+                    }
+                    else -> Color.parseColor(hex)
+                }
+            } else {
+                Color.parseColor(hex)
+            }
         } catch (_: Exception) { Color.BLACK }
 
         // ── OKLCH Perceptual Color Space Engine ──
@@ -221,9 +238,9 @@ class ThemeManager(private val context: Context) {
         }
 
         fun colorToOklch(colorInt: Int): Oklch {
-            val r = sRgbToLinear(Color.red(colorInt) / 255.0)
-            val g = sRgbToLinear(Color.green(colorInt) / 255.0)
-            val b = sRgbToLinear(Color.blue(colorInt) / 255.0)
+            val r = sRgbToLinear(((colorInt shr 16) and 0xFF) / 255.0)
+            val g = sRgbToLinear(((colorInt shr 8) and 0xFF) / 255.0)
+            val b = sRgbToLinear((colorInt and 0xFF) / 255.0)
 
             val l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
             val m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
@@ -261,12 +278,15 @@ class ThemeManager(private val context: Context) {
             val g = (linearToSRgb(gLin) * 255.0).roundToInt().coerceIn(0, 255)
             val b = (linearToSRgb(bLin) * 255.0).roundToInt().coerceIn(0, 255)
 
-            return Color.rgb(r, g, b)
+            return (0xFF shl 24) or (r shl 16) or (g shl 8) or b
         }
 
         fun oklchToHex(oklch: Oklch): String {
             val c = oklchToColor(oklch)
-            return String.format("#%02X%02X%02X", Color.red(c), Color.green(c), Color.blue(c))
+            val r = (c shr 16) and 0xFF
+            val g = (c shr 8) and 0xFF
+            val b = c and 0xFF
+            return String.format("#%02X%02X%02X", r, g, b)
         }
 
         fun shiftOklch(colorInt: Int, deltaL: Double, chromaFactor: Double = 1.0): String {
@@ -289,24 +309,20 @@ class ThemeManager(private val context: Context) {
         }
 
         /**
-         * Phase 11 Theme Generation Engine:
-         * Transforms the Source Palette into structured Semantic Roles via OKLCH Perceptual Derivation.
-         * 
-         * Pipeline:
-         * 1. Source Palette Ingestion (Background, Text, Accent, Base overrides)
-         * 2. OKLCH Perceptual Derivation (Uniform lightness and chroma adjustments independent of hue)
-         * 3. Semantic Role Synthesis (5-tier surface elevation ramp, typographical hierarchy,
-         *    state/feedback tokens, editor syntax colors, boundary systems)
-         * 4. Structured Output Generation (Mapped to ThemeColors)
+         * Phase 1 Architecture:
+         * Generates the deterministic default semantic tokens from Foundation Sources (background, text, accent).
+         * Does not apply any user overrides.
          */
-        fun deriveThemeColors(
+        fun generateThemeDefaults(sources: ThemeSourcePalette, isDark: Boolean): ThemeColors {
+            return generateThemeDefaults(sources.background, sources.text, sources.accent, isDark)
+        }
+
+        fun generateThemeDefaults(
             bgHex: String,
             textHex: String,
             accentHex: String,
-            isDark: Boolean,
-            base: ThemeColors? = null
+            isDark: Boolean
         ): ThemeColors {
-            // ── Stage 1: Source Palette Ingestion ────────────────────────────────────
             val bgInt = parseColor(bgHex)
             var textInt = parseColor(textHex)
             val accentInt = parseColor(accentHex)
@@ -314,9 +330,6 @@ class ThemeManager(private val context: Context) {
             val bgOklch = colorToOklch(bgInt)
             var textOklch = colorToOklch(textInt)
             val accentOklch = colorToOklch(accentInt)
-
-            // Check if base theme's background was changed
-            val bgChangedFromBase = base != null && !bgHex.equals(base.background, ignoreCase = true)
 
             // Polarity Auto-Adjustment: Ensure text color has strong perceptual contrast relative to background
             // ΔL between background and text must be sufficient for high APCA readability
@@ -342,13 +355,20 @@ class ThemeManager(private val context: Context) {
             }
 
             fun blend(c1: Int, c2: Int, ratio: Float): String {
-                val r = (Color.red(c1) * (1f - ratio) + Color.red(c2) * ratio).toInt().coerceIn(0, 255)
-                val g = (Color.green(c1) * (1f - ratio) + Color.green(c2) * ratio).toInt().coerceIn(0, 255)
-                val b = (Color.blue(c1) * (1f - ratio) + Color.blue(c2) * ratio).toInt().coerceIn(0, 255)
+                val r1 = (c1 shr 16) and 0xFF
+                val g1 = (c1 shr 8) and 0xFF
+                val b1 = c1 and 0xFF
+
+                val r2 = (c2 shr 16) and 0xFF
+                val g2 = (c2 shr 8) and 0xFF
+                val b2 = c2 and 0xFF
+
+                val r = (r1 * (1f - ratio) + r2 * ratio).toInt().coerceIn(0, 255)
+                val g = (g1 * (1f - ratio) + g2 * ratio).toInt().coerceIn(0, 255)
+                val b = (b1 * (1f - ratio) + b2 * ratio).toInt().coerceIn(0, 255)
                 return String.format("#%02X%02X%02X", r, g, b)
             }
 
-            // ── Stage 2 & 3: Perceptual Derivation & Semantic Role Synthesis ──────────
             return if (isDark) {
                 // Dark Mode Elevation Ramp (preserving subtle hue and saturation with progressive lightness lift)
                 val surfaceLowest = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.01, 0.95), bgOklch.c * 0.95, bgOklch.h))
@@ -378,41 +398,41 @@ class ThemeManager(private val context: Context) {
                 val borderSubtle = oklchToHex(Oklch((bgOklch.l + 0.08).coerceIn(0.01, 0.95), bgOklch.c * 0.75, bgOklch.h))
                 val borderProminent = accentHex
 
-                // Lexer & Writing Engine Syntactical Roles
+                // Lexer & Writing Engine Syntactical Roles (Editorial)
                 val dialogueDefault = createOklchColor(0.90, 0.13, 86.0)
                 val monologueDefault = createOklchColor(0.80, 0.09, 255.0)
+                val headingDefault = accentHex
 
                 // ── Stage 4: Structured Output Assembly ───────────────────────────────
                 ThemeColors(
                     background = bgHex,
-                    surfaceLowest = if (bgChangedFromBase) surfaceLowest else (base?.surfaceLowest?.takeIf { it != base.background } ?: surfaceLowest),
+                    surfaceLowest = surfaceLowest,
                     surface = surface,
-                    surfaceRaised = if (bgChangedFromBase) surfaceRaised else (base?.surfaceRaised?.takeIf { it != base.surface } ?: surfaceRaised),
-                    surfaceOverlay = if (bgChangedFromBase) surfaceOverlay else (base?.surfaceOverlay?.takeIf { it != base.surface } ?: surfaceOverlay),
+                    surfaceRaised = surfaceRaised,
+                    surfaceOverlay = surfaceOverlay,
                     text = effectiveTextHex,
                     mutedText = mutedText,
                     subtleText = subtleText,
                     accent = accentHex,
-                    secondary = base?.secondary?.takeIf { it.isNotEmpty() && it != base.accent } ?: secondaryDefault,
-                    tertiary = base?.tertiary?.takeIf { it.isNotEmpty() && it != base.accent } ?: tertiaryDefault,
-                    success = base?.success?.takeIf { it.isNotEmpty() } ?: successDefault,
-                    warning = base?.warning?.takeIf { it.isNotEmpty() } ?: warningDefault,
-                    error = base?.error?.takeIf { it.isNotEmpty() } ?: errorDefault,
-                    specialHighlight = base?.specialHighlight?.takeIf { it.isNotEmpty() } ?: specialHighlightDefault,
+                    secondary = secondaryDefault,
+                    tertiary = tertiaryDefault,
+                    success = successDefault,
+                    warning = warningDefault,
+                    error = errorDefault,
+                    specialHighlight = specialHighlightDefault,
                     accentMuted = accentMuted,
                     selection = selection,
-                    border = if (bgChangedFromBase) borderSubtle else (base?.borderSubtle ?: borderSubtle),
-                    borderSubtle = if (bgChangedFromBase) borderSubtle else (base?.borderSubtle ?: borderSubtle),
+                    border = borderSubtle,
+                    borderSubtle = borderSubtle,
                     borderProminent = borderProminent,
-                    dialogueText = base?.dialogueText?.takeIf { it != base.accent } ?: dialogueDefault,
-                    monologueText = base?.monologueText?.takeIf { it != base.text } ?: monologueDefault,
-                    headingText = accentHex,
+                    dialogueText = dialogueDefault,
+                    monologueText = monologueDefault,
+                    headingText = headingDefault,
                     toolbar = surface,
                     toolbarText = effectiveTextHex
                 )
             } else {
                 // Light & Tinted Mode Elevation Ramp
-                // Surfaces shift smoothly lighter or towards elevated tonal lightness without hardcoded white jumps
                 val surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.035).coerceIn(0.05, 0.98), bgOklch.c * 1.05, bgOklch.h))
                 val surface = oklchToHex(Oklch((bgOklch.l + 0.045).coerceIn(0.05, 0.99), bgOklch.c * 0.88, bgOklch.h))
                 val surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.085).coerceIn(0.05, 1.0), bgOklch.c * 0.75, bgOklch.h))
@@ -443,36 +463,125 @@ class ThemeManager(private val context: Context) {
                 // Lexer & Writing Engine Syntactical Roles
                 val dialogueDefault = createOklchColor(0.45, 0.15, 65.0)
                 val monologueDefault = createOklchColor(0.40, 0.12, 255.0)
+                val headingDefault = accentHex
 
-                // ── Stage 4: Structured Output Assembly ───────────────────────────────
                 ThemeColors(
                     background = bgHex,
-                    surfaceLowest = if (bgChangedFromBase) surfaceLowest else (base?.surfaceLowest?.takeIf { it != base.background } ?: surfaceLowest),
+                    surfaceLowest = surfaceLowest,
                     surface = surface,
-                    surfaceRaised = if (bgChangedFromBase) surfaceRaised else (base?.surfaceRaised?.takeIf { it != base.surface } ?: surfaceRaised),
-                    surfaceOverlay = if (bgChangedFromBase) surfaceOverlay else (base?.surfaceOverlay?.takeIf { it != base.surface } ?: surfaceOverlay),
+                    surfaceRaised = surfaceRaised,
+                    surfaceOverlay = surfaceOverlay,
                     text = effectiveTextHex,
                     mutedText = mutedText,
                     subtleText = subtleText,
                     accent = accentHex,
-                    secondary = base?.secondary?.takeIf { it.isNotEmpty() && it != base.accent } ?: secondaryDefault,
-                    tertiary = base?.tertiary?.takeIf { it.isNotEmpty() && it != base.accent } ?: tertiaryDefault,
-                    success = base?.success?.takeIf { it.isNotEmpty() } ?: successDefault,
-                    warning = base?.warning?.takeIf { it.isNotEmpty() } ?: warningDefault,
-                    error = base?.error?.takeIf { it.isNotEmpty() } ?: errorDefault,
-                    specialHighlight = base?.specialHighlight?.takeIf { it.isNotEmpty() } ?: specialHighlightDefault,
+                    secondary = secondaryDefault,
+                    tertiary = tertiaryDefault,
+                    success = successDefault,
+                    warning = warningDefault,
+                    error = errorDefault,
+                    specialHighlight = specialHighlightDefault,
                     accentMuted = accentMuted,
                     selection = selection,
-                    border = if (bgChangedFromBase) borderSubtle else (base?.borderSubtle ?: borderSubtle),
-                    borderSubtle = if (bgChangedFromBase) borderSubtle else (base?.borderSubtle ?: borderSubtle),
+                    border = borderSubtle,
+                    borderSubtle = borderSubtle,
                     borderProminent = borderProminent,
-                    dialogueText = base?.dialogueText?.takeIf { it != base.accent } ?: dialogueDefault,
-                    monologueText = base?.monologueText?.takeIf { it != base.text } ?: monologueDefault,
-                    headingText = accentHex,
+                    dialogueText = dialogueDefault,
+                    monologueText = monologueDefault,
+                    headingText = headingDefault,
                     toolbar = surface,
                     toolbarText = effectiveTextHex
                 )
             }
+        }
+
+        /**
+         * Phase 1 Resolution Pipeline:
+         * Resolves the full ThemeColors by layering explicit User Overrides onto Generated Defaults.
+         *
+         * Resolution precedence:
+         * 1. User Override (if non-null and not blank)
+         * 2. Generated Default (from OKLCH derivation)
+         * 3. Fallback token
+         */
+        fun resolveThemeColors(
+            sources: ThemeSourcePalette,
+            overrides: ThemeColorOverrides? = null,
+            isDark: Boolean
+        ): ThemeColors {
+            val defaults = generateThemeDefaults(sources, isDark)
+            if (overrides == null || overrides.isEmpty()) {
+                return defaults
+            }
+            return defaults.copy(
+                surfaceLowest = overrides.surfaceLowest?.takeIf { it.isNotBlank() } ?: defaults.surfaceLowest,
+                surface = overrides.surface?.takeIf { it.isNotBlank() } ?: defaults.surface,
+                surfaceRaised = overrides.surfaceRaised?.takeIf { it.isNotBlank() } ?: defaults.surfaceRaised,
+                surfaceOverlay = overrides.surfaceOverlay?.takeIf { it.isNotBlank() } ?: defaults.surfaceOverlay,
+                mutedText = overrides.mutedText?.takeIf { it.isNotBlank() } ?: defaults.mutedText,
+                subtleText = overrides.subtleText?.takeIf { it.isNotBlank() } ?: defaults.subtleText,
+                secondary = overrides.secondary?.takeIf { it.isNotBlank() } ?: defaults.secondary,
+                tertiary = overrides.tertiary?.takeIf { it.isNotBlank() } ?: defaults.tertiary,
+                accentMuted = overrides.accentMuted?.takeIf { it.isNotBlank() } ?: defaults.accentMuted,
+                selection = overrides.selection?.takeIf { it.isNotBlank() } ?: defaults.selection,
+                borderSubtle = overrides.borderSubtle?.takeIf { it.isNotBlank() } ?: defaults.borderSubtle,
+                border = overrides.borderSubtle?.takeIf { it.isNotBlank() } ?: defaults.borderSubtle,
+                borderProminent = overrides.borderProminent?.takeIf { it.isNotBlank() } ?: defaults.borderProminent,
+                success = overrides.success?.takeIf { it.isNotBlank() } ?: defaults.success,
+                warning = overrides.warning?.takeIf { it.isNotBlank() } ?: defaults.warning,
+                error = overrides.error?.takeIf { it.isNotBlank() } ?: defaults.error,
+                specialHighlight = overrides.specialHighlight?.takeIf { it.isNotBlank() } ?: defaults.specialHighlight,
+                dialogueText = overrides.dialogueText?.takeIf { it.isNotBlank() } ?: defaults.dialogueText,
+                monologueText = overrides.monologueText?.takeIf { it.isNotBlank() } ?: defaults.monologueText,
+                headingText = overrides.headingText?.takeIf { it.isNotBlank() } ?: defaults.headingText,
+                toolbar = overrides.surface?.takeIf { it.isNotBlank() } ?: defaults.surface,
+                toolbarText = defaults.toolbarText
+            )
+        }
+
+        fun resolveThemeColors(
+            bgHex: String,
+            textHex: String,
+            accentHex: String,
+            isDark: Boolean,
+            overrides: ThemeColorOverrides? = null
+        ): ThemeColors {
+            return resolveThemeColors(
+                sources = ThemeSourcePalette(bgHex, textHex, accentHex),
+                overrides = overrides,
+                isDark = isDark
+            )
+        }
+
+        /**
+         * Resolves an entire AppTheme instance to its authoritative resolved colors.
+         */
+        fun resolveTheme(theme: AppTheme): AppTheme {
+            val resolvedColors = resolveThemeColors(
+                sources = theme.sourcePalette(),
+                overrides = theme.overrides,
+                isDark = theme.isDark
+            )
+            return theme.copy(colors = resolvedColors)
+        }
+
+        /**
+         * Backward compatibility wrapper for deriveThemeColors.
+         */
+        fun deriveThemeColors(
+            bgHex: String,
+            textHex: String,
+            accentHex: String,
+            isDark: Boolean,
+            base: ThemeColors? = null
+        ): ThemeColors {
+            return resolveThemeColors(
+                bgHex = bgHex,
+                textHex = textHex,
+                accentHex = accentHex,
+                isDark = isDark,
+                overrides = null
+            )
         }
 
         fun resolveTypeface(context: Context, fontFamilyKey: String): Typeface {
@@ -520,7 +629,12 @@ class ThemeManager(private val context: Context) {
             headingHex: String? = null
         ): com.primaloptima.scribe.ui.theme.ThemeSemanticContrastReport {
             val isDark = isDarkColor(bgHex)
-            val derived = deriveThemeColors(bgHex, textHex, accentHex, isDark)
+            val overrides = ThemeColorOverrides(
+                dialogueText = dialogueHex,
+                monologueText = monologueHex,
+                headingText = headingHex
+            )
+            val derived = resolveThemeColors(bgHex, textHex, accentHex, isDark, overrides)
             val bgCol = ComposeColor(parseColor(derived.background))
             val textCol = ComposeColor(parseColor(derived.text))
             val accentCol = ComposeColor(parseColor(derived.accent))
@@ -532,9 +646,9 @@ class ThemeManager(private val context: Context) {
             val borderCol = ComposeColor(parseColor(derived.borderSubtle))
             val focusBorderCol = ComposeColor(parseColor(derived.borderProminent))
 
-            val dialogueCol = dialogueHex?.let { ComposeColor(parseColor(it)) } ?: accentCol
-            val monologueCol = monologueHex?.let { ComposeColor(parseColor(it)) } ?: mutedCol
-            val headingCol = headingHex?.let { ComposeColor(parseColor(it)) } ?: accentCol
+            val dialogueCol = ComposeColor(parseColor(derived.dialogueText))
+            val monologueCol = ComposeColor(parseColor(derived.monologueText))
+            val headingCol = ComposeColor(parseColor(derived.headingText))
 
             val scribeColors = com.primaloptima.scribe.ui.theme.ScribeColors(
                 surfaces = com.primaloptima.scribe.ui.theme.SurfaceColors(

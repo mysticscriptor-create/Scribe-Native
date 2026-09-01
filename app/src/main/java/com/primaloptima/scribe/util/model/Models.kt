@@ -69,6 +69,63 @@ data class OutlineEntry(
 
 // ── App theme ─────────────────────────────────────────────────────────────────
 
+/**
+ * Phase 1 Foundation Sources:
+ * Authoritative authoring inputs that drive default color generation.
+ */
+@Immutable
+@Serializable
+data class ThemeSourcePalette(
+    val background: String,
+    val text: String,
+    val accent: String
+)
+
+/**
+ * Phase 1 Explicit User Overrides:
+ * Explicit representation of user-customized semantic colors.
+ * When null, the token resolves to its generated default.
+ */
+@Immutable
+@Serializable
+data class ThemeColorOverrides(
+    val surfaceLowest: String? = null,
+    val surface: String? = null,
+    val surfaceRaised: String? = null,
+    val surfaceOverlay: String? = null,
+
+    val mutedText: String? = null,
+    val subtleText: String? = null,
+
+    val secondary: String? = null,
+    val tertiary: String? = null,
+    val accentMuted: String? = null,
+    val selection: String? = null,
+
+    val borderSubtle: String? = null,
+    val borderProminent: String? = null,
+
+    val success: String? = null,
+    val warning: String? = null,
+    val error: String? = null,
+    val specialHighlight: String? = null,
+
+    val dialogueText: String? = null,
+    val monologueText: String? = null,
+    val headingText: String? = null
+) {
+    fun isEmpty(): Boolean =
+        surfaceLowest == null && surface == null && surfaceRaised == null && surfaceOverlay == null &&
+        mutedText == null && subtleText == null &&
+        secondary == null && tertiary == null &&
+        accentMuted == null && selection == null &&
+        borderSubtle == null && borderProminent == null &&
+        success == null && warning == null && error == null && specialHighlight == null &&
+        dialogueText == null && monologueText == null && headingText == null
+
+    fun isNotEmpty(): Boolean = !isEmpty()
+}
+
 @Immutable
 @Serializable
 data class ThemeColors(
@@ -125,6 +182,7 @@ data class AppTheme(
     val isDark: Boolean,
     val builtIn: Boolean,
     val colors: ThemeColors,
+    val overrides: ThemeColorOverrides? = null,
     /** Font family key matching Google Fonts or system fonts */
     val fontFamily: String,
     val fontSize: Int,
@@ -185,7 +243,13 @@ data class AppTheme(
     /** 8x8 precomputed box-averaged luminance field for subtle environmental edge-light modulation. */
     @SerialName("savedBgLuminanceField")
     val savedBgLuminanceField: List<Float> = emptyList()
-)
+) {
+    fun sourcePalette(): ThemeSourcePalette = ThemeSourcePalette(
+        background = colors.background,
+        text = colors.text,
+        accent = colors.accent
+    )
+}
 
 // ── SAF scan result ───────────────────────────────────────────────────────────
 

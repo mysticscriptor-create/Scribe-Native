@@ -21,4 +21,6 @@ original_scribe_repo/
 .build-outputs/
 IMPROVEMENT_PLAN.md
 PORTING_PLAN.md
+node_modules/
+dist/
 

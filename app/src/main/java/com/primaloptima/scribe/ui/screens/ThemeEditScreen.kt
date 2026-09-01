@@ -198,13 +198,13 @@ fun ThemeEditScreen(
         }
     }
 
-    val derivedPreview = remember(bgHex, textHex, accentHex, originalTheme.isDark) {
-        ThemeManager.deriveThemeColors(
+    val derivedPreview = remember(bgHex, textHex, accentHex, originalTheme.isDark, originalTheme.overrides) {
+        ThemeManager.resolveThemeColors(
             bgHex = bgHex,
             textHex = textHex,
             accentHex = accentHex,
             isDark = ThemeManager.isDarkColor(bgHex),
-            base = originalTheme.colors
+            overrides = originalTheme.overrides
         )
     }
 

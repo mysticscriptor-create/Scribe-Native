@@ -79,6 +79,10 @@ android {
         abortOnError = false
         checkReleaseBuilds = false
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 // Fix 4 (DISABLED — see plugin comment above)
