@@ -157,7 +157,7 @@ fun ThemeEditScreen(
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
-                    .hazeSource(state = hazeState)
+                    .then(if (hazeState != null) Modifier.hazeSource(hazeState) else Modifier)
                     .padding(paddingValues)
                     .padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
