@@ -16,8 +16,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -27,7 +29,7 @@ import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.parseComposeColor
 
 /**
- * Tile for Foundation Sources (Background, Text, Accent).
+ * Tactile tile for Foundation Sources (Background, Text, Accent).
  * Foundation sources drive the automated OKLCH perceptual derivation.
  */
 @Composable
@@ -43,81 +45,91 @@ fun FoundationColorTile(
     val checkDark = ScribeTheme.colors.surfaces.surfaceRaised
     val checkLight = ScribeTheme.colors.surfaces.surface
 
-    Column(
-        horizontalAlignment = Alignment.Start,
+    Card(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .clickable { onClick() }
-            .padding(4.dp)
+            .clickable { onClick() },
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.7f)),
+        border = androidx.compose.foundation.BorderStroke(1.dp, borderSubtle)
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(58.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .border(1.dp, borderSubtle, RoundedCornerShape(10.dp))
+        Column(
+            modifier = Modifier.padding(10.dp),
+            horizontalAlignment = Alignment.Start
         ) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val squareSize = 8.dp.toPx()
-                val rows = (size.height / squareSize).toInt() + 1
-                val cols = (size.width / squareSize).toInt() + 1
-                for (r in 0 until rows) {
-                    for (c in 0 until cols) {
-                        val isDark = (r + c) % 2 == 0
-                        drawRect(
-                            color = if (isDark) checkDark else checkLight,
-                            topLeft = androidx.compose.ui.geometry.Offset(c * squareSize, r * squareSize),
-                            size = androidx.compose.ui.geometry.Size(squareSize, squareSize)
-                        )
-                    }
-                }
-            }
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(color)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(6.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = label,
-                fontWeight = FontWeight.Bold,
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Surface(
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(4.dp)
+                    .fillMaxWidth()
+                    .height(52.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(1.dp, borderSubtle.copy(alpha = 0.8f), RoundedCornerShape(8.dp))
             ) {
-                Text(
-                    text = "Source",
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val squareSize = 8.dp.toPx()
+                    val rows = (size.height / squareSize).toInt() + 1
+                    val cols = (size.width / squareSize).toInt() + 1
+                    for (r in 0 until rows) {
+                        for (c in 0 until cols) {
+                            val isDark = (r + c) % 2 == 0
+                            drawRect(
+                                color = if (isDark) checkDark else checkLight,
+                                topLeft = androidx.compose.ui.geometry.Offset(c * squareSize, r * squareSize),
+                                size = androidx.compose.ui.geometry.Size(squareSize, squareSize)
+                            )
+                        }
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(color)
                 )
             }
-        }
 
-        Text(
-            text = hex.uppercase(),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Text(
-            text = roleDescription,
-            fontSize = 10.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            maxLines = 1
-        )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = label,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Text(
+                        text = "Source",
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            Text(
+                text = hex.uppercase(),
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Text(
+                text = roleDescription,
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                maxLines = 1
+            )
+        }
     }
 }
 
@@ -139,105 +151,114 @@ fun OverrideColorTile(
     val checkDark = ScribeTheme.colors.surfaces.surfaceRaised
     val checkLight = ScribeTheme.colors.surfaces.surface
 
-    Column(
-        horizontalAlignment = Alignment.Start,
+    Card(
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.6f))
-            .border(1.dp, if (isOverridden) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else borderSubtle, RoundedCornerShape(10.dp))
-            .clickable { onClick() }
-            .padding(8.dp)
+            .clickable { onClick() },
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.5f)),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (isOverridden) MaterialTheme.colorScheme.primary.copy(alpha = 0.45f) else borderSubtle.copy(alpha = 0.6f)
+        )
     ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(44.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .border(1.dp, borderSubtle, RoundedCornerShape(8.dp))
+        Column(
+            modifier = Modifier.padding(8.dp),
+            horizontalAlignment = Alignment.Start
         ) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                val squareSize = 8.dp.toPx()
-                val rows = (size.height / squareSize).toInt() + 1
-                val cols = (size.width / squareSize).toInt() + 1
-                for (r in 0 until rows) {
-                    for (c in 0 until cols) {
-                        val isDark = (r + c) % 2 == 0
-                        drawRect(
-                            color = if (isDark) checkDark else checkLight,
-                            topLeft = androidx.compose.ui.geometry.Offset(c * squareSize, r * squareSize),
-                            size = androidx.compose.ui.geometry.Size(squareSize, squareSize)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .border(1.dp, borderSubtle.copy(alpha = 0.8f), RoundedCornerShape(6.dp))
+            ) {
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val squareSize = 8.dp.toPx()
+                    val rows = (size.height / squareSize).toInt() + 1
+                    val cols = (size.width / squareSize).toInt() + 1
+                    for (r in 0 until rows) {
+                        for (c in 0 until cols) {
+                            val isDark = (r + c) % 2 == 0
+                            drawRect(
+                                color = if (isDark) checkDark else checkLight,
+                                topLeft = androidx.compose.ui.geometry.Offset(c * squareSize, r * squareSize),
+                                size = androidx.compose.ui.geometry.Size(squareSize, squareSize)
+                            )
+                        }
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(color)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = label,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
+                )
+
+                if (isOverridden) {
+                    IconButton(
+                        onClick = onReset,
+                        modifier = Modifier.size(20.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "Reset to auto",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(13.dp)
                         )
                     }
                 }
             }
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(color)
-            )
-        }
 
-        Spacer(modifier = Modifier.height(6.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = label,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1
-            )
-
-            if (isOverridden) {
-                IconButton(
-                    onClick = onReset,
-                    modifier = Modifier.size(20.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Refresh,
-                        contentDescription = "Reset to auto",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
-            }
-        }
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = hex.uppercase(),
-                fontSize = 10.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Surface(
-                color = if (isOverridden)
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                shape = RoundedCornerShape(4.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (isOverridden) "Custom" else "Auto",
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = if (isOverridden) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    text = hex.uppercase(),
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                Surface(
+                    color = if (isOverridden)
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Text(
+                        text = if (isOverridden) "Custom" else "Auto",
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isOverridden) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }
 }
 
 /**
- * Interactive color picker with HSV sliders and quick presets.
+ * Interactive color picker with HSV sliders, gradient tracks, and quick presets.
  */
 @Composable
 fun CustomColorPicker(
@@ -264,24 +285,29 @@ fun CustomColorPicker(
 
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(currentColor)
-                    .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
+        // Quick Presets
+        val presets = listOf(
+            "#FAFAF7", "#F3F4F6", "#E5E7EB", "#D1D5DB",
+            "#1E1E2E", "#0D1117", "#121212", "#000000",
+            "#3B82F6", "#6366F1", "#8B5CF6", "#EC4899",
+            "#E11D48", "#F97316", "#F59E0B", "#10B981"
+        )
+        val activeRingColor = MaterialTheme.colorScheme.primary
+        val outlineColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = "Palette Swatches",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            val presets = listOf("#FAFAF7", "#1E1E2E", "#0D1117", "#000000", "#3366FF", "#E11D48", "#10B981", "#F59E0B", "#8B5CF6")
-            val activeRingColor = ScribeTheme.colors.interaction.primary
-            val outlineColor = MaterialTheme.colorScheme.outline
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(vertical = 2.dp)
+            ) {
                 items(presets) { p ->
                     val c = parseComposeColor(p)
                     val isSelected = currentColor.toArgb() == c.toArgb()
@@ -303,8 +329,15 @@ fun CustomColorPicker(
             }
         }
 
-        Column {
-            Text("Hue", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // Hue Slider with Spectrum Track
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Hue", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                Text("${hue.toInt()}°", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+            }
             Slider(
                 value = hue,
                 onValueChange = { update(it, sat, valVal) },
@@ -312,8 +345,15 @@ fun CustomColorPicker(
             )
         }
 
-        Column {
-            Text("Saturation", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // Saturation Slider
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Saturation", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                Text("${(sat * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+            }
             Slider(
                 value = sat,
                 onValueChange = { update(hue, it, valVal) },
@@ -321,8 +361,15 @@ fun CustomColorPicker(
             )
         }
 
-        Column {
-            Text("Brightness", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // Brightness / Value Slider
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Brightness", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                Text("${(valVal * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
+            }
             Slider(
                 value = valVal,
                 onValueChange = { update(hue, sat, it) },
@@ -333,7 +380,7 @@ fun CustomColorPicker(
 }
 
 /**
- * Modal bottom sheet / frosted dialog for selecting color values.
+ * Modal dialog for selecting color values with live comparison swatch and hex input.
  */
 @Composable
 fun ColorPickerBottomSheet(
@@ -343,32 +390,76 @@ fun ColorPickerBottomSheet(
     onColorSelected: (String) -> Unit
 ) {
     val defaultColor = MaterialTheme.colorScheme.primary
-    var selectedColor by remember(initialHex) { mutableStateOf(parseComposeColor(initialHex, defaultColor)) }
+    val initialColor = remember(initialHex) { parseComposeColor(initialHex, defaultColor) }
+    var selectedColor by remember(initialHex) { mutableStateOf(initialColor) }
     var hexText by remember(initialHex) { mutableStateOf(initialHex) }
 
     FrostedDialog(
         onDismissRequest = onDismiss,
-        title = { Text(title, fontWeight = FontWeight.Bold, fontSize = 18.sp) },
+        title = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(title, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text(
+                        text = hexText.uppercase(),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        },
         text = {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(80.dp)
-                        .clip(CircleShape)
-                        .background(selectedColor)
-                        .border(2.dp, MaterialTheme.colorScheme.outline, CircleShape)
-                )
+                // Color Comparison (Initial vs Live Selected)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("Original", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(initialColor)
+                                .border(1.5.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                        )
+                    }
 
-                Text(
-                    text = hexText.uppercase(),
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
-                    textAlign = TextAlign.Center
-                )
+                    Spacer(modifier = Modifier.width(24.dp))
+
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("Selected", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(CircleShape)
+                                .background(selectedColor)
+                                .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                        )
+                    }
+                }
 
                 CustomColorPicker(
                     modifier = Modifier.fillMaxWidth(),
@@ -390,8 +481,9 @@ fun ColorPickerBottomSheet(
                             } catch (_: Exception) {}
                         }
                     },
-                    label = { Text("Hex Color") },
+                    label = { Text("Hex Code") },
                     singleLine = true,
+                    shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -402,10 +494,12 @@ fun ColorPickerBottomSheet(
                     onColorSelected(hexText)
                     onDismiss()
                 },
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp)
             ) {
-                Text("Done")
+                Text("Apply Color", fontWeight = FontWeight.Bold)
             }
         }
     )
 }
+

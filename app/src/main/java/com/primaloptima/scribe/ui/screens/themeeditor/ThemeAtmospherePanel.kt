@@ -52,10 +52,35 @@ fun ThemeAtmospherePanel(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Background Artwork & Canvas",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = if (bgUri.isNullOrEmpty()) "Solid Base" else "Artwork Active",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
                 Text(
-                    text = "Background Artwork & Canvas",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
+                    text = "Apply immersive editorial cover photography or textured patterns under the writing canvas.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 16.sp
                 )
 
                 if (bgUri.isNullOrEmpty()) {
@@ -64,9 +89,9 @@ fun ThemeAtmospherePanel(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Icon(Icons.Default.Image, contentDescription = null)
+                        Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Select Background Image")
+                        Text("Choose Artwork Image", fontWeight = FontWeight.SemiBold)
                     }
                 } else {
                     Row(
@@ -78,7 +103,7 @@ fun ThemeAtmospherePanel(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(10.dp)
                         ) {
-                            Text("Change Image")
+                            Text("Change Image", fontWeight = FontWeight.SemiBold)
                         }
 
                         if (!bgOriginalUri.isNullOrEmpty() || !bgUri.isNullOrEmpty()) {
@@ -86,7 +111,7 @@ fun ThemeAtmospherePanel(
                                 onClick = onCropImage,
                                 shape = RoundedCornerShape(10.dp)
                             ) {
-                                Icon(Icons.Default.Crop, contentDescription = "Crop", modifier = Modifier.size(18.dp))
+                                Icon(Icons.Default.Crop, contentDescription = "Crop", modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("Crop")
                             }
@@ -106,7 +131,7 @@ fun ThemeAtmospherePanel(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Blur Image Canvas", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text("Soft Blur Artwork Canvas", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                         Switch(
                             checked = bgMode == "blurred",
                             onCheckedChange = { isBlurred ->
@@ -116,13 +141,24 @@ fun ThemeAtmospherePanel(
                     }
 
                     if (bgMode == "blurred") {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text("Artwork Blur Radius", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                                Text("${blurIntensity.toInt()} dp", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    shape = RoundedCornerShape(4.dp)
+                                ) {
+                                    Text(
+                                        text = "${blurIntensity.toInt()} dp",
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                             Slider(
                                 value = blurIntensity,
@@ -133,13 +169,24 @@ fun ThemeAtmospherePanel(
                     }
 
                     // Overlay Opacity Slider
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Darkening Overlay Opacity", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                            Text("${(bgOpacity * 100).toInt()}%", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Text("Contrast Darkening Overlay", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    text = "${(bgOpacity * 100).toInt()}%",
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                         Slider(
                             value = bgOpacity,
@@ -161,10 +208,35 @@ fun ThemeAtmospherePanel(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Frosted Glass & Translucency",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = if (frostedGlassEnabled) "Glass On" else "Opaque Surface",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
+
                 Text(
-                    text = "Frosted Glass & Translucency",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
+                    text = "Refined hardware-accelerated frosted glass diffusion across toolbars and elevated cards.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 16.sp
                 )
 
                 Row(
@@ -172,7 +244,7 @@ fun ThemeAtmospherePanel(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("Enable Glassmorphism", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Text("Enable Glassmorphic Diffusion", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                     Switch(
                         checked = frostedGlassEnabled,
                         onCheckedChange = onFrostedGlassEnabledChange
@@ -185,20 +257,31 @@ fun ThemeAtmospherePanel(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Tint with Theme Surface", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text("Tint with Theme Surface Base", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                         Switch(
                             checked = frostedTintEnabled,
                             onCheckedChange = onFrostedTintEnabledChange
                         )
                     }
 
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text("Glass Blur Strength", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                            Text("${frostedBlurRadius.toInt()} dp", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                shape = RoundedCornerShape(4.dp)
+                            ) {
+                                Text(
+                                    text = "${frostedBlurRadius.toInt()} dp",
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         }
                         Slider(
                             value = frostedBlurRadius,
@@ -211,3 +294,4 @@ fun ThemeAtmospherePanel(
         }
     }
 }
+

@@ -36,7 +36,7 @@ fun ThemeTypographyPanel(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 1. Font Family Selection
+        // 1. Font Family Selection with Live Specimen
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(14.dp),
@@ -46,14 +46,32 @@ fun ThemeTypographyPanel(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = "Typeface & Family",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Typeface & Specimen",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "Editorial Fonts",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
 
                 Text(
-                    text = "Select the primary editorial typeface for reading and writing prose.",
+                    text = "Select the primary editorial typeface. Live specimen shows distinct glyph rhythm and optical balance.",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     lineHeight = 16.sp
@@ -65,43 +83,59 @@ fun ThemeTypographyPanel(
                                 (option.key == "default" && (fontFamily.isEmpty() || fontFamily.equals("default", ignoreCase = true)))
                         val optionFont = FontHelper.getFontFamily(option.key)
 
-                        Row(
+                        Card(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(
-                                    if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                                    else MaterialTheme.colorScheme.surfaceContainerLow
-                                )
-                                .border(
-                                    1.dp,
-                                    if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                                    RoundedCornerShape(10.dp)
-                                )
-                                .clickable { onFontFamilyChange(option.key) }
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .clickable { onFontFamilyChange(option.key) },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                                else MaterialTheme.colorScheme.surfaceContainerLow
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(
+                                width = if (isSelected) 1.5.dp else 1.dp,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                            )
                         ) {
-                            Column {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = option.name,
+                                            fontFamily = optionFont,
+                                            fontSize = 15.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = option.subtitle,
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = { onFontFamilyChange(option.key) }
+                                    )
+                                }
+
+                                // Specimen Line
                                 Text(
-                                    text = option.name,
+                                    text = "Sphinx of black quartz, judge my vow • 12345",
                                     fontFamily = optionFont,
-                                    fontSize = 15.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = option.subtitle,
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    fontSize = 12.sp,
+                                    color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                                 )
                             }
-
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = { onFontFamilyChange(option.key) }
-                            )
                         }
                     }
                 }
@@ -118,20 +152,49 @@ fun ThemeTypographyPanel(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Text(
-                    text = "Editorial Metrics & Metrics",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Typesetting & Rhythm",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "Geometry & Spacing",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
 
                 // Font Size
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("Base Font Size", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Text("${fontSize.toInt()} sp", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "${fontSize.toInt()} sp",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                     Slider(
                         value = fontSize,
@@ -142,13 +205,24 @@ fun ThemeTypographyPanel(
                 }
 
                 // Line Height
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("Line Spacing Multiplier", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Text(String.format(java.util.Locale.US, "%.2fx", lineHeight), fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = String.format(java.util.Locale.US, "%.2fx", lineHeight),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                     Slider(
                         value = lineHeight,
@@ -158,13 +232,24 @@ fun ThemeTypographyPanel(
                 }
 
                 // Paragraph Spacing
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text("Paragraph Spacing", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Text("${paragraphSpacing.toInt()} dp", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "${paragraphSpacing.toInt()} dp",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                     Slider(
                         value = paragraphSpacing,
@@ -175,13 +260,24 @@ fun ThemeTypographyPanel(
                 }
 
                 // Side Margins
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Horizontal Margins", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                        Text("${sideMargins.toInt()} dp", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text("Horizontal Reading Margins", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "${sideMargins.toInt()} dp",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                     Slider(
                         value = sideMargins,
@@ -194,3 +290,4 @@ fun ThemeTypographyPanel(
         }
     }
 }
+

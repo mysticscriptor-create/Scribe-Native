@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -96,9 +97,10 @@ fun ThemePreviewStage(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .height(220.dp),
+            .height(230.dp),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = bgColor)
+        colors = CardDefaults.cardColors(containerColor = bgColor),
+        border = androidx.compose.foundation.BorderStroke(1.dp, borderSubtleColor.copy(alpha = 0.6f))
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             // Background Image if configured
@@ -140,32 +142,52 @@ fun ThemePreviewStage(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(surfaceColor.copy(alpha = 0.92f))
-                        .border(width = 0.5.dp, color = borderSubtleColor)
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                        .background(surfaceColor.copy(alpha = 0.94f))
+                        .border(width = 0.5.dp, color = borderSubtleColor.copy(alpha = 0.5f))
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = null,
-                        tint = textColor,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Text(
-                        text = themeName,
-                        color = textColor,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Ch. 1 • 840 words", color = mutedTextColor, fontSize = 10.sp)
-                        Spacer(modifier = Modifier.width(6.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = null,
+                            tint = textColor,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            text = if (themeName.isNotBlank()) themeName else "Untitled Theme",
+                            color = textColor,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            maxLines = 1
+                        )
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Surface(
+                            color = accentMutedColor,
+                            shape = RoundedCornerShape(4.dp)
+                        ) {
+                            Text(
+                                text = "840 words",
+                                color = accentColor,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                            )
+                        }
                         Icon(
                             Icons.Default.MoreVert,
                             contentDescription = null,
                             tint = textColor,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(15.dp)
                         )
                     }
                 }
@@ -174,7 +196,7 @@ fun ThemePreviewStage(
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .padding(horizontal = sideMargins.dp, vertical = 6.dp),
+                        .padding(horizontal = sideMargins.coerceIn(8f, 28f).dp, vertical = 6.dp),
                     verticalArrangement = Arrangement.SpaceEvenly
                 ) {
                     // Heading (styled via headingText token)
@@ -183,7 +205,7 @@ fun ThemePreviewStage(
                         color = headingColor,
                         fontFamily = font,
                         fontWeight = FontWeight.Bold,
-                        fontSize = (fontSize * 0.82f).sp
+                        fontSize = (fontSize * 0.80f).sp
                     )
 
                     // Prose snippet showcasing Dialogue, Narrative, Monologue & Caret
@@ -205,8 +227,8 @@ fun ThemePreviewStage(
                                     }
                                 },
                                 fontFamily = font,
-                                fontSize = (fontSize * 0.65f).sp,
-                                lineHeight = (fontSize * 0.65f * lineHeight).sp,
+                                fontSize = (fontSize * 0.62f).sp,
+                                lineHeight = (fontSize * 0.62f * lineHeight).sp,
                                 textAlign = textAlign
                             )
                         }
@@ -214,7 +236,7 @@ fun ThemePreviewStage(
                         Box(
                             modifier = Modifier
                                 .width(2.dp)
-                                .height(14.dp)
+                                .height(13.dp)
                                 .graphicsLayer { alpha = cursorAlpha }
                                 .background(accentColor)
                         )
@@ -236,7 +258,7 @@ fun ThemePreviewStage(
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "Pinned Note: Character Arc & Theme",
+                            text = "Character Arc & Scene Tone",
                             color = textColor,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Medium
@@ -261,18 +283,19 @@ fun ThemePreviewStage(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(surfaceColor.copy(alpha = 0.92f))
-                        .border(width = 0.5.dp, color = borderSubtleColor)
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                        .background(surfaceColor.copy(alpha = 0.94f))
+                        .border(width = 0.5.dp, color = borderSubtleColor.copy(alpha = 0.5f))
+                        .padding(horizontal = 16.dp, vertical = 5.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.FormatBold, contentDescription = null, tint = accentColor, modifier = Modifier.size(14.dp))
-                    Icon(Icons.Default.FormatItalic, contentDescription = null, tint = textColor, modifier = Modifier.size(14.dp))
-                    Icon(Icons.AutoMirrored.Filled.FormatListBulleted, contentDescription = null, tint = textColor, modifier = Modifier.size(14.dp))
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = accentColor, modifier = Modifier.size(14.dp))
+                    Icon(Icons.Default.FormatBold, contentDescription = null, tint = accentColor, modifier = Modifier.size(13.dp))
+                    Icon(Icons.Default.FormatItalic, contentDescription = null, tint = textColor, modifier = Modifier.size(13.dp))
+                    Icon(Icons.AutoMirrored.Filled.FormatListBulleted, contentDescription = null, tint = textColor, modifier = Modifier.size(13.dp))
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = accentColor, modifier = Modifier.size(13.dp))
                 }
             }
         }
     }
 }
+

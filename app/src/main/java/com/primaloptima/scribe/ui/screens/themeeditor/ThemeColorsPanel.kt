@@ -11,6 +11,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,16 +57,22 @@ fun ThemeColorsPanel(
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp
                     )
-                    Text(
-                        text = "Core Engine",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "Core Driving Inputs",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
 
                 Text(
-                    text = "Authoritative base inputs. Modifying foundation colors regenerates all dependent elevations, boundaries, and secondary tones.",
+                    text = "Core palette inputs driving automated OKLCH perceptual derivation for all dependent elevations, rims, and secondary tones.",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     lineHeight = 16.sp
@@ -78,21 +85,21 @@ fun ThemeColorsPanel(
                     FoundationColorTile(
                         label = "Background",
                         hex = draft.bgHex,
-                        roleDescription = "Canvas & app base",
+                        roleDescription = "Canvas & base",
                         onClick = { onSelectTarget(ColorPickerTarget.BACKGROUND) },
                         modifier = Modifier.weight(1f)
                     )
                     FoundationColorTile(
                         label = "Text",
                         hex = draft.textHex,
-                        roleDescription = "Primary reading prose",
+                        roleDescription = "Reading prose",
                         onClick = { onSelectTarget(ColorPickerTarget.TEXT) },
                         modifier = Modifier.weight(1f)
                     )
                     FoundationColorTile(
-                        label = "Primary",
+                        label = "Accent",
                         hex = draft.accentHex,
-                        roleDescription = "Key actions & carets",
+                        roleDescription = "Actions & cursor",
                         onClick = { onSelectTarget(ColorPickerTarget.ACCENT) },
                         modifier = Modifier.weight(1f)
                     )
@@ -120,12 +127,18 @@ fun ThemeColorsPanel(
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp
                     )
-                    Text(
-                        text = "Semantic Tokens",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "Lexer Tokens",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
                 }
 
                 Text(
@@ -231,11 +244,23 @@ fun ThemeColorsPanel(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text(
-                    text = "5-Tier Perceptual Elevation Ramp",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "5-Tier Perceptual Elevation Ramp",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = "Auto-Scaled",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -260,11 +285,12 @@ fun ThemeColorsPanel(
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(swatchColor)
                                 .border(1.dp, borderSubtle, RoundedCornerShape(6.dp))
-                                .padding(vertical = 6.dp, horizontal = 2.dp),
+                                .padding(vertical = 8.dp, horizontal = 2.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(label, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = swatchText, maxLines = 1)
-                            Text(hex, fontSize = 8.sp, color = swatchText.copy(alpha = 0.8f), maxLines = 1)
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(hex.uppercase(), fontSize = 8.sp, fontFamily = FontFamily.Monospace, color = swatchText.copy(alpha = 0.85f), maxLines = 1)
                         }
                     }
                 }
@@ -303,8 +329,8 @@ fun ThemeColorsPanel(
                                 .weight(1f)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 8.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
@@ -316,7 +342,7 @@ fun ThemeColorsPanel(
                             )
                             Column {
                                 Text(label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                                Text(if (hex.isNotBlank()) hex.uppercase() else "Auto", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(if (hex.isNotBlank()) hex.uppercase() else "Auto", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -331,3 +357,4 @@ fun ThemeColorsPanel(
         )
     }
 }
+

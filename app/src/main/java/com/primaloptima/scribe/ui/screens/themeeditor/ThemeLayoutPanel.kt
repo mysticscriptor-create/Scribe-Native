@@ -1,5 +1,8 @@
 package com.primaloptima.scribe.ui.screens.themeeditor
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -8,7 +11,9 @@ import androidx.compose.material.icons.filled.FormatAlignCenter
 import androidx.compose.material.icons.filled.FormatAlignJustify
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,28 +43,83 @@ fun ThemeLayoutPanel(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Text Alignment & Reading Flow",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "Canvas Flow",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
                 Text(
-                    text = "Text Alignment",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
+                    text = "Controls paragraph justification and optical margin alignment on the reading canvas.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    lineHeight = 16.sp
                 )
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     val alignOptions = listOf(
-                        "left" to Icons.AutoMirrored.Filled.FormatAlignLeft,
-                        "justified" to Icons.Default.FormatAlignJustify,
-                        "center" to Icons.Default.FormatAlignCenter
+                        Triple("left", "Left", Icons.AutoMirrored.Filled.FormatAlignLeft),
+                        Triple("justified", "Justified", Icons.Default.FormatAlignJustify),
+                        Triple("center", "Center", Icons.Default.FormatAlignCenter)
                     )
-                    alignOptions.forEach { (key, icon) ->
-                        OutlinedIconToggleButton(
-                            checked = textAlignment == key,
-                            onCheckedChange = { onTextAlignmentChange(key) },
-                            modifier = Modifier.size(56.dp)
+                    alignOptions.forEach { (key, label, icon) ->
+                        val isSelected = textAlignment == key
+                        Card(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(10.dp))
+                                .clickable { onTextAlignmentChange(key) },
+                            shape = RoundedCornerShape(10.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                                else MaterialTheme.colorScheme.surfaceContainerLow
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(
+                                width = if (isSelected) 1.5.dp else 1.dp,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                            )
                         ) {
-                            Icon(icon, contentDescription = key, modifier = Modifier.size(24.dp))
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = label,
+                                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    text = label,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                )
+                            }
                         }
                     }
                 }
@@ -76,11 +136,29 @@ fun ThemeLayoutPanel(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = "Theme Scope",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Theme Scope",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "Target Shell",
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
 
                 Text(
                     text = "Choose whether this theme applies exclusively to the distraction-free editor canvas or styles the entire application shell.",
@@ -90,14 +168,14 @@ fun ThemeLayoutPanel(
                 )
 
                 SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                    val scopes = listOf("editor_only" to "Editor Only", "whole_app" to "Whole App")
+                    val scopes = listOf("editor_only" to "Editor Only", "whole_app" to "Whole App Shell")
                     scopes.forEachIndexed { index, (scopeKey, label) ->
                         SegmentedButton(
                             selected = themeScope == scopeKey,
                             onClick = { onThemeScopeChange(scopeKey) },
                             shape = SegmentedButtonDefaults.itemShape(index = index, count = scopes.size)
                         ) {
-                            Text(label)
+                            Text(label, fontWeight = if (themeScope == scopeKey) FontWeight.Bold else FontWeight.Normal)
                         }
                     }
                 }
@@ -105,3 +183,4 @@ fun ThemeLayoutPanel(
         }
     }
 }
+
