@@ -78,15 +78,17 @@ import com.primaloptima.scribe.util.ScribeDataStore
 import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.util.model.AppTheme
 import androidx.compose.foundation.border
-import android.graphics.SweepGradient
-import androidx.compose.ui.graphics.ShaderBrush
-import androidx.compose.ui.graphics.Shader
+import androidx.compose.foundation.shape.CornerBasedShape
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.lerp
-import kotlin.math.atan2
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.material3.ProvideTextStyle
 import androidx.activity.compose.BackHandler
@@ -229,49 +231,241 @@ fun localHasBgImage(): Boolean {
             frostedGlass
 }
 
+private data class FourCorners(val tl: Float, val tr: Float, val br: Float, val bl: Float)
+
 /**
- * Creates a continuous ShaderBrush that wraps around the card perimeters with an Android SweepGradient.
- * Interpolates from Top-Left, through Top-Center, Top-Right, down the Right edge to Bottom-Right,
- * through Bottom-Center to Bottom-Left, and up the Left edge back to Top-Left.
+ * Draws an environmental specular glass border around the shape using 4 straight-edge linear
+ * gradients and 4 solid corner arcs.
+ *
+ * Straight edge spans:
+ * - Top: (R_tl, 0) -> (W - R_tr, 0) with stops TL -> TC -> TR
+ * - Right: (W, R_tr) -> (W, H - R_br) with stops TR -> MR -> BR
+ * - Bottom: (W - R_br, H) -> (R_bl, H) with stops BR -> BC -> BL
+ * - Left: (0, H - R_bl) -> (0, R_tl) with stops BL -> ML -> TL
+ *
+ * Corner arcs:
+ * - Top-Right arc (270° -> 360°): solid color TR
+ * - Bottom-Right arc (0° -> 90°): solid color BR
+ * - Bottom-Left arc (90° -> 180°): solid color BL
+ * - Top-Left arc (180° -> 270°): solid color TL
+ *
+ * Stroke width is fixed at [strokeWidth] (1dp) with inset centerlines and Butt caps for seamless tangent continuity.
  */
-fun createEnvironmentalSpecularBrush(edges: EnvironmentalSpecularEdges): Brush {
-    return object : ShaderBrush() {
-        override fun createShader(size: Size): Shader {
-            val w = size.width.coerceAtLeast(1f)
-            val h = size.height.coerceAtLeast(1f)
-            val alpha = (atan2(h / 2f, w / 2f) / (2f * Math.PI.toFloat())).coerceIn(0.01f, 0.24f)
+fun Modifier.drawEnvironmentalSpecularBorder(
+    shape: Shape,
+    edges: EnvironmentalSpecularEdges,
+    strokeWidth: Dp = 1.dp
+): Modifier = this.drawWithCache {
+    val strokeWidthPx = strokeWidth.toPx()
+    val halfStroke = strokeWidthPx / 2f
+    val w = size.width
+    val h = size.height
 
-            val pBR = alpha
-            val pBC = 0.25f
-            val pBL = (0.50f - alpha).coerceIn(0.26f, 0.49f)
-            val pML = 0.50f
-            val pTL = (0.50f + alpha).coerceIn(0.51f, 0.74f)
-            val pTC = 0.75f
-            val pTR = (1.00f - alpha).coerceIn(0.76f, 0.99f)
+    if (w <= 0f || h <= 0f) {
+        return@drawWithCache onDrawWithContent {
+            drawContent()
+        }
+    }
 
-            val colors = intArrayOf(
-                edges.midRight.toArgb(),
-                edges.bottomRight.toArgb(),
-                edges.bottomCenter.toArgb(),
-                edges.bottomLeft.toArgb(),
-                edges.midLeft.toArgb(),
-                edges.topLeft.toArgb(),
-                edges.topCenter.toArgb(),
-                edges.topRight.toArgb(),
-                edges.midRight.toArgb()
+    val left = halfStroke
+    val top = halfStroke
+    val right = w - halfStroke
+    val bottom = h - halfStroke
+
+    val (rTL_outer, rTR_outer, rBR_outer, rBL_outer) = when (shape) {
+        is CornerBasedShape -> {
+            val maxR = minOf(w, h) / 2f
+            val tl = shape.topStart.toPx(size, this).coerceIn(0f, maxR)
+            val tr = shape.topEnd.toPx(size, this).coerceIn(0f, maxR)
+            val br = shape.bottomEnd.toPx(size, this).coerceIn(0f, maxR)
+            val bl = shape.bottomStart.toPx(size, this).coerceIn(0f, maxR)
+            FourCorners(tl, tr, br, bl)
+        }
+        is RectangleShape -> FourCorners(0f, 0f, 0f, 0f)
+        else -> {
+            val outline = shape.createOutline(size, layoutDirection, this)
+            when (outline) {
+                is Outline.Rounded -> {
+                    val maxR = minOf(w, h) / 2f
+                    val rr = outline.roundRect
+                    FourCorners(
+                        rr.topLeftCornerRadius.x.coerceIn(0f, maxR),
+                        rr.topRightCornerRadius.x.coerceIn(0f, maxR),
+                        rr.bottomRightCornerRadius.x.coerceIn(0f, maxR),
+                        rr.bottomLeftCornerRadius.x.coerceIn(0f, maxR)
+                    )
+                }
+                is Outline.Rectangle -> FourCorners(0f, 0f, 0f, 0f)
+                is Outline.Generic -> {
+                    val maxR = minOf(w, h) / 2f
+                    FourCorners(maxR, maxR, maxR, maxR)
+                }
+            }
+        }
+    }
+
+    val rTL = if (rTL_outer > halfStroke) rTL_outer - halfStroke else 0f
+    val rTR = if (rTR_outer > halfStroke) rTR_outer - halfStroke else 0f
+    val rBR = if (rBR_outer > halfStroke) rBR_outer - halfStroke else 0f
+    val rBL = if (rBL_outer > halfStroke) rBL_outer - halfStroke else 0f
+
+    val topXStart = left + rTL
+    val topXEnd = right - rTR
+    val topBrush = if (topXEnd > topXStart) {
+        val xCenter = w / 2f
+        val tCenter = ((xCenter - topXStart) / (topXEnd - topXStart)).coerceIn(0.01f, 0.99f)
+        Brush.linearGradient(
+            colorStops = arrayOf(
+                0.0f to edges.topLeft,
+                tCenter to edges.topCenter,
+                1.0f to edges.topRight
+            ),
+            start = Offset(topXStart, top),
+            end = Offset(topXEnd, top)
+        )
+    } else null
+
+    val rightYStart = top + rTR
+    val rightYEnd = bottom - rBR
+    val rightBrush = if (rightYEnd > rightYStart) {
+        val yCenter = h / 2f
+        val tCenter = ((yCenter - rightYStart) / (rightYEnd - rightYStart)).coerceIn(0.01f, 0.99f)
+        Brush.linearGradient(
+            colorStops = arrayOf(
+                0.0f to edges.topRight,
+                tCenter to edges.midRight,
+                1.0f to edges.bottomRight
+            ),
+            start = Offset(right, rightYStart),
+            end = Offset(right, rightYEnd)
+        )
+    } else null
+
+    val bottomXStart = right - rBR
+    val bottomXEnd = left + rBL
+    val bottomBrush = if (bottomXStart > bottomXEnd) {
+        val xCenter = w / 2f
+        val tCenter = ((bottomXStart - xCenter) / (bottomXStart - bottomXEnd)).coerceIn(0.01f, 0.99f)
+        Brush.linearGradient(
+            colorStops = arrayOf(
+                0.0f to edges.bottomRight,
+                tCenter to edges.bottomCenter,
+                1.0f to edges.bottomLeft
+            ),
+            start = Offset(bottomXStart, bottom),
+            end = Offset(bottomXEnd, bottom)
+        )
+    } else null
+
+    val leftYStart = bottom - rBL
+    val leftYEnd = top + rTL
+    val leftBrush = if (leftYStart > leftYEnd) {
+        val yCenter = h / 2f
+        val tCenter = ((leftYStart - yCenter) / (leftYStart - leftYEnd)).coerceIn(0.01f, 0.99f)
+        Brush.linearGradient(
+            colorStops = arrayOf(
+                0.0f to edges.bottomLeft,
+                tCenter to edges.midLeft,
+                1.0f to edges.topLeft
+            ),
+            start = Offset(left, leftYStart),
+            end = Offset(left, leftYEnd)
+        )
+    } else null
+
+    val strokeStyle = Stroke(width = strokeWidthPx, cap = StrokeCap.Butt)
+
+    onDrawWithContent {
+        drawContent()
+
+        // 1. Straight edge gradients
+        if (topBrush != null && topXEnd > topXStart) {
+            drawLine(
+                brush = topBrush,
+                start = Offset(topXStart, top),
+                end = Offset(topXEnd, top),
+                strokeWidth = strokeWidthPx,
+                cap = StrokeCap.Butt
             )
-            val positions = floatArrayOf(
-                0.0f,
-                pBR,
-                pBC,
-                pBL,
-                pML,
-                pTL,
-                pTC,
-                pTR,
-                1.0f
+        }
+
+        if (rightBrush != null && rightYEnd > rightYStart) {
+            drawLine(
+                brush = rightBrush,
+                start = Offset(right, rightYStart),
+                end = Offset(right, rightYEnd),
+                strokeWidth = strokeWidthPx,
+                cap = StrokeCap.Butt
             )
-            return SweepGradient(w / 2f, h / 2f, colors, positions)
+        }
+
+        if (bottomBrush != null && bottomXStart > bottomXEnd) {
+            drawLine(
+                brush = bottomBrush,
+                start = Offset(bottomXStart, bottom),
+                end = Offset(bottomXEnd, bottom),
+                strokeWidth = strokeWidthPx,
+                cap = StrokeCap.Butt
+            )
+        }
+
+        if (leftBrush != null && leftYStart > leftYEnd) {
+            drawLine(
+                brush = leftBrush,
+                start = Offset(left, leftYStart),
+                end = Offset(left, leftYEnd),
+                strokeWidth = strokeWidthPx,
+                cap = StrokeCap.Butt
+            )
+        }
+
+        // 2. Corner solid arcs
+        if (rTR > 0f) {
+            drawArc(
+                color = edges.topRight,
+                startAngle = 270f,
+                sweepAngle = 90f,
+                useCenter = false,
+                topLeft = Offset(right - 2 * rTR, top),
+                size = Size(2 * rTR, 2 * rTR),
+                style = strokeStyle
+            )
+        }
+
+        if (rBR > 0f) {
+            drawArc(
+                color = edges.bottomRight,
+                startAngle = 0f,
+                sweepAngle = 90f,
+                useCenter = false,
+                topLeft = Offset(right - 2 * rBR, bottom - 2 * rBR),
+                size = Size(2 * rBR, 2 * rBR),
+                style = strokeStyle
+            )
+        }
+
+        if (rBL > 0f) {
+            drawArc(
+                color = edges.bottomLeft,
+                startAngle = 90f,
+                sweepAngle = 90f,
+                useCenter = false,
+                topLeft = Offset(left, bottom - 2 * rBL),
+                size = Size(2 * rBL, 2 * rBL),
+                style = strokeStyle
+            )
+        }
+
+        if (rTL > 0f) {
+            drawArc(
+                color = edges.topLeft,
+                startAngle = 180f,
+                sweepAngle = 90f,
+                useCenter = false,
+                topLeft = Offset(left, top),
+                size = Size(2 * rTL, 2 * rTL),
+                style = strokeStyle
+            )
         }
     }
 }
@@ -280,7 +474,7 @@ fun createEnvironmentalSpecularBrush(edges: EnvironmentalSpecularEdges): Brush {
  * Directional specular rim lighting for frosted surfaces.
  * Simulates physical overhead light catch via a vertical linear gradient.
  * When [edgeLighting] is passed, it modulates the specular rim with the background's
- * environmental luminance field across all edges in one continuous function.
+ * environmental luminance field across all edges via [drawEnvironmentalSpecularBorder].
  */
 fun Modifier.specularGlassBorder(
     shape: Shape,
@@ -290,8 +484,15 @@ fun Modifier.specularGlassBorder(
     bottomColor: Color? = null,
     edgeLighting: EnvironmentalSpecularEdges? = null
 ): Modifier {
+    if (edgeLighting != null) {
+        return this.drawEnvironmentalSpecularBorder(
+            shape = shape,
+            edges = edgeLighting,
+            strokeWidth = strokeWidth
+        )
+    }
+
     val brush = when {
-        edgeLighting != null -> createEnvironmentalSpecularBrush(edgeLighting)
         topColor != null && bottomColor != null -> Brush.verticalGradient(
             colors = listOf(
                 topColor,
