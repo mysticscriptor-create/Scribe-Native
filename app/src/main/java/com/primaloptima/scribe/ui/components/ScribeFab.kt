@@ -172,6 +172,7 @@ fun ScribeFab(
     contentDescription: String = "",
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val hasBgImage  = localHasBgImage()
     val hazeState   = LocalHazeState.current
     val accentColor = ScribeTheme.colors.interaction.primary
     val shape       = RoundedCornerShape(cornerRadius)
@@ -217,18 +218,20 @@ fun ScribeFab(
                 .background(containerColor)
         )
 
-        // Top-shine gradient — same as Cards.kt ShineAlpha
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors  = listOf(Color.White.copy(alpha = 0.10f), Color.Transparent),
-                        startY  = 0f,
-                        endY    = Float.MAX_VALUE
+        // Top-shine gradient — only on solid/non-frosted surfaces (same as Cards.kt)
+        if (!hasBgImage) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors  = listOf(Color.White.copy(alpha = 0.10f), Color.Transparent),
+                            startY  = 0f,
+                            endY    = Float.MAX_VALUE
+                        )
                     )
-                )
-        )
+            )
+        }
 
         // Caller content (icon, icon+label…)
         content()

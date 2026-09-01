@@ -156,7 +156,7 @@ fun ScribeCard(
         FrostedCardContent {
             Box(modifier = Modifier.fillMaxWidth()) {
                 content()
-                if (shine) {
+                if (shine && !hasBgImage) {
                     Box(
                         modifier = Modifier
                             .matchParentSize()
