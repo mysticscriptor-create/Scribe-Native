@@ -1220,7 +1220,7 @@ fun Workbench(
                                     }
                                     Spacer(Modifier.height(6.dp))
                                     Text(
-                                        text = drag.note.name,
+                                        text = drag.note.name.replace('\n', " · "),
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1,

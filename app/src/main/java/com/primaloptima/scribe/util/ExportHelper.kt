@@ -198,5 +198,5 @@ $body
     }
 
     private fun sanitize(name: String): String =
-        (name.ifBlank { "Untitled" }).replace(Regex("[\\\\/:*?\"<>|]"), "-").trim()
+        (name.ifBlank { "Untitled" }).replace('\n', '-').replace(Regex("[\\\\/:*?\"<>|]"), "-").trim()
 }

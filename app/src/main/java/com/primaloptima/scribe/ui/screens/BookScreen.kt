@@ -48,6 +48,7 @@ import com.primaloptima.scribe.ui.theme.frostedPanel
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
 import com.primaloptima.scribe.ui.theme.frostedBar
+import com.primaloptima.scribe.ui.components.DualTitleNoteDialog
 import com.primaloptima.scribe.ui.components.ScribeSpeedDialFab
 import com.primaloptima.scribe.ui.components.SpeedDialItem
 import com.primaloptima.scribe.ui.components.ScribeTopBar
@@ -771,31 +772,16 @@ fun BookScreen(
     CompositionLocalProvider(LocalOneShotBitmap provides dialogOneShotBitmap) {
 
         if (showCreateNoteDialog) {
-            var noteTitle by remember { mutableStateOf("") }
-            FrostedDialog(
-                onDismissRequest = { showCreateNoteDialog = false },
-                title            = { Text("New Note") },
-                text             = {
-                    OutlinedTextField(
-                        value         = noteTitle,
-                        onValueChange = { noteTitle = it },
-                        label         = { Text("Note Title") },
-                        singleLine    = true,
-                        modifier      = Modifier.fillMaxWidth()
-                    )
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val t = noteTitle.trim()
-                        if (t.isNotEmpty()) {
-                            vm.createNote(t, selectedFolderPath) { id ->
-                                showCreateNoteDialog = false
-                                onOpenNote(id)
-                            }
-                        }
-                    }) { Text("Create") }
-                },
-                dismissButton = { TextButton(onClick = { showCreateNoteDialog = false }) { Text("Cancel") } }
+            DualTitleNoteDialog(
+                dialogTitle = "New Note",
+                confirmButtonText = "Create",
+                onDismiss = { showCreateNoteDialog = false },
+                onConfirm = { fullName ->
+                    vm.createNote(fullName, selectedFolderPath) { id ->
+                        showCreateNoteDialog = false
+                        onOpenNote(id)
+                    }
+                }
             )
         }
 
@@ -828,26 +814,18 @@ fun BookScreen(
         }
 
         noteToRename?.let { note ->
-            var renameText by remember { mutableStateOf(note.name) }
-            FrostedDialog(
-                onDismissRequest = { noteToRename = null },
-                title            = { Text("Rename Note") },
-                text             = {
-                    OutlinedTextField(
-                        value         = renameText,
-                        onValueChange = { renameText = it },
-                        singleLine    = true,
-                        modifier      = Modifier.fillMaxWidth()
-                    )
-                },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val t = renameText.trim()
-                        if (t.isNotEmpty()) vm.renameNote(note.id, t)
-                        noteToRename = null
-                    }) { Text("Rename") }
-                },
-                dismissButton = { TextButton(onClick = { noteToRename = null }) { Text("Cancel") } }
+            val p = note.name.substringBefore('\n')
+            val s = if (note.name.contains('\n')) note.name.substringAfter('\n') else ""
+            DualTitleNoteDialog(
+                dialogTitle = "Rename Note",
+                confirmButtonText = "Rename",
+                initialPrimary = p,
+                initialSecondary = s,
+                onDismiss = { noteToRename = null },
+                onConfirm = { updatedName ->
+                    vm.renameNote(note.id, updatedName)
+                    noteToRename = null
+                }
             )
         }
 
@@ -855,7 +833,7 @@ fun BookScreen(
             FrostedDialog(
                 onDismissRequest = { noteToDelete = null },
                 title            = { Text("Delete Note?") },
-                text             = { Text("Are you sure you want to delete \"${note.name}\"?") },
+                text             = { Text("Are you sure you want to delete \"${note.name.replace('\n', " · ")}\"?") },
                 confirmButton    = {
                     TextButton(onClick = { vm.deleteNote(note.id); noteToDelete = null }) {
                         Text("Delete", color = MaterialTheme.colorScheme.error)
@@ -1312,7 +1290,7 @@ private fun BookStatisticsTab(notes: List<Note>, bookTitle: String) {
                                 Box(modifier = Modifier.size(22.dp).clip(CircleShape).background(accentColor.copy(alpha = if (index == 0) 0.22f else 0.10f)), contentAlignment = Alignment.Center) {
                                     Text(text = "${index + 1}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = accentColor)
                                 }
-                                Text(text = note.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                Text(text = note.name.replace('\n', " · "), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             }
                             Text(text = "$count words", fontSize = 12.sp, color = accentColor, fontWeight = FontWeight.Medium)
                         }
@@ -1369,7 +1347,7 @@ private fun NoteListRow(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text       = note.name,
+                    text       = note.name.replace('\n', " · "),
                     fontWeight = FontWeight.SemiBold,
                     fontSize   = 14.sp,
                     color      = onSurface,

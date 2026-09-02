@@ -96,13 +96,17 @@ import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.data.Folder
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.data.WorldEntry
+import com.primaloptima.scribe.ui.components.DualTitleNoteDialog
 import com.primaloptima.scribe.ui.components.FloatingWindowOverlay
 import com.primaloptima.scribe.util.ExportHelper
 import com.primaloptima.scribe.viewmodel.BookViewModel
@@ -243,42 +247,73 @@ fun MainEditorScreen(
 
     // ── Floating Pills Scroll Animation & Dual-Title State ──────────────────────
     var floatingPillsVisible by rememberSaveable { mutableStateOf(true) }
-    var accumulatedScrollUp by remember { mutableFloatStateOf(0f) }
+    var scrollDistanceSinceDirectionChange by remember { mutableFloatStateOf(0f) }
+    var lastScrollDirection by remember { mutableIntStateOf(0) }
+
     val hideOnScrollConnection = remember {
-        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+        object : NestedScrollConnection {
             override fun onPreScroll(
-                available: androidx.compose.ui.geometry.Offset,
-                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
-            ): androidx.compose.ui.geometry.Offset {
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
                 val dy = available.y
-                if (dy < -8f) {
-                    // Scrolling DOWN (content moving up) -> text scrolls, then hide pills
-                    accumulatedScrollUp = 0f
-                    if (floatingPillsVisible) floatingPillsVisible = false
-                } else if (dy > 8f) {
-                    // Scrolling UP (content moving down) -> accumulate slight threshold, then show pills
-                    accumulatedScrollUp += dy
-                    if (accumulatedScrollUp > 30f && !floatingPillsVisible) {
+                if (dy < -2f) {
+                    // Scrolling DOWN / reading forward into document (dy is negative, content moves up)
+                    if (lastScrollDirection != 1) {
+                        lastScrollDirection = 1
+                        scrollDistanceSinceDirectionChange = 0f
+                    }
+                    scrollDistanceSinceDirectionChange += (-dy)
+                    // Delay before hiding: allow ~60px of scroll before animating away
+                    if (scrollDistanceSinceDirectionChange > 60f && floatingPillsVisible) {
+                        floatingPillsVisible = false
+                    }
+                } else if (dy > 2f) {
+                    // Scrolling UP / navigating back to top (dy is positive, content moves down)
+                    if (lastScrollDirection != -1) {
+                        lastScrollDirection = -1
+                        scrollDistanceSinceDirectionChange = 0f
+                    }
+                    scrollDistanceSinceDirectionChange += dy
+                    // Immediate animate in when scrolling back
+                    if (!floatingPillsVisible) {
                         floatingPillsVisible = true
                     }
                 }
-                return androidx.compose.ui.geometry.Offset.Zero
+                return Offset.Zero
             }
         }
     }
 
-    // Dual-title inline editing state
-    var primaryTitleText by remember(activeNote?.id, activeNote?.name) {
-        mutableStateOf(activeNote?.name ?: "")
+    // Dual-title inline editing state & persistence
+    var primaryTitleText by remember(activeNote?.id) {
+        val raw = activeNote?.name ?: ""
+        mutableStateOf(raw.substringBefore('\n'))
     }
     var secondaryTitleText by remember(activeNote?.id) {
-        mutableStateOf("")
+        val raw = activeNote?.name ?: ""
+        mutableStateOf(if (raw.contains('\n')) raw.substringAfter('\n') else "")
     }
     var showSecondaryTitle by remember(activeNote?.id) {
-        mutableStateOf(false)
+        val raw = activeNote?.name ?: ""
+        mutableStateOf(raw.contains('\n'))
     }
     val primaryTitleFocusRequester = remember { FocusRequester() }
     val secondaryTitleFocusRequester = remember { FocusRequester() }
+
+    fun persistDualTitle(primary: String, secondary: String) {
+        val targetNote = activeNote ?: return
+        val p = primary.trim()
+        val s = secondary.trim()
+        val combined = if (s.isNotEmpty()) {
+            if (p.isNotEmpty()) "$p\n$s" else s
+        } else {
+            p
+        }
+        if (combined.isNotEmpty()) {
+            bookVm.renameNote(targetNote.id, combined)
+        }
+    }
 
     var pillMode     by remember { mutableIntStateOf(0) }
     var pillOffsetX  by remember { mutableFloatStateOf(0f) }
@@ -455,7 +490,7 @@ fun MainEditorScreen(
                     Modifier
                         .fillMaxSize()
                         .padding(padding)
-                        .androidx.compose.ui.input.nestedscroll.nestedScroll(hideOnScrollConnection)
+                        .nestedScroll(hideOnScrollConnection)
                 ) {
                     Column(Modifier.fillMaxSize()) {
 
@@ -488,27 +523,30 @@ fun MainEditorScreen(
                             }
                         }
 
-                        // ── Inline Dual Titles ──────────────────────────────
+                        // ── Inline Dual Titles & Manuscript Header ──────────────────────────────
                         if (!zenMode && activeNote != null) {
                             Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 24.dp, vertical = 12.dp)
+                                    .padding(horizontal = 28.dp, vertical = 14.dp)
                             ) {
-                                // Primary Title
+                                // Primary Title / Kicker (e.g., CHAPTER I)
                                 BasicTextField(
                                     value = primaryTitleText,
                                     onValueChange = {
                                         primaryTitleText = it
-                                        bookVm.renameNote(activeNote!!.id, it)
+                                        persistDualTitle(it, secondaryTitleText)
                                     },
                                     singleLine = true,
-                                    textStyle = MaterialTheme.typography.headlineMedium.copy(
-                                        color = MaterialTheme.colorScheme.onBackground,
-                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                    textStyle = MaterialTheme.typography.titleMedium.copy(
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.SemiBold,
+                                        textAlign = TextAlign.Center,
+                                        letterSpacing = 2.5.sp
                                     ),
                                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                    keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next),
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                                     keyboardActions = KeyboardActions(
                                         onNext = {
                                             showSecondaryTitle = true
@@ -517,53 +555,107 @@ fun MainEditorScreen(
                                     ),
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .focusRequester(primaryTitleFocusRequester),
+                                        .focusRequester(primaryTitleFocusRequester)
+                                        .onPreviewKeyEvent { event ->
+                                            if (event.key == Key.Enter && event.type == KeyEventType.KeyUp) {
+                                                showSecondaryTitle = true
+                                                secondaryTitleFocusRequester.requestFocus()
+                                                true
+                                            } else false
+                                        },
                                     decorationBox = { innerTextField ->
-                                        if (primaryTitleText.isEmpty()) {
-                                            Text(
-                                                text = "Title",
-                                                style = MaterialTheme.typography.headlineMedium.copy(
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                        Box(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            if (primaryTitleText.isEmpty()) {
+                                                Text(
+                                                    text = "CHAPTER / TITLE",
+                                                    style = MaterialTheme.typography.titleMedium.copy(
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        textAlign = TextAlign.Center,
+                                                        letterSpacing = 2.5.sp
+                                                    )
                                                 )
-                                            )
+                                            }
+                                            innerTextField()
                                         }
-                                        innerTextField()
                                     }
                                 )
 
-                                // Secondary Subtitle
+                                // Main Title (e.g., The Starlit Archive)
                                 if (showSecondaryTitle || secondaryTitleText.isNotEmpty()) {
-                                    Spacer(Modifier.height(4.dp))
+                                    Spacer(Modifier.height(6.dp))
                                     BasicTextField(
                                         value = secondaryTitleText,
-                                        onValueChange = { secondaryTitleText = it },
+                                        onValueChange = {
+                                            secondaryTitleText = it
+                                            persistDualTitle(primaryTitleText, it)
+                                        },
                                         singleLine = true,
-                                        textStyle = MaterialTheme.typography.titleMedium.copy(
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                                        textStyle = MaterialTheme.typography.headlineMedium.copy(
+                                            color = MaterialTheme.colorScheme.onBackground,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center
                                         ),
                                         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                        keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next),
+                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                                         keyboardActions = KeyboardActions(
-                                            onNext = {
+                                            onDone = {
                                                 soraEditorRef?.requestFocus()
                                                 soraEditorRef?.setSelection(0, 0)
                                             }
                                         ),
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .focusRequester(secondaryTitleFocusRequester),
+                                            .focusRequester(secondaryTitleFocusRequester)
+                                            .onPreviewKeyEvent { event ->
+                                                if (event.key == Key.Backspace && secondaryTitleText.isEmpty() && event.type == KeyEventType.KeyUp) {
+                                                    showSecondaryTitle = false
+                                                    persistDualTitle(primaryTitleText, "")
+                                                    primaryTitleFocusRequester.requestFocus()
+                                                    true
+                                                } else if (event.key == Key.Enter && event.type == KeyEventType.KeyUp) {
+                                                    soraEditorRef?.requestFocus()
+                                                    soraEditorRef?.setSelection(0, 0)
+                                                    true
+                                                } else false
+                                            },
                                         decorationBox = { innerTextField ->
-                                            if (secondaryTitleText.isEmpty()) {
-                                                Text(
-                                                    text = "Subtitle (Optional)",
-                                                    style = MaterialTheme.typography.titleMedium.copy(
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+                                            Box(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                if (secondaryTitleText.isEmpty()) {
+                                                    Text(
+                                                        text = "Manuscript Title (Optional)",
+                                                        style = MaterialTheme.typography.headlineMedium.copy(
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                                                            fontWeight = FontWeight.Bold,
+                                                            textAlign = TextAlign.Center
+                                                        )
                                                     )
-                                                )
+                                                }
+                                                innerTextField()
                                             }
-                                            innerTextField()
                                         }
+                                    )
+                                }
+
+                                // Ornamental Flourish Divider (─── ❖ ───)
+                                Spacer(Modifier.height(10.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "───  ❖  ───",
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                                            letterSpacing = 2.sp
+                                        )
                                     )
                                 }
                             }
@@ -921,53 +1013,32 @@ fun MainEditorScreen(
         CompositionLocalProvider(LocalOneShotBitmap provides dialogOneShotBitmap) {
             if (showRenameDialog && activeNote != null) {
                 val noteToRename = activeNote
-                var renameText by remember { mutableStateOf(noteToRename?.name ?: "") }
-                FrostedDialog(
-                    onDismissRequest = { showRenameDialog = false },
-                    title            = { Text("Rename Note") },
-                    text             = {
-                        OutlinedTextField(
-                            value         = renameText,
-                            onValueChange = { renameText = it },
-                            singleLine    = true,
-                            modifier      = Modifier.fillMaxWidth()
-                        )
-                    },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            val t = renameText.trim()
-                            if (t.isNotEmpty() && noteToRename != null) bookVm.renameNote(noteToRename.id, t)
-                            showRenameDialog = false
-                        }) { Text("Rename") }
-                    },
-                    dismissButton = { TextButton(onClick = { showRenameDialog = false }) { Text("Cancel") } }
+                val p = noteToRename?.name?.substringBefore('\n') ?: ""
+                val s = if (noteToRename?.name?.contains('\n') == true) noteToRename.name.substringAfter('\n') else ""
+                DualTitleNoteDialog(
+                    dialogTitle = "Rename Note",
+                    confirmButtonText = "Rename",
+                    initialPrimary = p,
+                    initialSecondary = s,
+                    onDismiss = { showRenameDialog = false },
+                    onConfirm = { updatedName ->
+                        if (noteToRename != null) bookVm.renameNote(noteToRename.id, updatedName)
+                        showRenameDialog = false
+                    }
                 )
             }
 
             if (showCreateNoteDialog) {
-                var noteTitle by remember { mutableStateOf("") }
-                FrostedDialog(
-                    onDismissRequest = { showCreateNoteDialog = false },
-                    title            = { Text("New Note") },
-                    text             = {
-                        OutlinedTextField(
-                            value         = noteTitle,
-                            onValueChange = { noteTitle = it },
-                            label         = { Text("Title") },
-                            singleLine    = true,
-                            modifier      = Modifier.fillMaxWidth()
-                        )
-                    },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            val t = noteTitle.trim()
-                            if (t.isNotEmpty()) bookVm.createNote(t) { id ->
-                                showCreateNoteDialog = false
-                                editorVm.loadNote(id)
-                            }
-                        }) { Text("Create") }
-                    },
-                    dismissButton = { TextButton(onClick = { showCreateNoteDialog = false }) { Text("Cancel") } }
+                DualTitleNoteDialog(
+                    dialogTitle = "New Note",
+                    confirmButtonText = "Create",
+                    onDismiss = { showCreateNoteDialog = false },
+                    onConfirm = { fullName ->
+                        bookVm.createNote(fullName) { id ->
+                            showCreateNoteDialog = false
+                            editorVm.loadNote(id)
+                        }
+                    }
                 )
             }
         }
