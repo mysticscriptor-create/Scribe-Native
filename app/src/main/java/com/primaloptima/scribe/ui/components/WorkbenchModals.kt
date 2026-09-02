@@ -367,7 +367,7 @@ fun AddFileSheet(
                                 Spacer(Modifier.width(8.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = note.name.replace('\n', " · "),
+                                        text = note.name.replace("\n", " · "),
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Medium,
                                         maxLines = 1,

@@ -1229,7 +1229,7 @@ private fun NotesTabContent(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(note.name.replace('\n', " · "), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                Text(note.name.replace("\n", " · "), fontWeight = FontWeight.Bold, fontSize = 16.sp)
                                 Text("$wordCount words", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                             }
                             Spacer(modifier = Modifier.height(4.dp))
@@ -1286,7 +1286,7 @@ private fun SearchResultsView(
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Text(
-                                text = highlightMatch(note.name.replace('\n', " · "), query),
+                                text = highlightMatch(note.name.replace("\n", " · "), query),
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp
                             )

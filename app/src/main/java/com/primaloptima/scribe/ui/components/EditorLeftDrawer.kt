@@ -181,7 +181,7 @@ fun EditorLeftDrawer(
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Text(
-                                    note.name.replace('\n', " · "),
+                                    note.name.replace("\n", " · "),
                                     fontSize   = 14.sp,
                                     fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
                                     color      = if (isActive) MaterialTheme.colorScheme.primary

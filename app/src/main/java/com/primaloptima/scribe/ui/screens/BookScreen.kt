@@ -833,7 +833,7 @@ fun BookScreen(
             FrostedDialog(
                 onDismissRequest = { noteToDelete = null },
                 title            = { Text("Delete Note?") },
-                text             = { Text("Are you sure you want to delete \"${note.name.replace('\n', " · ")}\"?") },
+                text             = { Text("Are you sure you want to delete \"${note.name.replace("\n", " · ")}\"?") },
                 confirmButton    = {
                     TextButton(onClick = { vm.deleteNote(note.id); noteToDelete = null }) {
                         Text("Delete", color = MaterialTheme.colorScheme.error)
@@ -1290,7 +1290,7 @@ private fun BookStatisticsTab(notes: List<Note>, bookTitle: String) {
                                 Box(modifier = Modifier.size(22.dp).clip(CircleShape).background(accentColor.copy(alpha = if (index == 0) 0.22f else 0.10f)), contentAlignment = Alignment.Center) {
                                     Text(text = "${index + 1}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = accentColor)
                                 }
-                                Text(text = note.name.replace('\n', " · "), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                Text(text = note.name.replace("\n", " · "), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             }
                             Text(text = "$count words", fontSize = 12.sp, color = accentColor, fontWeight = FontWeight.Medium)
                         }
@@ -1347,7 +1347,7 @@ private fun NoteListRow(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text       = note.name.replace('\n', " · "),
+                    text       = note.name.replace("\n", " · "),
                     fontWeight = FontWeight.SemiBold,
                     fontSize   = 14.sp,
                     color      = onSurface,

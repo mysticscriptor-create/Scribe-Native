@@ -43,6 +43,18 @@ data class Note(
     }
 }
 
+/** Formatted title for single-line display (e.g. lists, drawers, tabs, titles) */
+val Note.displayName: String
+    get() = name.replace("\n", " · ")
+
+/** Primary title/chapter header */
+val Note.primaryTitle: String
+    get() = name.substringBefore('\n')
+
+/** Secondary title/subtitle */
+val Note.secondaryTitle: String
+    get() = if (name.contains('\n')) name.substringAfter('\n') else ""
+
 /** A logical folder entry in the vault, scoped to a book. */
 @Immutable
 @Entity(tableName = "folders", primaryKeys = ["book_id", "path"])

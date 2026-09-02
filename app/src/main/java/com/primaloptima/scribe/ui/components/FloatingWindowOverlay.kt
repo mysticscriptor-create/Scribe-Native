@@ -117,7 +117,7 @@ private fun FloatingWindowItem(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = note.name.replace('\n', " · "),
+                    text = note.name.replace("\n", " · "),
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp,
                     maxLines = 1,
