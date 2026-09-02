@@ -9,6 +9,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
@@ -19,6 +20,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -31,7 +35,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
@@ -234,6 +241,45 @@ fun MainEditorScreen(
     var isHandleDragging   by remember { mutableStateOf(false) }
     var loadedNoteId       by rememberSaveable { mutableStateOf<String?>(null) }
 
+    // ── Floating Pills Scroll Animation & Dual-Title State ──────────────────────
+    var floatingPillsVisible by rememberSaveable { mutableStateOf(true) }
+    var accumulatedScrollUp by remember { mutableFloatStateOf(0f) }
+    val hideOnScrollConnection = remember {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            override fun onPreScroll(
+                available: androidx.compose.ui.geometry.Offset,
+                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
+            ): androidx.compose.ui.geometry.Offset {
+                val dy = available.y
+                if (dy < -8f) {
+                    // Scrolling DOWN (content moving up) -> text scrolls, then hide pills
+                    accumulatedScrollUp = 0f
+                    if (floatingPillsVisible) floatingPillsVisible = false
+                } else if (dy > 8f) {
+                    // Scrolling UP (content moving down) -> accumulate slight threshold, then show pills
+                    accumulatedScrollUp += dy
+                    if (accumulatedScrollUp > 30f && !floatingPillsVisible) {
+                        floatingPillsVisible = true
+                    }
+                }
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+        }
+    }
+
+    // Dual-title inline editing state
+    var primaryTitleText by remember(activeNote?.id, activeNote?.name) {
+        mutableStateOf(activeNote?.name ?: "")
+    }
+    var secondaryTitleText by remember(activeNote?.id) {
+        mutableStateOf("")
+    }
+    var showSecondaryTitle by remember(activeNote?.id) {
+        mutableStateOf(false)
+    }
+    val primaryTitleFocusRequester = remember { FocusRequester() }
+    val secondaryTitleFocusRequester = remember { FocusRequester() }
+
     var pillMode     by remember { mutableIntStateOf(0) }
     var pillOffsetX  by remember { mutableFloatStateOf(0f) }
     var pillOffsetY  by remember { mutableFloatStateOf(0f) }
@@ -364,252 +410,379 @@ fun MainEditorScreen(
             Scaffold(
                 containerColor      = Color.Transparent,
                 contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime),
-                topBar = {
-                    EditorTopBar(
-                        activeNote        = activeNote,
-                        zenMode           = zenMode,
-                        goalProgress      = goalProgress,
-                        isLeftDrawerOpen  = isLeftDrawerOpen,
-                        soraEditorRef     = soraEditorRef,
-                        onNavClick        = onNavClick,
-                        onTitleClick      = { if (activeNote != null) scope.launch { captureForDialog { showRenameDialog = true } } },
-                        onOpenRightPanel  = onOpenRightPanel,
-                        onToggleFind      = { showFindBar = !showFindBar },
-                        onSaveCheckpoint  = {
-                            editorVm.saveManualSnapshot(soraEditorRef?.text?.toString() ?: "")
-                            Toast.makeText(context, "Checkpoint saved", Toast.LENGTH_SHORT).show()
-                        },
-                        onOpenMenu        = { showEditorTray = true },
-                    )
-                },
                 bottomBar = {
-                                CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
-                                    val registerBounds = LocalInteractiveBoundsRegistry.current
-                                    DisposableEffect(isKeyboardVisible) {
-                                        onDispose { registerBounds("shortcut_bar", null) }
-                                    }
+                    CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
+                        val registerBounds = LocalInteractiveBoundsRegistry.current
+                        DisposableEffect(isKeyboardVisible) {
+                            onDispose { registerBounds("shortcut_bar", null) }
+                        }
 
-                                    AnimatedVisibility(
-                                        visible = isKeyboardVisible,
-                                        enter   = slideInVertically(initialOffsetY = { it }),
-                                        exit    = slideOutVertically(targetOffsetY = { it })
-                                    ) {
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .frostedBar(hazeState)
-                                                .imePadding()
-                                                .onGloballyPositioned { coords ->
-                                                    if (isKeyboardVisible) {
-                                                        registerBounds("shortcut_bar", coords.boundsInRoot())
-                                                    }
-                                                }
-                                                .horizontalScroll(rememberScrollState())
-                                                .padding(horizontal = 8.dp, vertical = 6.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                            verticalAlignment     = Alignment.CenterVertically
-                                        ) {
-                                            shortcuts.forEach { shortcut ->
-                                                FormatButton(label = shortcut.label) {
-                                                    when (shortcut.kind) {
-                                                        "wrap" -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: shortcut.payload)
-                                                        "pair" -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: "")
-                                                        else   -> soraEditorRef?.insertAtCursor(shortcut.payload)
-                                                    }
-                                                }
-                                            }
+                        AnimatedVisibility(
+                            visible = isKeyboardVisible,
+                            enter   = slideInVertically(initialOffsetY = { it }),
+                            exit    = slideOutVertically(targetOffsetY = { it })
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .frostedBar(hazeState)
+                                    .imePadding()
+                                    .onGloballyPositioned { coords ->
+                                        if (isKeyboardVisible) {
+                                            registerBounds("shortcut_bar", coords.boundsInRoot())
+                                        }
+                                    }
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment     = Alignment.CenterVertically
+                            ) {
+                                shortcuts.forEach { shortcut ->
+                                    FormatButton(label = shortcut.label) {
+                                        when (shortcut.kind) {
+                                            "wrap" -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: shortcut.payload)
+                                            "pair" -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: "")
+                                            else   -> soraEditorRef?.insertAtCursor(shortcut.payload)
                                         }
                                     }
                                 }
                             }
-                        ) { padding ->
-                            Box(Modifier.fillMaxSize().padding(padding)) {
-                                Column(Modifier.fillMaxSize()) {
+                        }
+                    }
+                }
+            ) { padding ->
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .androidx.compose.ui.input.nestedscroll.nestedScroll(hideOnScrollConnection)
+                ) {
+                    Column(Modifier.fillMaxSize()) {
 
-                                    // ── Find/Replace bar ──────────────────────────────
-                                    FindReplaceBar(
-                                        visible       = showFindBar,
-                                        findQuery     = findQuery,
-                                        replaceQuery  = replaceQuery,
-                                        onFindChange  = { findQuery = it },
-                                        onReplaceChange = { replaceQuery = it },
-                                        onPrevious    = { soraEditorRef?.searcher?.gotoPrevious() },
-                                        onNext        = { soraEditorRef?.searcher?.gotoNext() },
-                                        onReplaceAll  = {
-                                            val editor = soraEditorRef ?: return@FindReplaceBar
-                                            if (findQuery.isNotEmpty()) {
-                                                editor.searcher.replaceAll(replaceQuery)
-                                                editorVm.onContentChanged(editor.text.toString())
+                        // ── Find/Replace bar ──────────────────────────────
+                        FindReplaceBar(
+                            visible       = showFindBar,
+                            findQuery     = findQuery,
+                            replaceQuery  = replaceQuery,
+                            onFindChange  = { findQuery = it },
+                            onReplaceChange = { replaceQuery = it },
+                            onPrevious    = { soraEditorRef?.searcher?.gotoPrevious() },
+                            onNext        = { soraEditorRef?.searcher?.gotoNext() },
+                            onReplaceAll  = {
+                                val editor = soraEditorRef ?: return@FindReplaceBar
+                                if (findQuery.isNotEmpty()) {
+                                    editor.searcher.replaceAll(replaceQuery)
+                                    editorVm.onContentChanged(editor.text.toString())
+                                }
+                            },
+                            onClose       = { showFindBar = false }
+                        )
+
+                        // Drive Sora's searcher from find state
+                        LaunchedEffect(findQuery, showFindBar) {
+                            val editor = soraEditorRef ?: return@LaunchedEffect
+                            if (showFindBar && findQuery.isNotEmpty()) {
+                                editor.searcher.search(findQuery, EditorSearcher.SearchOptions(true, false))
+                            } else {
+                                editor.searcher.stopSearch()
+                            }
+                        }
+
+                        // ── Inline Dual Titles ──────────────────────────────
+                        if (!zenMode && activeNote != null) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp, vertical = 12.dp)
+                            ) {
+                                // Primary Title
+                                BasicTextField(
+                                    value = primaryTitleText,
+                                    onValueChange = {
+                                        primaryTitleText = it
+                                        bookVm.renameNote(activeNote!!.id, it)
+                                    },
+                                    singleLine = true,
+                                    textStyle = MaterialTheme.typography.headlineMedium.copy(
+                                        color = MaterialTheme.colorScheme.onBackground,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                    ),
+                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                    keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next),
+                                    keyboardActions = KeyboardActions(
+                                        onNext = {
+                                            showSecondaryTitle = true
+                                            secondaryTitleFocusRequester.requestFocus()
+                                        }
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .focusRequester(primaryTitleFocusRequester),
+                                    decorationBox = { innerTextField ->
+                                        if (primaryTitleText.isEmpty()) {
+                                            Text(
+                                                text = "Title",
+                                                style = MaterialTheme.typography.headlineMedium.copy(
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                                                )
+                                            )
+                                        }
+                                        innerTextField()
+                                    }
+                                )
+
+                                // Secondary Subtitle
+                                if (showSecondaryTitle || secondaryTitleText.isNotEmpty()) {
+                                    Spacer(Modifier.height(4.dp))
+                                    BasicTextField(
+                                        value = secondaryTitleText,
+                                        onValueChange = { secondaryTitleText = it },
+                                        singleLine = true,
+                                        textStyle = MaterialTheme.typography.titleMedium.copy(
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                                        ),
+                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                        keyboardOptions = KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Next),
+                                        keyboardActions = KeyboardActions(
+                                            onNext = {
+                                                soraEditorRef?.requestFocus()
+                                                soraEditorRef?.setSelection(0, 0)
                                             }
-                                        },
-                                        onClose       = { showFindBar = false }
-                                    )
-
-                                    // Drive Sora's searcher from find state
-                                    LaunchedEffect(findQuery, showFindBar) {
-                                        val editor = soraEditorRef ?: return@LaunchedEffect
-                                        if (showFindBar && findQuery.isNotEmpty()) {
-                                            editor.searcher.search(findQuery, EditorSearcher.SearchOptions(true, false))
-                                        } else {
-                                            editor.searcher.stopSearch()
-                                        }
-                                    }
-
-                                    // ── Sora CodeEditor ───────────────────────────────
-                                    val hasBgImageLocal     = !activeTheme?.backgroundImageUri.isNullOrEmpty()
-                                    val currentThemeBg      = MaterialTheme.colorScheme.background
-                                    val editorTextSizeSp    = remember(activeTheme?.fontSize) {
-                                        (activeTheme?.fontSize ?: 18).toFloat()
-                                    }
-                                    val editorTypeface      = remember(activeTheme?.fontFamily) {
-                                        activeTheme?.fontFamily?.let { ThemeManager.resolveTypeface(context, it) }
-                                    }
-                                    val bgArgb              = remember(hasBgImageLocal, currentThemeBg) {
-                                        if (hasBgImageLocal) android.graphics.Color.TRANSPARENT
-                                        else currentThemeBg.toArgb()
-                                    }
-                                    val popupBgDrawable = remember(activeTheme?.colors?.accent, activeTheme?.colors?.surface) {
-                                        val density    = context.resources.displayMetrics.density
-                                        val cornerPx   = 24f * density
-                                        val accentHex  = activeTheme?.colors?.accent ?: "#000000"
-                                        val surfaceHex = activeTheme?.colors?.surface ?: "#FFFFFF"
-                                        val accentArgb  = runCatching { android.graphics.Color.parseColor(accentHex) }.getOrDefault(android.graphics.Color.BLACK)
-                                        val surfaceArgb = runCatching { android.graphics.Color.parseColor(surfaceHex) }.getOrDefault(android.graphics.Color.WHITE)
-                                        val fill = android.graphics.drawable.GradientDrawable().apply {
-                                            setColor(surfaceArgb); cornerRadius = cornerPx
-                                        }
-                                        val overlay = android.graphics.drawable.GradientDrawable(
-                                            android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                                            intArrayOf(
-                                                android.graphics.Color.argb(
-                                                    71,
-                                                    android.graphics.Color.red(accentArgb),
-                                                    android.graphics.Color.green(accentArgb),
-                                                    android.graphics.Color.blue(accentArgb)
-                                                ),
-                                                android.graphics.Color.TRANSPARENT
-                                            )
-                                        ).apply { cornerRadius = cornerPx }
-                                        android.graphics.drawable.LayerDrawable(arrayOf(fill, overlay))
-                                    }
-
-                                    Box(Modifier.fillMaxSize()) {
-                                        AndroidView(
-                                            factory = { ctx ->
-                                                CodeEditor(ctx).apply {
-                                                    isLineNumberEnabled    = false
-                                                    isHighlightCurrentLine = false
-                                                    isWordwrap             = true
-                                                    registerInlayHintRenderer(
-                                                        io.github.rosemoe.sora.graphics.inlayHint.TextInlayHintRenderer()
+                                        ),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .focusRequester(secondaryTitleFocusRequester),
+                                        decorationBox = { innerTextField ->
+                                            if (secondaryTitleText.isEmpty()) {
+                                                Text(
+                                                    text = "Subtitle (Optional)",
+                                                    style = MaterialTheme.typography.titleMedium.copy(
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
                                                     )
-                                                    setEditorLanguage(ScribeProseLanguage())
-                                                    isNestedScrollingEnabled = true
-                                                    try {
-                                                        getComponent(
-                                                            io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
-                                                        ).isEnabled = true
-                                                    } catch (_: Exception) { }
-
-                                                    try {
-                                                        getComponent(
-                                                            io.github.rosemoe.sora.widget.component.EditorDiagnosticTooltipWindow::class.java
-                                                        ).isEnabled = true
-                                                    } catch (_: Exception) { }
-
-                                                    subscribeEvent(ContentChangeEvent::class.java) { _, _ ->
-                                                        val current = text.toString()
-                                                        editorCurrentText = current
-                                                        if (loadedNoteId != null)
-                                                            editorVm.onContentChanged(current)
-                                                    }
-                                                    try {
-                                                        subscribeEvent(io.github.rosemoe.sora.event.HandleStateChangeEvent::class.java) { event, _ ->
-                                                            isHandleDragging = event.isHeld
-                                                        }
-                                                    } catch (_: Throwable) { }
-                                                    subscribeEvent(EditorKeyEvent::class.java) { event, _ ->
-                                                        if (event.action != android.view.KeyEvent.ACTION_DOWN) return@subscribeEvent
-                                                        if (event.keyCode != android.view.KeyEvent.KEYCODE_ENTER) return@subscribeEvent
-                                                        val cur = this.cursor
-                                                        if (cur.isSelected) return@subscribeEvent
-                                                        val line = this.text.getLine(cur.leftLine)
-                                                        val col  = cur.leftColumn
-                                                        val closeChars = setOf(')', ']', '}', '`', '"', '\'', '\u201D', '\u2019', '\u00BB')
-                                                        if (col < line.length && line[col] in closeChars) {
-                                                            setSelection(cur.leftLine, col + 1)
-                                                            event.intercept()
-                                                        }
-                                                    }
-                                                }.also { soraEditorRef = it }
-                                            },
-                                            update = { editor ->
-                                                editor.setTextSize(editorTextSizeSp)
-                                                editorTypeface?.let { editor.typefaceText = it }
-                                                editor.setBackgroundColor(bgArgb)
-                                                activeTheme?.let { theme ->
-                                                    val scheme = ScribeColorScheme(theme)
-                                                    scheme.setColor(EditorColorScheme.WHOLE_BACKGROUND,       bgArgb)
-                                                    scheme.setColor(EditorColorScheme.LINE_NUMBER_BACKGROUND, bgArgb)
-                                                    scheme.setColor(EditorColorScheme.LINE_NUMBER,            bgArgb)
-                                                    editor.colorScheme = scheme
-                                                    try {
-                                                        val aw = editor.getComponent(
-                                                            io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
-                                                        )
-                                                        var popup: android.widget.PopupWindow? = null
-                                                        var cls: Class<*>? = aw.javaClass
-                                                        outer@ while (cls != null && cls != Any::class.java) {
-                                                            for (f in cls.declaredFields) {
-                                                                if (android.widget.PopupWindow::class.java.isAssignableFrom(f.type)) {
-                                                                    f.isAccessible = true
-                                                                    popup = f.get(aw) as? android.widget.PopupWindow
-                                                                    break@outer
-                                                                }
-                                                            }
-                                                            cls = cls.superclass
-                                                        }
-                                                        popup?.setBackgroundDrawable(popupBgDrawable)
-                                                    } catch (_: Exception) { }
-                                                }
-                                            },
-                                            onRelease = { editor ->
-                                                soraEditorRef = null
-                                                ProseDiagnosticProvider.attachEditor(null)
-                                                editor.release()
-                                            },
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-
-                                        // Word-count pill
-                                        CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
-                                            WordCountPill(
-                                                modifier        = Modifier.align(Alignment.TopEnd),
-                                                pillOffsetX     = pillOffsetX,
-                                                pillOffsetY     = pillOffsetY,
-                                                onOffsetChange  = { dx, dy -> pillOffsetX += dx; pillOffsetY += dy },
-                                                pillMode        = pillMode,
-                                                onModeClick     = { pillMode = (pillMode + 1) % 3 },
-                                                wordCount       = wordCount,
-                                                charCount       = charCount,
-                                                deltaText       = deltaText,
-                                                isPositiveDelta = isPositiveDelta,
-                                                hazeState       = LocalHazeState.current,
-                                            )
-
-                                            if (zenMode) {
-                                                ScribeSingleFab(
-                                                    icon               = Icons.Default.FullscreenExit,
-                                                    contentDescription = "Exit Zen",
-                                                    modifier           = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-                                                    onClick            = { editorVm.setZen(false) }
                                                 )
                                             }
+                                            innerTextField()
                                         }
-                                    } // end editor Box
+                                    )
                                 }
                             }
-                        } // end Scaffold
+                        }
+
+                        // ── Sora CodeEditor ───────────────────────────────
+                        val hasBgImageLocal     = !activeTheme?.backgroundImageUri.isNullOrEmpty()
+                        val currentThemeBg      = MaterialTheme.colorScheme.background
+                        val editorTextSizeSp    = remember(activeTheme?.fontSize) {
+                            (activeTheme?.fontSize ?: 18).toFloat()
+                        }
+                        val editorTypeface      = remember(activeTheme?.fontFamily) {
+                            activeTheme?.fontFamily?.let { ThemeManager.resolveTypeface(context, it) }
+                        }
+                        val bgArgb              = remember(hasBgImageLocal, currentThemeBg) {
+                            if (hasBgImageLocal) android.graphics.Color.TRANSPARENT
+                            else currentThemeBg.toArgb()
+                        }
+                        val popupBgDrawable = remember(activeTheme?.colors?.accent, activeTheme?.colors?.surface) {
+                            val density    = context.resources.displayMetrics.density
+                            val cornerPx   = 24f * density
+                            val accentHex  = activeTheme?.colors?.accent ?: "#000000"
+                            val surfaceHex = activeTheme?.colors?.surface ?: "#FFFFFF"
+                            val accentArgb  = runCatching { android.graphics.Color.parseColor(accentHex) }.getOrDefault(android.graphics.Color.BLACK)
+                            val surfaceArgb = runCatching { android.graphics.Color.parseColor(surfaceHex) }.getOrDefault(android.graphics.Color.WHITE)
+                            val fill = android.graphics.drawable.GradientDrawable().apply {
+                                setColor(surfaceArgb); cornerRadius = cornerPx
+                            }
+                            val overlay = android.graphics.drawable.GradientDrawable(
+                                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                                intArrayOf(
+                                    android.graphics.Color.argb(
+                                        71,
+                                        android.graphics.Color.red(accentArgb),
+                                        android.graphics.Color.green(accentArgb),
+                                        android.graphics.Color.blue(accentArgb)
+                                    ),
+                                    android.graphics.Color.TRANSPARENT
+                                )
+                            ).apply { cornerRadius = cornerPx }
+                            android.graphics.drawable.LayerDrawable(arrayOf(fill, overlay))
+                        }
+
+                        Box(Modifier.fillMaxSize()) {
+                            AndroidView(
+                                factory = { ctx ->
+                                    CodeEditor(ctx).apply {
+                                        isLineNumberEnabled    = false
+                                        isHighlightCurrentLine = false
+                                        isWordwrap             = true
+                                        registerInlayHintRenderer(
+                                            io.github.rosemoe.sora.graphics.inlayHint.TextInlayHintRenderer()
+                                        )
+                                        setEditorLanguage(ScribeProseLanguage())
+                                        isNestedScrollingEnabled = true
+                                        try {
+                                            getComponent(
+                                                io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
+                                            ).isEnabled = true
+                                        } catch (_: Exception) { }
+
+                                        try {
+                                            getComponent(
+                                                io.github.rosemoe.sora.widget.component.EditorDiagnosticTooltipWindow::class.java
+                                            ).isEnabled = true
+                                        } catch (_: Exception) { }
+
+                                        subscribeEvent(ContentChangeEvent::class.java) { _, _ ->
+                                            val current = text.toString()
+                                            editorCurrentText = current
+                                            if (loadedNoteId != null)
+                                                editorVm.onContentChanged(current)
+                                        }
+                                        try {
+                                            subscribeEvent(io.github.rosemoe.sora.event.HandleStateChangeEvent::class.java) { event, _ ->
+                                                isHandleDragging = event.isHeld
+                                            }
+                                        } catch (_: Throwable) { }
+                                        subscribeEvent(EditorKeyEvent::class.java) { event, _ ->
+                                            if (event.action != android.view.KeyEvent.ACTION_DOWN) return@subscribeEvent
+                                            if (event.keyCode != android.view.KeyEvent.KEYCODE_ENTER) return@subscribeEvent
+                                            val cur = this.cursor
+                                            if (cur.isSelected) return@subscribeEvent
+                                            val line = this.text.getLine(cur.leftLine)
+                                            val col  = cur.leftColumn
+                                            val closeChars = setOf(')', ']', '}', '`', '"', '\'', '\u201D', '\u2019', '\u00BB')
+                                            if (col < line.length && line[col] in closeChars) {
+                                                setSelection(cur.leftLine, col + 1)
+                                                event.intercept()
+                                            }
+                                        }
+                                    }.also { soraEditorRef = it }
+                                },
+                                update = { editor ->
+                                    editor.setTextSize(editorTextSizeSp)
+                                    editorTypeface?.let { editor.typefaceText = it }
+                                    editor.setBackgroundColor(bgArgb)
+                                    activeTheme?.let { theme ->
+                                        val scheme = ScribeColorScheme(theme)
+                                        scheme.setColor(EditorColorScheme.WHOLE_BACKGROUND,       bgArgb)
+                                        scheme.setColor(EditorColorScheme.LINE_NUMBER_BACKGROUND, bgArgb)
+                                        scheme.setColor(EditorColorScheme.LINE_NUMBER,            bgArgb)
+                                        editor.colorScheme = scheme
+                                        try {
+                                            val aw = editor.getComponent(
+                                                io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
+                                            )
+                                            var popup: android.widget.PopupWindow? = null
+                                            var cls: Class<*>? = aw.javaClass
+                                            outer@ while (cls != null && cls != Any::class.java) {
+                                                for (f in cls.declaredFields) {
+                                                    if (android.widget.PopupWindow::class.java.isAssignableFrom(f.type)) {
+                                                        f.isAccessible = true
+                                                        popup = f.get(aw) as? android.widget.PopupWindow
+                                                        break@outer
+                                                    }
+                                                }
+                                                cls = cls.superclass
+                                            }
+                                            popup?.setBackgroundDrawable(popupBgDrawable)
+                                        } catch (_: Exception) { }
+                                    }
+                                },
+                                onRelease = { editor ->
+                                    soraEditorRef = null
+                                    ProseDiagnosticProvider.attachEditor(null)
+                                    editor.release()
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            )
+
+                            // Word-count pill (Floating Draggable or docked)
+                            CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
+                                if (zenMode) {
+                                    ScribeSingleFab(
+                                        icon               = Icons.Default.FullscreenExit,
+                                        contentDescription = "Exit Zen",
+                                        modifier           = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                                        onClick            = { editorVm.setZen(false) }
+                                    )
+                                }
+                            }
+                        } // end editor Box
+                    }
+
+                    // ── Floating Pills Layer (Top-Left and Top-Right) ─────────
+                    if (!zenMode) {
+                        AnimatedVisibility(
+                            visible = floatingPillsVisible,
+                            enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                                    slideInVertically(
+                                        initialOffsetY = { -it },
+                                        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
+                                    ),
+                            exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                                   slideOutVertically(
+                                       targetOffsetY = { -it },
+                                       animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                                   ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.TopCenter)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .statusBarsPadding()
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Top-Left: Search Floating Pill
+                                FloatingPillButton(
+                                    icon = Icons.Default.Search,
+                                    contentDescription = "Find & Replace",
+                                    hazeState = hazeState,
+                                    onClick = { showFindBar = !showFindBar }
+                                )
+
+                                // Top-Right: Actions Group (Word Count, Save Checkpoint, Menu)
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    // Word Count Floating Pill
+                                    FloatingWordCountPill(
+                                        wordCount = wordCount,
+                                        charCount = charCount,
+                                        deltaText = deltaText,
+                                        isPositiveDelta = isPositiveDelta,
+                                        pillMode = pillMode,
+                                        onModeClick = { pillMode = (pillMode + 1) % 3 },
+                                        hazeState = hazeState
+                                    )
+
+                                    // Save Checkpoint Floating Pill
+                                    FloatingPillButton(
+                                        icon = Icons.Default.BookmarkAdd,
+                                        contentDescription = "Save Checkpoint",
+                                        hazeState = hazeState,
+                                        onClick = {
+                                            editorVm.saveManualSnapshot(soraEditorRef?.text?.toString() ?: "")
+                                            Toast.makeText(context, "Checkpoint saved", Toast.LENGTH_SHORT).show()
+                                        }
+                                    )
+
+                                    // Options Menu Floating Pill
+                                    FloatingPillButton(
+                                        icon = Icons.Default.MoreVert,
+                                        contentDescription = "Menu",
+                                        hazeState = hazeState,
+                                        onClick = { showEditorTray = true }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } // end Scaffold
         }
 
         val renderLeftDrawer: @Composable (onClose: () -> Unit) -> Unit = { onClose ->
@@ -801,44 +974,106 @@ fun MainEditorScreen(
     } // end outer Box
 }
 
-// ── Extracted: Top bar ────────────────────────────────────────────────────────
+// ── Floating Action Pills (Editor Top Bar Alternative) ───────────────────────
+
 @Composable
-private fun EditorTopBar(
-    activeNote       : Note?,
-    zenMode          : Boolean,
-    goalProgress     : Float,
-    isLeftDrawerOpen : Boolean,
-    soraEditorRef    : CodeEditor?,
-    onNavClick       : () -> Unit,
-    onTitleClick     : () -> Unit,
-    onOpenRightPanel : () -> Unit,
-    onToggleFind     : () -> Unit,
-    onSaveCheckpoint : () -> Unit,
-    onOpenMenu       : () -> Unit,
+private fun FloatingPillButton(
+    icon: ImageVector,
+    contentDescription: String,
+    hazeState: dev.chrisbanes.haze.HazeState?,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
 ) {
-    ScribeEditorTopBar(
-        title          = activeNote?.name,
-        onNavClick     = onNavClick,
-        onTitleClick   = onTitleClick,
-        navigationIcon = Icons.Default.Menu,
-        visible        = !zenMode,
-        actions        = listOf(
-            ScribeBarAction(Icons.Default.Dock,        "Outline & Pinned Notes") { onOpenRightPanel() },
-            ScribeBarAction(Icons.Default.Search,      "Find")                   { onToggleFind() },
-            ScribeBarAction(Icons.Default.BookmarkAdd, "Save Checkpoint")        { onSaveCheckpoint() },
-            ScribeBarAction(Icons.Default.MoreVert,    "Menu")                   { onOpenMenu() },
-        ),
-        extraContent = {
-            if (!zenMode) {
-                LinearProgressIndicator(
-                    progress   = { goalProgress },
-                    modifier   = Modifier.fillMaxWidth().height(3.dp),
-                    color      = ScribeTheme.colors.analytics.target,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                )
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = frostedContainerColor(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f)),
+        tonalElevation = 0.dp,
+        shadowElevation = 2.dp,
+        modifier = modifier
+            .clip(CircleShape)
+            .frostedFab(hazeState)
+            .size(40.dp)
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun FloatingWordCountPill(
+    wordCount: Int,
+    charCount: Int,
+    deltaText: String?,
+    isPositiveDelta: Boolean,
+    pillMode: Int,
+    onModeClick: () -> Unit,
+    hazeState: dev.chrisbanes.haze.HazeState?,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+    ) {
+        AnimatedVisibility(
+            visible = deltaText != null,
+            enter = fadeIn() + slideInVertically { -10 },
+            exit = fadeOut() + slideOutVertically { -10 }
+        ) {
+            Text(
+                text = deltaText ?: "",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (isPositiveDelta) ScribeTheme.colors.semantic.success else ScribeTheme.colors.semantic.error,
+                modifier = Modifier.padding(bottom = 2.dp)
+            )
+        }
+        Surface(
+            shape = CircleShape,
+            color = frostedContainerColor(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)),
+            tonalElevation = 0.dp,
+            shadowElevation = 2.dp,
+            modifier = Modifier
+                .clip(CircleShape)
+                .frostedFab(hazeState)
+                .height(40.dp)
+                .clickable { onModeClick() }
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .padding(horizontal = 14.dp)
+            ) {
+                AnimatedContent(
+                    targetState = pillMode,
+                    transitionSpec = { fadeIn() togetherWith fadeOut() },
+                    label = "word_count_transition"
+                ) { mode ->
+                    Text(
+                        text = when (mode) {
+                            1 -> "$wordCount w · $charCount c"
+                            2 -> "$wordCount w · ${maxOf(1, wordCount / 200)}m"
+                            else -> "$wordCount words"
+                        },
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        maxLines = 1
+                    )
+                }
             }
         }
-    )
+    }
 }
 
 // ── Custom Frosted Bottom Tray for Editor ───────────────────────────────────────
