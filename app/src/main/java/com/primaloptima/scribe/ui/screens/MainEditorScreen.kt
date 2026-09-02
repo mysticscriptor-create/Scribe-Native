@@ -143,6 +143,7 @@ import io.github.rosemoe.sora.widget.EditorSearcher
 import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
 import io.github.rosemoe.sora.event.ContentChangeEvent
 import io.github.rosemoe.sora.event.EditorKeyEvent
+import io.github.rosemoe.sora.event.ScrollEvent
 import io.github.rosemoe.sora.lang.diagnostic.DiagnosticsContainer
 import io.github.rosemoe.sora.lang.styling.inlayHint.InlayHintsContainer
 import com.primaloptima.scribe.util.ScribeProseLanguage
@@ -444,7 +445,7 @@ fun MainEditorScreen(
         ) -> Unit = { onNavClick, onOpenRightPanel, isLeftDrawerOpen ->
             Scaffold(
                 containerColor      = Color.Transparent,
-                contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime),
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 bottomBar = {
                     CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
                         val registerBounds = LocalInteractiveBoundsRegistry.current
@@ -492,7 +493,12 @@ fun MainEditorScreen(
                         .padding(padding)
                         .nestedScroll(hideOnScrollConnection)
                 ) {
-                    Column(Modifier.fillMaxSize()) {
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .statusBarsPadding()
+                            .padding(top = 52.dp)
+                    ) {
 
                         // ── Find/Replace bar ──────────────────────────────
                         FindReplaceBar(
@@ -529,7 +535,7 @@ fun MainEditorScreen(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 28.dp, vertical = 14.dp)
+                                    .padding(horizontal = 28.dp, top = 8.dp, bottom = 12.dp)
                             ) {
                                 // Primary Title / Kicker (e.g., CHAPTER I)
                                 BasicTextField(
@@ -730,6 +736,18 @@ fun MainEditorScreen(
                                                 editorVm.onContentChanged(current)
                                         }
                                         try {
+                                            subscribeEvent(ScrollEvent::class.java) { event, _ ->
+                                                val dy = event.targetY - event.startY
+                                                if (event.targetY <= 10) {
+                                                    floatingPillsVisible = true
+                                                } else if (dy > 25 && floatingPillsVisible) {
+                                                    floatingPillsVisible = false
+                                                } else if (dy < -15 && !floatingPillsVisible) {
+                                                    floatingPillsVisible = true
+                                                }
+                                            }
+                                        } catch (_: Throwable) { }
+                                        try {
                                             subscribeEvent(io.github.rosemoe.sora.event.HandleStateChangeEvent::class.java) { event, _ ->
                                                 isHandleDragging = event.isHeld
                                             }
@@ -787,9 +805,8 @@ fun MainEditorScreen(
                                 modifier = Modifier.fillMaxSize()
                             )
 
-                            // Word-count pill (Floating Draggable or docked)
-                            CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
-                                if (zenMode) {
+                            if (zenMode) {
+                                CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
                                     ScribeSingleFab(
                                         icon               = Icons.Default.FullscreenExit,
                                         contentDescription = "Exit Zen",
@@ -823,7 +840,7 @@ fun MainEditorScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .statusBarsPadding()
-                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -835,22 +852,11 @@ fun MainEditorScreen(
                                     onClick = { showFindBar = !showFindBar }
                                 )
 
-                                // Top-Right: Actions Group (Word Count, Save Checkpoint, Menu)
+                                // Top-Right: Actions Group (Save Checkpoint, Menu)
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    // Word Count Floating Pill
-                                    FloatingWordCountPill(
-                                        wordCount = wordCount,
-                                        charCount = charCount,
-                                        deltaText = deltaText,
-                                        isPositiveDelta = isPositiveDelta,
-                                        pillMode = pillMode,
-                                        onModeClick = { pillMode = (pillMode + 1) % 3 },
-                                        hazeState = hazeState
-                                    )
-
                                     // Save Checkpoint Floating Pill
                                     FloatingPillButton(
                                         icon = Icons.Default.BookmarkAdd,
@@ -870,6 +876,44 @@ fun MainEditorScreen(
                                         onClick = { showEditorTray = true }
                                     )
                                 }
+                            }
+                        }
+
+                        // ── Draggable Floating Word Counter Pill (Below Overflow Menu) ──
+                        AnimatedVisibility(
+                            visible = floatingPillsVisible,
+                            enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                                    slideInVertically(
+                                        initialOffsetY = { -it },
+                                        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
+                                    ),
+                            exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
+                                   slideOutVertically(
+                                       targetOffsetY = { -it },
+                                       animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
+                                   ),
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .statusBarsPadding()
+                                .padding(top = 54.dp, end = 16.dp)
+                        ) {
+                            CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
+                                WordCountPill(
+                                    modifier        = Modifier,
+                                    pillOffsetX     = pillOffsetX,
+                                    pillOffsetY     = pillOffsetY,
+                                    onOffsetChange  = { dx, dy ->
+                                        pillOffsetX += dx
+                                        pillOffsetY += dy
+                                    },
+                                    pillMode        = pillMode,
+                                    onModeClick     = { pillMode = (pillMode + 1) % 3 },
+                                    wordCount       = wordCount,
+                                    charCount       = charCount,
+                                    deltaText       = deltaText,
+                                    isPositiveDelta = isPositiveDelta,
+                                    hazeState       = hazeState,
+                                )
                             }
                         }
                     }
@@ -1076,73 +1120,6 @@ private fun FloatingPillButton(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(20.dp)
             )
-        }
-    }
-}
-
-@Composable
-private fun FloatingWordCountPill(
-    wordCount: Int,
-    charCount: Int,
-    deltaText: String?,
-    isPositiveDelta: Boolean,
-    pillMode: Int,
-    onModeClick: () -> Unit,
-    hazeState: dev.chrisbanes.haze.HazeState?,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier
-    ) {
-        AnimatedVisibility(
-            visible = deltaText != null,
-            enter = fadeIn() + slideInVertically { -10 },
-            exit = fadeOut() + slideOutVertically { -10 }
-        ) {
-            Text(
-                text = deltaText ?: "",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (isPositiveDelta) ScribeTheme.colors.semantic.success else ScribeTheme.colors.semantic.error,
-                modifier = Modifier.padding(bottom = 2.dp)
-            )
-        }
-        Surface(
-            shape = CircleShape,
-            color = frostedContainerColor(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)),
-            tonalElevation = 0.dp,
-            shadowElevation = 2.dp,
-            modifier = Modifier
-                .clip(CircleShape)
-                .frostedFab(hazeState)
-                .height(40.dp)
-                .clickable { onModeClick() }
-        ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .padding(horizontal = 14.dp)
-            ) {
-                AnimatedContent(
-                    targetState = pillMode,
-                    transitionSpec = { fadeIn() togetherWith fadeOut() },
-                    label = "word_count_transition"
-                ) { mode ->
-                    Text(
-                        text = when (mode) {
-                            1 -> "$wordCount w · $charCount c"
-                            2 -> "$wordCount w · ${maxOf(1, wordCount / 200)}m"
-                            else -> "$wordCount words"
-                        },
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        maxLines = 1
-                    )
-                }
-            }
         }
     }
 }
@@ -1477,8 +1454,6 @@ private fun FindReplaceBar(
 }
 
 // ── Extracted: Word-count pill ────────────────────────────────────────────────
-// FIX 9 (decomposition): Separated the draggable pill from the editor Box so
-// drag state and animated content are scoped here and don't invalidate the parent.
 @Composable
 private fun WordCountPill(
     modifier        : Modifier,
@@ -1501,7 +1476,6 @@ private fun WordCountPill(
     Box(
         modifier = modifier
             .offset { IntOffset(pillOffsetX.roundToInt(), pillOffsetY.roundToInt()) }
-            .padding(12.dp)
             .onGloballyPositioned { coords ->
                 registerBounds("word_count_pill", coords.boundsInRoot())
             }
@@ -1509,12 +1483,12 @@ private fun WordCountPill(
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             AnimatedVisibility(
                 visible = deltaText != null,
-                enter   = fadeIn() + slideInVertically { -20 },
-                exit    = fadeOut() + slideOutVertically { -20 }
+                enter   = fadeIn() + slideInVertically { -10 },
+                exit    = fadeOut() + slideOutVertically { -10 }
             ) {
                 Text(
                     text       = deltaText ?: "",
-                    fontSize   = 12.sp,
+                    fontSize   = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color      = if (isPositiveDelta) ScribeTheme.colors.semantic.success else ScribeTheme.colors.semantic.error,
                     modifier   = Modifier.padding(bottom = 2.dp)
@@ -1522,9 +1496,9 @@ private fun WordCountPill(
             }
             Surface(
                 shape           = CircleShape,
-                color           = frostedContainerColor(MaterialTheme.colorScheme.primaryContainer),
+                color           = frostedContainerColor(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)),
                 tonalElevation  = 0.dp,
-                shadowElevation = 0.dp,
+                shadowElevation = 2.dp,
                 modifier        = Modifier
                     .clip(CircleShape)
                     .frostedFab(hazeState)
@@ -1536,21 +1510,29 @@ private fun WordCountPill(
                     }
                     .clickable { onModeClick() }
             ) {
-                AnimatedContent(
-                    targetState    = pillMode,
-                    transitionSpec = { fadeIn() togetherWith fadeOut() }
-                ) { mode ->
-                    Text(
-                        text = when (mode) {
-                            1    -> "$wordCount words · $charCount chars"
-                            2    -> "$wordCount words · ${maxOf(1, wordCount / 200)}m"
-                            else -> "$wordCount words"
-                        },
-                        fontSize   = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        color      = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier   = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                    )
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .height(36.dp)
+                        .padding(horizontal = 14.dp)
+                ) {
+                    AnimatedContent(
+                        targetState    = pillMode,
+                        transitionSpec = { fadeIn() togetherWith fadeOut() },
+                        label          = "word_count_transition"
+                    ) { mode ->
+                        Text(
+                            text = when (mode) {
+                                1    -> "$wordCount w · $charCount c"
+                                2    -> "$wordCount w · ${maxOf(1, wordCount / 200)}m"
+                                else -> "$wordCount words"
+                            },
+                            fontSize   = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color      = MaterialTheme.colorScheme.onPrimaryContainer,
+                            maxLines   = 1
+                        )
+                    }
                 }
             }
         }
