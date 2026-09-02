@@ -267,16 +267,14 @@ fun ThemeColorsPanel(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     val tiers = listOf(
-                        Pair("L0 Base", resolvedColors.background),
-                        Pair("L1 Recessed", resolvedColors.surfaceLowest),
-                        Pair("L2 Surface", resolvedColors.surface),
-                        Pair("L3 Raised", resolvedColors.surfaceRaised),
-                        Pair("L4 Overlay", resolvedColors.surfaceOverlay)
+                        Triple("L0", "Base", resolvedColors.background),
+                        Triple("L1", "Lowest", resolvedColors.surfaceLowest),
+                        Triple("L2", "Surface", resolvedColors.surface),
+                        Triple("L3", "Raised", resolvedColors.surfaceRaised),
+                        Triple("L4", "Overlay", resolvedColors.surfaceOverlay)
                     )
                     val borderSubtle = parseComposeColor(resolvedColors.borderSubtle, MaterialTheme.colorScheme.outlineVariant)
-                    tiers.forEach { item ->
-                        val label = item.first
-                        val hex = item.second
+                    tiers.forEach { (code, name, hex) ->
                         val swatchColor = parseComposeColor(hex, MaterialTheme.colorScheme.surfaceVariant)
                         val swatchText = autoTextColor(swatchColor)
                         Column(
@@ -285,12 +283,34 @@ fun ThemeColorsPanel(
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(swatchColor)
                                 .border(1.dp, borderSubtle, RoundedCornerShape(6.dp))
-                                .padding(vertical = 8.dp, horizontal = 2.dp),
+                                .padding(vertical = 6.dp, horizontal = 2.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Text(label, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = swatchText, maxLines = 1)
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(hex.uppercase(), fontSize = 8.sp, fontFamily = FontFamily.Monospace, color = swatchText.copy(alpha = 0.85f), maxLines = 1)
+                            Text(
+                                text = code,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = swatchText,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                            Text(
+                                text = name,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = swatchText.copy(alpha = 0.8f),
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = hex.uppercase(),
+                                fontSize = 7.5.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = swatchText.copy(alpha = 0.85f),
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
                     }
                 }
@@ -341,8 +361,21 @@ fun ThemeColorsPanel(
                                     .background(c)
                             )
                             Column {
-                                Text(label, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                                Text(if (hex.isNotBlank()) hex.uppercase() else "Auto", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(
+                                    text = label,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                                Text(
+                                    text = if (hex.isNotBlank()) hex.uppercase() else "Auto",
+                                    fontSize = 9.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
                             }
                         }
                     }

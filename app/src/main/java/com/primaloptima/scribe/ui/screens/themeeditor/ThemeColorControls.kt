@@ -60,7 +60,7 @@ fun FoundationColorTile(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp)
+                    .height(48.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .border(1.dp, borderSubtle.copy(alpha = 0.8f), RoundedCornerShape(8.dp))
             ) {
@@ -88,46 +88,33 @@ fun FoundationColorTile(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = label,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
-                    shape = RoundedCornerShape(4.dp)
-                ) {
-                    Text(
-                        text = "Source",
-                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
+            Text(
+                text = label,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                softWrap = false
+            )
 
-            Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(1.dp))
 
             Text(
                 text = hex.uppercase(),
-                fontSize = 11.sp,
+                fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.primary,
+                maxLines = 1,
+                softWrap = false
             )
 
             Text(
                 text = roleDescription,
-                fontSize = 10.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                maxLines = 1
+                fontSize = 9.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                maxLines = 1,
+                softWrap = false
             )
         }
     }
@@ -169,7 +156,7 @@ fun OverrideColorTile(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(40.dp)
+                    .height(38.dp)
                     .clip(RoundedCornerShape(6.dp))
                     .border(1.dp, borderSubtle.copy(alpha = 0.8f), RoundedCornerShape(6.dp))
             ) {
@@ -207,13 +194,15 @@ fun OverrideColorTile(
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1
+                    maxLines = 1,
+                    softWrap = false,
+                    modifier = Modifier.weight(1f, fill = false)
                 )
 
                 if (isOverridden) {
                     IconButton(
                         onClick = onReset,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(18.dp)
                     ) {
                         Icon(
                             Icons.Default.Refresh,
@@ -235,7 +224,9 @@ fun OverrideColorTile(
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    softWrap = false
                 )
 
                 Surface(
@@ -248,8 +239,10 @@ fun OverrideColorTile(
                         text = if (isOverridden) "Custom" else "Auto",
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                         fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (isOverridden) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        fontWeight = FontWeight.Medium,
+                        color = if (isOverridden) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }

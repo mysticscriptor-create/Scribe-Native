@@ -86,20 +86,22 @@ fun AccessibilitySummaryCard(
                     shape = RoundedCornerShape(50)
                 ) {
                     Text(
-                        text = "${contrastReport.passedPairsCount}/${contrastReport.totalPairsChecked} Passed (${(contrastReport.overallPassRate * 100).toInt()}%)",
+                        text = "${(contrastReport.overallPassRate * 100).toInt()}% Passed",
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = statusColor
+                        color = statusColor,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
 
             Text(
                 text = if (isExcellent)
-                    "Optimal editorial contrast: Body text, dialogue, and accents comfortably satisfy WCAG 2.1 AA / APCA standards."
+                    "Optimal editorial contrast: ${contrastReport.passedPairsCount}/${contrastReport.totalPairsChecked} color pairs comfortably satisfy WCAG 2.1 AA / APCA standards."
                 else
-                    "Moderate contrast: Some subtle elements or specialized accents may have reduced legibility in bright environments.",
+                    "Moderate contrast (${contrastReport.passedPairsCount}/${contrastReport.totalPairsChecked} pairs pass): Some subtle elements or specialized accents may have reduced legibility in bright environments.",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 lineHeight = 16.sp

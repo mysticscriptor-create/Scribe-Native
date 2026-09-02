@@ -8,6 +8,9 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -169,7 +172,8 @@ fun ThemeEditScreen(
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            border = BorderStroke(1.dp, ScribeTheme.colors.borders.subtle)
                         ) {
                             Row(
                                 modifier = Modifier
@@ -178,12 +182,16 @@ fun ThemeEditScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Button(
+                                Surface(
                                     onClick = { showEmojiDialog = true },
                                     shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    border = BorderStroke(1.dp, ScribeTheme.colors.borders.subtle),
+                                    modifier = Modifier.size(48.dp)
                                 ) {
-                                    Text(draft.emoji, fontSize = 20.sp)
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(draft.emoji, fontSize = 22.sp)
+                                    }
                                 }
 
                                 OutlinedTextField(
@@ -191,6 +199,7 @@ fun ThemeEditScreen(
                                     onValueChange = { draft = draft.copy(name = it) },
                                     label = { Text("Theme Name") },
                                     singleLine = true,
+                                    shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -217,24 +226,46 @@ fun ThemeEditScreen(
 
                 // ── 3. CATEGORY SELECTOR (Segmented Navigation) ───────────────
                 item {
-                    PrimaryTabRow(
-                        selectedTabIndex = selectedCategory.ordinal,
-                        modifier = Modifier.fillMaxWidth(),
-                        containerColor = Color.Transparent,
-                        divider = {}
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, ScribeTheme.colors.borders.subtle),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        ThemeEditorCategory.entries.forEach { cat ->
-                            Tab(
-                                selected = selectedCategory == cat,
-                                onClick = { selectedCategory = cat },
-                                text = {
-                                    Text(
-                                        text = cat.title,
-                                        fontWeight = if (selectedCategory == cat) FontWeight.Bold else FontWeight.Medium,
-                                        fontSize = 13.sp
-                                    )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            ThemeEditorCategory.entries.forEach { cat ->
+                                val isSelected = selectedCategory == cat
+                                Surface(
+                                    onClick = { selectedCategory = cat },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isSelected) MaterialTheme.colorScheme.surface else Color.Transparent,
+                                    border = if (isSelected) BorderStroke(1.dp, ScribeTheme.colors.borders.subtle) else null,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(38.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = when (cat) {
+                                                ThemeEditorCategory.COLORS -> "Colors"
+                                                ThemeEditorCategory.TYPOGRAPHY -> "Type"
+                                                ThemeEditorCategory.LAYOUT -> "Layout"
+                                                ThemeEditorCategory.ATMOSPHERE -> "Atmosphere"
+                                            },
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
                                 }
-                            )
+                            }
                         }
                     }
                 }
