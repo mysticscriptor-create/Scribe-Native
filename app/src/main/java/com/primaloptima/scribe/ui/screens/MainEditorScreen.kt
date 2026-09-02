@@ -143,7 +143,6 @@ import io.github.rosemoe.sora.widget.EditorSearcher
 import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
 import io.github.rosemoe.sora.event.ContentChangeEvent
 import io.github.rosemoe.sora.event.EditorKeyEvent
-import io.github.rosemoe.sora.event.ScrollEvent
 import io.github.rosemoe.sora.lang.diagnostic.DiagnosticsContainer
 import io.github.rosemoe.sora.lang.styling.inlayHint.InlayHintsContainer
 import com.primaloptima.scribe.util.ScribeProseLanguage
@@ -535,7 +534,7 @@ fun MainEditorScreen(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 28.dp, top = 8.dp, bottom = 12.dp)
+                                    .padding(start = 28.dp, top = 8.dp, end = 28.dp, bottom = 12.dp)
                             ) {
                                 // Primary Title / Kicker (e.g., CHAPTER I)
                                 BasicTextField(
@@ -736,13 +735,13 @@ fun MainEditorScreen(
                                                 editorVm.onContentChanged(current)
                                         }
                                         try {
-                                            subscribeEvent(ScrollEvent::class.java) { event, _ ->
-                                                val dy = event.targetY - event.startY
-                                                if (event.targetY <= 10) {
+                                            setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+                                                val dy = scrollY - oldScrollY
+                                                if (scrollY <= 10) {
                                                     floatingPillsVisible = true
-                                                } else if (dy > 25 && floatingPillsVisible) {
+                                                } else if (dy > 20 && floatingPillsVisible) {
                                                     floatingPillsVisible = false
-                                                } else if (dy < -15 && !floatingPillsVisible) {
+                                                } else if (dy < -10 && !floatingPillsVisible) {
                                                     floatingPillsVisible = true
                                                 }
                                             }
