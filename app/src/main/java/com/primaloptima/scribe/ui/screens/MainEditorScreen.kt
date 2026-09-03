@@ -603,6 +603,12 @@ fun MainEditorScreen(
                                         editorCurrentText = current
                                         if (loadedNoteId != null)
                                             editorVm.onContentChanged(current)
+                                        unifiedCanvasRef?.ensureCursorVisibleAboveKeyboard()
+                                    }
+                                    setOnFocusChangeListener { _, hasFocus ->
+                                        if (hasFocus) {
+                                            unifiedCanvasRef?.ensureCursorVisibleAboveKeyboard()
+                                        }
                                     }
                                     try {
                                         setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
