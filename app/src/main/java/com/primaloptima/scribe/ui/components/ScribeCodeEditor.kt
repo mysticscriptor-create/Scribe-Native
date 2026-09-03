@@ -20,6 +20,28 @@ class ScribeCodeEditor @JvmOverloads constructor(
 ) : CodeEditor(context, attrs, defStyleAttr) {
 
     private var lastMakeVisibleTime: Long = 0L
+    private var isFlingActive = false
+
+    init {
+        // Prevent auto-scrolling to cursor when keyboard opens or screen resizes while header/titles are focused
+        props.adjustToSelectionOnResize = false
+
+        // Distinguish autonomous flings from active finger drags to avoid premature snapping into header
+        subscribeEvent(ScrollEvent::class.java) { event, _ ->
+            when (event.cause) {
+                ScrollEvent.CAUSE_USER_FLING -> isFlingActive = true
+                ScrollEvent.CAUSE_USER_DRAG -> isFlingActive = false
+                ScrollEvent.CAUSE_MAKE_POSITION_VISIBLE -> isFlingActive = false
+                ScrollEvent.CAUSE_TEXT_SELECTING -> isFlingActive = false
+            }
+        }
+    }
+
+    override fun ensureSelectionVisible() {
+        // Only scroll to selection if this editor actually has keyboard focus
+        if (!isFocused) return
+        super.ensureSelectionVisible()
+    }
 
     override fun computeScroll() {
         val scroller = scroller
@@ -29,12 +51,18 @@ class ScribeCodeEditor @JvmOverloads constructor(
         super.computeScroll()
 
         // When flinging towards the top of the text (offsetY reaching 0):
+        // Only transfer fling to canvas header if this is a genuine fling and user is not holding finger down
         if (!wasFinished && scroller != null && scroller.currY <= 0 && prevY > 0) {
+            val parentCanvas = parent as? UnifiedCanvasLayout
             val velocity = scroller.currVelocity
-            if (velocity > 0f) {
+            if (velocity > 0f && isFlingActive && parentCanvas?.isUserTouching != true) {
+                isFlingActive = false
                 scroller.abortAnimation()
-                (parent as? UnifiedCanvasLayout)?.continueFlingFromEditor(velocity)
+                parentCanvas?.continueFlingFromEditor(velocity)
             }
+        }
+        if (scroller != null && scroller.isFinished) {
+            isFlingActive = false
         }
     }
 

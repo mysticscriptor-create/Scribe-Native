@@ -135,6 +135,10 @@ import androidx.compose.material3.adaptive.layout.PaneAdaptedValue
 import androidx.compose.material3.adaptive.navigation.rememberSupportingPaneScaffoldNavigator
 import androidx.window.core.layout.WindowWidthSizeClass
 import dev.chrisbanes.haze.HazeState
+import com.primaloptima.scribe.ScribeApp
+import com.primaloptima.scribe.util.ScribeDataStore
+import com.primaloptima.scribe.ui.ornaments.OrnamentRegistry
+import com.primaloptima.scribe.ui.ornaments.OrnamentPickerSheet
 
 // ── Sora Editor imports ───────────────────────────────────────────────────────
 import androidx.compose.ui.viewinterop.AndroidView
@@ -233,6 +237,11 @@ fun MainEditorScreen(
     var showCreateNoteDialog by remember { mutableStateOf(false) }
     var showEditorTray       by remember { mutableStateOf(false) }
 
+    val context = LocalContext.current
+    val dataStore = remember { (context.applicationContext as? ScribeApp)?.dataStore ?: ScribeDataStore(context) }
+    val selectedOrnamentId by dataStore.manuscriptOrnamentIdFlow.collectAsStateWithLifecycle("classic_diamond")
+    var showOrnamentPicker by remember { mutableStateOf(false) }
+
     val anyDialogOpen = showRenameDialog || showCreateNoteDialog || showEditorTray
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
         LaunchedEffect(anyDialogOpen) { if (!anyDialogOpen) dialogOneShotBitmap = null }
@@ -303,6 +312,17 @@ fun MainEditorScreen(
     }
     val primaryTitleFocusRequester = remember { FocusRequester() }
     val secondaryTitleFocusRequester = remember { FocusRequester() }
+    var pendingSecondaryFocus by remember { mutableStateOf(false) }
+
+    LaunchedEffect(pendingSecondaryFocus) {
+        if (pendingSecondaryFocus) {
+            pendingSecondaryFocus = false
+            withFrameNanos { }
+            try {
+                secondaryTitleFocusRequester.requestFocus()
+            } catch (_: Exception) { }
+        }
+    }
 
     fun persistDualTitle(primary: String, secondary: String) {
         val targetNote = activeNote ?: return
@@ -690,11 +710,13 @@ fun MainEditorScreen(
                                         // Primary Title / Kicker (e.g., CHAPTER I)
                                         BasicTextField(
                                             value = primaryTitleText,
-                                            onValueChange = {
-                                                primaryTitleText = it
-                                                persistDualTitle(it, secondaryTitleText)
+                                            onValueChange = { input ->
+                                                val sanitized = input.replace("\n", " ")
+                                                primaryTitleText = sanitized
+                                                persistDualTitle(sanitized, secondaryTitleText)
                                             },
-                                            singleLine = true,
+                                            singleLine = false,
+                                            maxLines = 4,
                                             textStyle = MaterialTheme.typography.titleMedium.copy(
                                                 color = MaterialTheme.colorScheme.primary,
                                                 fontWeight = FontWeight.SemiBold,
@@ -706,16 +728,18 @@ fun MainEditorScreen(
                                             keyboardActions = KeyboardActions(
                                                 onNext = {
                                                     showSecondaryTitle = true
-                                                    secondaryTitleFocusRequester.requestFocus()
+                                                    pendingSecondaryFocus = true
                                                 }
                                             ),
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .focusRequester(primaryTitleFocusRequester)
                                                 .onPreviewKeyEvent { event ->
-                                                    if (event.key == Key.Enter && event.type == KeyEventType.KeyUp) {
-                                                        showSecondaryTitle = true
-                                                        secondaryTitleFocusRequester.requestFocus()
+                                                    if (event.key == Key.Enter) {
+                                                        if (event.type == KeyEventType.KeyUp) {
+                                                            showSecondaryTitle = true
+                                                            pendingSecondaryFocus = true
+                                                        }
                                                         true
                                                     } else false
                                                 },
@@ -745,11 +769,13 @@ fun MainEditorScreen(
                                             Spacer(Modifier.height(6.dp))
                                             BasicTextField(
                                                 value = secondaryTitleText,
-                                                onValueChange = {
-                                                    secondaryTitleText = it
-                                                    persistDualTitle(primaryTitleText, it)
+                                                onValueChange = { input ->
+                                                    val sanitized = input.replace("\n", " ")
+                                                    secondaryTitleText = sanitized
+                                                    persistDualTitle(primaryTitleText, sanitized)
                                                 },
-                                                singleLine = true,
+                                                singleLine = false,
+                                                maxLines = 4,
                                                 textStyle = MaterialTheme.typography.headlineMedium.copy(
                                                     color = MaterialTheme.colorScheme.onBackground,
                                                     fontWeight = FontWeight.Bold,
@@ -772,9 +798,11 @@ fun MainEditorScreen(
                                                             persistDualTitle(primaryTitleText, "")
                                                             primaryTitleFocusRequester.requestFocus()
                                                             true
-                                                        } else if (event.key == Key.Enter && event.type == KeyEventType.KeyUp) {
-                                                            soraEditorRef?.requestFocus()
-                                                            soraEditorRef?.setSelection(0, 0)
+                                                        } else if (event.key == Key.Enter) {
+                                                            if (event.type == KeyEventType.KeyUp) {
+                                                                soraEditorRef?.requestFocus()
+                                                                soraEditorRef?.setSelection(0, 0)
+                                                            }
                                                             true
                                                         } else false
                                                     },
@@ -799,19 +827,25 @@ fun MainEditorScreen(
                                             )
                                         }
 
-                                        // Ornamental Flourish Divider (─── ❖ ───)
+                                        // Extensible Vector Manuscript Ornament Divider
+                                        val currentOrnament = remember(selectedOrnamentId) {
+                                            OrnamentRegistry.getById(selectedOrnamentId)
+                                        }
+
                                         Spacer(Modifier.height(10.dp))
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.Center,
-                                            verticalAlignment = Alignment.CenterVertically
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable {
+                                                    showOrnamentPicker = true
+                                                }
+                                                .padding(vertical = 4.dp),
+                                            contentAlignment = Alignment.Center
                                         ) {
-                                            Text(
-                                                text = "───  ❖  ───",
-                                                style = MaterialTheme.typography.labelMedium.copy(
-                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
-                                                    letterSpacing = 2.sp
-                                                )
+                                            currentOrnament.Render(
+                                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                                modifier = Modifier
                                             )
                                         }
                                     }
@@ -1130,6 +1164,18 @@ fun MainEditorScreen(
                             editorVm.loadNote(id)
                         }
                     }
+                )
+            }
+
+            if (showOrnamentPicker) {
+                OrnamentPickerSheet(
+                    selectedId = selectedOrnamentId,
+                    onSelect = { newId ->
+                        scope.launch {
+                            dataStore.setManuscriptOrnamentId(newId)
+                        }
+                    },
+                    onDismiss = { showOrnamentPicker = false }
                 )
             }
         }

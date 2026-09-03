@@ -238,6 +238,7 @@ fun CompactEditorLayout(
 ) {
     val scope = rememberCoroutineScope()
     val currentOffset = remember { Animatable(0f) }
+    var currentActiveSide by remember { mutableStateOf(ActiveDrawerSide.NONE) }
     val keyboardController = LocalSoftwareKeyboardController.current
 
     // Spring specs: Asymmetric physics
@@ -269,6 +270,7 @@ fun CompactEditorLayout(
             scope.launch {
                 currentOffset.animateTo(0f, closeSpringSpec)
                 currentOffset.snapTo(0f)
+                currentActiveSide = ActiveDrawerSide.NONE
             }
         }
 
@@ -427,6 +429,7 @@ fun CompactEditorLayout(
                                 )
                                 if (target == 0f) {
                                     currentOffset.snapTo(0f)
+                                    currentActiveSide = ActiveDrawerSide.NONE
                                 }
                             }
                         }
@@ -457,6 +460,7 @@ fun CompactEditorLayout(
 
                                 if (activeSide == ActiveDrawerSide.NONE) {
                                     activeSide = if (totalDx > 0f) ActiveDrawerSide.LEFT_DRAWER else ActiveDrawerSide.RIGHT_PANEL
+                                    currentActiveSide = activeSide
                                 }
 
                                 // Close soft keyboard asynchronously without blocking frame execution
@@ -512,9 +516,11 @@ fun CompactEditorLayout(
                                 if (currentOffset.value > drawerWidthPx * 0.5f) {
                                     currentOffset.animateTo(0f, closeSpringSpec)
                                     currentOffset.snapTo(0f)
+                                    currentActiveSide = ActiveDrawerSide.NONE
                                 } else {
                                     keyboardController?.hide()
                                     try { currentSoraEditorRef?.hideSoftInput() } catch (_: Exception) { }
+                                    currentActiveSide = ActiveDrawerSide.LEFT_DRAWER
                                     currentOffset.animateTo(drawerWidthPx, openSpringSpec)
                                 }
                             }
@@ -524,9 +530,11 @@ fun CompactEditorLayout(
                                 if (currentOffset.value < -panelWidthPx * 0.5f) {
                                     currentOffset.animateTo(0f, closeSpringSpec)
                                     currentOffset.snapTo(0f)
+                                    currentActiveSide = ActiveDrawerSide.NONE
                                 } else {
                                     keyboardController?.hide()
                                     try { currentSoraEditorRef?.hideSoftInput() } catch (_: Exception) { }
+                                    currentActiveSide = ActiveDrawerSide.RIGHT_PANEL
                                     currentOffset.animateTo(-panelWidthPx, openSpringSpec)
                                 }
                             }
@@ -554,13 +562,14 @@ fun CompactEditorLayout(
                                 scope.launch {
                                     currentOffset.animateTo(0f, closeSpringSpec)
                                     currentOffset.snapTo(0f)
+                                    currentActiveSide = ActiveDrawerSide.NONE
                                 }
                             }
                     )
                 }
 
                 // ── Layer 3: Left Drawer (Slides in from Left, Zero-Gap Anchored with Full-Height Elastic Stretch) ────
-                val isLeftDrawerVisible = currentOffset.value > 0.1f
+                val isLeftDrawerVisible = currentActiveSide == ActiveDrawerSide.LEFT_DRAWER && currentOffset.value > 0.1f
                 val leftOverdragPx = (currentOffset.value - drawerWidthPx).coerceAtLeast(0f)
                 val leftStretchScaleX = 1f + (leftOverdragPx / drawerWidthPx) * 0.12f
 
@@ -570,7 +579,7 @@ fun CompactEditorLayout(
                         .width(drawerWidthDp)
                         .graphicsLayer {
                             // Background/container strictly anchored to left edge (Zero gaps)
-                            translationX = (-drawerWidthPx + currentOffset.value).coerceAtMost(0f)
+                            translationX = (-drawerWidthPx + currentOffset.value.coerceAtLeast(0f)).coerceAtMost(0f)
                             // Full-height (including status bar) tactile rubber-band elastic stretch
                             transformOrigin = TransformOrigin(0f, 0.5f)
                             scaleX = leftStretchScaleX
@@ -581,12 +590,13 @@ fun CompactEditorLayout(
                         scope.launch {
                             currentOffset.animateTo(0f, closeSpringSpec)
                             currentOffset.snapTo(0f)
+                            currentActiveSide = ActiveDrawerSide.NONE
                         }
                     }
                 }
 
                 // ── Layer 4: Right Panel (Slides in from Right, Zero-Gap Anchored with Full-Height Elastic Stretch) ───
-                val isRightPanelVisible = currentOffset.value < -0.1f
+                val isRightPanelVisible = currentActiveSide == ActiveDrawerSide.RIGHT_PANEL && currentOffset.value < -0.1f
                 val rightOverdragPx = (-panelWidthPx - currentOffset.value).coerceAtLeast(0f)
                 val rightStretchScaleX = 1f + (rightOverdragPx / panelWidthPx) * 0.12f
 
@@ -595,7 +605,7 @@ fun CompactEditorLayout(
                         .fillMaxSize()
                         .graphicsLayer {
                             // Background/container strictly anchored to right edge (Zero gaps)
-                            translationX = (screenWidthPx + currentOffset.value).coerceAtLeast(0f)
+                            translationX = (screenWidthPx + currentOffset.value.coerceAtMost(0f)).coerceAtLeast(0f)
                             // Full-height (including status bar) tactile rubber-band elastic stretch
                             transformOrigin = TransformOrigin(1f, 0.5f)
                             scaleX = rightStretchScaleX
@@ -606,6 +616,7 @@ fun CompactEditorLayout(
                         scope.launch {
                             currentOffset.animateTo(0f, closeSpringSpec)
                             currentOffset.snapTo(0f)
+                            currentActiveSide = ActiveDrawerSide.NONE
                         }
                     }
                 }

@@ -64,6 +64,7 @@ class ScribeDataStore(private val context: Context) {
         val TYPEWRITER_MODE    = booleanPreferencesKey("typewriter_mode")
         val LINE_SPACING       = stringPreferencesKey("line_spacing")
         val EDITOR_FONT_SIZE   = intPreferencesKey("editor_font_size")
+        val MANUSCRIPT_ORNAMENT_ID = stringPreferencesKey("manuscript_ornament_id")
 
         // Writing stats
         val DAILY_GOAL         = intPreferencesKey("daily_goal")
@@ -116,6 +117,7 @@ class ScribeDataStore(private val context: Context) {
     val typewriterModeFlow: Flow<Boolean>    = store.data.map { it[TYPEWRITER_MODE] ?: false }
     val lineSpacingFlow: Flow<String>        = store.data.map { it[LINE_SPACING] ?: "comfortable" }
     val editorFontSizeFlow: Flow<Int>        = store.data.map { it[EDITOR_FONT_SIZE] ?: 16 }
+    val manuscriptOrnamentIdFlow: Flow<String> = store.data.map { it[MANUSCRIPT_ORNAMENT_ID] ?: "classic_diamond" }
 
     val dailyGoalFlow: Flow<Int>             = store.data.map { it[DAILY_GOAL] ?: 500 }
     val shortcutsJsonFlow: Flow<String?>     = store.data.map { it[SHORTCUTS_JSON] }
@@ -240,6 +242,7 @@ class ScribeDataStore(private val context: Context) {
     }
 
     suspend fun setPinnedJson(json: String) = store.edit { it[PINNED_JSON] = json }
+    suspend fun setManuscriptOrnamentId(id: String) = store.edit { it[MANUSCRIPT_ORNAMENT_ID] = id }
 
     // Companion panel write functions
     suspend fun setPinnedTopJson(json: String)    = store.edit { it[PINNED_TOP_JSON]    = json }

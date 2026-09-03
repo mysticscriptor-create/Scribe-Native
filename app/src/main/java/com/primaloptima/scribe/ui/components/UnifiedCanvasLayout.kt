@@ -66,6 +66,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     private var lastTouchY = 0f
     private var isDraggingCanvas = false
 
+    var isUserTouching: Boolean = false
+        private set
+
     fun resetScroll() {
         if (!scroller.isFinished) {
             scroller.abortAnimation()
@@ -93,6 +96,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * Called by ScribeCodeEditor when flinging towards the top and offsetY hits 0.
      */
     fun continueFlingFromEditor(velocity: Float) {
+        if (isUserTouching || isDraggingCanvas) return
         if (scrollD <= 0) return
         if (!scroller.isFinished) {
             scroller.abortAnimation()
@@ -109,6 +113,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * so that the active cursor line stays just above the shortcut bar.
      */
     fun ensureCursorVisibleAboveKeyboard() {
+        if (!editor.isFocused) return
         val cursor = try { editor.cursor } catch (_: Throwable) { null } ?: return
         val line = cursor.leftLine
         val col = cursor.leftColumn
@@ -201,6 +206,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * so that the typing cursor is strictly kept above the keyboard and shortcut bar.
      */
     override fun requestChildRectangleOnScreen(child: View, rectangle: Rect, immediate: Boolean): Boolean {
+        if (child === editor && !editor.isFocused) {
+            return false
+        }
         if (child === editor) {
             val screenTop = (headerHeight - scrollD) + rectangle.top
             val screenBottom = (headerHeight - scrollD) + rectangle.bottom
@@ -328,6 +336,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                isUserTouching = true
                 if (!scroller.isFinished) {
                     scroller.abortAnimation()
                 }
@@ -365,6 +374,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                isUserTouching = false
                 if (isDraggingCanvas) {
                     isDraggingCanvas = false
                     velocityTracker?.computeCurrentVelocity(1000, maxFlingVelocity.toFloat())
@@ -429,6 +439,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         velocityTracker?.addMovement(ev)
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                isUserTouching = true
                 if (!scroller.isFinished) {
                     scroller.abortAnimation()
                 }
@@ -448,6 +459,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_UP -> {
+                isUserTouching = false
                 velocityTracker?.computeCurrentVelocity(1000, maxFlingVelocity.toFloat())
                 val vy = velocityTracker?.yVelocity ?: 0f
                 if (abs(vy) > minFlingVelocity) {
@@ -463,6 +475,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
+                isUserTouching = false
                 isDraggingCanvas = false
                 velocityTracker?.recycle()
                 velocityTracker = null
