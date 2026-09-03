@@ -68,10 +68,10 @@ class ScribeCodeEditor @JvmOverloads constructor(
         }
 
         val charWidth = if (column == 0) 0f else textPaint.measureText("a")
-        if (xOffset < currFinalX + (if (isPinLineNumber) measureTextRegionOffset() else 0f)) {
+        if (xOffset < currFinalX + (if (isLineNumberPinned) measureTextRegionOffset() else 0f)) {
             val backupX = targetX
             val scrollSlopX = width / 2f
-            targetX = xOffset + (if (isPinLineNumber) -measureTextRegionOffset() else 0f) - charWidth
+            targetX = xOffset + (if (isLineNumberPinned) -measureTextRegionOffset() else 0f) - charWidth
             if (abs(targetX - backupX) < scrollSlopX) {
                 targetX = maxOf(1f, backupX - scrollSlopX)
             }
