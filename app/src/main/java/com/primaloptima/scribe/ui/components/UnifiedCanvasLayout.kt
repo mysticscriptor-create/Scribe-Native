@@ -10,16 +10,16 @@ import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.OverScroller
 import androidx.compose.ui.platform.ComposeView
-import io.github.rosemoe.sora.event.ScrollEvent
 import io.github.rosemoe.sora.widget.CodeEditor
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /**
  * UnifiedCanvasLayout — Edge-to-Edge Document Canvas Architecture.
  *
  * Hosts a ComposeView header (Child 0) and a Sora CodeEditor (Child 1) inside a single,
- * continuous vertical document canvas. Coordinates bidirectional touch handoffs,
- * continuous flings across the boundary, keyboard inset management, and 120Hz smooth rendering.
+ * continuous vertical document canvas. Coordinates touch dispatch, flings across the
+ * boundary, keyboard inset management, and 120Hz smooth rendering without touch hijacking.
  */
 class UnifiedCanvasLayout @JvmOverloads constructor(
     context: Context,
@@ -48,6 +48,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var scrollD: Int = 0
         private set
 
+    private var scrollDFloat: Float = 0f
+
     var onScrollDelta: ((dy: Float) -> Unit)? = null
     var onUnifiedScrollChanged: ((scrollD: Int, maxHeaderHeight: Int) -> Unit)? = null
 
@@ -62,31 +64,27 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     private var initialDownX = 0f
     private var initialDownY = 0f
     private var lastTouchY = 0f
-    private var lastDispatchY = 0f
     private var isDraggingCanvas = false
-    private var editorHasTouch = false
-
-    init {
-        try {
-            editor.subscribeEvent(ScrollEvent::class.java) { _, _ ->
-                if (editor.offsetY <= 0 && scrollD > 0 && !scroller.isFinished) {
-                    // Handled during upward fling
-                }
-            }
-        } catch (_: Throwable) {}
-    }
 
     fun resetScroll() {
         if (!scroller.isFinished) {
             scroller.abortAnimation()
         }
+        try {
+            editor.scroller?.abortAnimation()
+        } catch (_: Throwable) {}
+        scrollDFloat = 0f
         scrollD = 0
         isDraggingCanvas = false
-        editorHasTouch = false
         applyTranslations()
         onUnifiedScrollChanged?.invoke(0, headerHeight)
         try {
-            editor.scrollTo(0, 0)
+            val scroller = editor.scroller
+            if (scroller != null) {
+                scroller.startScroll(scroller.currX, 0, 0, 0, 0)
+                scroller.abortAnimation()
+                editor.invalidate()
+            }
         } catch (_: Throwable) {}
     }
 
@@ -99,6 +97,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val cursorLine = try { editor.cursor.leftLine } catch (_: Throwable) { 0 }
             if (cursorLine > 2 || editor.offsetY > 0) {
                 scrollD = headerHeight
+                scrollDFloat = headerHeight.toFloat()
                 applyTranslations()
                 onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
             }
@@ -125,6 +124,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         // Clamp scrollD in case header height changed (e.g. secondary title shown/hidden)
         if (scrollD > headerHeight) {
             scrollD = headerHeight
+            scrollDFloat = headerHeight.toFloat()
         }
 
         // Measure CodeEditor to fill the full viewport height
@@ -159,19 +159,21 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
             if (screenBottom > visibleHeight) {
                 val delta = screenBottom - visibleHeight
-                val canScroll = headerHeight - scrollD
-                val consume = minOf(delta, canScroll)
-                if (consume > 0) {
-                    scrollD += consume
+                val canScroll = (headerHeight - scrollD).toFloat()
+                val consume = minOf(delta.toFloat(), canScroll)
+                if (consume > 0f) {
+                    scrollDFloat += consume
+                    scrollD = scrollDFloat.roundToInt().coerceIn(0, headerHeight)
                     applyTranslations()
                     onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
                     return true
                 }
             } else if (screenTop < 0 && scrollD > 0) {
-                val delta = -screenTop
-                val consume = minOf(delta, scrollD)
-                if (consume > 0) {
-                    scrollD -= consume
+                val delta = -screenTop.toFloat()
+                val consume = minOf(delta, scrollDFloat)
+                if (consume > 0f) {
+                    scrollDFloat -= consume
+                    scrollD = scrollDFloat.roundToInt().coerceIn(0, headerHeight)
                     applyTranslations()
                     onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
                     return true
@@ -202,11 +204,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         onScrollDelta?.invoke(dy)
 
         if (dy > 0f) {
-            // Scrolling down into document
-            if (scrollD < headerHeight) {
-                val canConsume = (headerHeight - scrollD).toFloat()
+            // Scrolling down into document (finger moving up)
+            if (scrollDFloat < headerHeight) {
+                val canConsume = headerHeight - scrollDFloat
                 val consume = minOf(dy, canConsume)
-                scrollD += consume.toInt()
+                scrollDFloat += consume
+                scrollD = scrollDFloat.roundToInt().coerceIn(0, headerHeight)
                 applyTranslations()
                 onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
                 val unconsumed = dy - consume
@@ -219,17 +222,18 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 return dy
             }
         } else if (dy < 0f) {
-            // Scrolling up towards top of document
-            if (editor.offsetY > 0) {
-                val currentOffset = editor.offsetY.toFloat()
-                val canConsumeEditor = -currentOffset
+            // Scrolling up towards top of document (finger moving down)
+            val editorY = editor.offsetY
+            if (editorY > 0) {
+                val canConsumeEditor = -editorY.toFloat()
                 val consumeEditor = maxOf(dy, canConsumeEditor)
                 dispatchScrollToEditor(consumeEditor)
                 val unconsumed = dy - consumeEditor
-                if (unconsumed < 0f && scrollD > 0) {
-                    val canConsumeCanvas = -scrollD.toFloat()
+                if (unconsumed < 0f && scrollDFloat > 0f) {
+                    val canConsumeCanvas = -scrollDFloat
                     val consumeCanvas = maxOf(unconsumed, canConsumeCanvas)
-                    scrollD += consumeCanvas.toInt()
+                    scrollDFloat += consumeCanvas
+                    scrollD = scrollDFloat.roundToInt().coerceIn(0, headerHeight)
                     applyTranslations()
                     onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
                     return unconsumed - consumeCanvas
@@ -237,13 +241,14 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 return unconsumed
             } else {
                 // Editor is at top, pull header down
-                if (scrollD > 0) {
-                    val canConsume = -scrollD.toFloat()
-                    val consume = maxOf(dy, canConsume)
-                    scrollD += consume.toInt()
+                if (scrollDFloat > 0f) {
+                    val canConsumeCanvas = -scrollDFloat
+                    val consumeCanvas = maxOf(dy, canConsumeCanvas)
+                    scrollDFloat += consumeCanvas
+                    scrollD = scrollDFloat.roundToInt().coerceIn(0, headerHeight)
                     applyTranslations()
                     onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
-                    return dy - consume
+                    return dy - consumeCanvas
                 }
                 return dy
             }
@@ -251,94 +256,32 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         return 0f
     }
 
+    /**
+     * Natively scrolls Sora CodeEditor via its internal EditorScroller.
+     * This avoids calling View.scrollBy() which desynchronizes the View hardware canvas,
+     * ensuring lines render smoothly at 120Hz without blank screens during fast scrolling.
+     */
     private fun dispatchScrollToEditor(dy: Float) {
         try {
-            editor.scrollBy(0, dy.toInt())
-            editor.postInvalidateOnAnimation()
+            val scroller = editor.scroller ?: return
+            val currY = scroller.currY
+            val targetY = (currY + dy).roundToInt().coerceIn(0, editor.scrollMaxY)
+            if (targetY != currY) {
+                scroller.startScroll(scroller.currX, currY, 0, targetY - currY, 0)
+                scroller.abortAnimation()
+                editor.invalidate()
+            }
         } catch (_: Throwable) {}
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        when (ev.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                lastDispatchY = ev.y
-                lastTouchY = ev.y
-                initialDownX = ev.x
-                initialDownY = ev.y
-                editorHasTouch = false
-                isDraggingCanvas = false
-
-                if (!scroller.isFinished) {
-                    scroller.abortAnimation()
-                    isDraggingCanvas = true
-                    parent?.requestDisallowInterceptTouchEvent(true)
-                    return onTouchEvent(ev)
-                }
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+            if (!scroller.isFinished) {
+                scroller.abortAnimation()
             }
-            MotionEvent.ACTION_MOVE -> {
-                val dy = lastDispatchY - ev.y
-                lastDispatchY = ev.y
-
-                // Seamless Transition 1: Dragging DOWN inside editor and editor reaches the top (offsetY == 0)
-                // Hand off gesture smoothly back to UnifiedCanvasLayout to pull title down!
-                if (dy < 0f && editor.offsetY <= 0 && scrollD > 0) {
-                    if (!isDraggingCanvas) {
-                        isDraggingCanvas = true
-                        editorHasTouch = false
-                        lastTouchY = ev.y
-
-                        // Cancel editor's touch cleanly
-                        val cancel = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
-                        super.dispatchTouchEvent(cancel)
-                        cancel.recycle()
-
-                        parent?.requestDisallowInterceptTouchEvent(true)
-                    }
-                    val dragDy = lastTouchY - ev.y
-                    lastTouchY = ev.y
-                    scrollCanvasBy(dragDy)
-                    return true
-                }
-
-                // Seamless Transition 2: Dragging UP and canvas finishes scrolling (scrollD == headerHeight)
-                // Hand off gesture smoothly to editor so it receives real MotionEvents for line rendering!
-                if (isDraggingCanvas && scrollD >= headerHeight && dy > 0f && !editorHasTouch) {
-                    isDraggingCanvas = false
-                    editorHasTouch = true
-                    lastTouchY = ev.y
-
-                    // Synthesize ACTION_DOWN for the editor at the current finger position
-                    val downEvent = MotionEvent.obtain(
-                        ev.downTime, ev.eventTime,
-                        MotionEvent.ACTION_DOWN,
-                        ev.x, ev.y,
-                        ev.metaState
-                    )
-                    super.dispatchTouchEvent(downEvent)
-                    downEvent.recycle()
-
-                    // Forward the current MOVE event
-                    return super.dispatchTouchEvent(ev)
-                }
-
-                // Active canvas drag
-                if (isDraggingCanvas) {
-                    val dragDy = lastTouchY - ev.y
-                    lastTouchY = ev.y
-                    scrollCanvasBy(dragDy)
-                    return true
-                }
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (isDraggingCanvas) {
-                    val handled = onTouchEvent(ev)
-                    isDraggingCanvas = false
-                    editorHasTouch = false
-                    return handled
-                }
-                editorHasTouch = false
-                isDraggingCanvas = false
-            }
+            try {
+                editor.scroller?.abortAnimation()
+            } catch (_: Throwable) {}
         }
         return super.dispatchTouchEvent(ev)
     }
@@ -350,6 +293,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 initialDownX = ev.x
                 initialDownY = ev.y
                 lastTouchY = ev.y
+                isDraggingCanvas = false
                 velocityTracker?.clear() ?: run { velocityTracker = VelocityTracker.obtain() }
                 velocityTracker?.addMovement(ev)
                 return false
@@ -361,13 +305,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
                 if (abs(totalDy) > touchSlop && abs(totalDy) > abs(totalDx)) {
                     if (totalDy > 0f && scrollD < headerHeight) {
-                        // Dragging up and header is visible: intercept!
+                        // Dragging up and header is visible: intercept canvas drag!
                         isDraggingCanvas = true
                         lastTouchY = ev.y
                         parent?.requestDisallowInterceptTouchEvent(true)
                         return true
                     } else if (totalDy < 0f && editor.offsetY <= 0 && scrollD > 0) {
-                        // Dragging down and editor is at top: intercept!
+                        // Dragging down and editor is at top: intercept to pull header down!
                         isDraggingCanvas = true
                         lastTouchY = ev.y
                         parent?.requestDisallowInterceptTouchEvent(true)
@@ -389,6 +333,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 if (!scroller.isFinished) {
                     scroller.abortAnimation()
                 }
+                try {
+                    editor.scroller?.abortAnimation()
+                } catch (_: Throwable) {}
                 lastTouchY = ev.y
                 initialDownY = ev.y
                 initialDownX = ev.x
@@ -406,9 +353,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val vy = velocityTracker?.yVelocity ?: 0f
                 if (abs(vy) > minFlingVelocity) {
                     val scrollerVy = -vy.toInt()
-                    lastScrollerY = scrollD
-                    // Fling across full range (0 to Int.MAX_VALUE) so momentum carries into editor
-                    scroller.fling(0, scrollD, 0, scrollerVy, 0, 0, 0, Int.MAX_VALUE, 0, 0)
+                    lastScrollerY = scrollD + editor.offsetY
+                    val maxScroll = headerHeight + editor.scrollMaxY
+                    scroller.fling(0, lastScrollerY, 0, scrollerVy, 0, 0, 0, maxScroll, 0, 0)
                     postInvalidateOnAnimation()
                 }
                 isDraggingCanvas = false
@@ -432,43 +379,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val dy = (currY - lastScrollerY).toFloat()
             lastScrollerY = currY
 
-            if (dy > 0f) {
-                // Flinging down into document (increasing scrollD)
-                if (scrollD < headerHeight) {
-                    val canConsume = (headerHeight - scrollD).toFloat()
-                    val consume = minOf(dy, canConsume)
-                    scrollD += consume.toInt()
-                    applyTranslations()
-                    onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
-                    val unconsumed = dy - consume
-                    if (unconsumed > 0f) {
-                        dispatchScrollToEditor(unconsumed)
-                    }
-                } else {
-                    dispatchScrollToEditor(dy)
-                }
-            } else if (dy < 0f) {
-                // Flinging up towards top of document (decreasing scrollD)
-                if (editor.offsetY > 0) {
-                    val canConsumeEditor = -editor.offsetY.toFloat()
-                    val consumeEditor = maxOf(dy, canConsumeEditor)
-                    dispatchScrollToEditor(consumeEditor)
-                    val unconsumed = dy - consumeEditor
-                    if (unconsumed < 0f && scrollD > 0) {
-                        val canConsumeCanvas = -scrollD.toFloat()
-                        val consumeCanvas = maxOf(unconsumed, canConsumeCanvas)
-                        scrollD += consumeCanvas.toInt()
-                        applyTranslations()
-                        onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
-                    }
-                } else if (scrollD > 0) {
-                    val canConsumeCanvas = -scrollD.toFloat()
-                    val consumeCanvas = maxOf(dy, canConsumeCanvas)
-                    scrollD += consumeCanvas.toInt()
-                    applyTranslations()
-                    onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
-                }
-            }
+            scrollCanvasBy(dy)
 
             postInvalidateOnAnimation()
         }
