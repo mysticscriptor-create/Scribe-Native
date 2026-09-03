@@ -237,7 +237,6 @@ fun MainEditorScreen(
     var showCreateNoteDialog by remember { mutableStateOf(false) }
     var showEditorTray       by remember { mutableStateOf(false) }
 
-    val context = LocalContext.current
     val dataStore = remember { (context.applicationContext as? ScribeApp)?.dataStore ?: ScribeDataStore(context) }
     val selectedOrnamentId by dataStore.manuscriptOrnamentIdFlow.collectAsStateWithLifecycle("classic_diamond")
     var showOrnamentPicker by remember { mutableStateOf(false) }
