@@ -138,6 +138,8 @@ import dev.chrisbanes.haze.HazeState
 
 // ── Sora Editor imports ───────────────────────────────────────────────────────
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.platform.ViewCompositionStrategy
+import com.primaloptima.scribe.ui.components.UnifiedCanvasLayout
 import io.github.rosemoe.sora.widget.CodeEditor
 import io.github.rosemoe.sora.widget.EditorSearcher
 import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
@@ -240,7 +242,8 @@ fun MainEditorScreen(
         openDialog()
     }
 
-    // ── Sora CodeEditor state ─────────────────────────────────────────────────
+    // ── Sora CodeEditor & Unified Canvas state ──────────────────────────────────
+    var unifiedCanvasRef   by remember { mutableStateOf<UnifiedCanvasLayout?>(null) }
     var soraEditorRef      by remember { mutableStateOf<CodeEditor?>(null) }
     var isHandleDragging   by remember { mutableStateOf(false) }
     var loadedNoteId       by rememberSaveable { mutableStateOf<String?>(null) }
@@ -358,6 +361,8 @@ fun MainEditorScreen(
         val editor = soraEditorRef ?: return@LaunchedEffect
         if (loadedNoteId != note.id || (editor.text.length == 0 && note.content.isNotEmpty())) {
             loadedNoteId = note.id
+            unifiedCanvasRef?.resetScroll()
+            floatingPillsVisible = true
             editor.setText(note.content)
             ProseDiagnosticProvider.attachEditor(editor)
             val (hints, diagnostics) = withContext(Dispatchers.Default) {
@@ -490,16 +495,351 @@ fun MainEditorScreen(
                     Modifier
                         .fillMaxSize()
                         .padding(padding)
-                        .nestedScroll(hideOnScrollConnection)
                 ) {
-                    Column(
-                        Modifier
-                            .fillMaxSize()
-                            .statusBarsPadding()
-                            .padding(top = 52.dp)
-                    ) {
+                    // Drive Sora's searcher from find state
+                    LaunchedEffect(findQuery, showFindBar) {
+                        val editor = soraEditorRef ?: return@LaunchedEffect
+                        if (showFindBar && findQuery.isNotEmpty()) {
+                            editor.searcher.search(findQuery, EditorSearcher.SearchOptions(true, false))
+                        } else {
+                            editor.searcher.stopSearch()
+                        }
+                    }
 
-                        // ── Find/Replace bar ──────────────────────────────
+                    // ── Sora CodeEditor & Background Theme Setup ───────────────────────
+                    val hasBgImageLocal     = !activeTheme?.backgroundImageUri.isNullOrEmpty()
+                    val currentThemeBg      = MaterialTheme.colorScheme.background
+                    val editorTextSizeSp    = remember(activeTheme?.fontSize) {
+                        (activeTheme?.fontSize ?: 18).toFloat()
+                    }
+                    val editorTypeface      = remember(activeTheme?.fontFamily) {
+                        activeTheme?.fontFamily?.let { ThemeManager.resolveTypeface(context, it) }
+                    }
+                    val bgArgb              = remember(hasBgImageLocal, currentThemeBg) {
+                        if (hasBgImageLocal) android.graphics.Color.TRANSPARENT
+                        else currentThemeBg.toArgb()
+                    }
+                    val popupBgDrawable = remember(activeTheme?.colors?.accent, activeTheme?.colors?.surface) {
+                        val density    = context.resources.displayMetrics.density
+                        val cornerPx   = 24f * density
+                        val accentHex  = activeTheme?.colors?.accent ?: "#000000"
+                        val surfaceHex = activeTheme?.colors?.surface ?: "#FFFFFF"
+                        val accentArgb  = runCatching { android.graphics.Color.parseColor(accentHex) }.getOrDefault(android.graphics.Color.BLACK)
+                        val surfaceArgb = runCatching { android.graphics.Color.parseColor(surfaceHex) }.getOrDefault(android.graphics.Color.WHITE)
+                        val fill = android.graphics.drawable.GradientDrawable().apply {
+                            setColor(surfaceArgb); cornerRadius = cornerPx
+                        }
+                        val overlay = android.graphics.drawable.GradientDrawable(
+                            android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
+                            intArrayOf(
+                                android.graphics.Color.argb(
+                                    71,
+                                    android.graphics.Color.red(accentArgb),
+                                    android.graphics.Color.green(accentArgb),
+                                    android.graphics.Color.blue(accentArgb)
+                                ),
+                                android.graphics.Color.TRANSPARENT
+                            )
+                        ).apply { cornerRadius = cornerPx }
+                        android.graphics.drawable.LayerDrawable(arrayOf(fill, overlay))
+                    }
+
+                    // ── Unified Continuous Document Canvas ─────────────────────────
+                    AndroidView(
+                        factory = { ctx ->
+                            UnifiedCanvasLayout(ctx).apply {
+                                onScrollDelta = { dy ->
+                                    if (dy > 2f) {
+                                        if (lastScrollDirection != 1) {
+                                            lastScrollDirection = 1
+                                            scrollDistanceSinceDirectionChange = 0f
+                                        }
+                                        scrollDistanceSinceDirectionChange += dy
+                                        if (scrollDistanceSinceDirectionChange > 60f && floatingPillsVisible) {
+                                            floatingPillsVisible = false
+                                        }
+                                    } else if (dy < -2f) {
+                                        if (lastScrollDirection != -1) {
+                                            lastScrollDirection = -1
+                                            scrollDistanceSinceDirectionChange = 0f
+                                        }
+                                        scrollDistanceSinceDirectionChange += (-dy)
+                                        if (!floatingPillsVisible) {
+                                            floatingPillsVisible = true
+                                        }
+                                    }
+                                }
+                                onUnifiedScrollChanged = { scrollD, _ ->
+                                    if (scrollD <= 5 && editor.offsetY <= 10) {
+                                        floatingPillsVisible = true
+                                    }
+                                }
+                                headerView.setViewCompositionStrategy(
+                                    ViewCompositionStrategy.DisposeOnDetachedFromWindow
+                                )
+                                editor.apply {
+                                    isLineNumberEnabled    = false
+                                    isHighlightCurrentLine = false
+                                    isWordwrap             = true
+                                    registerInlayHintRenderer(
+                                        io.github.rosemoe.sora.graphics.inlayHint.TextInlayHintRenderer()
+                                    )
+                                    setEditorLanguage(ScribeProseLanguage())
+                                    isNestedScrollingEnabled = true
+                                    try {
+                                        getComponent(
+                                            io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
+                                        ).isEnabled = true
+                                    } catch (_: Exception) { }
+
+                                    try {
+                                        getComponent(
+                                            io.github.rosemoe.sora.widget.component.EditorDiagnosticTooltipWindow::class.java
+                                        ).isEnabled = true
+                                    } catch (_: Exception) { }
+
+                                    subscribeEvent(ContentChangeEvent::class.java) { _, _ ->
+                                        val current = text.toString()
+                                        editorCurrentText = current
+                                        if (loadedNoteId != null)
+                                            editorVm.onContentChanged(current)
+                                    }
+                                    try {
+                                        setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+                                            val dy = scrollY - oldScrollY
+                                            if (scrollY <= 10 && scrollD == 0) {
+                                                floatingPillsVisible = true
+                                            } else if (dy > 20 && floatingPillsVisible) {
+                                                floatingPillsVisible = false
+                                            } else if (dy < -10 && !floatingPillsVisible) {
+                                                floatingPillsVisible = true
+                                            }
+                                        }
+                                    } catch (_: Throwable) { }
+                                    try {
+                                        subscribeEvent(io.github.rosemoe.sora.event.HandleStateChangeEvent::class.java) { event, _ ->
+                                            isHandleDragging = event.isHeld
+                                        }
+                                    } catch (_: Throwable) { }
+                                    subscribeEvent(EditorKeyEvent::class.java) { event, _ ->
+                                        if (event.action != android.view.KeyEvent.ACTION_DOWN) return@subscribeEvent
+                                        if (event.keyCode != android.view.KeyEvent.KEYCODE_ENTER) return@subscribeEvent
+                                        val cur = this.cursor
+                                        if (cur.isSelected) return@subscribeEvent
+                                        val line = this.text.getLine(cur.leftLine)
+                                        val col  = cur.leftColumn
+                                        val closeChars = setOf(')', ']', '}', '`', '"', '\'', '\u201D', '\u2019', '\u00BB')
+                                        if (col < line.length && line[col] in closeChars) {
+                                            setSelection(cur.leftLine, col + 1)
+                                            event.intercept()
+                                        }
+                                    }
+                                }
+                            }.also {
+                                unifiedCanvasRef = it
+                                soraEditorRef = it.editor
+                            }
+                        },
+                        update = { layout ->
+                            val editor = layout.editor
+                            editor.setTextSize(editorTextSizeSp)
+                            editorTypeface?.let { editor.typefaceText = it }
+                            editor.setBackgroundColor(bgArgb)
+                            activeTheme?.let { theme ->
+                                val scheme = ScribeColorScheme(theme)
+                                scheme.setColor(EditorColorScheme.WHOLE_BACKGROUND,       bgArgb)
+                                scheme.setColor(EditorColorScheme.LINE_NUMBER_BACKGROUND, bgArgb)
+                                scheme.setColor(EditorColorScheme.LINE_NUMBER,            bgArgb)
+                                editor.colorScheme = scheme
+                                try {
+                                    val aw = editor.getComponent(
+                                        io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
+                                    )
+                                    var popup: android.widget.PopupWindow? = null
+                                    var cls: Class<*>? = aw.javaClass
+                                    outer@ while (cls != null && cls != Any::class.java) {
+                                        for (f in cls.declaredFields) {
+                                            if (android.widget.PopupWindow::class.java.isAssignableFrom(f.type)) {
+                                                f.isAccessible = true
+                                                popup = f.get(aw) as? android.widget.PopupWindow
+                                                break@outer
+                                            }
+                                        }
+                                        cls = cls.superclass
+                                    }
+                                    popup?.setBackgroundDrawable(popupBgDrawable)
+                                } catch (_: Exception) { }
+                            }
+
+                            // Update Header inside ComposeView
+                            layout.headerView.setContent {
+                                if (!zenMode && activeNote != null) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .statusBarsPadding()
+                                            .padding(start = 28.dp, top = 54.dp, end = 28.dp, bottom = 12.dp)
+                                    ) {
+                                        // Primary Title / Kicker (e.g., CHAPTER I)
+                                        BasicTextField(
+                                            value = primaryTitleText,
+                                            onValueChange = {
+                                                primaryTitleText = it
+                                                persistDualTitle(it, secondaryTitleText)
+                                            },
+                                            singleLine = true,
+                                            textStyle = MaterialTheme.typography.titleMedium.copy(
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.SemiBold,
+                                                textAlign = TextAlign.Center,
+                                                letterSpacing = 2.5.sp
+                                            ),
+                                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                                            keyboardActions = KeyboardActions(
+                                                onNext = {
+                                                    showSecondaryTitle = true
+                                                    secondaryTitleFocusRequester.requestFocus()
+                                                }
+                                            ),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .focusRequester(primaryTitleFocusRequester)
+                                                .onPreviewKeyEvent { event ->
+                                                    if (event.key == Key.Enter && event.type == KeyEventType.KeyUp) {
+                                                        showSecondaryTitle = true
+                                                        secondaryTitleFocusRequester.requestFocus()
+                                                        true
+                                                    } else false
+                                                },
+                                            decorationBox = { innerTextField ->
+                                                Box(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    if (primaryTitleText.isEmpty()) {
+                                                        Text(
+                                                            text = "CHAPTER / TITLE",
+                                                            style = MaterialTheme.typography.titleMedium.copy(
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                                                fontWeight = FontWeight.SemiBold,
+                                                                textAlign = TextAlign.Center,
+                                                                letterSpacing = 2.5.sp
+                                                            )
+                                                        )
+                                                    }
+                                                    innerTextField()
+                                                }
+                                            }
+                                        )
+
+                                        // Main Title (e.g., The Starlit Archive)
+                                        if (showSecondaryTitle || secondaryTitleText.isNotEmpty()) {
+                                            Spacer(Modifier.height(6.dp))
+                                            BasicTextField(
+                                                value = secondaryTitleText,
+                                                onValueChange = {
+                                                    secondaryTitleText = it
+                                                    persistDualTitle(primaryTitleText, it)
+                                                },
+                                                singleLine = true,
+                                                textStyle = MaterialTheme.typography.headlineMedium.copy(
+                                                    color = MaterialTheme.colorScheme.onBackground,
+                                                    fontWeight = FontWeight.Bold,
+                                                    textAlign = TextAlign.Center
+                                                ),
+                                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                                keyboardActions = KeyboardActions(
+                                                    onDone = {
+                                                        soraEditorRef?.requestFocus()
+                                                        soraEditorRef?.setSelection(0, 0)
+                                                    }
+                                                ),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .focusRequester(secondaryTitleFocusRequester)
+                                                    .onPreviewKeyEvent { event ->
+                                                        if (event.key == Key.Backspace && secondaryTitleText.isEmpty() && event.type == KeyEventType.KeyUp) {
+                                                            showSecondaryTitle = false
+                                                            persistDualTitle(primaryTitleText, "")
+                                                            primaryTitleFocusRequester.requestFocus()
+                                                            true
+                                                        } else if (event.key == Key.Enter && event.type == KeyEventType.KeyUp) {
+                                                            soraEditorRef?.requestFocus()
+                                                            soraEditorRef?.setSelection(0, 0)
+                                                            true
+                                                        } else false
+                                                    },
+                                                decorationBox = { innerTextField ->
+                                                    Box(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        if (secondaryTitleText.isEmpty()) {
+                                                            Text(
+                                                                text = "Manuscript Title (Optional)",
+                                                                style = MaterialTheme.typography.headlineMedium.copy(
+                                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    textAlign = TextAlign.Center
+                                                                )
+                                                            )
+                                                        }
+                                                        innerTextField()
+                                                    }
+                                                }
+                                            )
+                                        }
+
+                                        // Ornamental Flourish Divider (─── ❖ ───)
+                                        Spacer(Modifier.height(10.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.Center,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = "───  ❖  ───",
+                                                style = MaterialTheme.typography.labelMedium.copy(
+                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                                                    letterSpacing = 2.sp
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        onRelease = { layout ->
+                            soraEditorRef = null
+                            unifiedCanvasRef = null
+                            ProseDiagnosticProvider.attachEditor(null)
+                            layout.editor.release()
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    // ── Zen Mode Exit FAB ──────────────────────────────────────────
+                    if (zenMode) {
+                        CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
+                            ScribeSingleFab(
+                                icon               = Icons.Default.FullscreenExit,
+                                contentDescription = "Exit Zen",
+                                modifier           = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                                onClick            = { editorVm.setZen(false) }
+                            )
+                        }
+                    }
+
+                    // ── Find/Replace bar (Fixed overlay at top) ────────────────────
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.TopCenter)
+                            .statusBarsPadding()
+                    ) {
                         FindReplaceBar(
                             visible       = showFindBar,
                             findQuery     = findQuery,
@@ -517,304 +857,6 @@ fun MainEditorScreen(
                             },
                             onClose       = { showFindBar = false }
                         )
-
-                        // Drive Sora's searcher from find state
-                        LaunchedEffect(findQuery, showFindBar) {
-                            val editor = soraEditorRef ?: return@LaunchedEffect
-                            if (showFindBar && findQuery.isNotEmpty()) {
-                                editor.searcher.search(findQuery, EditorSearcher.SearchOptions(true, false))
-                            } else {
-                                editor.searcher.stopSearch()
-                            }
-                        }
-
-                        // ── Inline Dual Titles & Manuscript Header ──────────────────────────────
-                        if (!zenMode && activeNote != null) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 28.dp, top = 8.dp, end = 28.dp, bottom = 12.dp)
-                            ) {
-                                // Primary Title / Kicker (e.g., CHAPTER I)
-                                BasicTextField(
-                                    value = primaryTitleText,
-                                    onValueChange = {
-                                        primaryTitleText = it
-                                        persistDualTitle(it, secondaryTitleText)
-                                    },
-                                    singleLine = true,
-                                    textStyle = MaterialTheme.typography.titleMedium.copy(
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.SemiBold,
-                                        textAlign = TextAlign.Center,
-                                        letterSpacing = 2.5.sp
-                                    ),
-                                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                                    keyboardActions = KeyboardActions(
-                                        onNext = {
-                                            showSecondaryTitle = true
-                                            secondaryTitleFocusRequester.requestFocus()
-                                        }
-                                    ),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .focusRequester(primaryTitleFocusRequester)
-                                        .onPreviewKeyEvent { event ->
-                                            if (event.key == Key.Enter && event.type == KeyEventType.KeyUp) {
-                                                showSecondaryTitle = true
-                                                secondaryTitleFocusRequester.requestFocus()
-                                                true
-                                            } else false
-                                        },
-                                    decorationBox = { innerTextField ->
-                                        Box(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            if (primaryTitleText.isEmpty()) {
-                                                Text(
-                                                    text = "CHAPTER / TITLE",
-                                                    style = MaterialTheme.typography.titleMedium.copy(
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                                        fontWeight = FontWeight.SemiBold,
-                                                        textAlign = TextAlign.Center,
-                                                        letterSpacing = 2.5.sp
-                                                    )
-                                                )
-                                            }
-                                            innerTextField()
-                                        }
-                                    }
-                                )
-
-                                // Main Title (e.g., The Starlit Archive)
-                                if (showSecondaryTitle || secondaryTitleText.isNotEmpty()) {
-                                    Spacer(Modifier.height(6.dp))
-                                    BasicTextField(
-                                        value = secondaryTitleText,
-                                        onValueChange = {
-                                            secondaryTitleText = it
-                                            persistDualTitle(primaryTitleText, it)
-                                        },
-                                        singleLine = true,
-                                        textStyle = MaterialTheme.typography.headlineMedium.copy(
-                                            color = MaterialTheme.colorScheme.onBackground,
-                                            fontWeight = FontWeight.Bold,
-                                            textAlign = TextAlign.Center
-                                        ),
-                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                                        keyboardActions = KeyboardActions(
-                                            onDone = {
-                                                soraEditorRef?.requestFocus()
-                                                soraEditorRef?.setSelection(0, 0)
-                                            }
-                                        ),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .focusRequester(secondaryTitleFocusRequester)
-                                            .onPreviewKeyEvent { event ->
-                                                if (event.key == Key.Backspace && secondaryTitleText.isEmpty() && event.type == KeyEventType.KeyUp) {
-                                                    showSecondaryTitle = false
-                                                    persistDualTitle(primaryTitleText, "")
-                                                    primaryTitleFocusRequester.requestFocus()
-                                                    true
-                                                } else if (event.key == Key.Enter && event.type == KeyEventType.KeyUp) {
-                                                    soraEditorRef?.requestFocus()
-                                                    soraEditorRef?.setSelection(0, 0)
-                                                    true
-                                                } else false
-                                            },
-                                        decorationBox = { innerTextField ->
-                                            Box(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                if (secondaryTitleText.isEmpty()) {
-                                                    Text(
-                                                        text = "Manuscript Title (Optional)",
-                                                        style = MaterialTheme.typography.headlineMedium.copy(
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                                                            fontWeight = FontWeight.Bold,
-                                                            textAlign = TextAlign.Center
-                                                        )
-                                                    )
-                                                }
-                                                innerTextField()
-                                            }
-                                        }
-                                    )
-                                }
-
-                                // Ornamental Flourish Divider (─── ❖ ───)
-                                Spacer(Modifier.height(10.dp))
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "───  ❖  ───",
-                                        style = MaterialTheme.typography.labelMedium.copy(
-                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
-                                            letterSpacing = 2.sp
-                                        )
-                                    )
-                                }
-                            }
-                        }
-
-                        // ── Sora CodeEditor ───────────────────────────────
-                        val hasBgImageLocal     = !activeTheme?.backgroundImageUri.isNullOrEmpty()
-                        val currentThemeBg      = MaterialTheme.colorScheme.background
-                        val editorTextSizeSp    = remember(activeTheme?.fontSize) {
-                            (activeTheme?.fontSize ?: 18).toFloat()
-                        }
-                        val editorTypeface      = remember(activeTheme?.fontFamily) {
-                            activeTheme?.fontFamily?.let { ThemeManager.resolveTypeface(context, it) }
-                        }
-                        val bgArgb              = remember(hasBgImageLocal, currentThemeBg) {
-                            if (hasBgImageLocal) android.graphics.Color.TRANSPARENT
-                            else currentThemeBg.toArgb()
-                        }
-                        val popupBgDrawable = remember(activeTheme?.colors?.accent, activeTheme?.colors?.surface) {
-                            val density    = context.resources.displayMetrics.density
-                            val cornerPx   = 24f * density
-                            val accentHex  = activeTheme?.colors?.accent ?: "#000000"
-                            val surfaceHex = activeTheme?.colors?.surface ?: "#FFFFFF"
-                            val accentArgb  = runCatching { android.graphics.Color.parseColor(accentHex) }.getOrDefault(android.graphics.Color.BLACK)
-                            val surfaceArgb = runCatching { android.graphics.Color.parseColor(surfaceHex) }.getOrDefault(android.graphics.Color.WHITE)
-                            val fill = android.graphics.drawable.GradientDrawable().apply {
-                                setColor(surfaceArgb); cornerRadius = cornerPx
-                            }
-                            val overlay = android.graphics.drawable.GradientDrawable(
-                                android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
-                                intArrayOf(
-                                    android.graphics.Color.argb(
-                                        71,
-                                        android.graphics.Color.red(accentArgb),
-                                        android.graphics.Color.green(accentArgb),
-                                        android.graphics.Color.blue(accentArgb)
-                                    ),
-                                    android.graphics.Color.TRANSPARENT
-                                )
-                            ).apply { cornerRadius = cornerPx }
-                            android.graphics.drawable.LayerDrawable(arrayOf(fill, overlay))
-                        }
-
-                        Box(Modifier.fillMaxSize()) {
-                            AndroidView(
-                                factory = { ctx ->
-                                    CodeEditor(ctx).apply {
-                                        isLineNumberEnabled    = false
-                                        isHighlightCurrentLine = false
-                                        isWordwrap             = true
-                                        registerInlayHintRenderer(
-                                            io.github.rosemoe.sora.graphics.inlayHint.TextInlayHintRenderer()
-                                        )
-                                        setEditorLanguage(ScribeProseLanguage())
-                                        isNestedScrollingEnabled = true
-                                        try {
-                                            getComponent(
-                                                io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
-                                            ).isEnabled = true
-                                        } catch (_: Exception) { }
-
-                                        try {
-                                            getComponent(
-                                                io.github.rosemoe.sora.widget.component.EditorDiagnosticTooltipWindow::class.java
-                                            ).isEnabled = true
-                                        } catch (_: Exception) { }
-
-                                        subscribeEvent(ContentChangeEvent::class.java) { _, _ ->
-                                            val current = text.toString()
-                                            editorCurrentText = current
-                                            if (loadedNoteId != null)
-                                                editorVm.onContentChanged(current)
-                                        }
-                                        try {
-                                            setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
-                                                val dy = scrollY - oldScrollY
-                                                if (scrollY <= 10) {
-                                                    floatingPillsVisible = true
-                                                } else if (dy > 20 && floatingPillsVisible) {
-                                                    floatingPillsVisible = false
-                                                } else if (dy < -10 && !floatingPillsVisible) {
-                                                    floatingPillsVisible = true
-                                                }
-                                            }
-                                        } catch (_: Throwable) { }
-                                        try {
-                                            subscribeEvent(io.github.rosemoe.sora.event.HandleStateChangeEvent::class.java) { event, _ ->
-                                                isHandleDragging = event.isHeld
-                                            }
-                                        } catch (_: Throwable) { }
-                                        subscribeEvent(EditorKeyEvent::class.java) { event, _ ->
-                                            if (event.action != android.view.KeyEvent.ACTION_DOWN) return@subscribeEvent
-                                            if (event.keyCode != android.view.KeyEvent.KEYCODE_ENTER) return@subscribeEvent
-                                            val cur = this.cursor
-                                            if (cur.isSelected) return@subscribeEvent
-                                            val line = this.text.getLine(cur.leftLine)
-                                            val col  = cur.leftColumn
-                                            val closeChars = setOf(')', ']', '}', '`', '"', '\'', '\u201D', '\u2019', '\u00BB')
-                                            if (col < line.length && line[col] in closeChars) {
-                                                setSelection(cur.leftLine, col + 1)
-                                                event.intercept()
-                                            }
-                                        }
-                                    }.also { soraEditorRef = it }
-                                },
-                                update = { editor ->
-                                    editor.setTextSize(editorTextSizeSp)
-                                    editorTypeface?.let { editor.typefaceText = it }
-                                    editor.setBackgroundColor(bgArgb)
-                                    activeTheme?.let { theme ->
-                                        val scheme = ScribeColorScheme(theme)
-                                        scheme.setColor(EditorColorScheme.WHOLE_BACKGROUND,       bgArgb)
-                                        scheme.setColor(EditorColorScheme.LINE_NUMBER_BACKGROUND, bgArgb)
-                                        scheme.setColor(EditorColorScheme.LINE_NUMBER,            bgArgb)
-                                        editor.colorScheme = scheme
-                                        try {
-                                            val aw = editor.getComponent(
-                                                io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
-                                            )
-                                            var popup: android.widget.PopupWindow? = null
-                                            var cls: Class<*>? = aw.javaClass
-                                            outer@ while (cls != null && cls != Any::class.java) {
-                                                for (f in cls.declaredFields) {
-                                                    if (android.widget.PopupWindow::class.java.isAssignableFrom(f.type)) {
-                                                        f.isAccessible = true
-                                                        popup = f.get(aw) as? android.widget.PopupWindow
-                                                        break@outer
-                                                    }
-                                                }
-                                                cls = cls.superclass
-                                            }
-                                            popup?.setBackgroundDrawable(popupBgDrawable)
-                                        } catch (_: Exception) { }
-                                    }
-                                },
-                                onRelease = { editor ->
-                                    soraEditorRef = null
-                                    ProseDiagnosticProvider.attachEditor(null)
-                                    editor.release()
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            )
-
-                            if (zenMode) {
-                                CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
-                                    ScribeSingleFab(
-                                        icon               = Icons.Default.FullscreenExit,
-                                        contentDescription = "Exit Zen",
-                                        modifier           = Modifier.align(Alignment.BottomEnd).padding(16.dp),
-                                        onClick            = { editorVm.setZen(false) }
-                                    )
-                                }
-                            }
-                        } // end editor Box
                     }
 
                     // ── Floating Pills Layer (Top-Left and Top-Right) ─────────
