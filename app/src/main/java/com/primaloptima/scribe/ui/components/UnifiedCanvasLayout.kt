@@ -117,6 +117,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val cursor = try { editor.cursor } catch (_: Throwable) { null } ?: return
         val line = cursor.leftLine
         val col = cursor.leftColumn
+
+        // Protect line 0 when at the top of document so titles aren't pushed off screen
+        if (line == 0 && editor.offsetY <= 0 && scrollD <= 0) return
+
         val layout = try { editor.layout } catch (_: Throwable) { null } ?: return
         val layoutOffset = try { layout.getCharLayoutOffset(line, col) } catch (_: Throwable) { null } ?: return
         val yOffset = layoutOffset[0] // doc coordinate of line bottom
@@ -225,7 +229,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
                     return true
                 }
-            } else if (screenTop < 0 && scrollD > 0) {
+            } else if (screenTop < 0 && scrollD > 0 && editor.offsetY <= 0) {
                 val delta = -screenTop.toFloat()
                 val consume = minOf(delta, scrollDFloat)
                 if (consume > 0f) {

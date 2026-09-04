@@ -1,7 +1,10 @@
 package com.primaloptima.scribe.ui.components
 
 import android.content.Context
+import android.text.InputType
 import android.util.AttributeSet
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
 import io.github.rosemoe.sora.event.ScrollEvent
 import io.github.rosemoe.sora.widget.CodeEditor
 import kotlin.math.abs
@@ -12,6 +15,8 @@ import kotlin.math.abs
  * 1. Continues downward fling smoothly into the canvas header when reaching offset Y <= 0.
  * 2. Overrides ensurePositionVisible to track keyboard and shortcut bar height perfectly,
  *    keeping the active cursor line just above the shortcut bar rather than jumping 2 lines above.
+ * 3. Configures prose writing input options (auto-capitalization after newlines and sentences).
+ * 4. Focus-aware keyboard resize adjustments ensuring cursor visibility only when document is focused.
  */
 class ScribeCodeEditor @JvmOverloads constructor(
     context: Context,
@@ -34,6 +39,40 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 ScrollEvent.CAUSE_MAKE_POSITION_VISIBLE -> isFlingActive = false
                 ScrollEvent.CAUSE_TEXT_SELECTING -> isFlingActive = false
             }
+        }
+    }
+
+    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
+        val connection = super.onCreateInputConnection(outAttrs)
+        outAttrs.inputType = outAttrs.inputType or
+            InputType.TYPE_CLASS_TEXT or
+            InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or
+            InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+            InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
+        return connection
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        // Focus-aware keyboard adjustment: when keyboard appears (height decreases)
+        // and the document has focus, reveal the cursor above the keyboard.
+        if (isFocused && h < oldh) {
+            post {
+                ensureSelectionVisible()
+                (parent as? UnifiedCanvasLayout)?.ensureCursorVisibleAboveKeyboard()
+            }
+        }
+    }
+
+    override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) {
+        super.onFocusChanged(gainFocus, direction, previouslyFocusedRect)
+        if (gainFocus) {
+            postDelayed({
+                if (isFocused) {
+                    ensureSelectionVisible()
+                    (parent as? UnifiedCanvasLayout)?.ensureCursorVisibleAboveKeyboard()
+                }
+            }, 100)
         }
     }
 

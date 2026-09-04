@@ -99,6 +99,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -564,6 +565,10 @@ fun MainEditorScreen(
                     }
 
                     // ── Unified Continuous Document Canvas ─────────────────────────
+                    val docTopInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+                    val docBottomNavInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                    val docBottomPadding = if (isKeyboardVisible) 0.dp else docBottomNavInset
+
                     AndroidView(
                         factory = { ctx ->
                             UnifiedCanvasLayout(ctx).apply {
@@ -699,20 +704,40 @@ fun MainEditorScreen(
                             // Update Header inside ComposeView
                             layout.headerView.setContent {
                                 if (!zenMode && activeNote != null) {
+                                    val localPrimaryFocus = remember { FocusRequester() }
+                                    val localSecondaryFocus = remember { FocusRequester() }
+                                    var localPendingSecondaryFocus by remember { mutableStateOf(false) }
+
+                                    LaunchedEffect(localPendingSecondaryFocus) {
+                                        if (localPendingSecondaryFocus) {
+                                            localPendingSecondaryFocus = false
+                                            kotlinx.coroutines.delay(50)
+                                            try {
+                                                localSecondaryFocus.requestFocus()
+                                            } catch (_: Exception) { }
+                                        }
+                                    }
+
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .statusBarsPadding()
-                                            .padding(start = 28.dp, top = 54.dp, end = 28.dp, bottom = 12.dp)
+                                            .padding(start = 28.dp, top = 20.dp, end = 28.dp, bottom = 12.dp)
                                     ) {
                                         // Primary Title / Kicker (e.g., CHAPTER I)
                                         BasicTextField(
                                             value = primaryTitleText,
                                             onValueChange = { input ->
-                                                val sanitized = input.replace("\n", " ")
-                                                primaryTitleText = sanitized
-                                                persistDualTitle(sanitized, secondaryTitleText)
+                                                if (input.contains('\n')) {
+                                                    val sanitized = input.replace("\n", "").trimEnd()
+                                                    primaryTitleText = sanitized
+                                                    persistDualTitle(sanitized, secondaryTitleText)
+                                                    showSecondaryTitle = true
+                                                    localPendingSecondaryFocus = true
+                                                } else {
+                                                    primaryTitleText = input
+                                                    persistDualTitle(input, secondaryTitleText)
+                                                }
                                             },
                                             singleLine = false,
                                             maxLines = 4,
@@ -723,21 +748,24 @@ fun MainEditorScreen(
                                                 letterSpacing = 2.5.sp
                                             ),
                                             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                                            keyboardOptions = KeyboardOptions(
+                                                imeAction = ImeAction.Next,
+                                                capitalization = KeyboardCapitalization.Sentences
+                                            ),
                                             keyboardActions = KeyboardActions(
                                                 onNext = {
                                                     showSecondaryTitle = true
-                                                    pendingSecondaryFocus = true
+                                                    localPendingSecondaryFocus = true
                                                 }
                                             ),
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .focusRequester(primaryTitleFocusRequester)
+                                                .focusRequester(localPrimaryFocus)
                                                 .onPreviewKeyEvent { event ->
                                                     if (event.key == Key.Enter) {
                                                         if (event.type == KeyEventType.KeyUp) {
                                                             showSecondaryTitle = true
-                                                            pendingSecondaryFocus = true
+                                                            localPendingSecondaryFocus = true
                                                         }
                                                         true
                                                     } else false
@@ -769,9 +797,19 @@ fun MainEditorScreen(
                                             BasicTextField(
                                                 value = secondaryTitleText,
                                                 onValueChange = { input ->
-                                                    val sanitized = input.replace("\n", " ")
-                                                    secondaryTitleText = sanitized
-                                                    persistDualTitle(primaryTitleText, sanitized)
+                                                    if (input.contains('\n')) {
+                                                        val sanitized = input.replace("\n", "").trimEnd()
+                                                        secondaryTitleText = sanitized
+                                                        persistDualTitle(primaryTitleText, sanitized)
+                                                        soraEditorRef?.let { ed ->
+                                                            ed.setSelection(0, 0)
+                                                            unifiedCanvasRef?.resetScroll()
+                                                            ed.requestFocus()
+                                                        }
+                                                    } else {
+                                                        secondaryTitleText = input
+                                                        persistDualTitle(primaryTitleText, input)
+                                                    }
                                                 },
                                                 singleLine = false,
                                                 maxLines = 4,
@@ -781,26 +819,35 @@ fun MainEditorScreen(
                                                     textAlign = TextAlign.Center
                                                 ),
                                                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                                keyboardOptions = KeyboardOptions(
+                                                    imeAction = ImeAction.Done,
+                                                    capitalization = KeyboardCapitalization.Sentences
+                                                ),
                                                 keyboardActions = KeyboardActions(
                                                     onDone = {
-                                                        soraEditorRef?.requestFocus()
-                                                        soraEditorRef?.setSelection(0, 0)
+                                                        soraEditorRef?.let { ed ->
+                                                            ed.setSelection(0, 0)
+                                                            unifiedCanvasRef?.resetScroll()
+                                                            ed.requestFocus()
+                                                        }
                                                     }
                                                 ),
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .focusRequester(secondaryTitleFocusRequester)
+                                                    .focusRequester(localSecondaryFocus)
                                                     .onPreviewKeyEvent { event ->
                                                         if (event.key == Key.Backspace && secondaryTitleText.isEmpty() && event.type == KeyEventType.KeyUp) {
                                                             showSecondaryTitle = false
                                                             persistDualTitle(primaryTitleText, "")
-                                                            primaryTitleFocusRequester.requestFocus()
+                                                            localPrimaryFocus.requestFocus()
                                                             true
                                                         } else if (event.key == Key.Enter) {
                                                             if (event.type == KeyEventType.KeyUp) {
-                                                                soraEditorRef?.requestFocus()
-                                                                soraEditorRef?.setSelection(0, 0)
+                                                                soraEditorRef?.let { ed ->
+                                                                    ed.setSelection(0, 0)
+                                                                    unifiedCanvasRef?.resetScroll()
+                                                                    ed.requestFocus()
+                                                                }
                                                             }
                                                             true
                                                         } else false
@@ -857,7 +904,9 @@ fun MainEditorScreen(
                             ProseDiagnosticProvider.attachEditor(null)
                             layout.editor.release()
                         },
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(top = docTopInset, bottom = docBottomPadding)
                     )
 
                     // ── Zen Mode Exit FAB ──────────────────────────────────────────
@@ -959,19 +1008,8 @@ fun MainEditorScreen(
                             }
                         }
 
-                        // ── Draggable Floating Word Counter Pill (Below Overflow Menu) ──
-                        AnimatedVisibility(
-                            visible = floatingPillsVisible,
-                            enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
-                                    slideInVertically(
-                                        initialOffsetY = { -it },
-                                        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
-                                    ),
-                            exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) +
-                                   slideOutVertically(
-                                       targetOffsetY = { -it },
-                                       animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
-                                   ),
+                        // ── Draggable Floating Word Counter Pill (Always Visible) ──
+                        Box(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
                                 .statusBarsPadding()
@@ -1605,8 +1643,8 @@ private fun WordCountPill(
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .height(36.dp)
-                        .padding(horizontal = 14.dp)
+                        .height(28.dp)
+                        .padding(horizontal = 10.dp, vertical = 2.dp)
                 ) {
                     AnimatedContent(
                         targetState    = pillMode,
@@ -1619,7 +1657,7 @@ private fun WordCountPill(
                                 2    -> "$wordCount w · ${maxOf(1, wordCount / 200)}m"
                                 else -> "$wordCount words"
                             },
-                            fontSize   = 12.sp,
+                            fontSize   = 11.sp,
                             fontWeight = FontWeight.Medium,
                             color      = MaterialTheme.colorScheme.onPrimaryContainer,
                             maxLines   = 1
