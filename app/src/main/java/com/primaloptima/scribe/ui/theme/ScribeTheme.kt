@@ -2834,7 +2834,7 @@ fun ScribeComposeTheme(
     val monologueResolved = parseComposeColor(resolvedTheme.colors.monologueText, text)
     val headingResolved = parseComposeColor(resolvedTheme.colors.headingText, accentIcons)
     val annotationResolved = parseComposeColor(
-        resolvedTheme.colors.annotation.takeIf { it.isNotBlank() },
+        resolvedTheme.colors.annotation,
         if (resolvedTheme.isDark) Color(0xFFC084FC) else Color(0xFF7E22CE)
     )
     val highlightResolved = parseComposeColor(
@@ -2842,7 +2842,7 @@ fun ScribeComposeTheme(
         if (resolvedTheme.isDark) Color(0xFFE7B85A) else Color(0xFFB45309)
     )
     val linkResolved = parseComposeColor(
-        resolvedTheme.colors.link.takeIf { it.isNotBlank() },
+        resolvedTheme.colors.link,
         accentIcons
     )
 
