@@ -2499,7 +2499,10 @@ fun ScribeComposeTheme(
         resolvedTheme.colors.error,
         if (resolvedTheme.isDark) Color(0xFFFF6B7A) else Color(0xFFDC2626)
     )
-    val infoResolved = tertiaryColor
+    val infoResolved = parseComposeColor(
+        resolvedTheme.colors.info,
+        if (resolvedTheme.isDark) Color(0xFF38BDF8) else Color(0xFF0284C7)
+    )
 
     val accentMutedResolved = parseComposeColor(resolvedTheme.colors.accentMuted, surface)
 
@@ -2549,7 +2552,7 @@ fun ScribeComposeTheme(
             inverseSurface = text,
             inverseOnSurface = bg,
             inversePrimary = accentIcons,
-            outline = borderProminentResolved,
+            outline = border,
             outlineVariant = borderSubtle,
             scrim = Color.Black.copy(alpha = 0.32f),
             error = errorResolved,
@@ -2586,7 +2589,7 @@ fun ScribeComposeTheme(
             inverseSurface = text,
             inverseOnSurface = bg,
             inversePrimary = accentIcons,
-            outline = borderProminentResolved,
+            outline = border,
             outlineVariant = borderSubtle,
             scrim = Color.Black.copy(alpha = 0.32f),
             error = errorResolved,
@@ -2830,11 +2833,26 @@ fun ScribeComposeTheme(
     val dialogueResolved = parseComposeColor(resolvedTheme.colors.dialogueText, accentIcons)
     val monologueResolved = parseComposeColor(resolvedTheme.colors.monologueText, text)
     val headingResolved = parseComposeColor(resolvedTheme.colors.headingText, accentIcons)
-    val annotationResolved = secondaryColor
+    val annotationResolved = parseComposeColor(
+        resolvedTheme.colors.annotation.takeIf { it.isNotBlank() },
+        if (resolvedTheme.isDark) Color(0xFFC084FC) else Color(0xFF7E22CE)
+    )
     val highlightResolved = parseComposeColor(
         resolvedTheme.colors.specialHighlight,
         if (resolvedTheme.isDark) Color(0xFFE7B85A) else Color(0xFFB45309)
     )
+    val linkResolved = parseComposeColor(
+        resolvedTheme.colors.link.takeIf { it.isNotBlank() },
+        accentIcons
+    )
+
+    val worldCharacter = accentIcons
+    val worldLocation = if (resolvedTheme.isDark) Color(0xFF4ADE80) else Color(0xFF16A34A)
+    val worldFaction = secondaryColor
+    val worldItem = if (resolvedTheme.isDark) Color(0xFFFBBF24) else Color(0xFFD97706)
+    val worldLore = if (resolvedTheme.isDark) Color(0xFFA78BFA) else Color(0xFF7C3AED)
+    val worldEvent = if (resolvedTheme.isDark) Color(0xFFF472B6) else Color(0xFFDB2777)
+    val worldRelationship = if (resolvedTheme.isDark) Color(0xFF2DD4BF) else Color(0xFF0D9488)
 
     val selectionResolved = parseComposeColor(resolvedTheme.colors.selection, accentIcons.copy(alpha = 0.3f))
 
@@ -2843,7 +2861,7 @@ fun ScribeComposeTheme(
 
     val scribeColors = remember(
         resolvedTheme, animBg, animSurfaceLowest, animSurface, animSurfaceRaised,
-        animSurfaceOverlay, text, accentIcons, onPrimaryColor
+        animSurfaceOverlay, text, accentIcons, onPrimaryColor, animOutline, animOutlineVariant
     ) {
         ScribeColors(
             surfaces = SurfaceColors(
@@ -2871,7 +2889,7 @@ fun ScribeComposeTheme(
                 tertiary = tertiaryColor,
                 selection = selectionResolved,
                 focus = borderProminentResolved,
-                link = accentIcons
+                link = linkResolved
             ),
             semantic = SemanticStatusColors(
                 success = successResolved,
@@ -2913,18 +2931,18 @@ fun ScribeComposeTheme(
                 warning = warningResolved
             ),
             borders = BorderColors(
-                subtle = animOutline,
+                subtle = animOutlineVariant,
                 normal = if (resolvedTheme.isDark) animOutline.copy(alpha = 0.9f) else animOutline,
                 prominent = borderProminentResolved
             ),
             world = WorldEntityColors(
-                character = accentIcons,
-                location = tertiaryColor,
-                faction = secondaryColor,
-                item = highlightResolved,
-                lore = dialogueResolved,
-                event = errorResolved,
-                relationship = mutedTextResolved
+                character = worldCharacter,
+                location = worldLocation,
+                faction = worldFaction,
+                item = worldItem,
+                lore = worldLore,
+                event = worldEvent,
+                relationship = worldRelationship
             ),
             isDark = resolvedTheme.isDark
         )

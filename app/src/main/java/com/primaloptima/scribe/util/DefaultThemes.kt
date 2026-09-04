@@ -194,7 +194,7 @@ object DefaultThemes {
                 border          = "#D4D4D8",
                 borderSubtle    = "#E4E4E7",
                 borderProminent = "#111113",
-                dialogueText    = "#0F172A",
+                dialogueText    = "#9A3412",
                 monologueText   = "#48484F",
                 headingText     = "#000000",
                 toolbar         = "#FFFFFF",

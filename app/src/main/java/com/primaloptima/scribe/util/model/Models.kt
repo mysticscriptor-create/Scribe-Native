@@ -152,17 +152,20 @@ data class ThemeColors(
     val success: String = "",                // Semantic success source hue
     val warning: String = "",                // Semantic warning source hue
     val error: String = "",                  // Semantic error source hue
+    val info: String = "",                   // Semantic info source hue (neutral notice)
     val specialHighlight: String = "",       // Literary gold / emphasis hue
 
     // ── Boundaries & Dividers ──
-    val border: String,                      // Legacy / fallback border token
-    val borderSubtle: String = border,       // Subtle 1px structural hairline
+    val border: String,                      // Standard component boundary (outline)
+    val borderSubtle: String = border,       // Subtle 1px structural hairline (outlineVariant)
     val borderProminent: String = accent,    // Active states, focus rings
 
     // ── Editorial & Prose Lexer Semantics ──
     val dialogueText: String = accent,       // Spoken dialogue highlighting
     val monologueText: String = text,        // Internal thoughts & reflections
     val headingText: String = accent,        // Chapter & scene headings
+    val annotation: String = "",             // Editorial margin notes & commentary
+    val link: String = "",                   // Interactive hyperlinks & citations
 
     // ── Toolbars & Action Bars ──
     val toolbar: String = surface,           // Action bar background

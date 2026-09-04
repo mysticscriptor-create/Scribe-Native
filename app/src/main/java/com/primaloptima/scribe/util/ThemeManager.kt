@@ -388,13 +388,15 @@ class ThemeManager(private val context: Context) {
                 val successDefault = createOklchColor(0.76, 0.15, 142.0)
                 val warningDefault = createOklchColor(0.82, 0.16, 85.0)
                 val errorDefault = createOklchColor(0.72, 0.18, 25.0)
+                val infoDefault = createOklchColor(0.75, 0.14, 230.0)
                 val specialHighlightDefault = createOklchColor(0.86, 0.14, 88.0)
 
                 // Containers & Selection
                 val accentMuted = blend(accentInt, bgInt, 0.80f)
                 val selection = blend(accentInt, bgInt, 0.65f)
 
-                // Boundaries & Focus
+                // Boundaries & Focus (subtle divider vs standard component boundary vs focus)
+                val borderNormal = oklchToHex(Oklch((bgOklch.l + 0.14).coerceIn(0.01, 0.95), bgOklch.c * 0.70, bgOklch.h))
                 val borderSubtle = oklchToHex(Oklch((bgOklch.l + 0.08).coerceIn(0.01, 0.95), bgOklch.c * 0.75, bgOklch.h))
                 val borderProminent = accentHex
 
@@ -402,6 +404,7 @@ class ThemeManager(private val context: Context) {
                 val dialogueDefault = createOklchColor(0.90, 0.13, 86.0)
                 val monologueDefault = createOklchColor(0.80, 0.09, 255.0)
                 val headingDefault = accentHex
+                val annotationDefault = createOklchColor(0.78, 0.14, 300.0)
 
                 // ── Stage 4: Structured Output Assembly ───────────────────────────────
                 ThemeColors(
@@ -419,15 +422,18 @@ class ThemeManager(private val context: Context) {
                     success = successDefault,
                     warning = warningDefault,
                     error = errorDefault,
+                    info = infoDefault,
                     specialHighlight = specialHighlightDefault,
                     accentMuted = accentMuted,
                     selection = selection,
-                    border = borderSubtle,
+                    border = borderNormal,
                     borderSubtle = borderSubtle,
                     borderProminent = borderProminent,
                     dialogueText = dialogueDefault,
                     monologueText = monologueDefault,
                     headingText = headingDefault,
+                    annotation = annotationDefault,
+                    link = accentHex,
                     toolbar = surface,
                     toolbarText = effectiveTextHex
                 )
@@ -450,6 +456,7 @@ class ThemeManager(private val context: Context) {
                 val successDefault = createOklchColor(0.48, 0.16, 142.0)
                 val warningDefault = createOklchColor(0.55, 0.16, 80.0)
                 val errorDefault = createOklchColor(0.50, 0.20, 25.0)
+                val infoDefault = createOklchColor(0.52, 0.15, 230.0)
                 val specialHighlightDefault = createOklchColor(0.52, 0.15, 75.0)
 
                 // Containers & Selection
@@ -457,6 +464,7 @@ class ThemeManager(private val context: Context) {
                 val selection = blend(accentInt, bgInt, 0.78f)
 
                 // Boundaries & Focus (derived with adequate contrast against light background)
+                val borderNormal = oklchToHex(Oklch((bgOklch.l - 0.14).coerceIn(0.10, 0.98), bgOklch.c * 0.65, bgOklch.h))
                 val borderSubtle = oklchToHex(Oklch((bgOklch.l - 0.085).coerceIn(0.10, 0.98), bgOklch.c * 0.70, bgOklch.h))
                 val borderProminent = accentHex
 
@@ -464,6 +472,7 @@ class ThemeManager(private val context: Context) {
                 val dialogueDefault = createOklchColor(0.45, 0.15, 65.0)
                 val monologueDefault = createOklchColor(0.40, 0.12, 255.0)
                 val headingDefault = accentHex
+                val annotationDefault = createOklchColor(0.48, 0.16, 300.0)
 
                 ThemeColors(
                     background = bgHex,
@@ -480,15 +489,18 @@ class ThemeManager(private val context: Context) {
                     success = successDefault,
                     warning = warningDefault,
                     error = errorDefault,
+                    info = infoDefault,
                     specialHighlight = specialHighlightDefault,
                     accentMuted = accentMuted,
                     selection = selection,
-                    border = borderSubtle,
+                    border = borderNormal,
                     borderSubtle = borderSubtle,
                     borderProminent = borderProminent,
                     dialogueText = dialogueDefault,
                     monologueText = monologueDefault,
                     headingText = headingDefault,
+                    annotation = annotationDefault,
+                    link = accentHex,
                     toolbar = surface,
                     toolbarText = effectiveTextHex
                 )
@@ -643,12 +655,16 @@ class ThemeManager(private val context: Context) {
             val surfaceOverlayCol = ComposeColor(parseColor(derived.surfaceOverlay))
             val mutedCol = ComposeColor(parseColor(derived.mutedText))
             val subtleCol = ComposeColor(parseColor(derived.subtleText))
-            val borderCol = ComposeColor(parseColor(derived.borderSubtle))
+            val borderSubtleCol = ComposeColor(parseColor(derived.borderSubtle))
+            val normalBorderCol = ComposeColor(parseColor(derived.border))
             val focusBorderCol = ComposeColor(parseColor(derived.borderProminent))
 
             val dialogueCol = ComposeColor(parseColor(derived.dialogueText))
             val monologueCol = ComposeColor(parseColor(derived.monologueText))
             val headingCol = ComposeColor(parseColor(derived.headingText))
+            val annotationCol = if (derived.annotation.isNotBlank()) ComposeColor(parseColor(derived.annotation)) else (if (isDark) ComposeColor(0xFFC084FC) else ComposeColor(0xFF7E22CE))
+            val infoCol = if (derived.info.isNotBlank()) ComposeColor(parseColor(derived.info)) else (if (isDark) ComposeColor(0xFF38BDF8) else ComposeColor(0xFF0284C7))
+            val linkCol = if (derived.link.isNotBlank()) ComposeColor(parseColor(derived.link)) else accentCol
 
             val scribeColors = com.primaloptima.scribe.ui.theme.ScribeColors(
                 surfaces = com.primaloptima.scribe.ui.theme.SurfaceColors(
@@ -676,7 +692,7 @@ class ThemeManager(private val context: Context) {
                     tertiary = mutedCol,
                     selection = accentCol.copy(alpha = 0.25f),
                     focus = focusBorderCol,
-                    link = accentCol
+                    link = linkCol
                 ),
                 semantic = com.primaloptima.scribe.ui.theme.SemanticStatusColors(
                     success = ComposeColor(0xFF10B981),
@@ -691,17 +707,17 @@ class ThemeManager(private val context: Context) {
                     onError = ComposeColor.White,
                     errorContainer = ComposeColor(0xFFEF4444).copy(alpha = 0.15f),
                     onErrorContainer = ComposeColor(0xFFEF4444),
-                    info = ComposeColor(0xFF3B82F6),
+                    info = infoCol,
                     onInfo = ComposeColor.White,
-                    infoContainer = ComposeColor(0xFF3B82F6).copy(alpha = 0.15f),
-                    onInfoContainer = ComposeColor(0xFF3B82F6)
+                    infoContainer = infoCol.copy(alpha = 0.15f),
+                    onInfoContainer = infoCol
                 ),
                 writing = com.primaloptima.scribe.ui.theme.WritingColors(
                     prose = textCol,
                     dialogue = dialogueCol,
                     monologue = monologueCol,
                     heading = headingCol,
-                    annotation = monologueCol,
+                    annotation = annotationCol,
                     highlight = dialogueCol
                 ),
                 analytics = com.primaloptima.scribe.ui.theme.AnalyticsColors(
@@ -715,8 +731,8 @@ class ThemeManager(private val context: Context) {
                     warning = ComposeColor(0xFFF59E0B)
                 ),
                 borders = com.primaloptima.scribe.ui.theme.BorderColors(
-                    subtle = borderCol,
-                    normal = borderCol,
+                    subtle = borderSubtleCol,
+                    normal = normalBorderCol,
                     prominent = focusBorderCol
                 ),
                 world = com.primaloptima.scribe.ui.theme.WorldEntityColors(
@@ -726,7 +742,7 @@ class ThemeManager(private val context: Context) {
                     item = ComposeColor(0xFFF59E0B),
                     lore = ComposeColor(0xFF8B5CF6),
                     event = ComposeColor(0xFFEC4899),
-                    relationship = accentCol
+                    relationship = ComposeColor(0xFF2DD4BF)
                 ),
                 isDark = isDark
             )

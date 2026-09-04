@@ -16,6 +16,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 // ── 1. SURFACES ─────────────────────────────────────────────────────────────
+/**
+ * Surface elevation tokens establishing the physical visual hierarchy.
+ *
+ * Contract:
+ * - L0 [background]: Foundation canvas layer (75-85% neutral foundation).
+ * - L1 [surfaceLowest]: Recessed split gutters, sunken panels, tool trays.
+ * - L2 [surface]: Base windows, top app bars, primary navigation drawers.
+ * - L3 [surfaceRaised]: Floating workbench cards, elevated dialogs, floating sheets.
+ * - L4 [surfaceOverlay]: Popovers, dropdown menus, context menus, modal alerts.
+ * - [surfaceSelected]: Active navigation tab fills, selected list item backgrounds.
+ * - [surfacePressed]: Immediate touch ripple & active pressed state tint.
+ *
+ * Source: Derived mathematically in OKLCH space from `background` foundation source.
+ * Consumers: Card backgrounds, modal containers, navigation rails, app bars.
+ * Anti-Pattern: Never use surface tokens as text/icon foregrounds or border fills.
+ */
 @Immutable
 data class SurfaceColors(
     val background: Color,      // L0: Canvas base background (75-85% neutral foundation)
@@ -28,6 +44,20 @@ data class SurfaceColors(
 )
 
 // ── 2. CONTENT ──────────────────────────────────────────────────────────────
+/**
+ * Typography and iconography content hierarchy tokens.
+ *
+ * Contract:
+ * - [primary]: Main readable prose, high-emphasis text, primary titles (10-15% neutral).
+ * - [secondary]: Supporting readable text, subtitles, metadata, secondary captions.
+ * - [tertiary]: Low-priority metadata, inactive hints, subtle counters, timestamps.
+ * - [disabled]: Genuinely disabled, unavailable text and inactive states.
+ * - [onAccent]: High-contrast readable foreground rendered directly on primary accent surfaces.
+ *
+ * Source: Derived from `text` foundation source with controlled lightness and chroma curves.
+ * Consumers: Text composables, iconography, status badges.
+ * Anti-Pattern: Never use content.tertiary as a generic replacement for secondary labels.
+ */
 @Immutable
 data class ContentColors(
     val primary: Color,         // Primary body prose, high-emphasis text & headings (10-15% neutral)
@@ -38,6 +68,24 @@ data class ContentColors(
 )
 
 // ── 3. INTERACTION ──────────────────────────────────────────────────────────
+/**
+ * Interactive affordances, triggers, and state feedback tokens.
+ *
+ * Contract:
+ * - [primary]: Primary interactive brand action/accent (FAB, primary buttons, active toggles).
+ * - [primaryContainer]: Tonal container/fill supporting primary interaction.
+ * - [onPrimary]: Readable foreground on primary interactive color.
+ * - [onPrimaryContainer]: Readable foreground on primary container fill.
+ * - [secondary]: Secondary interactive action (secondary buttons, chips, filters).
+ * - [tertiary]: Tertiary interactive accent (special tool highlights, tertiary controls).
+ * - [selection]: Text selection highlight & multi-item selection bounding box.
+ * - [focus]: Keyboard navigation focus rings & high-contrast accessibility outlines.
+ * - [link]: Hyperlinks, cross-document references, citation jumps.
+ *
+ * Source: Derived from `accent` foundation source in OKLCH perceptual space.
+ * Consumers: Buttons, FABs, chips, checkboxes, switches, focus indicators.
+ * Anti-Pattern: Never use interaction.primary as a universal background or decorative border.
+ */
 @Immutable
 data class InteractionColors(
     val primary: Color,             // Primary interactive brand action/accent (5-8% accent)
@@ -52,6 +100,20 @@ data class InteractionColors(
 )
 
 // ── 4. SEMANTIC STATUS ──────────────────────────────────────────────────────
+/**
+ * System status, feedback messages, and diagnostic severity indicators.
+ *
+ * Contract:
+ * - [success]: Completed actions, confirmed save, sync success, positive health.
+ * - [warning]: Non-blocking cautions, unsaved edits, rate limits, attention required.
+ * - [error]: Critical failures, validation errors, destructive actions, offline alerts.
+ * - [info]: Neutral guidance, system hints, informational banners.
+ * - (*Container, on*): Paired background fills and high-contrast foregrounds.
+ *
+ * Source: Perceptually tuned status hues in OKLCH space, contrast-validated against surfaces.
+ * Consumers: Snackbars, diagnostic pills, inline validation banners, toast alerts.
+ * Anti-Pattern: Never use semantic status tokens for world entity types or editor highlighting.
+ */
 @Immutable
 data class SemanticStatusColors(
     val success: Color,
@@ -76,6 +138,21 @@ data class SemanticStatusColors(
 )
 
 // ── 5. WRITING & PROSE LEXER ────────────────────────────────────────────────
+/**
+ * Editor syntax highlighting and creative writing structural tokens.
+ *
+ * Contract:
+ * - [prose]: Primary narrative text & base paragraph foundation.
+ * - [dialogue]: Spoken dialogue highlighting ("...", “...”).
+ * - [monologue]: Internal monologue / thought text (‘...’).
+ * - [heading]: Chapter / Scene title highlighting.
+ * - [annotation]: Margin notes, inline editorial comments, critique flags.
+ * - [highlight]: User search results & literary emphasis spans.
+ *
+ * Source: Editorial theme overrides or harmonic OKLCH derivatives.
+ * Consumers: Sora CodeEditor syntax lexer, outline tree, manuscript view.
+ * Anti-Pattern: Never force every writing role to have loud colors; preserve reading calm.
+ */
 @Immutable
 data class WritingColors(
     val prose: Color,       // Primary narrative text / base prose foundation
@@ -87,6 +164,23 @@ data class WritingColors(
 )
 
 // ── 6. DATA & ANALYTICS ─────────────────────────────────────────────────────
+/**
+ * Data visualization, manuscript metrics, and pacing analysis tokens.
+ *
+ * Contract:
+ * - [positive]: Metric positive trend, goal reached, velocity gain.
+ * - [neutral]: Baseline metric, running average, unchanged pace.
+ * - [negative]: Metric deficit, goal behind, velocity decline.
+ * - [series1]: Chart series 1 identity (primary metric: e.g. daily word count).
+ * - [series2]: Chart series 2 identity (secondary metric: e.g. reading time).
+ * - [series3]: Chart series 3 identity (tertiary metric: e.g. vocabulary density).
+ * - [target]: Target reference benchmark line, goal threshold marker.
+ * - [warning]: Pacing / scene length imbalance alert indicator.
+ *
+ * Source: Independent analytical palette harmonized with theme foundations.
+ * Consumers: Recharts/D3 stats, progress bars, pacing charts, streak meters.
+ * Anti-Pattern: Never confuse trend status (positive/negative) with series identity (series1).
+ */
 @Immutable
 data class AnalyticsColors(
     val positive: Color,    // Metric positive trend, goal achieved
@@ -100,14 +194,42 @@ data class AnalyticsColors(
 )
 
 // ── 7. BORDERS ──────────────────────────────────────────────────────────────
+/**
+ * Structural boundaries, separators, and active focus boundaries.
+ *
+ * Contract:
+ * - [subtle]: 1px quiet structural dividers, table rules, subtle card outlines (outlineVariant).
+ * - [normal]: Standard input borders, card boundaries, container outlines (outline).
+ * - [prominent]: Active focus rings, selected card keylines, high-emphasis borders.
+ *
+ * Source: Derived from background & accent in OKLCH space with explicit contrast deltas.
+ * Consumers: Divider components, Card borders, OutlinedTextField borders, focus rings.
+ * Anti-Pattern: Never map borders.subtle to an accent or prominent border color.
+ */
 @Immutable
 data class BorderColors(
-    val subtle: Color,      // 1px structural dividing lines & card outlines
-    val normal: Color,      // Standard input borders & container boundaries
+    val subtle: Color,      // 1px structural dividing lines & card outlines (outlineVariant)
+    val normal: Color,      // Standard input borders & container boundaries (outline)
     val prominent: Color    // Active focus rings, keyline accents
 )
 
 // ── 8. WORLD / ENTITY TYPES ─────────────────────────────────────────────────
+/**
+ * Worldbuilding lore entity categories and manuscript index identities.
+ *
+ * Contract:
+ * - [character]: Character entity tags, dialogue attribution avatars, dramatis personae.
+ * - [location]: Setting & location entities, world map pins, atmospheric backdrops.
+ * - [faction]: Factions, clans, guilds, political organizations.
+ * - [item]: Physical artifacts, magic items, weapons, inventory props.
+ * - [lore]: Lore documents, historical chronicles, magic systems, universe rules.
+ * - [event]: Historical timeline events, plot milestones, narrative beats (NOT system errors!).
+ * - [relationship]: Character dynamics, entity linkages, alliance arcs (NOT muted text!).
+ *
+ * Source: Independent harmonic entity palette derived to maintain distinct identities.
+ * Consumers: World sheets, entity pill badges, timeline nodes, graph view connectors.
+ * Anti-Pattern: Never alias world.event to error or world.relationship to mutedText.
+ */
 @Immutable
 data class WorldEntityColors(
     val character: Color,   // Character entities & dialogue attribution
