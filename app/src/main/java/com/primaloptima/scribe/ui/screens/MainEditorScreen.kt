@@ -310,19 +310,6 @@ fun MainEditorScreen(
         val raw = activeNote?.name ?: ""
         mutableStateOf(raw.contains('\n'))
     }
-    val primaryTitleFocusRequester = remember { FocusRequester() }
-    val secondaryTitleFocusRequester = remember { FocusRequester() }
-    var pendingSecondaryFocus by remember { mutableStateOf(false) }
-
-    LaunchedEffect(pendingSecondaryFocus) {
-        if (pendingSecondaryFocus) {
-            pendingSecondaryFocus = false
-            withFrameNanos { }
-            try {
-                secondaryTitleFocusRequester.requestFocus()
-            } catch (_: Exception) { }
-        }
-    }
 
     fun persistDualTitle(primary: String, secondary: String) {
         val targetNote = activeNote ?: return
@@ -706,23 +693,18 @@ fun MainEditorScreen(
                                 if (!zenMode && activeNote != null) {
                                     val localPrimaryFocus = remember { FocusRequester() }
                                     val localSecondaryFocus = remember { FocusRequester() }
-                                    var localPendingSecondaryFocus by remember { mutableStateOf(false) }
+                                    var secondaryFocusTrigger by remember { mutableIntStateOf(0) }
 
-                                    LaunchedEffect(localPendingSecondaryFocus) {
-                                        if (localPendingSecondaryFocus) {
-                                            localPendingSecondaryFocus = false
-                                            kotlinx.coroutines.delay(50)
-                                            try {
-                                                localSecondaryFocus.requestFocus()
-                                            } catch (_: Exception) { }
-                                        }
+                                    val moveToSecondaryTitle: () -> Unit = {
+                                        showSecondaryTitle = true
+                                        secondaryFocusTrigger++
                                     }
 
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(start = 28.dp, top = 20.dp, end = 28.dp, bottom = 12.dp)
+                                            .padding(start = 28.dp, top = 56.dp, end = 28.dp, bottom = 12.dp)
                                     ) {
                                         // Primary Title / Kicker (e.g., CHAPTER I)
                                         BasicTextField(
@@ -732,8 +714,7 @@ fun MainEditorScreen(
                                                     val sanitized = input.replace("\n", "").trimEnd()
                                                     primaryTitleText = sanitized
                                                     persistDualTitle(sanitized, secondaryTitleText)
-                                                    showSecondaryTitle = true
-                                                    localPendingSecondaryFocus = true
+                                                    moveToSecondaryTitle()
                                                 } else {
                                                     primaryTitleText = input
                                                     persistDualTitle(input, secondaryTitleText)
@@ -754,19 +735,15 @@ fun MainEditorScreen(
                                             ),
                                             keyboardActions = KeyboardActions(
                                                 onNext = {
-                                                    showSecondaryTitle = true
-                                                    localPendingSecondaryFocus = true
+                                                    moveToSecondaryTitle()
                                                 }
                                             ),
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .focusRequester(localPrimaryFocus)
                                                 .onPreviewKeyEvent { event ->
-                                                    if (event.key == Key.Enter) {
-                                                        if (event.type == KeyEventType.KeyUp) {
-                                                            showSecondaryTitle = true
-                                                            localPendingSecondaryFocus = true
-                                                        }
+                                                    if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
+                                                        moveToSecondaryTitle()
                                                         true
                                                     } else false
                                                 },
@@ -793,6 +770,14 @@ fun MainEditorScreen(
 
                                         // Main Title (e.g., The Starlit Archive)
                                         if (showSecondaryTitle || secondaryTitleText.isNotEmpty()) {
+                                            LaunchedEffect(secondaryFocusTrigger) {
+                                                if (secondaryFocusTrigger > 0) {
+                                                    withFrameNanos { }
+                                                    try {
+                                                        localSecondaryFocus.requestFocus()
+                                                    } catch (_: Exception) { }
+                                                }
+                                            }
                                             Spacer(Modifier.height(6.dp))
                                             BasicTextField(
                                                 value = secondaryTitleText,
@@ -841,13 +826,11 @@ fun MainEditorScreen(
                                                             persistDualTitle(primaryTitleText, "")
                                                             localPrimaryFocus.requestFocus()
                                                             true
-                                                        } else if (event.key == Key.Enter) {
-                                                            if (event.type == KeyEventType.KeyUp) {
-                                                                soraEditorRef?.let { ed ->
-                                                                    ed.setSelection(0, 0)
-                                                                    unifiedCanvasRef?.resetScroll()
-                                                                    ed.requestFocus()
-                                                                }
+                                                        } else if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
+                                                            soraEditorRef?.let { ed ->
+                                                                ed.setSelection(0, 0)
+                                                                unifiedCanvasRef?.resetScroll()
+                                                                ed.requestFocus()
                                                             }
                                                             true
                                                         } else false
