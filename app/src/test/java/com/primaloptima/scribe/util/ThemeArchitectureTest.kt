@@ -976,14 +976,7 @@ class ThemeArchitectureTest {
     // ── Test 39: Phase 5 Writing Contrast Compliance Across Default Themes ────
     @Test
     fun testPhase5_writingContrastComplianceAcrossDefaultThemes() {
-        val allThemes = listOf(
-            DefaultThemes.obsidian,
-            DefaultThemes.paper,
-            DefaultThemes.emerald,
-            DefaultThemes.sunset,
-            DefaultThemes.midnight,
-            DefaultThemes.nord
-        )
+        val allThemes = DefaultThemes.all
 
         for (theme in allThemes) {
             val resolved = ThemeManager.resolveTheme(theme)

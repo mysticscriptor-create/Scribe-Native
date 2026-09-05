@@ -38,12 +38,26 @@ Two semantic roles may resolve to the identical RGB value in a particular theme 
 - **`link`**: Clickable hyperlink text, URL spans (independent of accent or selection).
 
 ### D. Writing Roles (`WritingColors`)
-- **`prose`**: Main editor narrative prose text.
-- **`dialogue`**: Direct speech / quoted dialogue highlighting.
-- **`monologue`**: Internal thoughts / monologue highlighting.
-- **`heading`**: Scene headings, chapter titles, markdown markers.
-- **`annotation`**: Editorial margin notes, reviewer comments, callouts.
-- **`highlight`**: Search hit matches, literary emphasis markers (decoupled from dialogue).
+- **`prose`**: Main editor narrative prose text and base body typography foundation.
+- **`dialogue`**: Direct speech / quoted spoken dialogue highlighting ("...", “...”, «...», or em-dash lines).
+- **`monologue`**: Internal thoughts and reflection highlighting (*asterisks* or ‘typographic single quotes’).
+- **`heading`**: Scene headings, chapter titles, markdown markers (#, ##, scene-breaks ***).
+- **`annotation`**: Editorial margin notes, reviewer comments, callouts, and inline editorial critique flags.
+- **`highlight`**: Search hit matches, literary emphasis markers, and active search result spans.
+
+#### Canonical Writing Role Distinctions & Boundaries:
+1. **`writing.highlight` vs `interaction.selection`**:
+   - `writing.highlight`: Represents passive document state (e.g. search query hits, literary text markers). Mapped to Sora `MATCHED_TEXT_BACKGROUND` at subtle alpha (~51% / 130). Text underneath maintains its canonical syntax foreground color.
+   - `interaction.selection`: Represents active user pointer interaction state. Mapped to Sora `SELECTED_TEXT_BACKGROUND` at prominent alpha (~63% / 160). When overlapping a search highlight, user selection visually dominates due to higher opacity and active interaction state priority.
+2. **`writing.annotation` vs `semantic.warning`**:
+   - `writing.annotation`: Represents author editorial notes, manuscript comments, and inlay hints. It conveys literary metadata rather than system failure or danger. Mapped to Sora `TEXT_INLAY_HINT_FOREGROUND` / `TEXT_INLAY_HINT_BACKGROUND` (purple/violet hues).
+   - `semantic.warning`: Represents non-blocking system diagnostics, low storage warnings, and conflict notifications. Mapped to Sora diagnostic wavy underline `PROBLEM_WARNING` (amber hue). Never substitute warning tokens for authorial annotations.
+3. **`writing.heading` vs Application/Navigation Headings (`content.primary`)**:
+   - `writing.heading`: Dedicated to manuscript content headings (e.g. "Chapter I", Markdown `# Scene Title`, and scene-break dividers). It reflects literary styling within the canvas and editor lexer (`KEYWORD`).
+   - `content.primary`: High-contrast structural application typography used in app bars, drawer navigation headers, modal dialog titles, and card headers. Application headings must never change when an author customizes their manuscript heading color.
+4. **Writing Roles vs Analytics Roles (`AnalyticsColors`)**:
+   - Writing roles (`prose`, `dialogue`, `monologue`, `heading`, `annotation`, `highlight`) govern reading calm, manuscript aesthetics, and creative text rendering inside the editor.
+   - Analytics roles (`positive`, `neutral`, `negative`, `series1`, `series2`, `series3`, `target`, `warning`) govern charts, writing session metrics, wordcount trends, and progress gauges. Modifying writing colors must never impact chart series identity or velocity indicators.
 
 ### E. Semantic Status Roles (`SemanticStatusColors`)
 - **`success` / `onSuccess` / `successContainer` / `onSuccessContainer`**: System operation success, completed saves, cloud sync success.

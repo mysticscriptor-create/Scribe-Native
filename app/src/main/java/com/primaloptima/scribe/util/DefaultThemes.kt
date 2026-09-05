@@ -207,5 +207,12 @@ object DefaultThemes {
     )
 
     fun findById(id: String): AppTheme = all.firstOrNull { it.id == id } ?: all.first()
+
+    val obsidian: AppTheme get() = findById("obsidian")
+    val midnight: AppTheme get() = findById("midnight")
+    val focus: AppTheme get() = findById("focus")
+    val paper: AppTheme get() = findById("paper")
+    val sepia: AppTheme get() = findById("sepia")
+    val typewriter: AppTheme get() = findById("typewriter")
 }
 
