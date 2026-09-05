@@ -2524,6 +2524,11 @@ fun ScribeComposeTheme(
     )
 
     val borderProminentResolved = parseComposeColor(resolvedTheme.colors.borderProminent, accentIcons)
+    val focusResolved = if (resolvedTheme.colors.focus.isNotBlank()) {
+        parseComposeColor(resolvedTheme.colors.focus, borderProminentResolved)
+    } else {
+        borderProminentResolved
+    }
 
     val onPrimaryColor = if (accentIcons.luminance() < 0.5f) Color.White else Color.Black
 
@@ -2894,7 +2899,7 @@ fun ScribeComposeTheme(
                 secondary = secondaryColor,
                 tertiary = tertiaryColor,
                 selection = selectionResolved,
-                focus = borderProminentResolved,
+                focus = focusResolved,
                 link = linkResolved
             ),
             semantic = SemanticStatusColors(

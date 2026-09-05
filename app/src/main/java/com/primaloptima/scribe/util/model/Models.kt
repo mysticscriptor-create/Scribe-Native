@@ -105,6 +105,7 @@ data class ThemeColorOverrides(
     val border: String? = null,
     val borderSubtle: String? = null,
     val borderProminent: String? = null,
+    val focus: String? = null,
 
     val success: String? = null,
     val warning: String? = null,
@@ -120,7 +121,7 @@ data class ThemeColorOverrides(
         mutedText == null && subtleText == null &&
         secondary == null && tertiary == null &&
         accentMuted == null && selection == null &&
-        border == null && borderSubtle == null && borderProminent == null &&
+        border == null && borderSubtle == null && borderProminent == null && focus == null &&
         success == null && warning == null && error == null && specialHighlight == null &&
         dialogueText == null && monologueText == null && headingText == null
 
@@ -159,7 +160,8 @@ data class ThemeColors(
     // ── Boundaries & Dividers ──
     val border: String,                      // Standard component boundary (outline)
     val borderSubtle: String = border,       // Subtle 1px structural hairline (outlineVariant)
-    val borderProminent: String = accent,    // Active states, focus rings
+    val borderProminent: String = accent,    // High-emphasis boundary (active keylines, selected states)
+    val focus: String = "",                  // Keyboard navigation focus rings & accessibility outlines (defaults to borderProminent if blank)
 
     // ── Editorial & Prose Lexer Semantics ──
     val dialogueText: String = accent,       // Spoken dialogue highlighting

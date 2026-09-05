@@ -341,4 +341,109 @@ class ThemeArchitectureTest {
             )
         }
     }
+
+    // ── Test 15: Focus Semantic Independence ──────────────────────────────────
+    @Test
+    fun testFocusSemanticIndependence_focusCanBeOverriddenIndependentlyFromBorderProminent() {
+        val sources = ThemeSourcePalette(background = "#18181B", text = "#F4F4F5", accent = "#3B82F6")
+        val defaults = ThemeManager.generateThemeDefaults(sources, isDark = true)
+
+        // When focus override is NOT provided, it defaults to borderProminent
+        val noFocusOverride = ThemeManager.resolveThemeColors(sources, overrides = null, isDark = true)
+        assertEquals(defaults.borderProminent, noFocusOverride.borderProminent)
+        val effectiveFocusDefault = noFocusOverride.focus.ifBlank { noFocusOverride.borderProminent }
+        assertEquals(noFocusOverride.borderProminent, effectiveFocusDefault)
+
+        // When focus IS overridden independently, focus changes while borderProminent remains untouched
+        val customFocus = "#F59E0B"
+        val focusOverride = ThemeColorOverrides(focus = customFocus)
+        val resolvedFocus = ThemeManager.resolveThemeColors(sources, overrides = focusOverride, isDark = true)
+        assertEquals(customFocus, resolvedFocus.focus)
+        assertEquals(defaults.borderProminent, resolvedFocus.borderProminent)
+        assertNotEquals(resolvedFocus.borderProminent, resolvedFocus.focus)
+
+        // When borderProminent IS overridden independently, borderProminent changes while un-overridden focus defaults to it
+        val customProminent = "#10B981"
+        val prominentOverride = ThemeColorOverrides(borderProminent = customProminent)
+        val resolvedProminent = ThemeManager.resolveThemeColors(sources, overrides = prominentOverride, isDark = true)
+        assertEquals(customProminent, resolvedProminent.borderProminent)
+        val effectiveFocusAfterProminent = resolvedProminent.focus.ifBlank { resolvedProminent.borderProminent }
+        assertEquals(customProminent, effectiveFocusAfterProminent)
+
+        // When BOTH are overridden to different values, both survive independently
+        val bothOverride = ThemeColorOverrides(borderProminent = "#EC4899", focus = "#06B6D4")
+        val resolvedBoth = ThemeManager.resolveThemeColors(sources, overrides = bothOverride, isDark = true)
+        assertEquals("#EC4899", resolvedBoth.borderProminent)
+        assertEquals("#06B6D4", resolvedBoth.focus)
+        assertNotEquals(resolvedBoth.borderProminent, resolvedBoth.focus)
+    }
+
+    // ── Test 16: Dynamic Theme Pipeline Determinism & Role Integrity ───────────
+    @Test
+    fun testDynamicThemePipeline_deterministicPropagationNoRoleSubstitution() {
+        // Source palette
+        val sources = ThemeSourcePalette(background = "#0F172A", text = "#F8FAFC", accent = "#38BDF8")
+        val derived = ThemeManager.generateThemeDefaults(sources, isDark = true)
+
+        // Step 1: Verify raw generation produces 3 strictly distinct border roles
+        assertTrue("borderSubtle must not be blank", derived.borderSubtle.isNotBlank())
+        assertTrue("border (normal) must not be blank", derived.border.isNotBlank())
+        assertTrue("borderProminent must not be blank", derived.borderProminent.isNotBlank())
+
+        assertNotEquals("borderSubtle must not equal border", derived.borderSubtle, derived.border)
+        assertNotEquals("border must not equal borderProminent", derived.border, derived.borderProminent)
+        assertNotEquals("borderSubtle must not equal borderProminent", derived.borderSubtle, derived.borderProminent)
+
+        // Step 2: Test resolution via ThemeColors and verify role mapping
+        val resolvedThemeColors = ThemeManager.resolveThemeColors(sources, overrides = null, isDark = true)
+        assertEquals(derived.borderSubtle, resolvedThemeColors.borderSubtle)
+        assertEquals(derived.border, resolvedThemeColors.border)
+        assertEquals(derived.borderProminent, resolvedThemeColors.borderProminent)
+
+        // Step 3: Verify role values in Scribe token resolution
+        val parsedSubtle = ThemeManager.parseColor(resolvedThemeColors.borderSubtle)
+        val parsedNormal = ThemeManager.parseColor(resolvedThemeColors.border)
+        val parsedProminent = ThemeManager.parseColor(resolvedThemeColors.borderProminent)
+
+        assertNotEquals("Parsed subtle color must not equal normal", parsedSubtle, parsedNormal)
+        assertNotEquals("Parsed normal color must not equal prominent", parsedNormal, parsedProminent)
+        assertNotEquals("Parsed subtle color must not equal prominent", parsedSubtle, parsedProminent)
+
+        // Step 4: Verify no stage silently substituted or inverted roles
+        val subtleOklch = ThemeManager.colorToOklch(parsedSubtle)
+        val normalOklch = ThemeManager.colorToOklch(parsedNormal)
+        assertTrue("Dark theme normal border must have higher lightness than subtle border", normalOklch.l > subtleOklch.l)
+    }
+
+    // ── Test 17: Prominent Semantics (High-Emphasis Boundary vs Accent) ────────
+    @Test
+    fun testProminentSemantics_highEmphasisBoundaryNotHardwiredToAccent() {
+        // 1. In built-in themes, verify prominent border is NOT forced to equal accent
+        val obsidian = DefaultThemes.obsidian
+        assertEquals("Obsidian accent is light gray", "#E4E4E7", obsidian.colors.accent)
+        assertEquals("Obsidian prominent border is mid-emphasis boundary", "#8E8E93", obsidian.colors.borderProminent)
+        assertNotEquals(obsidian.colors.accent, obsidian.colors.borderProminent)
+
+        val focus = DefaultThemes.focus
+        assertEquals("Focus accent is slate light", "#F1F5F9", focus.colors.accent)
+        assertEquals("Focus prominent border is mid-neutral boundary", "#737373", focus.colors.borderProminent)
+        assertNotEquals(focus.colors.accent, focus.colors.borderProminent)
+
+        val typewriter = DefaultThemes.typewriter
+        assertNotEquals(typewriter.colors.accent, typewriter.colors.borderProminent)
+
+        // 2. In overrides, changing accent must not clobber an explicit borderProminent override
+        val sources = ThemeSourcePalette(background = "#18181B", text = "#F4F4F5", accent = "#3B82F6")
+        val overrides = ThemeColorOverrides(borderProminent = "#D97706")
+        val resolved = ThemeManager.resolveThemeColors(sources, overrides, isDark = true)
+        assertEquals("#D97706", resolved.borderProminent)
+        assertEquals("#3B82F6", resolved.accent)
+
+        // Change the accent foundation
+        val newSources = ThemeSourcePalette(background = "#18181B", text = "#F4F4F5", accent = "#A855F7")
+        val resolvedNewAccent = ThemeManager.resolveThemeColors(newSources, overrides, isDark = true)
+        assertEquals("#A855F7", resolvedNewAccent.accent)
+        // The prominent boundary override SURVIVES and is NOT replaced by the new accent!
+        assertEquals("#D97706", resolvedNewAccent.borderProminent)
+    }
 }

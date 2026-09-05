@@ -539,6 +539,7 @@ class ThemeManager(private val context: Context) {
                 borderSubtle = overrides.borderSubtle?.takeIf { it.isNotBlank() } ?: defaults.borderSubtle,
                 border = overrides.border?.takeIf { it.isNotBlank() } ?: defaults.border,
                 borderProminent = overrides.borderProminent?.takeIf { it.isNotBlank() } ?: defaults.borderProminent,
+                focus = overrides.focus?.takeIf { it.isNotBlank() } ?: defaults.focus.takeIf { it.isNotBlank() } ?: defaults.borderProminent,
                 success = overrides.success?.takeIf { it.isNotBlank() } ?: defaults.success,
                 warning = overrides.warning?.takeIf { it.isNotBlank() } ?: defaults.warning,
                 error = overrides.error?.takeIf { it.isNotBlank() } ?: defaults.error,
@@ -658,6 +659,7 @@ class ThemeManager(private val context: Context) {
             val borderSubtleCol = ComposeColor(parseColor(derived.borderSubtle))
             val normalBorderCol = ComposeColor(parseColor(derived.border))
             val focusBorderCol = ComposeColor(parseColor(derived.borderProminent))
+            val focusInteractiveCol = if (derived.focus.isNotBlank()) ComposeColor(parseColor(derived.focus)) else focusBorderCol
 
             val dialogueCol = ComposeColor(parseColor(derived.dialogueText))
             val monologueCol = ComposeColor(parseColor(derived.monologueText))
@@ -691,7 +693,7 @@ class ThemeManager(private val context: Context) {
                     secondary = subtleCol,
                     tertiary = mutedCol,
                     selection = accentCol.copy(alpha = 0.25f),
-                    focus = focusBorderCol,
+                    focus = focusInteractiveCol,
                     link = linkCol
                 ),
                 semantic = com.primaloptima.scribe.ui.theme.SemanticStatusColors(
