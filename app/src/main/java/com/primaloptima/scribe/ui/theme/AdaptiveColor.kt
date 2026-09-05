@@ -214,6 +214,7 @@ fun validateThemeSemanticContrast(
         SemanticContrastPair("Monologue Text on Editor Canvas", "Writing Engine", "Monologue", colors.writing.monologue, "Background", colors.surfaces.background, 60.0, 3.5),
         SemanticContrastPair("Heading Text on Editor Canvas", "Writing Engine", "Heading", colors.writing.heading, "Background", colors.surfaces.background, 65.0, 3.5),
         SemanticContrastPair("Annotation Text on Editor Canvas", "Writing Engine", "Annotation", colors.writing.annotation, "Background", colors.surfaces.background, 50.0, 3.0, false),
+        SemanticContrastPair("Highlight on Editor Canvas", "Writing Engine", "Highlight", colors.writing.highlight, "Background", colors.surfaces.background, 50.0, 3.0, false),
 
         // 5. Semantic Status & Badges
         SemanticContrastPair("Success Status on Surface", "Status & Feedback", "Success", colors.semantic.success, "Surface", colors.surfaces.surface, 50.0, 3.0),

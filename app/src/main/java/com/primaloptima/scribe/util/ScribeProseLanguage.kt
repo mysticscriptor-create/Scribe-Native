@@ -33,16 +33,23 @@ import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
  * Custom Sora language for rich novel and prose writing.
  *
  * Incremental tokenization features:
- *   1. Spoken Dialogue — text inside "...", “...”, «...» shown in dialogue color.
+ *   1. Spoken Dialogue — text inside "...", “...”, «...» or em-dash lines shown in canonical DIALOGUE color.
  *   2. Thoughts / Internal Monologue — text in *asterisks* or ‘typographic single quotes’
- *      shown in comment/italic color.
+ *      shown in canonical MONOLOGUE color (italic).
  *   3. Markdown Formatting:
- *      - Lines starting with "#" → bold heading color.
- *      - **bold** → bold text style.
- *      - _italic_ → italic text style.
- *   4. Scene-break lines ("***", "---", "* * *", "###") → bold accent color.
+ *      - Lines starting with "#" → bold HEADING color.
+ *      - **bold** → bold PROSE text style.
+ *      - _italic_ → italic PROSE text style.
+ *   4. Scene-break lines ("***", "---", "* * *", "###") → bold HEADING accent color.
  *   5. Smart bracket and quotation pairing via SymbolPairMatch.
  */
+object ScribeProseTokens {
+    const val PROSE     = EditorColorScheme.TEXT_NORMAL
+    const val DIALOGUE  = EditorColorScheme.LITERAL
+    const val MONOLOGUE = EditorColorScheme.COMMENT
+    const val HEADING   = EditorColorScheme.KEYWORD
+}
+
 class ScribeProseLanguage : EmptyLanguage() {
 
     // ── Symbol pairing ────────────────────────────────────────────────────────────────
@@ -95,7 +102,7 @@ class ScribeProseLanguage : EmptyLanguage() {
 
                 // Empty line — just carry state forward
                 if (len == 0) {
-                    spans.add(SpanFactory.obtain(0, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)))
+                    spans.add(SpanFactory.obtain(0, TextStyle.makeStyle(ScribeProseTokens.PROSE)))
                     return IncrementalAnalyzeManager.LineTokenizeResult(
                         ProseState(inDialogue, inThoughtQuote), spans, spans
                     )
@@ -117,10 +124,25 @@ class ScribeProseLanguage : EmptyLanguage() {
                     spans.add(
                         SpanFactory.obtain(
                             0,
-                            TextStyle.makeStyle(EditorColorScheme.KEYWORD, 0, true, false, false)
+                            TextStyle.makeStyle(ScribeProseTokens.HEADING, 0, true, false, false)
                         )
                     )
                     // Scene breaks and headings always reset dialogue/thought carry state
+                    return IncrementalAnalyzeManager.LineTokenizeResult(
+                        ProseState(inDialogue = false, inThoughtQuote = false), spans, spans
+                    )
+                }
+
+                // Em-dash dialogue line (European / literary convention): "— Line...", "– Line...", "-- Line..."
+                val isEmDashDialogue = !inDialogue && !inThoughtQuote && (
+                        trimmed.startsWith("— ") || trimmed.startsWith("– ") || trimmed.startsWith("-- ")
+                )
+                if (isEmDashDialogue) {
+                    val emDashOffset = line.indexOf(trimmed[0])
+                    if (emDashOffset > 0) {
+                        spans.add(SpanFactory.obtain(0, TextStyle.makeStyle(ScribeProseTokens.PROSE)))
+                    }
+                    spans.add(SpanFactory.obtain(emDashOffset, TextStyle.makeStyle(ScribeProseTokens.DIALOGUE)))
                     return IncrementalAnalyzeManager.LineTokenizeResult(
                         ProseState(inDialogue = false, inThoughtQuote = false), spans, spans
                     )
@@ -141,27 +163,27 @@ class ScribeProseLanguage : EmptyLanguage() {
                 // Apply opening carry-over state
                 val initialStyle = when {
                     inDialogue ->
-                        TextStyle.makeStyle(EditorColorScheme.LITERAL)
+                        TextStyle.makeStyle(ScribeProseTokens.DIALOGUE)
                     inThoughtQuote ->
-                        TextStyle.makeStyle(EditorColorScheme.COMMENT, 0, false, true, false)
+                        TextStyle.makeStyle(ScribeProseTokens.MONOLOGUE, 0, false, true, false)
                     else ->
-                        TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL)
+                        TextStyle.makeStyle(ScribeProseTokens.PROSE)
                 }
                 addSpan(0, initialStyle)
 
                 while (i < len) {
                     val c = line[i]
 
-                    // 1. Spoken dialogue: " “ ” « »
+                    // 1. Spoken dialogue quotes: " “ ” « »
                     if (c == '"' || c == '\u201C' || c == '\u201D' || c == '\u00AB' || c == '\u00BB') {
                         when (c) {
                             '"', '\u00AB', '\u00BB' -> inDialogue = !inDialogue
                             '\u201C' -> inDialogue = true
                             '\u201D' -> inDialogue = false
                         }
-                        addSpan(i, TextStyle.makeStyle(EditorColorScheme.LITERAL))
+                        addSpan(i, TextStyle.makeStyle(ScribeProseTokens.DIALOGUE))
                         if (!inDialogue && i + 1 < len) {
-                            addSpan(i + 1, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL))
+                            addSpan(i + 1, TextStyle.makeStyle(ScribeProseTokens.PROSE))
                         }
                         i++
                         continue
@@ -173,10 +195,10 @@ class ScribeProseLanguage : EmptyLanguage() {
                         if (closingIndex != -1) {
                             addSpan(
                                 i,
-                                TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL, 0, true, false, false)
+                                TextStyle.makeStyle(ScribeProseTokens.PROSE, 0, true, false, false)
                             )
                             i = closingIndex + 2
-                            if (i < len) addSpan(i, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL))
+                            if (i < len) addSpan(i, TextStyle.makeStyle(ScribeProseTokens.PROSE))
                             continue
                         }
                     }
@@ -187,10 +209,10 @@ class ScribeProseLanguage : EmptyLanguage() {
                         if (closingIndex != -1 && closingIndex > i + 1) {
                             addSpan(
                                 i,
-                                TextStyle.makeStyle(EditorColorScheme.COMMENT, 0, false, true, false)
+                                TextStyle.makeStyle(ScribeProseTokens.MONOLOGUE, 0, false, true, false)
                             )
                             i = closingIndex + 1
-                            if (i < len) addSpan(i, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL))
+                            if (i < len) addSpan(i, TextStyle.makeStyle(ScribeProseTokens.PROSE))
                             continue
                         }
                     }
@@ -201,26 +223,48 @@ class ScribeProseLanguage : EmptyLanguage() {
                         if (closingIndex != -1 && closingIndex > i + 1) {
                             addSpan(
                                 i,
-                                TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL, 0, false, true, false)
+                                TextStyle.makeStyle(ScribeProseTokens.PROSE, 0, false, true, false)
                             )
                             i = closingIndex + 1
-                            if (i < len) addSpan(i, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL))
+                            if (i < len) addSpan(i, TextStyle.makeStyle(ScribeProseTokens.PROSE))
                             continue
                         }
                     }
 
-                    // 5. Typographical single-quote monologue: ‘thought’
+                    // 5. Typographical single-quote monologue: ‘thought’ with multiline carry
                     if (c == '\u2018' && !inDialogue) {
                         val closingIndex = line.indexOf('\u2019', i + 1)
                         if (closingIndex != -1) {
                             addSpan(
                                 i,
-                                TextStyle.makeStyle(EditorColorScheme.COMMENT, 0, false, true, false)
+                                TextStyle.makeStyle(ScribeProseTokens.MONOLOGUE, 0, false, true, false)
                             )
                             i = closingIndex + 1
-                            if (i < len) addSpan(i, TextStyle.makeStyle(EditorColorScheme.TEXT_NORMAL))
+                            if (i < len) addSpan(i, TextStyle.makeStyle(ScribeProseTokens.PROSE))
+                            continue
+                        } else {
+                            inThoughtQuote = true
+                            addSpan(
+                                i,
+                                TextStyle.makeStyle(ScribeProseTokens.MONOLOGUE, 0, false, true, false)
+                            )
+                            i++
                             continue
                         }
+                    }
+
+                    // 6. Closing single-quote for carry-over monologue
+                    if (c == '\u2019' && inThoughtQuote) {
+                        inThoughtQuote = false
+                        addSpan(
+                            i,
+                            TextStyle.makeStyle(ScribeProseTokens.MONOLOGUE, 0, false, true, false)
+                        )
+                        if (i + 1 < len) {
+                            addSpan(i + 1, TextStyle.makeStyle(ScribeProseTokens.PROSE))
+                        }
+                        i++
+                        continue
                     }
 
                     i++

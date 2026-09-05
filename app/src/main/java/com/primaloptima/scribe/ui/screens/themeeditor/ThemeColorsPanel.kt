@@ -183,13 +183,28 @@ fun ThemeColorsPanel(
                         modifier = Modifier.weight(1f)
                     )
                     OverrideColorTile(
-                        label = "Emphasis",
+                        label = "Highlight / Match",
                         hex = if (resolvedColors.specialHighlight.isNotBlank()) resolvedColors.specialHighlight else resolvedColors.accent,
                         isOverridden = draft.isOverridden(ColorPickerTarget.SPECIAL_HIGHLIGHT),
                         onClick = { onSelectTarget(ColorPickerTarget.SPECIAL_HIGHLIGHT) },
                         onReset = { onResetOverride(ColorPickerTarget.SPECIAL_HIGHLIGHT) },
                         modifier = Modifier.weight(1f)
                     )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OverrideColorTile(
+                        label = "Annotation / Notes",
+                        hex = if (resolvedColors.annotation.isNotBlank()) resolvedColors.annotation else resolvedColors.accent,
+                        isOverridden = draft.isOverridden(ColorPickerTarget.ANNOTATION),
+                        onClick = { onSelectTarget(ColorPickerTarget.ANNOTATION) },
+                        onReset = { onResetOverride(ColorPickerTarget.ANNOTATION) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.weight(1f))
                 }
             }
         }

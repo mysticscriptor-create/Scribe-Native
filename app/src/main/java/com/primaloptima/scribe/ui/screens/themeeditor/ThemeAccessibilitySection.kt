@@ -37,14 +37,9 @@ fun AccessibilitySummaryCard(
     modifier: Modifier = Modifier
 ) {
     val contrastReport = remember(colors) {
-        ThemeManager.validateSemanticContrast(
-            bgHex = colors.background,
-            textHex = colors.text,
-            accentHex = colors.accent,
-            dialogueHex = colors.dialogueText,
-            monologueHex = colors.monologueText,
-            headingHex = colors.headingText
-        )
+        val isDark = ThemeManager.isDarkColor(colors.background)
+        val scribeColors = ThemeManager.resolveToScribeColors(colors, isDark)
+        com.primaloptima.scribe.ui.theme.validateThemeSemanticContrast(scribeColors)
     }
 
     val isExcellent = contrastReport.overallPassRate >= 0.9f
@@ -137,14 +132,9 @@ fun AccessibilityDiagnosticsDialog(
     onDismiss: () -> Unit
 ) {
     val contrastReport = remember(colors) {
-        ThemeManager.validateSemanticContrast(
-            bgHex = colors.background,
-            textHex = colors.text,
-            accentHex = colors.accent,
-            dialogueHex = colors.dialogueText,
-            monologueHex = colors.monologueText,
-            headingHex = colors.headingText
-        )
+        val isDark = ThemeManager.isDarkColor(colors.background)
+        val scribeColors = ThemeManager.resolveToScribeColors(colors, isDark)
+        com.primaloptima.scribe.ui.theme.validateThemeSemanticContrast(scribeColors)
     }
 
     FrostedDialog(
@@ -263,6 +253,10 @@ fun AccessibilitySampleCard(
     )
     val borderSubtle = parseComposeColor(colors.borderSubtle, appBorders.subtle)
     val dialogueText = parseComposeColor(colors.dialogueText, accent)
+    val monologueText = if (colors.monologueText.isNotEmpty()) parseComposeColor(colors.monologueText, primaryText) else if (isThemeDark) Color(0xFFC4B5FD) else Color(0xFF7C3AED)
+    val headingText = if (colors.headingText.isNotEmpty()) parseComposeColor(colors.headingText, primaryText) else accent
+    val annotationColor = if (colors.annotation.isNotEmpty()) parseComposeColor(colors.annotation, primaryText) else if (isThemeDark) Color(0xFFC084FC) else Color(0xFF7E22CE)
+    val highlightColor = if (colors.specialHighlight.isNotEmpty()) parseComposeColor(colors.specialHighlight, primaryText) else if (isThemeDark) Color(0xFFE7B85A) else Color(0xFFB45309)
     val warningColor = if (colors.warning.isNotEmpty()) parseComposeColor(colors.warning, appSemantic.warning) else if (ThemeManager.isDarkColor(colors.background)) Color(0xFFFBBF24) else Color(0xFFD97706)
     val errorColor = if (colors.error.isNotEmpty()) parseComposeColor(colors.error, appSemantic.error) else if (ThemeManager.isDarkColor(colors.background)) Color(0xFFF87171) else Color(0xFFDC2626)
 
@@ -369,7 +363,83 @@ fun AccessibilitySampleCard(
 
             HorizontalDivider(color = borderSubtle.copy(alpha = 0.5f))
 
-            // 6. Warning
+            // 6. Monologue
+            AccessibilitySampleRow(
+                label = "Monologue",
+                foreground = monologueText,
+                background = surface
+            ) {
+                Text(
+                    text = "‘If we fail today, everything turns to dust.’",
+                    color = monologueText,
+                    fontSize = 12.sp,
+                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                )
+            }
+
+            HorizontalDivider(color = borderSubtle.copy(alpha = 0.5f))
+
+            // 7. Heading
+            AccessibilitySampleRow(
+                label = "Heading",
+                foreground = headingText,
+                background = surface
+            ) {
+                Text(
+                    text = "Chapter IV: The Crossing",
+                    color = headingText,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            HorizontalDivider(color = borderSubtle.copy(alpha = 0.5f))
+
+            // 8. Annotation
+            AccessibilitySampleRow(
+                label = "Annotation",
+                foreground = annotationColor,
+                background = surface
+            ) {
+                Surface(
+                    color = annotationColor.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Text(
+                        text = "Note: foreshadows arrival",
+                        color = annotationColor,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            HorizontalDivider(color = borderSubtle.copy(alpha = 0.5f))
+
+            // 9. Highlight / Search Match
+            AccessibilitySampleRow(
+                label = "Highlight / Match",
+                foreground = highlightColor,
+                background = surface
+            ) {
+                Surface(
+                    color = highlightColor.copy(alpha = 0.20f),
+                    shape = RoundedCornerShape(4.dp)
+                ) {
+                    Text(
+                        text = "mountains",
+                        color = highlightColor,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            HorizontalDivider(color = borderSubtle.copy(alpha = 0.5f))
+
+            // 10. Warning
             AccessibilitySampleRow(
                 label = "Warning",
                 foreground = warningColor,

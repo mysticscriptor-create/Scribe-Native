@@ -31,6 +31,7 @@ enum class ColorPickerTarget {
     DIALOGUE_TEXT,
     MONOLOGUE_TEXT,
     SPECIAL_HIGHLIGHT,
+    ANNOTATION,
 
     // Supporting Accent Overrides
     SECONDARY,
@@ -128,6 +129,7 @@ data class ThemeEditorDraft(
             ColorPickerTarget.DIALOGUE_TEXT -> overrides.dialogueText != null
             ColorPickerTarget.MONOLOGUE_TEXT -> overrides.monologueText != null
             ColorPickerTarget.SPECIAL_HIGHLIGHT -> overrides.specialHighlight != null
+            ColorPickerTarget.ANNOTATION -> overrides.annotation != null
             ColorPickerTarget.SECONDARY -> overrides.secondary != null
             ColorPickerTarget.TERTIARY -> overrides.tertiary != null
             ColorPickerTarget.SURFACE -> overrides.surface != null
@@ -145,6 +147,7 @@ data class ThemeEditorDraft(
             ColorPickerTarget.DIALOGUE_TEXT -> current.copy(dialogueText = hex)
             ColorPickerTarget.MONOLOGUE_TEXT -> current.copy(monologueText = hex)
             ColorPickerTarget.SPECIAL_HIGHLIGHT -> current.copy(specialHighlight = hex)
+            ColorPickerTarget.ANNOTATION -> current.copy(annotation = hex)
             ColorPickerTarget.SECONDARY -> current.copy(secondary = hex)
             ColorPickerTarget.TERTIARY -> current.copy(tertiary = hex)
             ColorPickerTarget.SURFACE -> current.copy(surface = hex)
@@ -163,6 +166,7 @@ data class ThemeEditorDraft(
             ColorPickerTarget.DIALOGUE_TEXT -> overrides.copy(dialogueText = null)
             ColorPickerTarget.MONOLOGUE_TEXT -> overrides.copy(monologueText = null)
             ColorPickerTarget.SPECIAL_HIGHLIGHT -> overrides.copy(specialHighlight = null)
+            ColorPickerTarget.ANNOTATION -> overrides.copy(annotation = null)
             ColorPickerTarget.SECONDARY -> overrides.copy(secondary = null)
             ColorPickerTarget.TERTIARY -> overrides.copy(tertiary = null)
             ColorPickerTarget.SURFACE -> overrides.copy(surface = null)

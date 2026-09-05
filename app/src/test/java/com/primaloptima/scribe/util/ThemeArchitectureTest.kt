@@ -919,4 +919,93 @@ class ThemeArchitectureTest {
             assertTrue("Theme ${theme.name} muted text contrast >= 3.0:1 (was $mutedContrast)", mutedContrast >= 3.0)
         }
     }
+
+    // ── Test 37: Phase 5 Canonical Writing Semantic Bridge Resolution ─────────
+    @Test
+    fun testPhase5_canonicalWritingSemanticResolution() {
+        val theme = DefaultThemes.obsidian
+        val scribeColors = ThemeManager.resolveToScribeColors(theme)
+
+        // All 6 writing tokens must be resolved non-null and valid in ScribeColors
+        assertNotNull(scribeColors.writing.prose)
+        assertNotNull(scribeColors.writing.dialogue)
+        assertNotNull(scribeColors.writing.monologue)
+        assertNotNull(scribeColors.writing.heading)
+        assertNotNull(scribeColors.writing.highlight)
+        assertNotNull(scribeColors.writing.annotation)
+
+        // Verify fallback / mapping behavior
+        val colors = theme.colors
+        assertEquals(
+            ThemeManager.parseColor(colors.text),
+            android.graphics.Color.argb(
+                (scribeColors.writing.prose.alpha * 255).toInt(),
+                (scribeColors.writing.prose.red * 255).toInt(),
+                (scribeColors.writing.prose.green * 255).toInt(),
+                (scribeColors.writing.prose.blue * 255).toInt()
+            )
+        )
+    }
+
+    // ── Test 38: Phase 5 Writing Role Overrides Independence ─────────────────
+    @Test
+    fun testPhase5_writingRoleOverridesIndependence() {
+        val base = DefaultThemes.obsidian
+        val customDialogue = "#00FFCC"
+        val customAnnotation = "#FF9900"
+
+        val overriddenTheme = base.copy(
+            overrides = ThemeColorOverrides(
+                dialogueText = customDialogue,
+                annotation = customAnnotation
+            )
+        )
+        val resolved = ThemeManager.resolveTheme(overriddenTheme)
+
+        // Overrides must apply to targeted roles
+        assertEquals(customDialogue, resolved.colors.dialogueText)
+        assertEquals(customAnnotation, resolved.colors.annotation)
+
+        // Non-overridden roles must remain intact
+        assertEquals(base.colors.text, resolved.colors.text)
+        assertEquals(base.colors.headingText, resolved.colors.headingText)
+        assertEquals(base.colors.monologueText, resolved.colors.monologueText)
+        assertEquals(base.colors.specialHighlight, resolved.colors.specialHighlight)
+    }
+
+    // ── Test 39: Phase 5 Writing Contrast Compliance Across Default Themes ────
+    @Test
+    fun testPhase5_writingContrastComplianceAcrossDefaultThemes() {
+        val allThemes = listOf(
+            DefaultThemes.obsidian,
+            DefaultThemes.paper,
+            DefaultThemes.emerald,
+            DefaultThemes.sunset,
+            DefaultThemes.midnight,
+            DefaultThemes.nord
+        )
+
+        for (theme in allThemes) {
+            val resolved = ThemeManager.resolveTheme(theme)
+            val bgInt = ThemeManager.parseColor(resolved.colors.background)
+            val proseInt = ThemeManager.parseColor(resolved.colors.text)
+            val dialogueInt = ThemeManager.parseColor(resolved.colors.dialogueText)
+            val monologueInt = ThemeManager.parseColor(resolved.colors.monologueText)
+            val headingInt = ThemeManager.parseColor(resolved.colors.headingText)
+
+            // Prose text must achieve WCAG AA contrast (>= 4.5:1)
+            val proseContrast = ContrastResolver.calculateWcagContrastRatio(proseInt, bgInt)
+            assertTrue("Theme ${theme.name} prose contrast >= 4.5:1 (was $proseContrast)", proseContrast >= 4.5)
+
+            // Specialized writing tokens must achieve readable contrast (>= 3.0:1)
+            val dialogueContrast = ContrastResolver.calculateWcagContrastRatio(dialogueInt, bgInt)
+            assertTrue("Theme ${theme.name} dialogue contrast >= 3.0:1 (was $dialogueContrast)", dialogueContrast >= 3.0)
+
+            val monologueContrast = ContrastResolver.calculateWcagContrastRatio(monologueInt, bgInt)
+            assertTrue("Theme ${theme.name} monologue contrast >= 3.0:1 (was $monologueContrast)", monologueContrast >= 3.0)
+
+            val headingContrast = ContrastResolver.calculateWcagContrastRatio(headingInt, bgInt)
+            assertTrue("Theme ${theme.name} heading contrast >= 3.0:1 (was $headingContrast)", headingContrast >= 3.0)
+        }
+    }
 }

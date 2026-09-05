@@ -71,6 +71,8 @@ fun ThemePreviewStage(
     val dialogueColor = parseComposeColor(colors.dialogueText, accentColor)
     val monologueColor = parseComposeColor(colors.monologueText, textColor)
     val headingColor = parseComposeColor(colors.headingText, accentColor)
+    val highlightColor = if (colors.specialHighlight.isNotBlank()) parseComposeColor(colors.specialHighlight, accentColor) else accentColor
+    val annotationColor = if (colors.annotation.isNotBlank()) parseComposeColor(colors.annotation, textColor) else accentColor
     val borderSubtleColor = parseComposeColor(colors.borderSubtle, MaterialTheme.colorScheme.outlineVariant)
     val accentMutedColor = parseComposeColor(colors.accentMuted, surfaceColor)
     val font = FontHelper.getFontFamily(fontFamily)
@@ -222,8 +224,11 @@ fun ThemePreviewStage(
                                     withStyle(SpanStyle(color = textColor)) {
                                         append("she murmured softly, ")
                                     }
+                                    withStyle(SpanStyle(color = highlightColor, background = highlightColor.copy(alpha = 0.22f), fontWeight = FontWeight.Medium)) {
+                                        append("starlit")
+                                    }
                                     withStyle(SpanStyle(color = monologueColor, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)) {
-                                        append("(knowing tomorrow would rewrite it all).")
+                                        append(" (knowing tomorrow would rewrite it all).")
                                     }
                                 },
                                 fontFamily = font,
@@ -263,18 +268,36 @@ fun ThemePreviewStage(
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Medium
                         )
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(accentMutedColor)
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text(
-                                text = "Active",
-                                color = accentColor,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(annotationColor.copy(alpha = 0.15f))
+                                    .padding(horizontal = 5.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "Note",
+                                    color = annotationColor,
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(accentMutedColor)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "Active",
+                                    color = accentColor,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
                     }
                 }

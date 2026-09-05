@@ -726,21 +726,12 @@ class ThemeManager(private val context: Context) {
             else       -> 1.7f  // comfortable
         }
 
-        fun validateSemanticContrast(
-            bgHex: String,
-            textHex: String,
-            accentHex: String,
-            dialogueHex: String? = null,
-            monologueHex: String? = null,
-            headingHex: String? = null
-        ): com.primaloptima.scribe.ui.theme.ThemeSemanticContrastReport {
-            val isDark = isDarkColor(bgHex)
-            val overrides = ThemeColorOverrides(
-                dialogueText = dialogueHex,
-                monologueText = monologueHex,
-                headingText = headingHex
-            )
-            val derived = resolveThemeColors(bgHex, textHex, accentHex, isDark, overrides)
+        fun resolveToScribeColors(theme: AppTheme): com.primaloptima.scribe.ui.theme.ScribeColors {
+            val resolved = resolveTheme(theme)
+            return resolveToScribeColors(resolved.colors, resolved.isDark)
+        }
+
+        fun resolveToScribeColors(derived: ThemeColors, isDark: Boolean): com.primaloptima.scribe.ui.theme.ScribeColors {
             val bgCol = ComposeColor(parseColor(derived.background))
             val textCol = ComposeColor(parseColor(derived.text))
             val accentCol = ComposeColor(parseColor(derived.accent))
@@ -833,7 +824,7 @@ class ThemeManager(private val context: Context) {
                 minRatio = 3.5
             ).color
 
-            val scribeColors = com.primaloptima.scribe.ui.theme.ScribeColors(
+            return com.primaloptima.scribe.ui.theme.ScribeColors(
                 surfaces = com.primaloptima.scribe.ui.theme.SurfaceColors(
                     background = bgCol,
                     surfaceLowest = ComposeColor(parseColor(derived.surfaceLowest)),
@@ -913,6 +904,29 @@ class ThemeManager(private val context: Context) {
                 ),
                 isDark = isDark
             )
+        }
+
+        fun validateSemanticContrast(theme: AppTheme): com.primaloptima.scribe.ui.theme.ThemeSemanticContrastReport {
+            val scribeColors = resolveToScribeColors(theme)
+            return com.primaloptima.scribe.ui.theme.validateThemeSemanticContrast(scribeColors)
+        }
+
+        fun validateSemanticContrast(
+            bgHex: String,
+            textHex: String,
+            accentHex: String,
+            dialogueHex: String? = null,
+            monologueHex: String? = null,
+            headingHex: String? = null
+        ): com.primaloptima.scribe.ui.theme.ThemeSemanticContrastReport {
+            val isDark = isDarkColor(bgHex)
+            val overrides = ThemeColorOverrides(
+                dialogueText = dialogueHex,
+                monologueText = monologueHex,
+                headingText = headingHex
+            )
+            val derived = resolveThemeColors(bgHex, textHex, accentHex, isDark, overrides)
+            val scribeColors = resolveToScribeColors(derived, isDark)
             return com.primaloptima.scribe.ui.theme.validateThemeSemanticContrast(scribeColors)
         }
     }
