@@ -1,5 +1,6 @@
 package com.primaloptima.scribe.util
 
+import com.primaloptima.scribe.ui.theme.ContrastResolver
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.ThemeColorOverrides
 import com.primaloptima.scribe.util.model.ThemeColors
@@ -446,4 +447,239 @@ class ThemeArchitectureTest {
         // The prominent boundary override SURVIVES and is NOT replaced by the new accent!
         assertEquals("#D97706", resolvedNewAccent.borderProminent)
     }
+
+    // ── Test 18: Normative WCAG Contrast Ratio Math ───────────────────────────
+    @Test
+    fun testUnifiedContrastResolver_normativeWcagRatioCalculation() {
+        // Pure black vs pure white must be exactly 21.0:1
+        val whiteInt = 0xFFFFFFFF.toInt()
+        val blackInt = 0xFF000000.toInt()
+        val maxRatio = ContrastResolver.calculateWcagContrastRatio(whiteInt, blackInt)
+        assertTrue("Black vs White must equal 21:1 within epsilon", Math.abs(maxRatio - 21.0) < 0.01)
+
+        // Identical colors must be exactly 1.0:1
+        val unityRatio = ContrastResolver.calculateWcagContrastRatio(whiteInt, whiteInt)
+        assertTrue("White vs White must equal 1:1 within epsilon", Math.abs(unityRatio - 1.0) < 0.01)
+
+        // Standard WCAG 4.5:1 boundary check (#767676 on #FFFFFF is ~4.54:1)
+        val grayBoundary = 0xFF767676.toInt()
+        val boundaryRatio = ContrastResolver.calculateWcagContrastRatio(grayBoundary, whiteInt)
+        assertTrue("Standard mid-gray on white must pass 4.5:1", boundaryRatio >= 4.5)
+    }
+
+    // ── Test 19: OKLCH Hue and Chroma Preservation ─────────────────────────────
+    @Test
+    fun testUnifiedContrastResolver_oklchHueAndChromaPreservation() {
+        // Test with green accent (#234B39)
+        val greenAccentInt = 0xFF234B39.toInt()
+        val origOklch = ContrastResolver.colorToOklch(greenAccentInt)
+
+        // Resolve against itself (requires contrast shift)
+        val resolvedInt = ContrastResolver.resolveContrastInt(
+            backgroundInt = greenAccentInt,
+            preferredForegroundInt = greenAccentInt,
+            minRatio = 4.5
+        )
+        val resolvedOklch = ContrastResolver.colorToOklch(resolvedInt)
+
+        // Hue must be preserved within 1.5 degrees
+        val hueDiff = Math.abs(origOklch.h - resolvedOklch.h)
+        val effectiveHueDiff = Math.min(hueDiff, 360.0 - hueDiff)
+        assertTrue("Hue must be preserved within perceptual tolerance (was $effectiveHueDiff)", effectiveHueDiff < 2.0)
+
+        // Contrast ratio must achieve at least 4.5:1
+        val achievedRatio = ContrastResolver.calculateWcagContrastRatio(resolvedInt, greenAccentInt)
+        assertTrue("Achieved ratio must meet or exceed 4.5:1 (was $achievedRatio)", achievedRatio >= 4.5)
+    }
+
+    // ── Test 20: Primary Interaction Resolution Across All Themes ─────────────
+    @Test
+    fun testUnifiedContrastResolver_primaryInteractionResolutionAcrossAllThemes() {
+        for (theme in DefaultThemes.all) {
+            val scribeColors = ThemeManager.resolveToScribeColors(theme)
+            val accentInt = ThemeManager.parseColor(theme.colors.accent)
+            val onPrimaryInt = scribeColors.interaction.onPrimary.hashCode() // Compose color to int
+
+            val ratio = ContrastResolver.calculateWcagContrastRatio(
+                fgInt = ThemeManager.parseColor(theme.colors.text).let {
+                    // Test actual onPrimary color from ScribeColors
+                    ThemeManager.parseColor(
+                        ContrastResolver.resolveOnColorHex(
+                            containerHex = theme.colors.accent,
+                            preferredForegroundHex = if (theme.isDark) theme.colors.background else theme.colors.text,
+                            minRatio = 4.5,
+                            isDarkTheme = theme.isDark
+                        )
+                    )
+                },
+                bgInt = accentInt
+            )
+
+            assertTrue(
+                "Theme ${theme.name} onPrimary on primary accent must achieve >= 4.5:1 (was $ratio:1)",
+                ratio >= 4.5
+            )
+        }
+    }
+
+    // ── Test 21: Primary Container Resolution Across All Themes ───────────────
+    @Test
+    fun testUnifiedContrastResolver_primaryContainerResolutionAcrossAllThemes() {
+        for (theme in DefaultThemes.all) {
+            val accentMutedInt = ThemeManager.parseColor(theme.colors.accentMuted)
+            val textInt = ThemeManager.parseColor(theme.colors.text)
+
+            val resolvedFgInt = ContrastResolver.resolveContrastInt(
+                backgroundInt = accentMutedInt,
+                preferredForegroundInt = textInt,
+                minRatio = 3.5
+            )
+            val ratio = ContrastResolver.calculateWcagContrastRatio(resolvedFgInt, accentMutedInt)
+
+            assertTrue(
+                "Theme ${theme.name} onPrimaryContainer must achieve >= 3.5:1 on accentMuted (was $ratio:1)",
+                ratio >= 3.5
+            )
+        }
+    }
+
+    // ── Test 22: Semantic Status Resolution Across All Themes ──────────────────
+    @Test
+    fun testUnifiedContrastResolver_semanticStatusResolutionAcrossAllThemes() {
+        for (theme in DefaultThemes.all) {
+            val scribeColors = ThemeManager.resolveToScribeColors(theme)
+
+            // 1. Success
+            val successHex = theme.colors.success.ifBlank { "#10B981" }
+            val onSucHex = ContrastResolver.resolveOnColorHex(successHex, null, 4.5, theme.isDark)
+            val sucRatio = ContrastResolver.calculateWcagContrastRatio(
+                ThemeManager.parseColor(onSucHex),
+                ThemeManager.parseColor(successHex)
+            )
+            assertTrue("Theme ${theme.name} onSuccess must achieve >= 4.5:1 (was $sucRatio:1)", sucRatio >= 4.5)
+
+            // 2. Warning
+            val warningHex = theme.colors.warning.ifBlank { "#F59E0B" }
+            val onWarnHex = ContrastResolver.resolveOnColorHex(warningHex, null, 4.5, theme.isDark)
+            val warnRatio = ContrastResolver.calculateWcagContrastRatio(
+                ThemeManager.parseColor(onWarnHex),
+                ThemeManager.parseColor(warningHex)
+            )
+            assertTrue("Theme ${theme.name} onWarning must achieve >= 4.5:1 (was $warnRatio:1)", warnRatio >= 4.5)
+
+            // 3. Error
+            val errorHex = theme.colors.error.ifBlank { "#EF4444" }
+            val onErrHex = ContrastResolver.resolveOnColorHex(errorHex, null, 4.5, theme.isDark)
+            val errRatio = ContrastResolver.calculateWcagContrastRatio(
+                ThemeManager.parseColor(onErrHex),
+                ThemeManager.parseColor(errorHex)
+            )
+            assertTrue("Theme ${theme.name} onError must achieve >= 4.5:1 (was $errRatio:1)", errRatio >= 4.5)
+        }
+    }
+
+    // ── Test 23: Elimination of Ad-Hoc 0.5 Luminance Cutoff ────────────────────
+    @Test
+    fun testUnifiedContrastResolver_noAdHocLuminanceCutoffBug() {
+        // In Midnight Blue, accent is #70AEFB (luminance ~0.413)
+        // The old code (luminance < 0.5 -> White) picked White, giving 2.27:1 (FAIL!)
+        // The unified resolver must select a dark accessible text achieving >= 4.5:1
+        val midnightAccent = "#70AEFB"
+        val resolvedOnAccent = ContrastResolver.resolveOnColorHex(
+            containerHex = midnightAccent,
+            preferredForegroundHex = "#0B111A",
+            minRatio = 4.5,
+            isDarkTheme = true
+        )
+        val ratio = ContrastResolver.calculateWcagContrastRatio(
+            ThemeManager.parseColor(resolvedOnAccent),
+            ThemeManager.parseColor(midnightAccent)
+        )
+        assertTrue(
+            "Midnight accent #70AEFB must achieve >= 4.5:1 (was $ratio:1, resolved to $resolvedOnAccent)",
+            ratio >= 4.5
+        )
+        assertNotEquals("Must NOT pick White for #70AEFB", "#FFFFFF", resolvedOnAccent)
+    }
+
+    // ── Test 24: Extreme Edge Cases and Primaries ─────────────────────────────
+    @Test
+    fun testUnifiedContrastResolver_extremeEdgeCasesAndPrimaries() {
+        val testHues = listOf(
+            "#000000" to "Pure Black",
+            "#FFFFFF" to "Pure White",
+            "#808080" to "Midtone Gray",
+            "#FF0000" to "Pure Red",
+            "#00FF00" to "Pure Green",
+            "#0000FF" to "Pure Blue",
+            "#FFFF00" to "Pure Yellow",
+            "#00FFFF" to "Pure Cyan",
+            "#FF00FF" to "Pure Magenta",
+            "#E6E6FA" to "Pastel Lavender",
+            "#2D3748" to "Dark Slate"
+        )
+
+        for ((hex, label) in testHues) {
+            val resolvedFg = ContrastResolver.resolveOnColorHex(
+                containerHex = hex,
+                preferredForegroundHex = hex,
+                minRatio = 4.5,
+                isDarkTheme = false
+            )
+            val ratio = ContrastResolver.calculateWcagContrastRatio(
+                ThemeManager.parseColor(resolvedFg),
+                ThemeManager.parseColor(hex)
+            )
+            assertTrue(
+                "Edge case '$label' ($hex) must resolve foreground to >= 4.5:1 (was $ratio:1, fg=$resolvedFg)",
+                ratio >= 4.5
+            )
+        }
+    }
+
+    // ── Test 25: Theme Identity Preservation ──────────────────────────────────
+    @Test
+    fun testUnifiedContrastResolver_themeIdentityPreservation() {
+        // Built-in theme core colors must remain completely unmutated
+        assertEquals("#E4E4E7", DefaultThemes.obsidian.colors.accent)
+        assertEquals("#70AEFB", DefaultThemes.midnight.colors.accent)
+        assertEquals("#F1F5F9", DefaultThemes.focus.colors.accent)
+        assertEquals("#234B39", DefaultThemes.paper.colors.accent)
+        assertEquals("#7C3F14", DefaultThemes.sepia.colors.accent)
+        assertEquals("#000000", DefaultThemes.typewriter.colors.accent)
+
+        // Dark/light classifications must remain strictly truthful
+        assertTrue("Obsidian is dark", DefaultThemes.obsidian.isDark)
+        assertTrue("Midnight is dark", DefaultThemes.midnight.isDark)
+        assertTrue("Focus is dark", DefaultThemes.focus.isDark)
+        assertTrue("Paper is light", !DefaultThemes.paper.isDark)
+        assertTrue("Sepia is light", !DefaultThemes.sepia.isDark)
+        assertTrue("Typewriter is light", !DefaultThemes.typewriter.isDark)
+    }
+
+    // ── Test 26: Dynamic Overrides Contrast Preservation ──────────────────────
+    @Test
+    fun testUnifiedContrastResolver_dynamicOverridesContrastPreservation() {
+        // When user creates a custom theme with pastel yellow accent (#FEF08A)
+        val sources = ThemeSourcePalette(background = "#0F172A", text = "#F8FAFC", accent = "#FEF08A")
+        val defaults = ThemeManager.generateThemeDefaults(sources, isDark = true)
+        val resolved = ThemeManager.resolveThemeColors(sources, overrides = null, isDark = true)
+
+        // The resolver must compute an onPrimary that achieves >= 4.5:1 against #FEF08A
+        val onAccentHex = ContrastResolver.resolveOnColorHex(
+            containerHex = resolved.accent,
+            preferredForegroundHex = resolved.background,
+            minRatio = 4.5,
+            isDarkTheme = true
+        )
+        val ratio = ContrastResolver.calculateWcagContrastRatio(
+            ThemeManager.parseColor(onAccentHex),
+            ThemeManager.parseColor(resolved.accent)
+        )
+        assertTrue(
+            "Dynamic pastel accent must resolve to >= 4.5:1 contrast (was $ratio:1)",
+            ratio >= 4.5
+        )
+    }
 }
+

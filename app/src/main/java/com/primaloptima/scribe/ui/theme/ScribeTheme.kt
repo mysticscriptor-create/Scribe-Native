@@ -154,8 +154,7 @@ val LocalBarBlurBitmap = compositionLocalOf<Bitmap?> { null }
 val LocalSolidSurface = compositionLocalOf { Color.White }
 
 fun autoTextColor(bg: Color): Color {
-    val luminance = bg.luminance()
-    return if (luminance > 0.5f) Color.Black else Color.White
+    return ContrastResolver.autoTextColor(bg)
 }
 
 /**
@@ -189,37 +188,19 @@ fun adaptiveAccentColor(
 ): Color {
     if (!hasBgImage) return accent
 
-    // Determine the luminance we're contrasting against.
-    // savedBgLuminance is the real image average; solidSurface is the old fallback.
-    val bgLum: Float = if (savedBgLuminance >= 0f) savedBgLuminance else solidSurface.luminance()
-
-    val accentLum = accent.luminance()
-    val lighter = maxOf(bgLum, accentLum)
-    val darker = minOf(bgLum, accentLum)
-    val contrastRatio = (lighter + 0.05f) / (darker + 0.05f)
-
-    // Already readable enough — keep the user's exact colour.
-    if (contrastRatio >= 3.0f) return accent
-
-    // Shift HSL Lightness using the AndroidX utility that already lives in the project.
-    val hsl = FloatArray(3)
-    ColorUtils.colorToHSL(accent.toArgb(), hsl)
-
-    // On a light background (bgLum > 0.5) darken the accent; on a dark background lighten it.
-    // We step in increments of 0.05 until we reach 3.0:1 or exhaust the range.
-    val step = if (bgLum > 0.5f) -0.05f else 0.05f
-    repeat(18) { // max 18 steps covers the full 0–1 lightness range
-        hsl[2] = (hsl[2] + step).coerceIn(0.05f, 0.95f)
-        val candidate = Color(ColorUtils.HSLToColor(hsl) or (0xFF shl 24))
-        val candLum = candidate.luminance()
-        val cLighter = maxOf(bgLum, candLum)
-        val cDarker = minOf(bgLum, candLum)
-        if ((cLighter + 0.05f) / (cDarker + 0.05f) >= 3.0f) return candidate
+    val bgRef = if (savedBgLuminance >= 0f) {
+        val sRgbVal = ContrastResolver.linearToSRgb(savedBgLuminance.toDouble()).toFloat().coerceIn(0f, 1f)
+        Color(sRgbVal, sRgbVal, sRgbVal)
+    } else {
+        solidSurface
     }
 
-    // If we never hit 3.0:1 (extremely rare — means the hue itself is too close to the
-    // background at all lightness levels), return the most-shifted candidate we have.
-    return Color(ColorUtils.HSLToColor(hsl) or (0xFF shl 24))
+    return ContrastResolver.resolveContrast(
+        background = bgRef,
+        preferredForeground = accent,
+        minRatio = 3.0,
+        role = ContrastResolver.ContrastRole.UI_CONTROL
+    ).color
 }
 
 @Composable
@@ -2530,7 +2511,82 @@ fun ScribeComposeTheme(
         borderProminentResolved
     }
 
-    val onPrimaryColor = if (accentIcons.luminance() < 0.5f) Color.White else Color.Black
+    val onPrimaryColor = ContrastResolver.resolveOnColor(
+        container = accentIcons,
+        preferredForeground = if (resolvedTheme.isDark) bg else text,
+        minRatio = 4.5,
+        isDarkTheme = resolvedTheme.isDark
+    )
+    val onPrimaryContainerColor = ContrastResolver.resolveOnColor(
+        container = accentMutedResolved,
+        preferredForeground = text,
+        minRatio = 3.5,
+        isDarkTheme = resolvedTheme.isDark
+    )
+    val onSecondaryColor = ContrastResolver.resolveOnColor(
+        container = secondaryColor,
+        preferredForeground = if (resolvedTheme.isDark) bg else text,
+        minRatio = 4.5,
+        isDarkTheme = resolvedTheme.isDark
+    )
+    val onTertiaryColor = ContrastResolver.resolveOnColor(
+        container = tertiaryColor,
+        preferredForeground = if (resolvedTheme.isDark) bg else text,
+        minRatio = 4.5,
+        isDarkTheme = resolvedTheme.isDark
+    )
+
+    val onSuccessColor = ContrastResolver.resolveOnColor(
+        container = successResolved,
+        preferredForeground = if (resolvedTheme.isDark) bg else Color.White,
+        minRatio = 4.5,
+        isDarkTheme = resolvedTheme.isDark
+    )
+    val successContainerResolved = successResolved.copy(alpha = if (resolvedTheme.isDark) 0.16f else 0.12f)
+    val onSuccessContainerColor = ContrastResolver.resolveContrast(
+        background = surface,
+        preferredForeground = if (resolvedTheme.isDark) successResolved else Color(0xFF1B5E20),
+        minRatio = 3.5
+    ).color
+
+    val onWarningColor = ContrastResolver.resolveOnColor(
+        container = warningResolved,
+        preferredForeground = if (resolvedTheme.isDark) Color(0xFF141416) else Color.Black,
+        minRatio = 4.5,
+        isDarkTheme = resolvedTheme.isDark
+    )
+    val warningContainerResolved = warningResolved.copy(alpha = if (resolvedTheme.isDark) 0.16f else 0.12f)
+    val onWarningContainerColor = ContrastResolver.resolveContrast(
+        background = surface,
+        preferredForeground = if (resolvedTheme.isDark) warningResolved else Color(0xFF92400E),
+        minRatio = 3.5
+    ).color
+
+    val onErrorColor = ContrastResolver.resolveOnColor(
+        container = errorResolved,
+        preferredForeground = if (resolvedTheme.isDark) bg else Color.White,
+        minRatio = 4.5,
+        isDarkTheme = resolvedTheme.isDark
+    )
+    val errorContainerResolved = errorResolved.copy(alpha = if (resolvedTheme.isDark) 0.16f else 0.12f)
+    val onErrorContainerColor = ContrastResolver.resolveContrast(
+        background = surface,
+        preferredForeground = if (resolvedTheme.isDark) errorResolved else Color(0xFF991B1B),
+        minRatio = 3.5
+    ).color
+
+    val onInfoColor = ContrastResolver.resolveOnColor(
+        container = infoResolved,
+        preferredForeground = if (resolvedTheme.isDark) bg else Color.White,
+        minRatio = 4.5,
+        isDarkTheme = resolvedTheme.isDark
+    )
+    val infoContainerResolved = infoResolved.copy(alpha = if (resolvedTheme.isDark) 0.16f else 0.12f)
+    val onInfoContainerColor = ContrastResolver.resolveContrast(
+        background = surface,
+        preferredForeground = if (resolvedTheme.isDark) infoResolved else Color(0xFF075985),
+        minRatio = 3.5
+    ).color
 
     val isLight = !resolvedTheme.isDark
 
@@ -2539,13 +2595,13 @@ fun ScribeComposeTheme(
             primary = accentIcons,
             onPrimary = onPrimaryColor,
             primaryContainer = accentMutedResolved,
-            onPrimaryContainer = text,
+            onPrimaryContainer = onPrimaryContainerColor,
             secondary = secondaryColor,
-            onSecondary = onPrimaryColor,
+            onSecondary = onSecondaryColor,
             secondaryContainer = surfaceVariant,
             onSecondaryContainer = text,
             tertiary = tertiaryColor,
-            onTertiary = onPrimaryColor,
+            onTertiary = onTertiaryColor,
             tertiaryContainer = surfaceVariant,
             onTertiaryContainer = text,
             background = bg,
@@ -2567,22 +2623,22 @@ fun ScribeComposeTheme(
             outlineVariant = borderSubtle,
             scrim = Color.Black.copy(alpha = 0.32f),
             error = errorResolved,
-            onError = autoTextColor(errorResolved),
-            errorContainer = errorResolved.copy(alpha = 0.12f),
-            onErrorContainer = Color(0xFF991B1B)
+            onError = onErrorColor,
+            errorContainer = errorContainerResolved,
+            onErrorContainer = onErrorContainerColor
         )
     } else {
         darkColorScheme(
             primary = accentIcons,
             onPrimary = onPrimaryColor,
             primaryContainer = accentMutedResolved,
-            onPrimaryContainer = Color.White,
+            onPrimaryContainer = onPrimaryContainerColor,
             secondary = secondaryColor,
-            onSecondary = onPrimaryColor,
+            onSecondary = onSecondaryColor,
             secondaryContainer = surfaceVariant,
             onSecondaryContainer = text,
             tertiary = tertiaryColor,
-            onTertiary = onPrimaryColor,
+            onTertiary = onTertiaryColor,
             tertiaryContainer = surfaceVariant,
             onTertiaryContainer = text,
             background = bg,
@@ -2604,9 +2660,9 @@ fun ScribeComposeTheme(
             outlineVariant = borderSubtle,
             scrim = Color.Black.copy(alpha = 0.32f),
             error = errorResolved,
-            onError = autoTextColor(errorResolved),
-            errorContainer = errorResolved.copy(alpha = 0.16f),
-            onErrorContainer = errorResolved
+            onError = onErrorColor,
+            errorContainer = errorContainerResolved,
+            onErrorContainer = onErrorContainerColor
         )
     }
 
@@ -2895,7 +2951,7 @@ fun ScribeComposeTheme(
                 primary = accentIcons,
                 primaryContainer = accentMutedResolved,
                 onPrimary = onPrimaryColor,
-                onPrimaryContainer = if (resolvedTheme.isDark) Color.White else text,
+                onPrimaryContainer = onPrimaryContainerColor,
                 secondary = secondaryColor,
                 tertiary = tertiaryColor,
                 selection = selectionResolved,
@@ -2904,24 +2960,24 @@ fun ScribeComposeTheme(
             ),
             semantic = SemanticStatusColors(
                 success = successResolved,
-                onSuccess = autoTextColor(successResolved),
-                successContainer = successResolved.copy(alpha = if (resolvedTheme.isDark) 0.16f else 0.12f),
-                onSuccessContainer = if (resolvedTheme.isDark) successResolved else Color(0xFF1B5E20),
+                onSuccess = onSuccessColor,
+                successContainer = successContainerResolved,
+                onSuccessContainer = onSuccessContainerColor,
 
                 warning = warningResolved,
-                onWarning = autoTextColor(warningResolved),
-                warningContainer = warningResolved.copy(alpha = if (resolvedTheme.isDark) 0.16f else 0.12f),
-                onWarningContainer = if (resolvedTheme.isDark) warningResolved else Color(0xFF92400E),
+                onWarning = onWarningColor,
+                warningContainer = warningContainerResolved,
+                onWarningContainer = onWarningContainerColor,
 
                 error = errorResolved,
-                onError = autoTextColor(errorResolved),
-                errorContainer = errorResolved.copy(alpha = if (resolvedTheme.isDark) 0.16f else 0.12f),
-                onErrorContainer = if (resolvedTheme.isDark) errorResolved else Color(0xFF991B1B),
+                onError = onErrorColor,
+                errorContainer = errorContainerResolved,
+                onErrorContainer = onErrorContainerColor,
 
                 info = infoResolved,
-                onInfo = autoTextColor(infoResolved),
-                infoContainer = infoResolved.copy(alpha = if (resolvedTheme.isDark) 0.16f else 0.12f),
-                onInfoContainer = if (resolvedTheme.isDark) infoResolved else Color(0xFF075985)
+                onInfo = onInfoColor,
+                infoContainer = infoContainerResolved,
+                onInfoContainer = onInfoContainerColor
             ),
             writing = WritingColors(
                 prose = text,

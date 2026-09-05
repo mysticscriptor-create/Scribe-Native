@@ -1,5 +1,6 @@
 package com.primaloptima.scribe.ui.screens.themeeditor
 
+import com.primaloptima.scribe.ui.theme.ContrastResolver
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -252,7 +253,13 @@ fun AccessibilitySampleCard(
     val secondaryText = parseComposeColor(colors.mutedText, appContent.secondary)
     val tertiaryText = parseComposeColor(colors.subtleText, appContent.tertiary)
     val accent = parseComposeColor(colors.accent, appInteraction.primary)
-    val onAccent = if (ThemeManager.isDarkColor(colors.accent)) Color.White else Color.Black
+    val isThemeDark = ThemeManager.isDarkColor(colors.background)
+    val onAccent = ContrastResolver.resolveOnColor(
+        container = accent,
+        preferredForeground = if (isThemeDark) backgroundColor else textColor,
+        minRatio = 4.5,
+        isDarkTheme = isThemeDark
+    )
     val borderSubtle = parseComposeColor(colors.borderSubtle, appBorders.subtle)
     val dialogueText = parseComposeColor(colors.dialogueText, accent)
     val warningColor = if (colors.warning.isNotEmpty()) parseComposeColor(colors.warning, appSemantic.warning) else if (ThemeManager.isDarkColor(colors.background)) Color(0xFFFBBF24) else Color(0xFFD97706)

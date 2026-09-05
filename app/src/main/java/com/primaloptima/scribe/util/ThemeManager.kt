@@ -1,5 +1,6 @@
 package com.primaloptima.scribe.util
 
+import com.primaloptima.scribe.ui.theme.ContrastResolver
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -668,6 +669,75 @@ class ThemeManager(private val context: Context) {
             val infoCol = if (derived.info.isNotBlank()) ComposeColor(parseColor(derived.info)) else (if (isDark) ComposeColor(0xFF38BDF8) else ComposeColor(0xFF0284C7))
             val linkCol = if (derived.link.isNotBlank()) ComposeColor(parseColor(derived.link)) else accentCol
 
+            val onPrimaryCol = ContrastResolver.resolveOnColor(
+                container = accentCol,
+                preferredForeground = if (isDark) bgCol else textCol,
+                minRatio = 4.5,
+                isDarkTheme = isDark
+            )
+            val onPrimaryContainerCol = ContrastResolver.resolveOnColor(
+                container = accentCol.copy(alpha = 0.15f),
+                preferredForeground = textCol,
+                minRatio = 3.5,
+                isDarkTheme = isDark
+            )
+
+            val successBase = ComposeColor(0xFF10B981)
+            val successContainerCol = successBase.copy(alpha = if (isDark) 0.16f else 0.12f)
+            val onSuccessCol = ContrastResolver.resolveOnColor(
+                container = successBase,
+                preferredForeground = if (isDark) bgCol else ComposeColor.White,
+                minRatio = 4.5,
+                isDarkTheme = isDark
+            )
+            val onSuccessContainerCol = ContrastResolver.resolveContrast(
+                background = surfaceCol,
+                preferredForeground = if (isDark) successBase else ComposeColor(0xFF1B5E20),
+                minRatio = 3.5
+            ).color
+
+            val warningBase = ComposeColor(0xFFF59E0B)
+            val warningContainerCol = warningBase.copy(alpha = if (isDark) 0.16f else 0.12f)
+            val onWarningCol = ContrastResolver.resolveOnColor(
+                container = warningBase,
+                preferredForeground = if (isDark) ComposeColor(0xFF141416) else ComposeColor.Black,
+                minRatio = 4.5,
+                isDarkTheme = isDark
+            )
+            val onWarningContainerCol = ContrastResolver.resolveContrast(
+                background = surfaceCol,
+                preferredForeground = if (isDark) warningBase else ComposeColor(0xFF92400E),
+                minRatio = 3.5
+            ).color
+
+            val errorBase = ComposeColor(0xFFEF4444)
+            val errorContainerCol = errorBase.copy(alpha = if (isDark) 0.16f else 0.12f)
+            val onErrorCol = ContrastResolver.resolveOnColor(
+                container = errorBase,
+                preferredForeground = if (isDark) bgCol else ComposeColor.White,
+                minRatio = 4.5,
+                isDarkTheme = isDark
+            )
+            val onErrorContainerCol = ContrastResolver.resolveContrast(
+                background = surfaceCol,
+                preferredForeground = if (isDark) errorBase else ComposeColor(0xFF991B1B),
+                minRatio = 3.5
+            ).color
+
+            val infoBase = infoCol
+            val infoContainerCol = infoBase.copy(alpha = if (isDark) 0.16f else 0.12f)
+            val onInfoCol = ContrastResolver.resolveOnColor(
+                container = infoBase,
+                preferredForeground = if (isDark) bgCol else ComposeColor.White,
+                minRatio = 4.5,
+                isDarkTheme = isDark
+            )
+            val onInfoContainerCol = ContrastResolver.resolveContrast(
+                background = surfaceCol,
+                preferredForeground = if (isDark) infoBase else ComposeColor(0xFF075985),
+                minRatio = 3.5
+            ).color
+
             val scribeColors = com.primaloptima.scribe.ui.theme.ScribeColors(
                 surfaces = com.primaloptima.scribe.ui.theme.SurfaceColors(
                     background = bgCol,
@@ -683,13 +753,13 @@ class ThemeManager(private val context: Context) {
                     secondary = mutedCol,
                     tertiary = subtleCol,
                     disabled = mutedCol.copy(alpha = 0.38f),
-                    onAccent = if (isDarkColor(derived.accent)) ComposeColor.White else ComposeColor.Black
+                    onAccent = onPrimaryCol
                 ),
                 interaction = com.primaloptima.scribe.ui.theme.InteractionColors(
                     primary = accentCol,
                     primaryContainer = accentCol.copy(alpha = 0.15f),
-                    onPrimary = if (isDarkColor(derived.accent)) ComposeColor.White else ComposeColor.Black,
-                    onPrimaryContainer = accentCol,
+                    onPrimary = onPrimaryCol,
+                    onPrimaryContainer = onPrimaryContainerCol,
                     secondary = subtleCol,
                     tertiary = mutedCol,
                     selection = accentCol.copy(alpha = 0.25f),
@@ -697,22 +767,22 @@ class ThemeManager(private val context: Context) {
                     link = linkCol
                 ),
                 semantic = com.primaloptima.scribe.ui.theme.SemanticStatusColors(
-                    success = ComposeColor(0xFF10B981),
-                    onSuccess = ComposeColor.White,
-                    successContainer = ComposeColor(0xFF10B981).copy(alpha = 0.15f),
-                    onSuccessContainer = ComposeColor(0xFF10B981),
-                    warning = ComposeColor(0xFFF59E0B),
-                    onWarning = ComposeColor.Black,
-                    warningContainer = ComposeColor(0xFFF59E0B).copy(alpha = 0.15f),
-                    onWarningContainer = ComposeColor(0xFFF59E0B),
-                    error = ComposeColor(0xFFEF4444),
-                    onError = ComposeColor.White,
-                    errorContainer = ComposeColor(0xFFEF4444).copy(alpha = 0.15f),
-                    onErrorContainer = ComposeColor(0xFFEF4444),
-                    info = infoCol,
-                    onInfo = ComposeColor.White,
-                    infoContainer = infoCol.copy(alpha = 0.15f),
-                    onInfoContainer = infoCol
+                    success = successBase,
+                    onSuccess = onSuccessCol,
+                    successContainer = successContainerCol,
+                    onSuccessContainer = onSuccessContainerCol,
+                    warning = warningBase,
+                    onWarning = onWarningCol,
+                    warningContainer = warningContainerCol,
+                    onWarningContainer = onWarningContainerCol,
+                    error = errorBase,
+                    onError = onErrorCol,
+                    errorContainer = errorContainerCol,
+                    onErrorContainer = onErrorContainerCol,
+                    info = infoBase,
+                    onInfo = onInfoCol,
+                    infoContainer = infoContainerCol,
+                    onInfoContainer = onInfoContainerCol
                 ),
                 writing = com.primaloptima.scribe.ui.theme.WritingColors(
                     prose = textCol,
