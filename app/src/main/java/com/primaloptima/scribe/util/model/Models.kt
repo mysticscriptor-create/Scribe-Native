@@ -110,11 +110,33 @@ data class ThemeColorOverrides(
     val success: String? = null,
     val warning: String? = null,
     val error: String? = null,
+    val info: String? = null,
     val specialHighlight: String? = null,
 
     val dialogueText: String? = null,
     val monologueText: String? = null,
-    val headingText: String? = null
+    val headingText: String? = null,
+    val annotation: String? = null,
+    val link: String? = null,
+
+    // ── Analytics Overrides ──
+    val analyticsPositive: String? = null,
+    val analyticsNeutral: String? = null,
+    val analyticsNegative: String? = null,
+    val analyticsSeries1: String? = null,
+    val analyticsSeries2: String? = null,
+    val analyticsSeries3: String? = null,
+    val analyticsTarget: String? = null,
+    val analyticsWarning: String? = null,
+
+    // ── World Entity Overrides ──
+    val worldCharacter: String? = null,
+    val worldLocation: String? = null,
+    val worldFaction: String? = null,
+    val worldItem: String? = null,
+    val worldLore: String? = null,
+    val worldEvent: String? = null,
+    val worldRelationship: String? = null
 ) {
     fun isEmpty(): Boolean =
         surfaceLowest == null && surface == null && surfaceRaised == null && surfaceOverlay == null &&
@@ -122,8 +144,13 @@ data class ThemeColorOverrides(
         secondary == null && tertiary == null &&
         accentMuted == null && selection == null &&
         border == null && borderSubtle == null && borderProminent == null && focus == null &&
-        success == null && warning == null && error == null && specialHighlight == null &&
-        dialogueText == null && monologueText == null && headingText == null
+        success == null && warning == null && error == null && info == null && specialHighlight == null &&
+        dialogueText == null && monologueText == null && headingText == null && annotation == null && link == null &&
+        analyticsPositive == null && analyticsNeutral == null && analyticsNegative == null &&
+        analyticsSeries1 == null && analyticsSeries2 == null && analyticsSeries3 == null &&
+        analyticsTarget == null && analyticsWarning == null &&
+        worldCharacter == null && worldLocation == null && worldFaction == null &&
+        worldItem == null && worldLore == null && worldEvent == null && worldRelationship == null
 
     fun isNotEmpty(): Boolean = !isEmpty()
 }
@@ -169,6 +196,25 @@ data class ThemeColors(
     val headingText: String = accent,        // Chapter & scene headings
     val annotation: String = "",             // Editorial margin notes & commentary
     val link: String = "",                   // Interactive hyperlinks & citations
+
+    // ── Data & Analytics Semantics ──
+    val analyticsPositive: String = "",
+    val analyticsNeutral: String = "",
+    val analyticsNegative: String = "",
+    val analyticsSeries1: String = "",
+    val analyticsSeries2: String = "",
+    val analyticsSeries3: String = "",
+    val analyticsTarget: String = "",
+    val analyticsWarning: String = "",
+
+    // ── World / Entity Semantics ──
+    val worldCharacter: String = "",
+    val worldLocation: String = "",
+    val worldFaction: String = "",
+    val worldItem: String = "",
+    val worldLore: String = "",
+    val worldEvent: String = "",
+    val worldRelationship: String = "",
 
     // ── Toolbars & Action Bars ──
     val toolbar: String = surface,           // Action bar background

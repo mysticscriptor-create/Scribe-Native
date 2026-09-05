@@ -677,7 +677,7 @@ private fun AnimatedRankCard(
                             text = "#$rank",
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp,
-                            color = if (isTopRank) accentColor else resolvedSubtle
+                            color = if (isTopRank) ScribeTheme.colors.analytics.target else resolvedSubtle
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(

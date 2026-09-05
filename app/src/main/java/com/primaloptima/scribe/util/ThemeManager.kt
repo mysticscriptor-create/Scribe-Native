@@ -406,6 +406,27 @@ class ThemeManager(private val context: Context) {
                 val monologueDefault = createOklchColor(0.80, 0.09, 255.0)
                 val headingDefault = accentHex
                 val annotationDefault = createOklchColor(0.78, 0.14, 300.0)
+                val linkDefault = accentHex
+                val focusDefault = borderProminent
+
+                // Analytics & Metrics Semantics (Independent derivation)
+                val analyticsPositiveDefault = successDefault
+                val analyticsNeutralDefault = mutedText
+                val analyticsNegativeDefault = errorDefault
+                val analyticsSeries1Default = accentHex
+                val analyticsSeries2Default = oklchToHex(Oklch(0.75, 0.16, 280.0))
+                val analyticsSeries3Default = oklchToHex(Oklch(0.78, 0.14, 195.0))
+                val analyticsTargetDefault = oklchToHex(Oklch(0.82, 0.16, 85.0))
+                val analyticsWarningDefault = warningDefault
+
+                // Worldbuilding Lore Entity Semantics (Independent derivation)
+                val worldCharacterDefault = accentHex
+                val worldLocationDefault = oklchToHex(Oklch(0.78, 0.15, 142.0))
+                val worldFactionDefault = oklchToHex(Oklch(0.72, 0.16, 250.0))
+                val worldItemDefault = oklchToHex(Oklch(0.82, 0.16, 80.0))
+                val worldLoreDefault = oklchToHex(Oklch(0.74, 0.15, 295.0))
+                val worldEventDefault = oklchToHex(Oklch(0.75, 0.17, 345.0))
+                val worldRelationshipDefault = oklchToHex(Oklch(0.78, 0.14, 175.0))
 
                 // ── Stage 4: Structured Output Assembly ───────────────────────────────
                 ThemeColors(
@@ -430,11 +451,27 @@ class ThemeManager(private val context: Context) {
                     border = borderNormal,
                     borderSubtle = borderSubtle,
                     borderProminent = borderProminent,
+                    focus = focusDefault,
                     dialogueText = dialogueDefault,
                     monologueText = monologueDefault,
                     headingText = headingDefault,
                     annotation = annotationDefault,
-                    link = accentHex,
+                    link = linkDefault,
+                    analyticsPositive = analyticsPositiveDefault,
+                    analyticsNeutral = analyticsNeutralDefault,
+                    analyticsNegative = analyticsNegativeDefault,
+                    analyticsSeries1 = analyticsSeries1Default,
+                    analyticsSeries2 = analyticsSeries2Default,
+                    analyticsSeries3 = analyticsSeries3Default,
+                    analyticsTarget = analyticsTargetDefault,
+                    analyticsWarning = analyticsWarningDefault,
+                    worldCharacter = worldCharacterDefault,
+                    worldLocation = worldLocationDefault,
+                    worldFaction = worldFactionDefault,
+                    worldItem = worldItemDefault,
+                    worldLore = worldLoreDefault,
+                    worldEvent = worldEventDefault,
+                    worldRelationship = worldRelationshipDefault,
                     toolbar = surface,
                     toolbarText = effectiveTextHex
                 )
@@ -474,6 +511,27 @@ class ThemeManager(private val context: Context) {
                 val monologueDefault = createOklchColor(0.40, 0.12, 255.0)
                 val headingDefault = accentHex
                 val annotationDefault = createOklchColor(0.48, 0.16, 300.0)
+                val linkDefault = accentHex
+                val focusDefault = borderProminent
+
+                // Analytics & Metrics Semantics (Independent derivation)
+                val analyticsPositiveDefault = successDefault
+                val analyticsNeutralDefault = mutedText
+                val analyticsNegativeDefault = errorDefault
+                val analyticsSeries1Default = accentHex
+                val analyticsSeries2Default = oklchToHex(Oklch(0.48, 0.18, 280.0))
+                val analyticsSeries3Default = oklchToHex(Oklch(0.50, 0.15, 195.0))
+                val analyticsTargetDefault = oklchToHex(Oklch(0.55, 0.16, 80.0))
+                val analyticsWarningDefault = warningDefault
+
+                // Worldbuilding Lore Entity Semantics (Independent derivation)
+                val worldCharacterDefault = accentHex
+                val worldLocationDefault = oklchToHex(Oklch(0.48, 0.16, 142.0))
+                val worldFactionDefault = oklchToHex(Oklch(0.46, 0.17, 250.0))
+                val worldItemDefault = oklchToHex(Oklch(0.54, 0.17, 75.0))
+                val worldLoreDefault = oklchToHex(Oklch(0.48, 0.16, 295.0))
+                val worldEventDefault = oklchToHex(Oklch(0.50, 0.18, 345.0))
+                val worldRelationshipDefault = oklchToHex(Oklch(0.50, 0.14, 175.0))
 
                 ThemeColors(
                     background = bgHex,
@@ -497,11 +555,27 @@ class ThemeManager(private val context: Context) {
                     border = borderNormal,
                     borderSubtle = borderSubtle,
                     borderProminent = borderProminent,
+                    focus = focusDefault,
                     dialogueText = dialogueDefault,
                     monologueText = monologueDefault,
                     headingText = headingDefault,
                     annotation = annotationDefault,
-                    link = accentHex,
+                    link = linkDefault,
+                    analyticsPositive = analyticsPositiveDefault,
+                    analyticsNeutral = analyticsNeutralDefault,
+                    analyticsNegative = analyticsNegativeDefault,
+                    analyticsSeries1 = analyticsSeries1Default,
+                    analyticsSeries2 = analyticsSeries2Default,
+                    analyticsSeries3 = analyticsSeries3Default,
+                    analyticsTarget = analyticsTargetDefault,
+                    analyticsWarning = analyticsWarningDefault,
+                    worldCharacter = worldCharacterDefault,
+                    worldLocation = worldLocationDefault,
+                    worldFaction = worldFactionDefault,
+                    worldItem = worldItemDefault,
+                    worldLore = worldLoreDefault,
+                    worldEvent = worldEventDefault,
+                    worldRelationship = worldRelationshipDefault,
                     toolbar = surface,
                     toolbarText = effectiveTextHex
                 )
@@ -545,9 +619,27 @@ class ThemeManager(private val context: Context) {
                 warning = overrides.warning?.takeIf { it.isNotBlank() } ?: defaults.warning,
                 error = overrides.error?.takeIf { it.isNotBlank() } ?: defaults.error,
                 specialHighlight = overrides.specialHighlight?.takeIf { it.isNotBlank() } ?: defaults.specialHighlight,
+                info = overrides.info?.takeIf { it.isNotBlank() } ?: defaults.info,
                 dialogueText = overrides.dialogueText?.takeIf { it.isNotBlank() } ?: defaults.dialogueText,
                 monologueText = overrides.monologueText?.takeIf { it.isNotBlank() } ?: defaults.monologueText,
                 headingText = overrides.headingText?.takeIf { it.isNotBlank() } ?: defaults.headingText,
+                annotation = overrides.annotation?.takeIf { it.isNotBlank() } ?: defaults.annotation,
+                link = overrides.link?.takeIf { it.isNotBlank() } ?: defaults.link,
+                analyticsPositive = overrides.analyticsPositive?.takeIf { it.isNotBlank() } ?: defaults.analyticsPositive,
+                analyticsNeutral = overrides.analyticsNeutral?.takeIf { it.isNotBlank() } ?: defaults.analyticsNeutral,
+                analyticsNegative = overrides.analyticsNegative?.takeIf { it.isNotBlank() } ?: defaults.analyticsNegative,
+                analyticsSeries1 = overrides.analyticsSeries1?.takeIf { it.isNotBlank() } ?: defaults.analyticsSeries1,
+                analyticsSeries2 = overrides.analyticsSeries2?.takeIf { it.isNotBlank() } ?: defaults.analyticsSeries2,
+                analyticsSeries3 = overrides.analyticsSeries3?.takeIf { it.isNotBlank() } ?: defaults.analyticsSeries3,
+                analyticsTarget = overrides.analyticsTarget?.takeIf { it.isNotBlank() } ?: defaults.analyticsTarget,
+                analyticsWarning = overrides.analyticsWarning?.takeIf { it.isNotBlank() } ?: defaults.analyticsWarning,
+                worldCharacter = overrides.worldCharacter?.takeIf { it.isNotBlank() } ?: defaults.worldCharacter,
+                worldLocation = overrides.worldLocation?.takeIf { it.isNotBlank() } ?: defaults.worldLocation,
+                worldFaction = overrides.worldFaction?.takeIf { it.isNotBlank() } ?: defaults.worldFaction,
+                worldItem = overrides.worldItem?.takeIf { it.isNotBlank() } ?: defaults.worldItem,
+                worldLore = overrides.worldLore?.takeIf { it.isNotBlank() } ?: defaults.worldLore,
+                worldEvent = overrides.worldEvent?.takeIf { it.isNotBlank() } ?: defaults.worldEvent,
+                worldRelationship = overrides.worldRelationship?.takeIf { it.isNotBlank() } ?: defaults.worldRelationship,
                 toolbar = overrides.surface?.takeIf { it.isNotBlank() } ?: defaults.surface,
                 toolbarText = defaults.toolbarText
             )
@@ -665,9 +757,12 @@ class ThemeManager(private val context: Context) {
             val dialogueCol = ComposeColor(parseColor(derived.dialogueText))
             val monologueCol = ComposeColor(parseColor(derived.monologueText))
             val headingCol = ComposeColor(parseColor(derived.headingText))
+            val secondaryCol = ComposeColor(parseColor(derived.secondary))
+            val tertiaryCol = ComposeColor(parseColor(derived.tertiary))
             val annotationCol = if (derived.annotation.isNotBlank()) ComposeColor(parseColor(derived.annotation)) else (if (isDark) ComposeColor(0xFFC084FC) else ComposeColor(0xFF7E22CE))
             val infoCol = if (derived.info.isNotBlank()) ComposeColor(parseColor(derived.info)) else (if (isDark) ComposeColor(0xFF38BDF8) else ComposeColor(0xFF0284C7))
             val linkCol = if (derived.link.isNotBlank()) ComposeColor(parseColor(derived.link)) else accentCol
+            val highlightCol = if (derived.specialHighlight.isNotBlank()) ComposeColor(parseColor(derived.specialHighlight)) else (if (isDark) ComposeColor(0xFFE7B85A) else ComposeColor(0xFFB45309))
 
             val onPrimaryCol = ContrastResolver.resolveOnColor(
                 container = accentCol,
@@ -760,8 +855,8 @@ class ThemeManager(private val context: Context) {
                     primaryContainer = accentCol.copy(alpha = 0.15f),
                     onPrimary = onPrimaryCol,
                     onPrimaryContainer = onPrimaryContainerCol,
-                    secondary = subtleCol,
-                    tertiary = mutedCol,
+                    secondary = secondaryCol,
+                    tertiary = tertiaryCol,
                     selection = accentCol.copy(alpha = 0.25f),
                     focus = focusInteractiveCol,
                     link = linkCol
@@ -790,17 +885,17 @@ class ThemeManager(private val context: Context) {
                     monologue = monologueCol,
                     heading = headingCol,
                     annotation = annotationCol,
-                    highlight = dialogueCol
+                    highlight = highlightCol
                 ),
                 analytics = com.primaloptima.scribe.ui.theme.AnalyticsColors(
-                    positive = ComposeColor(0xFF10B981),
-                    neutral = subtleCol,
-                    negative = ComposeColor(0xFFEF4444),
-                    series1 = accentCol,
-                    series2 = ComposeColor(0xFF10B981),
-                    series3 = ComposeColor(0xFFF59E0B),
-                    target = accentCol,
-                    warning = ComposeColor(0xFFF59E0B)
+                    positive = if (derived.analyticsPositive.isNotBlank()) ComposeColor(parseColor(derived.analyticsPositive)) else (if (isDark) ComposeColor(0xFF10B981) else ComposeColor(0xFF059669)),
+                    neutral = if (derived.analyticsNeutral.isNotBlank()) ComposeColor(parseColor(derived.analyticsNeutral)) else mutedCol,
+                    negative = if (derived.analyticsNegative.isNotBlank()) ComposeColor(parseColor(derived.analyticsNegative)) else (if (isDark) ComposeColor(0xFFEF4444) else ComposeColor(0xFFDC2626)),
+                    series1 = if (derived.analyticsSeries1.isNotBlank()) ComposeColor(parseColor(derived.analyticsSeries1)) else accentCol,
+                    series2 = if (derived.analyticsSeries2.isNotBlank()) ComposeColor(parseColor(derived.analyticsSeries2)) else (if (isDark) ComposeColor(0xFF8B5CF6) else ComposeColor(0xFF6D28D9)),
+                    series3 = if (derived.analyticsSeries3.isNotBlank()) ComposeColor(parseColor(derived.analyticsSeries3)) else (if (isDark) ComposeColor(0xFF06B6D4) else ComposeColor(0xFF0E7490)),
+                    target = if (derived.analyticsTarget.isNotBlank()) ComposeColor(parseColor(derived.analyticsTarget)) else (if (isDark) ComposeColor(0xFFF59E0B) else ComposeColor(0xFFD97706)),
+                    warning = if (derived.analyticsWarning.isNotBlank()) ComposeColor(parseColor(derived.analyticsWarning)) else (if (isDark) ComposeColor(0xFFF59E0B) else ComposeColor(0xFFD97706))
                 ),
                 borders = com.primaloptima.scribe.ui.theme.BorderColors(
                     subtle = borderSubtleCol,
@@ -808,13 +903,13 @@ class ThemeManager(private val context: Context) {
                     prominent = focusBorderCol
                 ),
                 world = com.primaloptima.scribe.ui.theme.WorldEntityColors(
-                    character = accentCol,
-                    location = ComposeColor(0xFF10B981),
-                    faction = ComposeColor(0xFF3B82F6),
-                    item = ComposeColor(0xFFF59E0B),
-                    lore = ComposeColor(0xFF8B5CF6),
-                    event = ComposeColor(0xFFEC4899),
-                    relationship = ComposeColor(0xFF2DD4BF)
+                    character = if (derived.worldCharacter.isNotBlank()) ComposeColor(parseColor(derived.worldCharacter)) else accentCol,
+                    location = if (derived.worldLocation.isNotBlank()) ComposeColor(parseColor(derived.worldLocation)) else (if (isDark) ComposeColor(0xFF4ADE80) else ComposeColor(0xFF16A34A)),
+                    faction = if (derived.worldFaction.isNotBlank()) ComposeColor(parseColor(derived.worldFaction)) else (if (isDark) ComposeColor(0xFF3B82F6) else ComposeColor(0xFF2563EB)),
+                    item = if (derived.worldItem.isNotBlank()) ComposeColor(parseColor(derived.worldItem)) else (if (isDark) ComposeColor(0xFFFBBF24) else ComposeColor(0xFFD97706)),
+                    lore = if (derived.worldLore.isNotBlank()) ComposeColor(parseColor(derived.worldLore)) else (if (isDark) ComposeColor(0xFFA78BFA) else ComposeColor(0xFF7C3AED)),
+                    event = if (derived.worldEvent.isNotBlank()) ComposeColor(parseColor(derived.worldEvent)) else (if (isDark) ComposeColor(0xFFF472B6) else ComposeColor(0xFFDB2777)),
+                    relationship = if (derived.worldRelationship.isNotBlank()) ComposeColor(parseColor(derived.worldRelationship)) else (if (isDark) ComposeColor(0xFF2DD4BF) else ComposeColor(0xFF0D9488))
                 ),
                 isDark = isDark
             )

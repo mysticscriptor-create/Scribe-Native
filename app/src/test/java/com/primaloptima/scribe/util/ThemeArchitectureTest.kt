@@ -681,5 +681,242 @@ class ThemeArchitectureTest {
             ratio >= 4.5
         )
     }
-}
 
+    // ── Test 27: Interaction Role Independence ────────────────────────────────
+    @Test
+    fun testSemanticIndependence_interactionRolesAreIndependent() {
+        val base = DefaultThemes.obsidian
+        // Override link independently
+        val customLink = "#38BDF8"
+        val overrides = ThemeColorOverrides(link = customLink)
+        val themeWithOverrides = base.copy(overrides = overrides)
+        val resolved = ThemeManager.resolveTheme(themeWithOverrides)
+
+        assertEquals("Link must reflect override", customLink, resolved.colors.link)
+        assertEquals("Accent must remain unmutated", base.colors.accent, resolved.colors.accent)
+        assertEquals("Focus must remain unmutated", base.colors.focusRing, resolved.colors.focusRing)
+        assertEquals("BorderProminent must remain unmutated", base.colors.borderProminent, resolved.colors.borderProminent)
+    }
+
+    // ── Test 28: Writing Role Independence ────────────────────────────────────
+    @Test
+    fun testSemanticIndependence_writingRolesAreIndependent() {
+        val base = DefaultThemes.midnight
+        // Override highlight independently
+        val customHighlight = "#FBBF24"
+        val customAnnotation = "#C084FC"
+        val overrides = ThemeColorOverrides(
+            specialHighlight = customHighlight,
+            annotation = customAnnotation
+        )
+        val resolved = ThemeManager.resolveTheme(base.copy(overrides = overrides))
+
+        assertEquals("Highlight reflects override", customHighlight, resolved.colors.specialHighlight)
+        assertEquals("Annotation reflects override", customAnnotation, resolved.colors.annotation)
+        assertEquals("Dialogue text must not be mutated by highlight override", base.colors.dialogueText, resolved.colors.dialogueText)
+        assertEquals("Monologue text must not be mutated by annotation override", base.colors.monologueText, resolved.colors.monologueText)
+        assertEquals("Heading text must remain unmutated", base.colors.headingText, resolved.colors.headingText)
+    }
+
+    // ── Test 29: Analytics Role Independence ──────────────────────────────────
+    @Test
+    fun testSemanticIndependence_analyticsRolesAreIndependent() {
+        val base = DefaultThemes.paper
+        // Override analytics series independently
+        val customSeries1 = "#2563EB"
+        val customSeries2 = "#7C3AED"
+        val customSeries3 = "#059669"
+        val customTarget = "#D97706"
+        val overrides = ThemeColorOverrides(
+            analyticsSeries1 = customSeries1,
+            analyticsSeries2 = customSeries2,
+            analyticsSeries3 = customSeries3,
+            analyticsTarget = customTarget
+        )
+        val resolved = ThemeManager.resolveTheme(base.copy(overrides = overrides))
+
+        assertEquals(customSeries1, resolved.colors.analyticsSeries1)
+        assertEquals(customSeries2, resolved.colors.analyticsSeries2)
+        assertEquals(customSeries3, resolved.colors.analyticsSeries3)
+        assertEquals(customTarget, resolved.colors.analyticsTarget)
+
+        // Verify that accent, secondary, tertiary remain untouched
+        assertEquals("Base accent remains unchanged", base.colors.accent, resolved.colors.accent)
+        assertEquals("Base secondary remains unchanged", base.colors.secondary, resolved.colors.secondary)
+        assertEquals("Base tertiary remains unchanged", base.colors.tertiary, resolved.colors.tertiary)
+    }
+
+    // ── Test 30: World Entity Role Independence ───────────────────────────────
+    @Test
+    fun testSemanticIndependence_worldEntityRolesAreIndependent() {
+        val base = DefaultThemes.focus
+        val customCharacter = "#F43F5E"
+        val customFaction = "#8B5CF6"
+        val customEvent = "#F59E0B"
+        val overrides = ThemeColorOverrides(
+            worldCharacter = customCharacter,
+            worldFaction = customFaction,
+            worldEvent = customEvent
+        )
+        val resolved = ThemeManager.resolveTheme(base.copy(overrides = overrides))
+
+        assertEquals(customCharacter, resolved.colors.worldCharacter)
+        assertEquals(customFaction, resolved.colors.worldFaction)
+        assertEquals(customEvent, resolved.colors.worldEvent)
+
+        // Accent and secondary must not be affected by world entity overrides
+        assertEquals("Accent is not mutated", base.colors.accent, resolved.colors.accent)
+        assertEquals("Secondary is not mutated", base.colors.secondary, resolved.colors.secondary)
+        // Other world tokens resolve to defaults
+        assertNotNull(resolved.colors.worldLocation)
+        assertNotNull(resolved.colors.worldItem)
+        assertNotNull(resolved.colors.worldLore)
+        assertNotNull(resolved.colors.worldRelationship)
+    }
+
+    // ── Test 31: Status vs Analytics Warning Independence ─────────────────────
+    @Test
+    fun testSemanticIndependence_statusVsAnalyticsWarningIndependence() {
+        val base = DefaultThemes.sepia
+        val statusWarning = "#EA580C"
+        val analyticsWarning = "#CA8A04"
+        val overrides = ThemeColorOverrides(
+            warning = statusWarning,
+            analyticsWarning = analyticsWarning
+        )
+        val resolved = ThemeManager.resolveTheme(base.copy(overrides = overrides))
+
+        assertEquals("Status warning must reflect status override", statusWarning, resolved.colors.warning)
+        assertEquals("Analytics warning must reflect analytics override", analyticsWarning, resolved.colors.analyticsWarning)
+        assertNotEquals("Status and analytics warning can differ", resolved.colors.warning, resolved.colors.analyticsWarning)
+    }
+
+    // ── Test 32: Status vs Analytics Positive/Negative Independence ───────────
+    @Test
+    fun testSemanticIndependence_statusVsAnalyticsPositiveNegativeIndependence() {
+        val base = DefaultThemes.obsidian
+        val statusSuccess = "#22C55E"
+        val statusError = "#EF4444"
+        val analyticsPositive = "#10B981"
+        val analyticsNegative = "#F43F5E"
+        val overrides = ThemeColorOverrides(
+            success = statusSuccess,
+            error = statusError,
+            analyticsPositive = analyticsPositive,
+            analyticsNegative = analyticsNegative
+        )
+        val resolved = ThemeManager.resolveTheme(base.copy(overrides = overrides))
+
+        assertEquals(statusSuccess, resolved.colors.success)
+        assertEquals(statusError, resolved.colors.error)
+        assertEquals(analyticsPositive, resolved.colors.analyticsPositive)
+        assertEquals(analyticsNegative, resolved.colors.analyticsNegative)
+        assertNotEquals(resolved.colors.success, resolved.colors.analyticsPositive)
+        assertNotEquals(resolved.colors.error, resolved.colors.analyticsNegative)
+    }
+
+    // ── Test 33: Override Independence Matrix ─────────────────────────────────
+    @Test
+    fun testSemanticIndependence_overrideIndependenceMatrix() {
+        val sources = ThemeSourcePalette(background = "#18181B", text = "#FAFAFA", accent = "#A855F7")
+        val defaults = ThemeManager.generateThemeDefaults(sources, isDark = true)
+
+        // Only override worldLore and analyticsSeries2
+        val overrides = ThemeColorOverrides(
+            worldLore = "#EC4899",
+            analyticsSeries2 = "#06B6D4"
+        )
+        val resolved = ThemeManager.resolveThemeColors(sources, overrides, isDark = true)
+
+        assertEquals("#EC4899", resolved.worldLore)
+        assertEquals("#06B6D4", resolved.analyticsSeries2)
+        assertEquals("Non-overridden analyticsPositive matches default", defaults.analyticsPositive, resolved.analyticsPositive)
+        assertEquals("Non-overridden worldCharacter matches default", defaults.worldCharacter, resolved.worldCharacter)
+        assertEquals("Non-overridden link matches default", defaults.link, resolved.link)
+        assertEquals("Non-overridden annotation matches default", defaults.annotation, resolved.annotation)
+    }
+
+    // ── Test 34: Six Built-in Themes Role Completeness ────────────────────────
+    @Test
+    fun testSemanticIndependence_sixBuiltinThemesRoleCompleteness() {
+        val themes = listOf(
+            DefaultThemes.obsidian,
+            DefaultThemes.midnight,
+            DefaultThemes.focus,
+            DefaultThemes.paper,
+            DefaultThemes.sepia,
+            DefaultThemes.typewriter
+        )
+
+        for (theme in themes) {
+            val resolved = ThemeManager.resolveTheme(theme)
+            // Analytics tokens
+            assertTrue("Theme ${theme.name} analyticsPositive non-empty", resolved.colors.analyticsPositive.isNotEmpty())
+            assertTrue("Theme ${theme.name} analyticsNeutral non-empty", resolved.colors.analyticsNeutral.isNotEmpty())
+            assertTrue("Theme ${theme.name} analyticsNegative non-empty", resolved.colors.analyticsNegative.isNotEmpty())
+            assertTrue("Theme ${theme.name} analyticsSeries1 non-empty", resolved.colors.analyticsSeries1.isNotEmpty())
+            assertTrue("Theme ${theme.name} analyticsSeries2 non-empty", resolved.colors.analyticsSeries2.isNotEmpty())
+            assertTrue("Theme ${theme.name} analyticsSeries3 non-empty", resolved.colors.analyticsSeries3.isNotEmpty())
+            assertTrue("Theme ${theme.name} analyticsTarget non-empty", resolved.colors.analyticsTarget.isNotEmpty())
+            assertTrue("Theme ${theme.name} analyticsWarning non-empty", resolved.colors.analyticsWarning.isNotEmpty())
+
+            // World entity tokens
+            assertTrue("Theme ${theme.name} worldCharacter non-empty", resolved.colors.worldCharacter.isNotEmpty())
+            assertTrue("Theme ${theme.name} worldLocation non-empty", resolved.colors.worldLocation.isNotEmpty())
+            assertTrue("Theme ${theme.name} worldFaction non-empty", resolved.colors.worldFaction.isNotEmpty())
+            assertTrue("Theme ${theme.name} worldItem non-empty", resolved.colors.worldItem.isNotEmpty())
+            assertTrue("Theme ${theme.name} worldLore non-empty", resolved.colors.worldLore.isNotEmpty())
+            assertTrue("Theme ${theme.name} worldEvent non-empty", resolved.colors.worldEvent.isNotEmpty())
+            assertTrue("Theme ${theme.name} worldRelationship non-empty", resolved.colors.worldRelationship.isNotEmpty())
+
+            // Writing tokens
+            assertTrue("Theme ${theme.name} dialogueText non-empty", resolved.colors.dialogueText.isNotEmpty())
+            assertTrue("Theme ${theme.name} monologueText non-empty", resolved.colors.monologueText.isNotEmpty())
+            assertTrue("Theme ${theme.name} headingText non-empty", resolved.colors.headingText.isNotEmpty())
+            assertTrue("Theme ${theme.name} annotation non-empty", resolved.colors.annotation.isNotEmpty())
+            assertTrue("Theme ${theme.name} specialHighlight non-empty", resolved.colors.specialHighlight.isNotEmpty())
+        }
+    }
+
+    // ── Test 35: Backward Compatibility & Safe Nullability ───────────────────
+    @Test
+    fun testSemanticIndependence_backwardCompatibilitySafeNullability() {
+        // Simulating legacy ThemeColors where new fields are empty or defaulted
+        val legacySources = ThemeSourcePalette(background = "#FFFFFF", text = "#000000", accent = "#0066CC")
+        val resolved = ThemeManager.resolveThemeColors(legacySources, overrides = null, isDark = false)
+
+        // All fields must be properly populated by defaults
+        assertNotNull(resolved.analyticsPositive)
+        assertNotNull(resolved.analyticsSeries1)
+        assertNotNull(resolved.worldCharacter)
+        assertNotNull(resolved.worldFaction)
+        assertNotNull(resolved.link)
+        assertNotNull(resolved.borderProminent)
+        assertNotNull(resolved.focusRing)
+    }
+
+    // ── Test 36: Semantic Contrast Resolution Across All Roles ────────────────
+    @Test
+    fun testSemanticIndependence_semanticContrastResolutionAcrossAllRoles() {
+        val themes = listOf(DefaultThemes.obsidian, DefaultThemes.paper)
+        for (theme in themes) {
+            val resolved = ThemeManager.resolveTheme(theme)
+            val bgInt = ThemeManager.parseColor(resolved.colors.background)
+            val textInt = ThemeManager.parseColor(resolved.colors.text)
+
+            // Primary text must achieve WCAG AA contrast (>= 4.5:1)
+            val textContrast = ContrastResolver.calculateWcagContrastRatio(textInt, bgInt)
+            assertTrue("Theme ${theme.name} primary text contrast >= 4.5:1 (was $textContrast)", textContrast >= 4.5)
+
+            // Heading text must achieve WCAG Large contrast (>= 3.0:1)
+            val headingInt = ThemeManager.parseColor(resolved.colors.headingText)
+            val headingContrast = ContrastResolver.calculateWcagContrastRatio(headingInt, bgInt)
+            assertTrue("Theme ${theme.name} heading contrast >= 3.0:1 (was $headingContrast)", headingContrast >= 3.0)
+
+            // Muted text must achieve at least 3.0:1
+            val mutedInt = ThemeManager.parseColor(resolved.colors.mutedText)
+            val mutedContrast = ContrastResolver.calculateWcagContrastRatio(mutedInt, bgInt)
+            assertTrue("Theme ${theme.name} muted text contrast >= 3.0:1 (was $mutedContrast)", mutedContrast >= 3.0)
+        }
+    }
+}

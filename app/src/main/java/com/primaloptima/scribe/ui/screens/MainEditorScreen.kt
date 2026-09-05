@@ -1603,7 +1603,7 @@ private fun WordCountPill(
                     text       = deltaText ?: "",
                     fontSize   = 11.sp,
                     fontWeight = FontWeight.Bold,
-                    color      = if (isPositiveDelta) ScribeTheme.colors.semantic.success else ScribeTheme.colors.semantic.error,
+                    color      = if (isPositiveDelta) ScribeTheme.colors.analytics.positive else ScribeTheme.colors.analytics.negative,
                     modifier   = Modifier.padding(bottom = 2.dp)
                 )
             }

@@ -1016,6 +1016,8 @@ data class AdaptiveTokenSuite(
     val dialogueText: Color,
     val monologueText: Color,
     val headingText: Color,
+    val annotationText: Color = if (isDarkBackground) Color(0xFFC084FC) else Color(0xFF7E22CE),
+    val highlightText: Color = if (isDarkBackground) Color(0xFFE7B85A) else Color(0xFFB45309),
     val specularRimAlpha: Float,
     val isDarkBackground: Boolean,
     val requiresShadowScrim: Boolean,
@@ -1027,8 +1029,8 @@ data class AdaptiveTokenSuite(
         dialogue = dialogueText,
         monologue = monologueText,
         heading = headingText,
-        annotation = monologueText,
-        highlight = dialogueText
+        annotation = annotationText,
+        highlight = highlightText
     )
 )
 
@@ -1077,6 +1079,22 @@ fun deriveAdaptiveTokens(
     val targetHeadingL = if (isDark) 0.94 else 0.16
     val headingHex = ThemeManager.createOklchColor(targetHeadingL, headingOklch.c, headingOklch.h)
     val headingText = parseComposeColor(headingHex, text)
+
+    // Annotation (Margin notes & editorial commentary, independent of monologue)
+    val annotationBaseInt = baseColors?.annotation?.takeIf { it.isNotBlank() }?.let { ThemeManager.parseColor(it) }
+        ?: (if (isDark) 0xFFC084FC.toInt() else 0xFF7E22CE.toInt())
+    val annotationOklch = ThemeManager.colorToOklch(annotationBaseInt)
+    val targetAnnotationL = if (isDark) 0.82 else 0.38
+    val annotationHex = ThemeManager.createOklchColor(targetAnnotationL, annotationOklch.c.coerceAtLeast(0.08), annotationOklch.h)
+    val annotationText = parseComposeColor(annotationHex, if (isDark) Color(0xFFC084FC) else Color(0xFF7E22CE))
+
+    // Highlight (Search & literary emphasis spans, independent of dialogue)
+    val highlightBaseInt = baseColors?.specialHighlight?.takeIf { it.isNotBlank() }?.let { ThemeManager.parseColor(it) }
+        ?: (if (isDark) 0xFFE7B85A.toInt() else 0xFFB45309.toInt())
+    val highlightOklch = ThemeManager.colorToOklch(highlightBaseInt)
+    val targetHighlightL = if (isDark) 0.88 else 0.42
+    val highlightHex = ThemeManager.createOklchColor(targetHighlightL, highlightOklch.c.coerceAtLeast(0.09), highlightOklch.h)
+    val highlightText = parseComposeColor(highlightHex, if (isDark) Color(0xFFFDE68A) else Color(0xFF92400E))
 
     // 4. Adaptive Specular Rim Alpha & Chromatic Glass Tints
     val specularRimAlpha = if (isDark) {
@@ -1155,6 +1173,8 @@ fun deriveAdaptiveTokens(
         dialogueText = dialogueText,
         monologueText = monologueText,
         headingText = headingText,
+        annotationText = annotationText,
+        highlightText = highlightText,
         specularRimAlpha = specularRimAlpha,
         isDarkBackground = isDark,
         requiresShadowScrim = hasHighVariance,

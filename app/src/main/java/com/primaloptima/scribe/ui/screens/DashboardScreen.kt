@@ -740,7 +740,7 @@ private fun WritingProgressCard(
                 value     = "$streak",
                 subLabel  = "days",
                 icon      = Icons.Outlined.LocalFireDepartment,
-                iconTint  = ScribeTheme.colors.semantic.warning,
+                iconTint  = ScribeTheme.colors.analytics.warning,
                 extra     = {
                     Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                         streakDots.forEach { (_, hasWords) ->

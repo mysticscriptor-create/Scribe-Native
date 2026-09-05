@@ -2913,13 +2913,69 @@ fun ScribeComposeTheme(
         accentIcons
     )
 
-    val worldCharacter = accentIcons
-    val worldLocation = if (resolvedTheme.isDark) Color(0xFF4ADE80) else Color(0xFF16A34A)
-    val worldFaction = secondaryColor
-    val worldItem = if (resolvedTheme.isDark) Color(0xFFFBBF24) else Color(0xFFD97706)
-    val worldLore = if (resolvedTheme.isDark) Color(0xFFA78BFA) else Color(0xFF7C3AED)
-    val worldEvent = if (resolvedTheme.isDark) Color(0xFFF472B6) else Color(0xFFDB2777)
-    val worldRelationship = if (resolvedTheme.isDark) Color(0xFF2DD4BF) else Color(0xFF0D9488)
+    // Analytics & Metrics Semantics (Independent role resolution)
+    val analyticsPositiveResolved = parseComposeColor(
+        resolvedTheme.colors.analyticsPositive,
+        if (resolvedTheme.isDark) Color(0xFF10B981) else Color(0xFF059669)
+    )
+    val analyticsNeutralResolved = parseComposeColor(
+        resolvedTheme.colors.analyticsNeutral,
+        mutedTextResolved
+    )
+    val analyticsNegativeResolved = parseComposeColor(
+        resolvedTheme.colors.analyticsNegative,
+        if (resolvedTheme.isDark) Color(0xFFEF4444) else Color(0xFFDC2626)
+    )
+    val analyticsSeries1Resolved = parseComposeColor(
+        resolvedTheme.colors.analyticsSeries1,
+        accentIcons
+    )
+    val analyticsSeries2Resolved = parseComposeColor(
+        resolvedTheme.colors.analyticsSeries2,
+        if (resolvedTheme.isDark) Color(0xFF8B5CF6) else Color(0xFF6D28D9)
+    )
+    val analyticsSeries3Resolved = parseComposeColor(
+        resolvedTheme.colors.analyticsSeries3,
+        if (resolvedTheme.isDark) Color(0xFF06B6D4) else Color(0xFF0E7490)
+    )
+    val analyticsTargetResolved = parseComposeColor(
+        resolvedTheme.colors.analyticsTarget,
+        if (resolvedTheme.isDark) Color(0xFFF59E0B) else Color(0xFFD97706)
+    )
+    val analyticsWarningResolved = parseComposeColor(
+        resolvedTheme.colors.analyticsWarning,
+        if (resolvedTheme.isDark) Color(0xFFF59E0B) else Color(0xFFD97706)
+    )
+
+    // Worldbuilding Lore Entity Semantics (Independent role resolution)
+    val worldCharacterResolved = parseComposeColor(
+        resolvedTheme.colors.worldCharacter,
+        accentIcons
+    )
+    val worldLocationResolved = parseComposeColor(
+        resolvedTheme.colors.worldLocation,
+        if (resolvedTheme.isDark) Color(0xFF4ADE80) else Color(0xFF16A34A)
+    )
+    val worldFactionResolved = parseComposeColor(
+        resolvedTheme.colors.worldFaction,
+        if (resolvedTheme.isDark) Color(0xFF3B82F6) else Color(0xFF2563EB)
+    )
+    val worldItemResolved = parseComposeColor(
+        resolvedTheme.colors.worldItem,
+        if (resolvedTheme.isDark) Color(0xFFFBBF24) else Color(0xFFD97706)
+    )
+    val worldLoreResolved = parseComposeColor(
+        resolvedTheme.colors.worldLore,
+        if (resolvedTheme.isDark) Color(0xFFA78BFA) else Color(0xFF7C3AED)
+    )
+    val worldEventResolved = parseComposeColor(
+        resolvedTheme.colors.worldEvent,
+        if (resolvedTheme.isDark) Color(0xFFF472B6) else Color(0xFFDB2777)
+    )
+    val worldRelationshipResolved = parseComposeColor(
+        resolvedTheme.colors.worldRelationship,
+        if (resolvedTheme.isDark) Color(0xFF2DD4BF) else Color(0xFF0D9488)
+    )
 
     val selectionResolved = parseComposeColor(resolvedTheme.colors.selection, accentIcons.copy(alpha = 0.3f))
 
@@ -2988,14 +3044,14 @@ fun ScribeComposeTheme(
                 highlight = highlightResolved
             ),
             analytics = AnalyticsColors(
-                positive = successResolved,
-                neutral = mutedTextResolved,
-                negative = errorResolved,
-                series1 = accentIcons,
-                series2 = secondaryColor,
-                series3 = tertiaryColor,
-                target = highlightResolved,
-                warning = warningResolved
+                positive = analyticsPositiveResolved,
+                neutral = analyticsNeutralResolved,
+                negative = analyticsNegativeResolved,
+                series1 = analyticsSeries1Resolved,
+                series2 = analyticsSeries2Resolved,
+                series3 = analyticsSeries3Resolved,
+                target = analyticsTargetResolved,
+                warning = analyticsWarningResolved
             ),
             borders = BorderColors(
                 subtle = animOutlineVariant,
@@ -3003,13 +3059,13 @@ fun ScribeComposeTheme(
                 prominent = borderProminentResolved
             ),
             world = WorldEntityColors(
-                character = worldCharacter,
-                location = worldLocation,
-                faction = worldFaction,
-                item = worldItem,
-                lore = worldLore,
-                event = worldEvent,
-                relationship = worldRelationship
+                character = worldCharacterResolved,
+                location = worldLocationResolved,
+                faction = worldFactionResolved,
+                item = worldItemResolved,
+                lore = worldLoreResolved,
+                event = worldEventResolved,
+                relationship = worldRelationshipResolved
             ),
             isDark = resolvedTheme.isDark
         )
