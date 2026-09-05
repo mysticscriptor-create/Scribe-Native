@@ -398,7 +398,7 @@ fun WorldEntryDetailScreen(
                             Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
                         }
                     )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.10f))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     DropdownMenuItem(
                         text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                         leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },

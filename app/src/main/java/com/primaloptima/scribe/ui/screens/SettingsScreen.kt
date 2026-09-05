@@ -269,7 +269,7 @@ fun SettingsScreen(
                             )
                         }
                     }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.10f))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,

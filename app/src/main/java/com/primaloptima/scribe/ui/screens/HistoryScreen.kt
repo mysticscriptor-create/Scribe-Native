@@ -282,7 +282,7 @@ fun HistoryScreen(
                             )
                             .border(
                                 0.7.dp,
-                                if (borderSubtle != Color.Unspecified) borderSubtle else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
+                                borderSubtle,
                                 RoundedCornerShape(ScribeCardTokens.RadiusSmall)
                             )
                             .padding(12.dp)

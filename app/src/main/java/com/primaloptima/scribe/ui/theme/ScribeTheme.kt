@@ -2441,8 +2441,14 @@ fun ScribeComposeTheme(
     // auto-luminance override — the secondary cause of the text-revert bug.
     val configuredText = parseComposeColor(resolvedTheme.colors.text, Color.Black)
     val configuredAccent = parseComposeColor(resolvedTheme.colors.accent, Color(0xFF333333))
-    val border = parseComposeColor(resolvedTheme.colors.border, Color(0xFFE0E0D8))
-    val borderSubtle = parseComposeColor(resolvedTheme.colors.borderSubtle, border)
+    val border = parseComposeColor(
+        resolvedTheme.colors.border,
+        if (resolvedTheme.isDark) Color(0xFF2C2C32) else Color(0xFFD4D4D8)
+    )
+    val borderSubtle = parseComposeColor(
+        resolvedTheme.colors.borderSubtle,
+        if (resolvedTheme.isDark) Color(0xFF232328) else Color(0xFFE4E4E7)
+    )
     val surfaceVariant = surfaceRaised
 
     val bgLum = resolvedTheme.savedBgLuminance
@@ -2932,7 +2938,7 @@ fun ScribeComposeTheme(
             ),
             borders = BorderColors(
                 subtle = animOutlineVariant,
-                normal = if (resolvedTheme.isDark) animOutline.copy(alpha = 0.9f) else animOutline,
+                normal = animOutline,
                 prominent = borderProminentResolved
             ),
             world = WorldEntityColors(

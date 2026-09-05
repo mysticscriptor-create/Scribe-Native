@@ -650,7 +650,7 @@ private fun UniformActionTile(
             .border(
                 width = 0.6.dp,
                 color = if (isFirst) accentColor.copy(alpha = 0.25f)
-                        else MaterialTheme.colorScheme.outline.copy(alpha = 0.12f),
+                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                 shape = shape
             )
             .clickable(interactionSource = interactionSource, indication = null) { onClick() },
@@ -1209,7 +1209,7 @@ private fun GoalSettingSheet(
                                 .border(
                                     1.dp,
                                     if (isSelected) accentColor.copy(alpha = 0.40f)
-                                    else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
+                                    else MaterialTheme.colorScheme.outlineVariant,
                                     RoundedCornerShape(ScribeCardTokens.RadiusTiny)
                                 )
                                 .clickable { totalTarget = option }
@@ -1356,7 +1356,7 @@ private fun BookPickerSheet(
                         }
                     }
                     HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.1f)
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                     )
                 }
             }

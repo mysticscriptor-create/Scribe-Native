@@ -102,6 +102,7 @@ data class ThemeColorOverrides(
     val accentMuted: String? = null,
     val selection: String? = null,
 
+    val border: String? = null,
     val borderSubtle: String? = null,
     val borderProminent: String? = null,
 
@@ -119,7 +120,7 @@ data class ThemeColorOverrides(
         mutedText == null && subtleText == null &&
         secondary == null && tertiary == null &&
         accentMuted == null && selection == null &&
-        borderSubtle == null && borderProminent == null &&
+        border == null && borderSubtle == null && borderProminent == null &&
         success == null && warning == null && error == null && specialHighlight == null &&
         dialogueText == null && monologueText == null && headingText == null
 

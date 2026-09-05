@@ -191,7 +191,7 @@ fun CreateWorldEntrySheet(
                     .background(if (surfaceRaised != Color.Unspecified) surfaceRaised else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
                     .border(
                         0.7.dp,
-                        if (borderSubtle != Color.Unspecified) borderSubtle else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f),
+                        borderSubtle,
                         RoundedCornerShape(12.dp)
                     )
                     .padding(14.dp)

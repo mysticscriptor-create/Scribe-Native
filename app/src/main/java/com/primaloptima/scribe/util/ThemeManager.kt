@@ -537,7 +537,7 @@ class ThemeManager(private val context: Context) {
                 accentMuted = overrides.accentMuted?.takeIf { it.isNotBlank() } ?: defaults.accentMuted,
                 selection = overrides.selection?.takeIf { it.isNotBlank() } ?: defaults.selection,
                 borderSubtle = overrides.borderSubtle?.takeIf { it.isNotBlank() } ?: defaults.borderSubtle,
-                border = overrides.borderSubtle?.takeIf { it.isNotBlank() } ?: defaults.borderSubtle,
+                border = overrides.border?.takeIf { it.isNotBlank() } ?: defaults.border,
                 borderProminent = overrides.borderProminent?.takeIf { it.isNotBlank() } ?: defaults.borderProminent,
                 success = overrides.success?.takeIf { it.isNotBlank() } ?: defaults.success,
                 warning = overrides.warning?.takeIf { it.isNotBlank() } ?: defaults.warning,

@@ -163,10 +163,12 @@ fun WorkbenchCard(
                 if (!hasBgImage) Modifier.background(solidSurface, RoundedCornerShape(12.dp))
                 else Modifier.frostedCard(hazeState, RoundedCornerShape(12.dp), applyFallbackBackground = true)
             )
-            .border(
-                width = 1.dp,
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                shape = RoundedCornerShape(12.dp)
+            .then(
+                if (!hasBgImage) Modifier.border(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                    shape = RoundedCornerShape(12.dp)
+                ) else Modifier
             )
             .onGloballyPositioned { layoutCoordinates ->
                 slotSize = androidx.compose.ui.geometry.Size(

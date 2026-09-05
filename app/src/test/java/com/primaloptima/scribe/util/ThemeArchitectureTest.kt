@@ -251,4 +251,94 @@ class ThemeArchitectureTest {
         assertEquals(accentHex, resolvedColors.accent)
         assertNotEquals(resolvedColors.accent, resolvedColors.headingText)
     }
+
+    // ── Test 10: Built-in Themes Border Distinctness ──────────────────────────
+    @Test
+    fun testBuiltInThemes_bordersAreStrictlyDistinctAndNonEmpty() {
+        for (theme in DefaultThemes.all) {
+            val colors = theme.colors
+            assertTrue("Theme ${theme.name} borderSubtle should not be blank", colors.borderSubtle.isNotBlank())
+            assertTrue("Theme ${theme.name} border should not be blank", colors.border.isNotBlank())
+            assertTrue("Theme ${theme.name} borderProminent should not be blank", colors.borderProminent.isNotBlank())
+
+            // No accidental alias collapse
+            assertNotEquals("Theme ${theme.name} borderSubtle and border must not collapse", colors.borderSubtle, colors.border)
+            assertNotEquals("Theme ${theme.name} borderSubtle and borderProminent must not collapse", colors.borderSubtle, colors.borderProminent)
+            assertNotEquals("Theme ${theme.name} border and borderProminent must not collapse", colors.border, colors.borderProminent)
+        }
+    }
+
+    // ── Test 11: Dynamic Theme Border Hierarchy in OKLCH ─────────────────────
+    @Test
+    fun testDynamicTheme_borderHierarchyMaintainsMonotonicLightnessSeparation() {
+        // Test dark mode generation
+        val darkSources = ThemeSourcePalette(background = "#121215", text = "#F4F4F6", accent = "#3B82F6")
+        val darkDefaults = ThemeManager.generateThemeDefaults(darkSources, isDark = true)
+        val darkBgOklch = ThemeManager.colorToOklch(ThemeManager.parseColor(darkDefaults.background))
+        val darkSubtleOklch = ThemeManager.colorToOklch(ThemeManager.parseColor(darkDefaults.borderSubtle))
+        val darkNormalOklch = ThemeManager.colorToOklch(ThemeManager.parseColor(darkDefaults.border))
+
+        assertTrue("Dark mode subtle border L must exceed bg L", darkSubtleOklch.l > darkBgOklch.l)
+        assertTrue("Dark mode normal border L must exceed subtle border L", darkNormalOklch.l > darkSubtleOklch.l)
+
+        // Test light mode generation
+        val lightSources = ThemeSourcePalette(background = "#FAF8F5", text = "#1C211E", accent = "#234B39")
+        val lightDefaults = ThemeManager.generateThemeDefaults(lightSources, isDark = false)
+        val lightBgOklch = ThemeManager.colorToOklch(ThemeManager.parseColor(lightDefaults.background))
+        val lightSubtleOklch = ThemeManager.colorToOklch(ThemeManager.parseColor(lightDefaults.borderSubtle))
+        val lightNormalOklch = ThemeManager.colorToOklch(ThemeManager.parseColor(lightDefaults.border))
+
+        assertTrue("Light mode subtle border L must be darker than bg L", lightSubtleOklch.l < lightBgOklch.l)
+        assertTrue("Light mode normal border L must be darker than subtle border L", lightNormalOklch.l < lightSubtleOklch.l)
+    }
+
+    // ── Test 12: Independent Border Overrides ─────────────────────────────────
+    @Test
+    fun testBorderOverrides_allThreeBorderRolesOverrideIndependently() {
+        val sources = ThemeSourcePalette(background = "#1E1E2E", text = "#CDD6F4", accent = "#CBA6F7")
+        val customSubtle = "#333344"
+        val customNormal = "#555566"
+        val customProminent = "#FFAA00"
+
+        val overrides = ThemeColorOverrides(
+            borderSubtle = customSubtle,
+            border = customNormal,
+            borderProminent = customProminent
+        )
+        val resolved = ThemeManager.resolveThemeColors(sources, overrides, isDark = true)
+
+        assertEquals(customSubtle, resolved.borderSubtle)
+        assertEquals(customNormal, resolved.border)
+        assertEquals(customProminent, resolved.borderProminent)
+    }
+
+    // ── Test 13: Border Override Precedence and No Collapsing ─────────────────
+    @Test
+    fun testBorderOverridePrecedence_subtleOverrideDoesNotOverwriteNormalBorder() {
+        val sources = ThemeSourcePalette(background = "#18181B", text = "#F4F4F5", accent = "#3B82F6")
+        val defaults = ThemeManager.generateThemeDefaults(sources, isDark = true)
+        val customSubtle = "#2A2A35"
+
+        // Override ONLY borderSubtle
+        val overrides = ThemeColorOverrides(borderSubtle = customSubtle)
+        val resolved = ThemeManager.resolveThemeColors(sources, overrides, isDark = true)
+
+        assertEquals(customSubtle, resolved.borderSubtle)
+        // Normal border must retain its generated default, NOT collapse to subtle override or defaults.borderSubtle
+        assertEquals(defaults.border, resolved.border)
+        assertNotEquals(resolved.borderSubtle, resolved.border)
+    }
+
+    // ── Test 14: Focus Token Independence ────────────────────────────────────
+    @Test
+    fun testFocusTokenIndependence_prominentBorderDoesNotInheritSubtle() {
+        for (theme in DefaultThemes.all) {
+            val colors = theme.colors
+            assertNotEquals(
+                "Theme ${theme.name} prominent/focus border must never inherit subtle border",
+                colors.borderSubtle,
+                colors.borderProminent
+            )
+        }
+    }
 }
