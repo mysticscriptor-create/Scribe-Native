@@ -411,6 +411,7 @@ fun ThemeEditScreen(
                     ColorPickerTarget.DIALOGUE_TEXT -> "Dialogue Color"
                     ColorPickerTarget.MONOLOGUE_TEXT -> "Monologue Color"
                     ColorPickerTarget.SPECIAL_HIGHLIGHT -> "Emphasis Highlight Color"
+                    ColorPickerTarget.ANNOTATION -> "Annotation Color"
                     ColorPickerTarget.SECONDARY -> "Secondary Accent Color"
                     ColorPickerTarget.TERTIARY -> "Tertiary Accent Color"
                     ColorPickerTarget.SURFACE -> "Surface Color"
@@ -424,6 +425,7 @@ fun ThemeEditScreen(
                     ColorPickerTarget.DIALOGUE_TEXT -> resolvedColors.dialogueText
                     ColorPickerTarget.MONOLOGUE_TEXT -> resolvedColors.monologueText
                     ColorPickerTarget.SPECIAL_HIGHLIGHT -> if (resolvedColors.specialHighlight.isNotBlank()) resolvedColors.specialHighlight else resolvedColors.accent
+                    ColorPickerTarget.ANNOTATION -> if (resolvedColors.annotation.isNotBlank()) resolvedColors.annotation else resolvedColors.accent
                     ColorPickerTarget.SECONDARY -> resolvedColors.secondary
                     ColorPickerTarget.TERTIARY -> resolvedColors.tertiary
                     ColorPickerTarget.SURFACE -> resolvedColors.surface
