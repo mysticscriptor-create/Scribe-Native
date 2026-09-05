@@ -11,8 +11,6 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
-import kotlin.math.toDegrees
-import kotlin.math.toRadians
 
 /**
  * Phase 3: Unified Contrast Resolution Engine for Scribe.
@@ -167,14 +165,14 @@ object ContrastResolver {
         val bVal = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
 
         val C = sqrt(a * a + bVal * bVal)
-        var h = toDegrees(atan2(bVal, a))
+        var h = Math.toDegrees(atan2(bVal, a))
         if (h < 0.0) h += 360.0
 
         return Oklch(L.coerceIn(0.0, 1.0), C.coerceAtLeast(0.0), h)
     }
 
     fun oklchToColorInt(oklch: Oklch): Int {
-        val hRad = toRadians(oklch.h)
+        val hRad = Math.toRadians(oklch.h)
         val a = oklch.c * cos(hRad)
         val bVal = oklch.c * sin(hRad)
 
@@ -435,7 +433,6 @@ object ContrastResolver {
         val b = argb and 0xFF
         return String.format("#%02X%02X%02X", r, g, b)
     }
-}
 
     fun resolveOnColorInt(
         containerInt: Int,

@@ -248,6 +248,7 @@ fun AccessibilitySampleCard(
     val appSemantic = scribeThemeColors.semantic
     val appBorders = scribeThemeColors.borders
 
+    val background = parseComposeColor(colors.background, appSurfaces.background)
     val surface = parseComposeColor(colors.surface, appSurfaces.surface)
     val primaryText = parseComposeColor(colors.text, appContent.primary)
     val secondaryText = parseComposeColor(colors.mutedText, appContent.secondary)
@@ -256,7 +257,7 @@ fun AccessibilitySampleCard(
     val isThemeDark = ThemeManager.isDarkColor(colors.background)
     val onAccent = ContrastResolver.resolveOnColor(
         container = accent,
-        preferredForeground = if (isThemeDark) backgroundColor else textColor,
+        preferredForeground = if (isThemeDark) background else primaryText,
         minRatio = 4.5,
         isDarkTheme = isThemeDark
     )
