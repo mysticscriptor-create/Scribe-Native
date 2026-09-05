@@ -219,7 +219,9 @@ data class ThemeColors(
     // ── Toolbars & Action Bars ──
     val toolbar: String = surface,           // Action bar background
     val toolbarText: String = text           // Action bar foreground
-)
+) {
+    val focusRing: String get() = focus.ifBlank { borderProminent }
+}
 
 // @Stable (not @Immutable): AppTheme instances are replaced wholesale via copy()
 // in ThemeEditScreen — no field is mutated in-place, so the contract holds.
