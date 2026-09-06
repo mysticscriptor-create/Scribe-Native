@@ -317,7 +317,7 @@ fun BookScreen(
                         titleContent      = { titleModifier ->
                             val (titleColor, adaptiveModifier) = rememberAdaptiveTextColor(
                                 zone = AmbientZone.TOP_APP_BAR,
-                                fallback = MaterialTheme.colorScheme.onSurface
+                                fallback = ScribeTheme.colors.content.primary
                             )
                             val sharedMod = if (sharedTransitionScope != null && animatedContentScope != null && book != null) {
                                 with(sharedTransitionScope) {
@@ -585,13 +585,13 @@ fun BookScreen(
                                                 Icons.Outlined.Description,
                                                 contentDescription = null,
                                                 modifier           = Modifier.size(56.dp),
-                                                tint               = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                                tint               = ScribeTheme.colors.content.tertiary
                                             )
                                             Spacer(modifier = Modifier.height(12.dp))
                                             Text(
                                                 "No notes in ${if (currentPath == "/") "Main" else currentPath}",
                                                 fontSize = 15.sp,
-                                                color    = MaterialTheme.colorScheme.onSurfaceVariant
+                                                color    = ScribeTheme.colors.content.secondary
                                             )
                                         }
                                     }
@@ -897,7 +897,7 @@ fun BookScreen(
                         Text(
                             text     = "Separate each tag with a comma.",
                             fontSize = 12.sp,
-                            color    = MaterialTheme.colorScheme.onSurfaceVariant
+                            color    = ScribeTheme.colors.content.secondary
                         )
                     }
                 },
@@ -928,8 +928,9 @@ private fun BookInfoHeader(
 ) {
     val context     = LocalContext.current
     val accentColor = ScribeTheme.colors.interaction.primary
-    val onSurface   = MaterialTheme.colorScheme.onSurface
-    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val contentPrimary = ScribeTheme.colors.content.primary
+    val contentSecondary = ScribeTheme.colors.content.secondary
+    val contentTertiary = ScribeTheme.colors.content.tertiary
     val surface     = MaterialTheme.colorScheme.surface
 
     val sharedTransitionScope = LocalSharedTransitionScope.current
@@ -1054,7 +1055,7 @@ private fun BookInfoHeader(
                         text       = book.title,
                         fontSize   = 20.sp,
                         fontWeight = FontWeight.Bold,
-                        color      = onSurface,
+                        color      = contentPrimary,
                         maxLines   = 2,
                         overflow   = TextOverflow.Ellipsis
                     )
@@ -1080,7 +1081,7 @@ private fun BookInfoHeader(
                         Text(
                             text      = "Tap ··· to add genre tags",
                             fontSize  = 12.sp,
-                            color     = onSurfaceVariant.copy(alpha = 0.7f),
+                            color     = contentTertiary,
                             fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
                         )
                     }
@@ -1104,7 +1105,7 @@ private fun BookInfoHeader(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(1.dp)
-                    .background(onSurface.copy(alpha = 0.06f))
+                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
             )
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -1114,7 +1115,7 @@ private fun BookInfoHeader(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
-                    .background(onSurface.copy(alpha = 0.05f))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication        = null
@@ -1128,14 +1129,14 @@ private fun BookInfoHeader(
                         verticalAlignment     = Alignment.CenterVertically
                     ) {
                         Text("Summary", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = accentColor)
-                        Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(13.dp), tint = onSurfaceVariant.copy(alpha = 0.7f))
+                        Icon(Icons.Default.Edit, contentDescription = "Edit", modifier = Modifier.size(13.dp), tint = contentSecondary)
                     }
                     Spacer(modifier = Modifier.height(5.dp))
                     if (book.summary.isBlank()) {
                         Text(
                             text      = "Tap to add a summary for this book…",
                             fontSize  = 13.sp,
-                            color     = onSurfaceVariant.copy(alpha = 0.55f),
+                            color     = contentTertiary,
                             fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
                             maxLines  = 2
                         )
@@ -1143,7 +1144,7 @@ private fun BookInfoHeader(
                         Text(
                             text     = book.summary,
                             fontSize = 13.sp,
-                            color    = onSurface.copy(alpha = 0.85f),
+                            color    = contentPrimary,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -1235,8 +1236,9 @@ private fun BookStatisticsTab(notes: List<Note>, bookTitle: String) {
     val series1Color = ScribeTheme.colors.analytics.series1
     val series2Color = ScribeTheme.colors.analytics.series2
     val targetColor  = ScribeTheme.colors.analytics.target
-    val onSurface   = MaterialTheme.colorScheme.onSurface
-    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val contentPrimary = ScribeTheme.colors.content.primary
+    val contentSecondary = ScribeTheme.colors.content.secondary
+    val contentTertiary = ScribeTheme.colors.content.tertiary
 
     val totalWords = remember(notes) { notes.sumOf { it.wordCount } }
     val scoredNotes = remember(notes) {
@@ -1260,14 +1262,14 @@ private fun BookStatisticsTab(notes: List<Note>, bookTitle: String) {
                 ScribeCard(modifier = Modifier.weight(1f), cornerRadius = ScribeCardTokens.RadiusMedium, shine = true) {
                     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(text = "${notes.size}", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = series2Color)
-                        Text(text = "Total Files", fontSize = 12.sp, color = onSurfaceVariant)
+                        Text(text = "Total Files", fontSize = 12.sp, color = contentSecondary)
                     }
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 ScribeCard(modifier = Modifier.weight(1f), cornerRadius = ScribeCardTokens.RadiusMedium, shine = true) {
                     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(text = "$totalWords", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = series1Color)
-                        Text(text = "Total Words", fontSize = 12.sp, color = onSurfaceVariant)
+                        Text(text = "Total Words", fontSize = 12.sp, color = contentSecondary)
                     }
                 }
             }
@@ -1276,7 +1278,7 @@ private fun BookStatisticsTab(notes: List<Note>, bookTitle: String) {
         ScribeContentCard(title = "Files Word Count Ranking") {
             if (scoredNotes.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                    Text("No files in this book", color = onSurfaceVariant)
+                    Text("No files in this book", color = contentTertiary)
                 }
             } else {
                 scoredNotes.forEachIndexed { index, (note, count) ->
@@ -1293,11 +1295,11 @@ private fun BookStatisticsTab(notes: List<Note>, bookTitle: String) {
                                 Box(modifier = Modifier.size(22.dp).clip(CircleShape).background(rankColor.copy(alpha = if (index == 0) 0.22f else 0.10f)), contentAlignment = Alignment.Center) {
                                     Text(text = "${index + 1}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = rankColor)
                                 }
-                                Text(text = note.name.replace("\n", " · "), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                Text(text = note.name.replace("\n", " · "), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = contentPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             }
                             Text(text = "$count words", fontSize = 12.sp, color = rankColor, fontWeight = FontWeight.Medium)
                         }
-                        Text(text = "Folder: ${note.folderPath}", fontSize = 11.sp, color = onSurfaceVariant)
+                        Text(text = "Folder: ${note.folderPath}", fontSize = 11.sp, color = contentTertiary)
                         ScribeProgressBar(progress = ratio, color = series1Color, modifier = Modifier.fillMaxWidth().height(6.dp))
                     }
                 }
@@ -1318,8 +1320,9 @@ private fun NoteListRow(
 ) {
     var showMenu    by remember { mutableStateOf(false) }
     val accentColor = ScribeTheme.colors.analytics.series1
-    val onSurface   = MaterialTheme.colorScheme.onSurface
-    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val contentPrimary = ScribeTheme.colors.content.primary
+    val contentSecondary = ScribeTheme.colors.content.secondary
+    val contentTertiary = ScribeTheme.colors.content.tertiary
 
     val wordLabel   = remember(note.wordCount) { formatWordCount(note.wordCount) }
     val previewText = remember(note.content) {
@@ -1353,7 +1356,7 @@ private fun NoteListRow(
                     text       = note.name.replace("\n", " · "),
                     fontWeight = FontWeight.SemiBold,
                     fontSize   = 14.sp,
-                    color      = onSurface,
+                    color      = contentPrimary,
                     maxLines   = 1,
                     overflow   = TextOverflow.Ellipsis,
                     modifier   = Modifier.weight(1f).padding(end = 8.dp)
@@ -1371,7 +1374,7 @@ private fun NoteListRow(
                     // 3-dot menu
                     Box {
                         IconButton(onClick = { showMenu = true }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.MoreVert, contentDescription = null, modifier = Modifier.size(16.dp), tint = onSurface.copy(alpha = 0.5f))
+                            Icon(Icons.Default.MoreVert, contentDescription = null, modifier = Modifier.size(16.dp), tint = contentSecondary)
                         }
                         FrostedDropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                             DropdownMenuItem(text = { Text("Open") },                    onClick = { showMenu = false; onClick() })
@@ -1390,7 +1393,7 @@ private fun NoteListRow(
                 Text(
                     text     = previewText,
                     fontSize = 12.sp,
-                    color    = onSurface.copy(alpha = 0.52f),
+                    color    = contentTertiary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
@@ -1403,11 +1406,11 @@ private fun NoteListRow(
                 verticalAlignment     = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(Icons.Outlined.CalendarToday, contentDescription = null, modifier = Modifier.size(11.dp), tint = onSurfaceVariant.copy(alpha = 0.7f))
-                Text(createdStr, fontSize = 11.sp, color = onSurfaceVariant.copy(alpha = 0.7f))
-                Text("·", fontSize = 11.sp, color = onSurfaceVariant.copy(alpha = 0.5f))
-                Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(11.dp), tint = onSurfaceVariant.copy(alpha = 0.7f))
-                Text(modifiedStr, fontSize = 11.sp, color = onSurfaceVariant.copy(alpha = 0.7f))
+                Icon(Icons.Outlined.CalendarToday, contentDescription = null, modifier = Modifier.size(11.dp), tint = contentTertiary)
+                Text(createdStr, fontSize = 11.sp, color = contentTertiary)
+                Text("·", fontSize = 11.sp, color = contentTertiary)
+                Icon(Icons.Outlined.Edit, contentDescription = null, modifier = Modifier.size(11.dp), tint = contentTertiary)
+                Text(modifiedStr, fontSize = 11.sp, color = contentTertiary)
             }
         }
     }

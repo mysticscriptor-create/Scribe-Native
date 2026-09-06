@@ -92,7 +92,7 @@ fun FoundationColorTile(
                 text = label,
                 fontWeight = FontWeight.Bold,
                 fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurface,
+                color = ScribeTheme.colors.content.primary,
                 maxLines = 1,
                 softWrap = false
             )
@@ -112,7 +112,7 @@ fun FoundationColorTile(
             Text(
                 text = roleDescription,
                 fontSize = 9.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                color = ScribeTheme.colors.content.tertiary,
                 maxLines = 1,
                 softWrap = false
             )
@@ -193,7 +193,7 @@ fun OverrideColorTile(
                     text = label,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = ScribeTheme.colors.content.primary,
                     maxLines = 1,
                     softWrap = false,
                     modifier = Modifier.weight(1f, fill = false)
@@ -224,7 +224,7 @@ fun OverrideColorTile(
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = ScribeTheme.colors.content.secondary,
                     maxLines = 1,
                     softWrap = false
                 )
@@ -240,7 +240,7 @@ fun OverrideColorTile(
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Medium,
-                        color = if (isOverridden) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (isOverridden) ScribeTheme.colors.interaction.primary else ScribeTheme.colors.content.secondary,
                         maxLines = 1,
                         softWrap = false
                     )
@@ -295,7 +295,7 @@ fun CustomColorPicker(
                 text = "Palette Swatches",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = ScribeTheme.colors.content.secondary
             )
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -328,7 +328,7 @@ fun CustomColorPicker(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("Hue", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                Text("Hue", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = ScribeTheme.colors.content.primary)
                 Text("${hue.toInt()}°", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
             }
             Slider(
@@ -344,7 +344,7 @@ fun CustomColorPicker(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("Saturation", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                Text("Saturation", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = ScribeTheme.colors.content.primary)
                 Text("${(sat * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
             }
             Slider(
@@ -360,7 +360,7 @@ fun CustomColorPicker(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("Brightness", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+                Text("Brightness", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = ScribeTheme.colors.content.primary)
                 Text("${(valVal * 100).toInt()}%", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
             }
             Slider(
@@ -427,7 +427,7 @@ fun ColorPickerBottomSheet(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text("Original", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Original", fontSize = 11.sp, color = ScribeTheme.colors.content.secondary)
                         Box(
                             modifier = Modifier
                                 .size(56.dp)

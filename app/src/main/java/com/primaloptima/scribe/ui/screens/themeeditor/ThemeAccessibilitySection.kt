@@ -99,7 +99,7 @@ fun AccessibilitySummaryCard(
                 else
                     "Moderate contrast (${contrastReport.passedPairsCount}/${contrastReport.totalPairsChecked} pairs pass): Some subtle elements or specialized accents may have reduced legibility in bright environments.",
                 fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = ScribeTheme.colors.content.secondary,
                 lineHeight = 16.sp
             )
 
@@ -158,7 +158,7 @@ fun AccessibilityDiagnosticsDialog(
                         text = "High-Impact Semantic Pairs",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = ScribeTheme.colors.content.primary
                     )
                 }
 
@@ -178,7 +178,7 @@ fun AccessibilityDiagnosticsDialog(
                                     text = res.pair.name,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = ScribeTheme.colors.content.primary
                                 )
                                 Row(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -194,7 +194,7 @@ fun AccessibilityDiagnosticsDialog(
                                         text = String.format(java.util.Locale.US, "%.1f:1", res.wcagRatio),
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = if (res.passesWcag) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFFEF4444)
+                                        color = if (res.passesWcag) ScribeTheme.colors.content.secondary else Color(0xFFEF4444)
                                     )
                                 }
                             }
@@ -523,7 +523,7 @@ fun AccessibilitySampleRow(
                 text = label,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = ScribeTheme.colors.content.secondary
             )
             Surface(
                 color = if (passes) Color(0xFF10B981).copy(alpha = 0.15f) else Color(0xFFEF4444).copy(alpha = 0.15f),

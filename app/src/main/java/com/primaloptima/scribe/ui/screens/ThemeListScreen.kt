@@ -224,8 +224,8 @@ private fun ThemeCard(
 
     val borderSubtle = ScribeTheme.colors.borders.subtle
     val bgColor = parseComposeColor(theme.colors.background, MaterialTheme.colorScheme.surfaceVariant)
-    val textColor = parseComposeColor(theme.colors.text, MaterialTheme.colorScheme.onSurface)
-    val mutedColor = parseComposeColor(theme.colors.mutedText, textColor.copy(alpha = 0.7f))
+    val textColor = parseComposeColor(theme.colors.text, ScribeTheme.colors.content.primary)
+    val mutedColor = parseComposeColor(theme.colors.mutedText, ScribeTheme.colors.content.secondary)
     val accentColor = parseComposeColor(theme.colors.accent, MaterialTheme.colorScheme.primary)
     val cardShape = RoundedCornerShape(12.dp)
 

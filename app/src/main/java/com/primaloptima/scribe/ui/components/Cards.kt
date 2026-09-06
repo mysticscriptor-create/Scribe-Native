@@ -363,7 +363,9 @@ fun ScribeStripCard(
     wrapInCard: Boolean = true,
     cornerRadius: Dp = ScribeCardTokens.RadiusMedium
 ) {
-    val onSurface = MaterialTheme.colorScheme.onSurface
+    val contentPrimary = ScribeTheme.colors.content.primary
+    val contentSecondary = ScribeTheme.colors.content.secondary
+    val contentTertiary = ScribeTheme.colors.content.tertiary
     val outlineVariant = MaterialTheme.colorScheme.outlineVariant
 
     // The inner row — shared between both wrapInCard modes
@@ -394,14 +396,14 @@ fun ScribeStripCard(
                     Text(
                         text     = title,
                         style    = ScribeTheme.typography.title.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
-                        color    = onSurface,
+                        color    = contentPrimary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     if (subtitle != null) {
                         Text(
                             text     = subtitle,
-                            style    = ScribeTheme.typography.caption.copy(color = onSurface.copy(alpha = 0.50f)),
+                            style    = ScribeTheme.typography.caption.copy(color = contentSecondary),
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -409,7 +411,7 @@ fun ScribeStripCard(
                     if (preview != null) {
                         Text(
                             text      = preview,
-                            style     = ScribeTheme.typography.bodySecondary.copy(fontSize = 12.sp, color = onSurface.copy(alpha = 0.55f), fontStyle = FontStyle.Italic),
+                            style     = ScribeTheme.typography.bodySecondary.copy(fontSize = 12.sp, color = contentSecondary, fontStyle = FontStyle.Italic),
                             maxLines  = previewMaxLines,
                             overflow  = TextOverflow.Ellipsis
                         )
@@ -419,7 +421,7 @@ fun ScribeStripCard(
                         footerLines.forEach { line ->
                             Text(
                                 text     = line,
-                                style    = ScribeTheme.typography.caption.copy(color = onSurface.copy(alpha = 0.38f)),
+                                style    = ScribeTheme.typography.caption.copy(color = contentTertiary),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -469,14 +471,14 @@ fun ScribeStripCard(
                         Text(
                             text     = title,
                             style    = ScribeTheme.typography.title.copy(fontSize = 13.sp, fontWeight = FontWeight.SemiBold),
-                            color    = onSurface,
+                            color    = contentPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         if (subtitle != null) {
                             Text(
                                 text     = subtitle,
-                                style    = ScribeTheme.typography.caption.copy(color = onSurface.copy(alpha = 0.50f)),
+                                style    = ScribeTheme.typography.caption.copy(color = contentSecondary),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -484,7 +486,7 @@ fun ScribeStripCard(
                         if (preview != null) {
                             Text(
                                 text      = preview,
-                                style     = ScribeTheme.typography.bodySecondary.copy(fontSize = 12.sp, color = onSurface.copy(alpha = 0.55f), fontStyle = FontStyle.Italic),
+                                style     = ScribeTheme.typography.bodySecondary.copy(fontSize = 12.sp, color = contentSecondary, fontStyle = FontStyle.Italic),
                                 maxLines  = previewMaxLines,
                                 overflow  = TextOverflow.Ellipsis
                             )
@@ -494,7 +496,7 @@ fun ScribeStripCard(
                             footerLines.forEach { line ->
                                 Text(
                                     text     = line,
-                                    style    = ScribeTheme.typography.caption.copy(color = onSurface.copy(alpha = 0.38f)),
+                                    style    = ScribeTheme.typography.caption.copy(color = contentTertiary),
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
@@ -604,8 +606,8 @@ fun ScribeActionTile(
                     text     = label,
                     style    = ScribeTheme.typography.caption.copy(
                         fontWeight = FontWeight.SemiBold,
-                        color      = if (isPrimary) onPrimary
-                                     else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+                        color      = if (isPrimary) ScribeTheme.colors.content.onAccent
+                                     else ScribeTheme.colors.content.secondary
                     ),
                     maxLines = 1
                 )
@@ -765,13 +767,13 @@ fun ScribeSectionLabel(
     text: String,
     modifier: Modifier = Modifier
 ) {
-    val accentColor = ScribeTheme.colors.content.secondary
+    val labelColor = ScribeTheme.colors.content.secondary
     Text(
         text     = text.uppercase(),
         style    = ScribeTheme.typography.caption.copy(
             fontWeight    = FontWeight.Bold,
             letterSpacing = 1.2.sp,
-            color         = accentColor.copy(alpha = 0.80f)
+            color         = labelColor
         ),
         modifier = modifier
     )

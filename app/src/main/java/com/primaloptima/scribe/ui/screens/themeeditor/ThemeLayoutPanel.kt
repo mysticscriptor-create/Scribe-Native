@@ -51,7 +51,8 @@ fun ThemeLayoutPanel(
                     Text(
                         text = "Text Alignment & Reading Flow",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
+                        fontSize = 15.sp,
+                        color = ScribeTheme.colors.content.primary
                     )
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
@@ -70,7 +71,7 @@ fun ThemeLayoutPanel(
                 Text(
                     text = "Controls paragraph justification and optical margin alignment on the reading canvas.",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = ScribeTheme.colors.content.secondary,
                     lineHeight = 16.sp
                 )
 
@@ -110,14 +111,14 @@ fun ThemeLayoutPanel(
                                 Icon(
                                     imageVector = icon,
                                     contentDescription = label,
-                                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = if (isSelected) ScribeTheme.colors.interaction.primary else ScribeTheme.colors.content.secondary,
                                     modifier = Modifier.size(20.dp)
                                 )
                                 Text(
                                     text = label,
                                     fontSize = 12.sp,
                                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    color = if (isSelected) ScribeTheme.colors.interaction.primary else ScribeTheme.colors.content.primary
                                 )
                             }
                         }
@@ -144,7 +145,8 @@ fun ThemeLayoutPanel(
                     Text(
                         text = "Theme Scope",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
+                        fontSize = 15.sp,
+                        color = ScribeTheme.colors.content.primary
                     )
                     Surface(
                         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f),
@@ -163,7 +165,7 @@ fun ThemeLayoutPanel(
                 Text(
                     text = "Choose whether this theme applies exclusively to the distraction-free editor canvas or styles the entire application shell.",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = ScribeTheme.colors.content.secondary,
                     lineHeight = 16.sp
                 )
 

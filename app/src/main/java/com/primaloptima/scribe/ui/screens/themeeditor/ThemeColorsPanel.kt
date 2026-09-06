@@ -74,7 +74,7 @@ fun ThemeColorsPanel(
                 Text(
                     text = "Core palette inputs driving automated OKLCH perceptual derivation for all dependent elevations, rims, and secondary tones.",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = ScribeTheme.colors.content.secondary,
                     lineHeight = 16.sp
                 )
 
@@ -125,7 +125,8 @@ fun ThemeColorsPanel(
                     Text(
                         text = "Writing & Editorial Overrides",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
+                        fontSize = 15.sp,
+                        color = ScribeTheme.colors.content.primary
                     )
                     Surface(
                         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f),
@@ -144,7 +145,7 @@ fun ThemeColorsPanel(
                 Text(
                     text = "Lexer highlights for prose rendering. Tap any token to customize; tap reset ↺ to restore generated default.",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = ScribeTheme.colors.content.secondary,
                     lineHeight = 16.sp
                 )
 
@@ -222,7 +223,8 @@ fun ThemeColorsPanel(
                 Text(
                     text = "Supporting Accents",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
+                    fontSize = 15.sp,
+                    color = ScribeTheme.colors.content.primary
                 )
 
                 Row(
@@ -267,13 +269,14 @@ fun ThemeColorsPanel(
                     Text(
                         text = "5-Tier Perceptual Elevation Ramp",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
+                        fontSize = 14.sp,
+                        color = ScribeTheme.colors.content.primary
                     )
                     Text(
                         text = "Auto-Scaled",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = ScribeTheme.colors.content.secondary
                     )
                 }
 
@@ -345,7 +348,8 @@ fun ThemeColorsPanel(
                 Text(
                     text = "System Status Indicators",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
+                    fontSize = 14.sp,
+                    color = ScribeTheme.colors.content.primary
                 )
 
                 Row(
@@ -387,7 +391,7 @@ fun ThemeColorsPanel(
                                     text = if (hex.isNotBlank()) hex.uppercase() else "Auto",
                                     fontSize = 9.sp,
                                     fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = ScribeTheme.colors.content.secondary,
                                     maxLines = 1,
                                     softWrap = false
                                 )

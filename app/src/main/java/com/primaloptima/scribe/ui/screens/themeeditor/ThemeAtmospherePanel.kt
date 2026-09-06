@@ -79,7 +79,7 @@ fun ThemeAtmospherePanel(
                 Text(
                     text = "Apply immersive editorial cover photography or textured patterns under the writing canvas.",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = ScribeTheme.colors.content.secondary,
                     lineHeight = 16.sp
                 )
 
@@ -235,7 +235,7 @@ fun ThemeAtmospherePanel(
                 Text(
                     text = "Refined hardware-accelerated frosted glass diffusion across toolbars and elevated cards.",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = ScribeTheme.colors.content.secondary,
                     lineHeight = 16.sp
                 )
 

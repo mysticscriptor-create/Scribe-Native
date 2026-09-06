@@ -312,7 +312,7 @@ fun SheetsScreen(
                                 singleLine = true,
                                 textStyle = LocalTextStyle.current.copy(
                                     fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = ScribeTheme.colors.content.primary
                                 ),
                                 cursorBrush = SolidColor(ScribeTheme.colors.interaction.primary),
                                 decorationBox = { innerTextField ->
@@ -328,7 +328,7 @@ fun SheetsScreen(
                                             imageVector = Icons.Default.Search,
                                             contentDescription = null,
                                             modifier = Modifier.size(18.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            tint = ScribeTheme.colors.content.tertiary
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Box(
@@ -339,7 +339,7 @@ fun SheetsScreen(
                                                 Text(
                                                     text = "Search sheets, attributes, backstory, tags, lore…",
                                                     fontSize = 13.sp,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                    color = ScribeTheme.colors.content.tertiary,
                                                     maxLines = 1,
                                                     modifier = Modifier.basicMarquee(
                                                         iterations = Int.MAX_VALUE,
@@ -358,7 +358,7 @@ fun SheetsScreen(
                                                     imageVector = Icons.Default.Clear,
                                                     contentDescription = "Clear",
                                                     modifier = Modifier.size(16.dp),
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    tint = ScribeTheme.colors.content.secondary
                                                 )
                                             }
                                         }
@@ -395,7 +395,7 @@ fun SheetsScreen(
                                 colors = FilterChipDefaults.filterChipColors(
                                     containerColor = Color.Transparent,
                                     selectedContainerColor = Color.Transparent,
-                                    labelColor = MaterialTheme.colorScheme.onSurface,
+                                    labelColor = ScribeTheme.colors.content.primary,
                                     selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
                                 ),
                                 shape = RoundedCornerShape(12.dp),
@@ -431,7 +431,7 @@ fun SheetsScreen(
                                     colors = FilterChipDefaults.filterChipColors(
                                         containerColor = Color.Transparent,
                                         selectedContainerColor = Color.Transparent,
-                                        labelColor = MaterialTheme.colorScheme.onSurface,
+                                        labelColor = ScribeTheme.colors.content.primary,
                                         selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
                                     ),
                                     shape = RoundedCornerShape(12.dp),
@@ -623,7 +623,7 @@ fun SheetsScreen(
                                     key = "more",
                                     label = "More",
                                     icon = Icons.Default.AutoAwesome,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = ScribeTheme.colors.content.secondary,
                                     count = 0,
                                     selected = false,
                                     hazeState = hazeState,
@@ -750,7 +750,7 @@ fun SheetsScreen(
                                             else categoryMeta(pageCategory).icon,
                                             contentDescription = null,
                                             modifier = Modifier.size(52.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                            tint = ScribeTheme.colors.content.tertiary
                                         )
                                         Spacer(modifier = Modifier.height(14.dp))
                                         Text(
@@ -758,7 +758,7 @@ fun SheetsScreen(
                                                 "No world sheets matching your filters."
                                             else
                                                 "No ${categoryMeta(pageCategory).label.lowercase()} yet.\nTap + to create your first sheet.",
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            color = ScribeTheme.colors.content.secondary,
                                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                             lineHeight = 20.sp
                                         )
@@ -864,12 +864,12 @@ fun SheetsScreen(
                                 imageVector = Icons.AutoMirrored.Filled.MenuBook,
                                 contentDescription = null,
                                 modifier = Modifier.size(56.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                tint = ScribeTheme.colors.content.tertiary
                             )
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
                                 text = "Select a sheet to view details",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = ScribeTheme.colors.content.secondary,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Medium
                             )
@@ -1022,7 +1022,7 @@ private fun WorldEntryCard(
                     Text(
                         text = "· ${timeAgo(entry.updatedAt)}",
                         fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = ScribeTheme.colors.content.tertiary
                     )
                 }
 
@@ -1030,6 +1030,7 @@ private fun WorldEntryCard(
                     text = entry.name,
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp,
+                    color = ScribeTheme.colors.content.primary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -1038,7 +1039,7 @@ private fun WorldEntryCard(
                     Text(
                         text = entry.summary,
                         fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = ScribeTheme.colors.content.secondary,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         lineHeight = 16.sp
@@ -1071,7 +1072,7 @@ private fun WorldEntryCard(
                             Text(
                                 text = "+${tags.size - 3}",
                                 fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = ScribeTheme.colors.content.tertiary,
                                 modifier = Modifier.align(Alignment.CenterVertically)
                             )
                         }
@@ -1088,7 +1089,7 @@ private fun WorldEntryCard(
                     Icon(
                         Icons.Default.MoreVert,
                         contentDescription = "Options",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = ScribeTheme.colors.content.secondary,
                         modifier = Modifier.size(20.dp)
                     )
                 }

@@ -113,12 +113,12 @@ fun ThemeTypographyPanel(
                                             fontFamily = optionFont,
                                             fontSize = 15.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                            color = if (isSelected) ScribeTheme.colors.interaction.primary else ScribeTheme.colors.content.primary
                                         )
                                         Text(
                                             text = option.subtitle,
                                             fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            color = ScribeTheme.colors.content.secondary
                                         )
                                     }
 
@@ -133,7 +133,7 @@ fun ThemeTypographyPanel(
                                     text = "Sphinx of black quartz, judge my vow • 12345",
                                     fontFamily = optionFont,
                                     fontSize = 12.sp,
-                                    color = if (isSelected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                    color = if (isSelected) ScribeTheme.colors.content.primary else ScribeTheme.colors.content.tertiary
                                 )
                             }
                         }
@@ -160,7 +160,8 @@ fun ThemeTypographyPanel(
                     Text(
                         text = "Typesetting & Rhythm",
                         fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
+                        fontSize = 15.sp,
+                        color = ScribeTheme.colors.content.primary
                     )
                     Surface(
                         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f),
@@ -182,7 +183,7 @@ fun ThemeTypographyPanel(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Base Font Size", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text("Base Font Size", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = ScribeTheme.colors.content.primary)
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
                             shape = RoundedCornerShape(4.dp)
@@ -210,7 +211,7 @@ fun ThemeTypographyPanel(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Line Spacing Multiplier", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text("Line Spacing Multiplier", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = ScribeTheme.colors.content.primary)
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
                             shape = RoundedCornerShape(4.dp)
@@ -237,7 +238,7 @@ fun ThemeTypographyPanel(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Paragraph Spacing", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text("Paragraph Spacing", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = ScribeTheme.colors.content.primary)
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
                             shape = RoundedCornerShape(4.dp)
@@ -265,7 +266,7 @@ fun ThemeTypographyPanel(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Horizontal Reading Margins", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                        Text("Horizontal Reading Margins", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = ScribeTheme.colors.content.primary)
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
                             shape = RoundedCornerShape(4.dp)

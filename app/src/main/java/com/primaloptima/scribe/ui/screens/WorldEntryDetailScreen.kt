@@ -69,8 +69,7 @@ fun WorldEntryDetailScreen(
     val meta = categoryMeta(entry.type)
     val hazeState = LocalHazeState.current
     val accentColor = ScribeTheme.colors.interaction.primary
-    val subtleText = ScribeTheme.colors.content.secondary
-    val resolvedSubtle = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+    val resolvedSubtle = ScribeTheme.colors.content.secondary
 
     var showImageViewer by remember { mutableStateOf(false) }
     var isReorderingMode by remember { mutableStateOf(false) }
@@ -270,7 +269,7 @@ fun WorldEntryDetailScreen(
                                 text = entry.summary,
                                 fontSize = 14.sp,
                                 lineHeight = 21.sp,
-                                color = MaterialTheme.colorScheme.onSurface,
+                                color = ScribeTheme.colors.content.primary,
                                 modifier = Modifier.padding(16.dp)
                             )
                         }
@@ -457,8 +456,7 @@ private fun HeaderTitleAndMetadata(
     formattedCreated: String,
     formattedUpdated: String
 ) {
-    val subtle = ScribeTheme.colors.content.tertiary
-    val resolvedSubtle = if (subtle != Color.Unspecified) subtle else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+    val resolvedSubtle = ScribeTheme.colors.content.tertiary
 
     Row(verticalAlignment = Alignment.CenterVertically) {
         ScribePill(
@@ -471,7 +469,7 @@ private fun HeaderTitleAndMetadata(
         text = entry.name,
         fontSize = 22.sp,
         fontWeight = FontWeight.ExtraBold,
-        color = MaterialTheme.colorScheme.onSurface,
+        color = ScribeTheme.colors.content.primary,
         lineHeight = 28.sp
     )
     Spacer(modifier = Modifier.height(4.dp))
@@ -526,8 +524,7 @@ private fun DetailAttributeRow(
             emptyList()
         }
     }
-    val subtle = ScribeTheme.colors.content.tertiary
-    val resolvedSubtle = if (subtle != Color.Unspecified) subtle else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f)
+    val resolvedSubtle = ScribeTheme.colors.content.tertiary
 
     ScribeCard(
         modifier = Modifier
@@ -575,7 +572,7 @@ private fun DetailAttributeRow(
                     Text(
                         text = field.value,
                         fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
+                        color = ScribeTheme.colors.content.primary,
                         lineHeight = 20.sp
                     )
                 }
@@ -595,7 +592,7 @@ private fun DetailAttributeRow(
                             Icons.Default.ArrowUpward,
                             contentDescription = "Move Up",
                             modifier = Modifier.size(16.dp),
-                            tint = if (index > 0) MaterialTheme.colorScheme.onSurface else resolvedSubtle.copy(alpha = 0.35f)
+                            tint = if (index > 0) ScribeTheme.colors.content.primary else ScribeTheme.colors.content.disabled
                         )
                     }
                     IconButton(
@@ -607,7 +604,7 @@ private fun DetailAttributeRow(
                             Icons.Default.ArrowDownward,
                             contentDescription = "Move Down",
                             modifier = Modifier.size(16.dp),
-                            tint = if (index < totalCount - 1) MaterialTheme.colorScheme.onSurface else resolvedSubtle.copy(alpha = 0.35f)
+                            tint = if (index < totalCount - 1) ScribeTheme.colors.content.primary else ScribeTheme.colors.content.disabled
                         )
                     }
                 }
@@ -615,7 +612,7 @@ private fun DetailAttributeRow(
                 Icon(
                     Icons.Default.ContentCopy,
                     contentDescription = "Copy",
-                    tint = resolvedSubtle.copy(alpha = 0.5f),
+                    tint = ScribeTheme.colors.content.tertiary,
                     modifier = Modifier.size(16.dp)
                 )
             }

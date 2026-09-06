@@ -46,7 +46,7 @@ fun CreateWorldEntrySheet(
     val subtleText = ScribeTheme.colors.content.secondary
     val surfaceRaised = ScribeTheme.colors.surfaces.surfaceRaised
     val borderSubtle = ScribeTheme.colors.borders.subtle
-    val resolvedSubtle = if (subtleText != Color.Unspecified) subtleText else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+    val resolvedSubtle = subtleText
 
     FrostedBottomSheet(
         onDismissRequest = onDismiss
@@ -68,10 +68,14 @@ fun CreateWorldEntrySheet(
                     text = "New World Sheet",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = ScribeTheme.colors.content.primary
                 )
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Close")
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = ScribeTheme.colors.content.secondary
+                    )
                 }
             }
 
@@ -202,7 +206,7 @@ fun CreateWorldEntrySheet(
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = accentColor,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
+                        contentColor = ScribeTheme.colors.content.onAccent
                     )
                 ) {
                     Text("Create Sheet", fontWeight = FontWeight.Bold)

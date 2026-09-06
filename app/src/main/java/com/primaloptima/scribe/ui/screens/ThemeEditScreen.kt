@@ -260,7 +260,7 @@ fun ThemeEditScreen(
                                             },
                                             fontSize = 12.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            color = if (isSelected) ScribeTheme.colors.interaction.primary else ScribeTheme.colors.content.secondary,
                                             maxLines = 1,
                                             softWrap = false
                                         )

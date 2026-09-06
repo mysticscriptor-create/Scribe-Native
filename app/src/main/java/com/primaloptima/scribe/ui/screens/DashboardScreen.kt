@@ -218,7 +218,7 @@ private fun DashboardGreeting(streak: Int, accentColor: Color) {
     }
 
     val (textColor, textMod) = rememberAdaptiveTextColor(
-        fallback = MaterialTheme.colorScheme.onSurface
+        fallback = ScribeTheme.colors.content.primary
     )
 
     Row(
@@ -248,7 +248,7 @@ private fun DashboardGreeting(streak: Int, accentColor: Color) {
             Text(
                 text     = subtitle,
                 fontSize = 13.sp,
-                color    = textColor.copy(alpha = 0.6f),
+                color    = if (textMod != Modifier) textColor.copy(alpha = 0.75f) else ScribeTheme.colors.content.secondary,
                 modifier = textMod
             )
         }
@@ -296,12 +296,12 @@ private fun NoProjectCard(
                 "No ongoing project",
                 fontWeight = FontWeight.Bold,
                 fontSize   = 16.sp,
-                color      = MaterialTheme.colorScheme.onSurface
+                color      = ScribeTheme.colors.content.primary
             )
             Text(
                 "Set a book as your ongoing project to track chapters, word count, and daily progress here.",
                 fontSize  = 13.sp,
-                color     = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                color     = ScribeTheme.colors.content.secondary,
                 textAlign = TextAlign.Center
             )
             Button(
@@ -410,7 +410,7 @@ private fun CurrentProjectCard(
                             fontSize   = 16.sp,
                             maxLines   = 1,
                             overflow   = TextOverflow.Ellipsis,
-                            color      = MaterialTheme.colorScheme.onSurface,
+                            color      = ScribeTheme.colors.content.primary,
                             modifier   = Modifier.basicMarquee()
                         )
                     }
@@ -445,13 +445,13 @@ private fun CurrentProjectCard(
                                 Icons.Outlined.TextSnippet,
                                 null,
                                 modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                tint = ScribeTheme.colors.content.tertiary
                             )
                             Text(
                                 "${formatWordCount(totalWords)} / ${formatWordCount(totalTarget)} words",
                                 fontSize   = 15.sp,
                                 lineHeight = 15.sp,
-                                color      = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                                color      = ScribeTheme.colors.content.secondary,
                                 maxLines   = 1,
                                 overflow   = TextOverflow.Ellipsis
                             )
@@ -506,13 +506,13 @@ private fun CurrentProjectCard(
                                     Icons.Outlined.Schedule,
                                     null,
                                     modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                    tint = ScribeTheme.colors.content.tertiary
                                 )
                                 Text(
                                     text       = "${lastChapter.name}  ·  $lastTimestamp",
                                     fontSize   = 15.sp,
                                     lineHeight = 15.sp,
-                                    color      = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.50f),
+                                    color      = ScribeTheme.colors.content.secondary,
                                     maxLines   = 1,
                                     overflow   = TextOverflow.Ellipsis
                                 )
@@ -667,14 +667,14 @@ private fun UniformActionTile(
                 imageVector        = icon,
                 contentDescription = label,
                 modifier           = Modifier.size(20.dp),
-                tint               = if (isFirst) accentColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                tint               = if (isFirst) accentColor else ScribeTheme.colors.content.secondary
             )
             Spacer(modifier = Modifier.height(5.dp))
             Text(
                 text       = label,
                 fontSize   = 10.sp,
                 fontWeight = FontWeight.SemiBold,
-                color      = if (isFirst) accentColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f),
+                color      = if (isFirst) accentColor else ScribeTheme.colors.content.secondary,
                 maxLines   = 1
             )
         }
@@ -708,7 +708,9 @@ private fun WritingProgressCard(
 
     val streakDots    = weekData.map { (label, count, _) -> Pair(label, count > 0) }
     val goalMet       = dailyGoal > 0 && todayWords >= dailyGoal
-    val onSurface     = MaterialTheme.colorScheme.onSurface
+    val contentPrimary = ScribeTheme.colors.content.primary
+    val contentSecondary = ScribeTheme.colors.content.secondary
+    val contentTertiary = ScribeTheme.colors.content.tertiary
 
     ScribeContentCard(
         title        = "Your Progress",
@@ -800,12 +802,12 @@ private fun WritingProgressCard(
                     "This Week",
                     fontSize   = 12.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color      = onSurface.copy(alpha = 0.6f)
+                    color      = contentSecondary
                 )
                 Text(
                     "${formatWordCount(weekTotal)} / ${formatWordCount(weekGoal)} words",
                     fontSize = 11.sp,
-                    color    = onSurface.copy(alpha = 0.45f)
+                    color    = contentTertiary
                 )
             }
             Spacer(modifier = Modifier.height(10.dp))
@@ -832,11 +834,11 @@ private fun WritingProgressCard(
             ) {
                 Icon(Icons.Outlined.StarBorder, null,
                     modifier = Modifier.size(14.dp),
-                    tint     = onSurface.copy(alpha = 0.5f))
+                    tint     = contentSecondary)
                 Text(
                     "Next Milestone",
                     fontSize   = 12.sp,
-                    color      = onSurface.copy(alpha = 0.55f),
+                    color      = contentSecondary,
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -862,7 +864,7 @@ private fun WritingProgressCard(
                 "\" A page a day builds a world. \"",
                 fontSize  = 12.sp,
                 fontStyle = FontStyle.Italic,
-                color     = onSurface.copy(alpha = 0.38f),
+                color     = contentTertiary,
                 textAlign = TextAlign.Center,
                 modifier  = Modifier
                     .fillMaxWidth()
@@ -1026,7 +1028,9 @@ private fun CompactChapterRow(
     isMostRecent: Boolean,
     onClick: () -> Unit
 ) {
-    val onSurface = MaterialTheme.colorScheme.onSurface
+    val contentPrimary = ScribeTheme.colors.content.primary
+    val contentSecondary = ScribeTheme.colors.content.secondary
+    val contentTertiary = ScribeTheme.colors.content.tertiary
     val outlineVariant = MaterialTheme.colorScheme.outlineVariant
 
     Column {
@@ -1061,14 +1065,14 @@ private fun CompactChapterRow(
                     text       = chapter.name,
                     fontWeight = FontWeight.SemiBold,
                     fontSize   = 13.sp,
-                    color      = onSurface,
+                    color      = contentPrimary,
                     maxLines   = 1,
                     overflow   = TextOverflow.Ellipsis
                 )
                 Text(
                     text     = "${formatRelativeTime(chapter.updatedAt)}  ·  $wordCount words",
                     fontSize = 11.sp,
-                    color    = onSurface.copy(alpha = 0.48f),
+                    color    = contentSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -1076,7 +1080,7 @@ private fun CompactChapterRow(
                     Text(
                         text      = previewLine,
                         fontSize  = 11.sp,
-                        color     = onSurface.copy(alpha = 0.45f),
+                        color     = contentTertiary,
                         maxLines  = 1,
                         overflow  = TextOverflow.Ellipsis,
                         fontStyle = FontStyle.Italic
@@ -1140,7 +1144,7 @@ private fun GoalSettingSheet(
                 "Set Writing Goals",
                 fontWeight = FontWeight.Bold,
                 fontSize   = 19.sp,
-                color      = MaterialTheme.colorScheme.onSurface
+                color      = ScribeTheme.colors.content.primary
             )
 
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1153,7 +1157,7 @@ private fun GoalSettingSheet(
                         "Daily Goal",
                         fontSize   = 14.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color      = MaterialTheme.colorScheme.onSurface
+                        color      = ScribeTheme.colors.content.primary
                     )
                     Box(
                         modifier = Modifier
@@ -1184,8 +1188,8 @@ private fun GoalSettingSheet(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("100", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
-                    Text("3,000", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f))
+                    Text("100", fontSize = 10.sp, color = ScribeTheme.colors.content.tertiary)
+                    Text("3,000", fontSize = 10.sp, color = ScribeTheme.colors.content.tertiary)
                 }
             }
 
@@ -1194,7 +1198,7 @@ private fun GoalSettingSheet(
                     "Book Target",
                     fontSize   = 14.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color      = MaterialTheme.colorScheme.onSurface
+                    color      = ScribeTheme.colors.content.primary
                 )
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -1225,7 +1229,7 @@ private fun GoalSettingSheet(
                                 fontSize   = 12.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                 color      = if (isSelected) accentColor
-                                             else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                             else ScribeTheme.colors.content.secondary
                             )
                         }
                     }
@@ -1283,13 +1287,13 @@ private fun BookPickerSheet(
                 "Set Ongoing Project",
                 fontWeight = FontWeight.Bold,
                 fontSize   = 18.sp,
-                color      = MaterialTheme.colorScheme.onSurface,
+                color      = ScribeTheme.colors.content.primary,
                 modifier   = Modifier.padding(bottom = 4.dp)
             )
             Text(
                 "A Chapters folder will be created in the selected book.",
                 fontSize = 13.sp,
-                color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                color    = ScribeTheme.colors.content.secondary,
                 modifier = Modifier.padding(bottom = 16.dp)
             )
 
@@ -1299,7 +1303,7 @@ private fun BookPickerSheet(
                     contentAlignment = Alignment.Center
                 ) {
                     Text("No books yet. Create a book first.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        color = ScribeTheme.colors.content.tertiary)
                 }
             } else {
                 books.forEach { book ->
@@ -1351,7 +1355,7 @@ private fun BookPickerSheet(
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                             fontSize   = 15.sp,
                             color      = if (isSelected) accentColor
-                                         else MaterialTheme.colorScheme.onSurface,
+                                         else ScribeTheme.colors.content.primary,
                             modifier   = Modifier.weight(1f)
                         )
                         if (isSelected) {

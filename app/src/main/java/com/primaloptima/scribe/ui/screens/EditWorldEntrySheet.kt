@@ -300,9 +300,9 @@ fun EditWorldEntrySheet(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Default.LocalOffer, contentDescription = null, tint = meta.color, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Tags & Keywords", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text("Tags & Keywords", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = ScribeTheme.colors.content.primary)
                             }
-                            Text("Separate with commas", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Separate with commas", fontSize = 11.sp, color = ScribeTheme.colors.content.tertiary)
                         }
 
                         // Tags cloud
@@ -368,8 +368,8 @@ fun EditWorldEntrySheet(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("World Attributes & Details", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                        Text("Drag or use arrows to reorder. Commas create pills.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("World Attributes & Details", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = ScribeTheme.colors.content.primary)
+                        Text("Drag or use arrows to reorder. Commas create pills.", fontSize = 11.sp, color = ScribeTheme.colors.content.tertiary)
                     }
                     FilledTonalButton(
                         onClick = {
@@ -519,7 +519,7 @@ private fun AttributeEditCard(
                         Icons.Default.ArrowUpward,
                         contentDescription = "Move Up",
                         modifier = Modifier.size(16.dp),
-                        tint = if (index > 0) MaterialTheme.colorScheme.onSurfaceVariant else subtleTextColor.copy(alpha = 0.35f)
+                        tint = if (index > 0) ScribeTheme.colors.content.secondary else ScribeTheme.colors.content.disabled
                     )
                 }
 
@@ -533,7 +533,7 @@ private fun AttributeEditCard(
                         Icons.Default.ArrowDownward,
                         contentDescription = "Move Down",
                         modifier = Modifier.size(16.dp),
-                        tint = if (index < totalCount - 1) MaterialTheme.colorScheme.onSurfaceVariant else subtleTextColor.copy(alpha = 0.35f)
+                        tint = if (index < totalCount - 1) ScribeTheme.colors.content.secondary else ScribeTheme.colors.content.disabled
                     )
                 }
 
