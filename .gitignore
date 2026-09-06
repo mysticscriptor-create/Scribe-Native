@@ -21,12 +21,12 @@ original_scribe_repo/
 .build-outputs/
 IMPROVEMENT_PLAN.md
 PORTING_PLAN.md
-node_modules/
-dist/
-bun.lock
-index.html
-package.json
-src/
-tsconfig.json
-vite.config.ts
+/node_modules/
+/dist/
+/bun.lock
+/index.html
+/package.json
+/src/
+/tsconfig.json
+/vite.config.ts
 
