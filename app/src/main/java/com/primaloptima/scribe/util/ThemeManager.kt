@@ -838,7 +838,7 @@ class ThemeManager(private val context: Context) {
                     primary = textCol,
                     secondary = mutedCol,
                     tertiary = subtleCol,
-                    disabled = mutedCol.copy(alpha = 0.38f),
+                    disabled = textCol.copy(alpha = 0.38f),
                     onAccent = onPrimaryCol
                 ),
                 interaction = com.primaloptima.scribe.ui.theme.InteractionColors(
