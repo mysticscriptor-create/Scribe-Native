@@ -208,7 +208,7 @@ fun ProseAnalysisView(
                         ) {
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Outlined.AutoStories, null, modifier = Modifier.size(14.dp), tint = colors.interaction.primary)
+                                    Icon(Icons.Outlined.AutoStories, null, modifier = Modifier.size(14.dp), tint = colors.analytics.series1)
                                     Spacer(Modifier.width(4.dp))
                                     Text("Reading Time", fontSize = 11.sp, color = colors.content.secondary)
                                 }
@@ -231,7 +231,7 @@ fun ProseAnalysisView(
                         ) {
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Outlined.RecordVoiceOver, null, modifier = Modifier.size(14.dp), tint = colors.interaction.primary)
+                                    Icon(Icons.Outlined.RecordVoiceOver, null, modifier = Modifier.size(14.dp), tint = colors.analytics.series2)
                                     Spacer(Modifier.width(4.dp))
                                     Text("Speaking Time", fontSize = 11.sp, color = colors.content.secondary)
                                 }
@@ -254,7 +254,7 @@ fun ProseAnalysisView(
                         ) {
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Outlined.FormatAlignLeft, null, modifier = Modifier.size(14.dp), tint = colors.interaction.primary)
+                                    Icon(Icons.Outlined.FormatAlignLeft, null, modifier = Modifier.size(14.dp), tint = colors.analytics.series3)
                                     Spacer(Modifier.width(4.dp))
                                     Text("Paragraphs", fontSize = 11.sp, color = colors.content.secondary)
                                 }
@@ -291,7 +291,7 @@ fun ProseAnalysisView(
                             modifier = Modifier
                                 .fillMaxHeight()
                                 .weight(analysis.narrativePercentage.coerceAtLeast(0.01f))
-                                .background(colors.interaction.primary.copy(alpha = 0.35f))
+                                .background(colors.analytics.series1.copy(alpha = 0.45f))
                         )
                     }
 
@@ -384,10 +384,10 @@ fun ProseAnalysisView(
                         Spacer(Modifier.height(8.dp))
 
                         val maxLen = analysis.sentenceLengths.max().coerceAtLeast(1)
-                        val primary = colors.interaction.primary
-                        val secondary = colors.interaction.secondary
-                        val tertiary = colors.interaction.tertiary
-                        val warningColor = colors.semantic.warning
+                        val series1 = colors.analytics.series1
+                        val series2 = colors.analytics.series2
+                        val series3 = colors.analytics.series3
+                        val warningColor = colors.analytics.warning
                         val surfaceLowest = colors.surfaces.surfaceLowest
 
                         // Show up to 120 sentences to keep chart compact
@@ -413,10 +413,10 @@ fun ProseAnalysisView(
                                 val barHeight = (fraction * totalHeight).coerceAtLeast(2f)
                                 val x = i * (barWidth + gap)
                                 val color = when {
-                                    len < 10  -> tertiary.copy(alpha = 0.75f)
-                                    len <= 20 -> primary.copy(alpha = 0.75f)
-                                    len <= 35 -> secondary.copy(alpha = 0.85f)
-                                    else      -> warningColor.copy(alpha = 0.9f)
+                                    len < 10  -> series3.copy(alpha = 0.85f)
+                                    len <= 20 -> series1.copy(alpha = 0.85f)
+                                    len <= 35 -> series2.copy(alpha = 0.85f)
+                                    else      -> warningColor.copy(alpha = 0.95f)
                                 }
                                 drawRoundRect(
                                     color = color,
@@ -432,10 +432,10 @@ fun ProseAnalysisView(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            RhythmLegendDot(tertiary.copy(alpha = 0.75f), "Short")
-                            RhythmLegendDot(primary.copy(alpha = 0.75f), "Medium")
-                            RhythmLegendDot(secondary.copy(alpha = 0.85f), "Long")
-                            RhythmLegendDot(warningColor.copy(alpha = 0.9f), "Very long")
+                            RhythmLegendDot(series3.copy(alpha = 0.85f), "Short (<10)")
+                            RhythmLegendDot(series1.copy(alpha = 0.85f), "Medium (10-20)")
+                            RhythmLegendDot(series2.copy(alpha = 0.85f), "Long (21-35)")
+                            RhythmLegendDot(warningColor.copy(alpha = 0.95f), "Very long (>35)")
                         }
                     }
                 }

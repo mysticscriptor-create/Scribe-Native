@@ -44,6 +44,7 @@ import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.ScribeTheme
+import com.primaloptima.scribe.ui.theme.categoryMeta
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.util.WorldImageUtil
 import com.primaloptima.scribe.viewmodel.SheetsViewModel

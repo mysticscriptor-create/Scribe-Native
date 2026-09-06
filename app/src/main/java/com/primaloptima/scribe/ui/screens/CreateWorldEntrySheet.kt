@@ -22,50 +22,13 @@ import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.ui.components.FrostedBottomSheet
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.ScribeTheme
+import com.primaloptima.scribe.ui.theme.CANONICAL_WORLD_CATEGORIES
+import com.primaloptima.scribe.ui.theme.CATEGORY_META
+import com.primaloptima.scribe.ui.theme.CategoryMeta
+import com.primaloptima.scribe.ui.theme.categoryColor
+import com.primaloptima.scribe.ui.theme.categoryMeta
 import com.primaloptima.scribe.ui.theme.frostedChip
 import com.primaloptima.scribe.viewmodel.SheetsViewModel
-
-@Composable
-@ReadOnlyComposable
-fun categoryColor(key: String): Color {
-    val world = ScribeTheme.colors.world
-    val subtle = ScribeTheme.colors.content.secondary
-    val fallbackSubtle = if (subtle != Color.Unspecified) subtle else MaterialTheme.colorScheme.onSurfaceVariant
-    return when (key.lowercase()) {
-        "character" -> world.character
-        "location" -> world.location
-        "faction" -> world.faction
-        "item" -> world.item
-        "lore" -> world.lore
-        "timeline", "event" -> world.event
-        "relationship" -> world.relationship
-        else -> fallbackSubtle
-    }
-}
-
-data class CategoryMeta(
-    val key: String,
-    val label: String,
-    val icon: ImageVector
-) {
-    val color: Color
-        @Composable
-        @ReadOnlyComposable
-        get() = categoryColor(key)
-}
-
-val CATEGORY_META = listOf(
-    CategoryMeta("All",      "All",       Icons.Default.GridView),
-    CategoryMeta("character","Characters", Icons.Default.Person),
-    CategoryMeta("location", "Locations",  Icons.Default.Place),
-    CategoryMeta("faction",  "Factions",   Icons.Default.Group),
-    CategoryMeta("item",     "Items",      Icons.Default.Category),
-    CategoryMeta("lore",     "Lore",       Icons.AutoMirrored.Filled.MenuBook),
-    CategoryMeta("timeline", "Timeline",   Icons.Default.Timeline),
-)
-
-fun categoryMeta(key: String): CategoryMeta =
-    CATEGORY_META.find { it.key.equals(key, ignoreCase = true) } ?: CATEGORY_META[0]
 
 @Composable
 fun CreateWorldEntrySheet(
@@ -77,7 +40,7 @@ fun CreateWorldEntrySheet(
     var type by remember {
         mutableStateOf(if (selectedCategory == "All") "character" else selectedCategory)
     }
-    val typeKeys = listOf("character", "location", "faction", "item", "lore", "timeline")
+    val typeKeys = listOf("character", "location", "faction", "item", "lore", "timeline", "relationship")
     val hazeState = LocalHazeState.current
     val accentColor = ScribeTheme.colors.interaction.primary
     val subtleText = ScribeTheme.colors.content.secondary
@@ -141,8 +104,7 @@ fun CreateWorldEntrySheet(
                                     imageVector = meta.icon,
                                     contentDescription = null,
                                     modifier = Modifier.size(16.dp),
-                                    tint = if (selected) MaterialTheme.colorScheme.onPrimary
-                                    else meta.color
+                                    tint = meta.color
                                 )
                             },
                             shape = RoundedCornerShape(12.dp),

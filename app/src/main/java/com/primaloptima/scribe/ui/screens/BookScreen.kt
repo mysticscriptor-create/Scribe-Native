@@ -1091,8 +1091,8 @@ private fun BookInfoHeader(
                         verticalAlignment     = Alignment.CenterVertically
                     ) {
                         StatChip(Icons.Outlined.TextFields, formatWordCount(totalWords), ScribeTheme.colors.analytics.series1)
-                        StatChip(Icons.Outlined.Description, "$fileCount", onSurfaceVariant)
-                        StatChip(Icons.Outlined.Folder, "$folderCount", onSurfaceVariant)
+                        StatChip(Icons.Outlined.Description, "$fileCount", ScribeTheme.colors.analytics.series2)
+                        StatChip(Icons.Outlined.Folder, "$folderCount", ScribeTheme.colors.analytics.series3)
                     }
                 }
             }
@@ -1232,7 +1232,9 @@ private fun NoteListRowStateless(
 
 @Composable
 private fun BookStatisticsTab(notes: List<Note>, bookTitle: String) {
-    val accentColor = ScribeTheme.colors.analytics.series1
+    val series1Color = ScribeTheme.colors.analytics.series1
+    val series2Color = ScribeTheme.colors.analytics.series2
+    val targetColor  = ScribeTheme.colors.analytics.target
     val onSurface   = MaterialTheme.colorScheme.onSurface
     val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
 
@@ -1257,14 +1259,14 @@ private fun BookStatisticsTab(notes: List<Note>, bookTitle: String) {
             ) {
                 ScribeCard(modifier = Modifier.weight(1f), cornerRadius = ScribeCardTokens.RadiusMedium, shine = true) {
                     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(text = "${notes.size}", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = onSurface)
+                        Text(text = "${notes.size}", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = series2Color)
                         Text(text = "Total Files", fontSize = 12.sp, color = onSurfaceVariant)
                     }
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 ScribeCard(modifier = Modifier.weight(1f), cornerRadius = ScribeCardTokens.RadiusMedium, shine = true) {
                     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(text = "$totalWords", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = accentColor)
+                        Text(text = "$totalWords", fontSize = 32.sp, fontWeight = FontWeight.Bold, color = series1Color)
                         Text(text = "Total Words", fontSize = 12.sp, color = onSurfaceVariant)
                     }
                 }
@@ -1279,23 +1281,24 @@ private fun BookStatisticsTab(notes: List<Note>, bookTitle: String) {
             } else {
                 scoredNotes.forEachIndexed { index, (note, count) ->
                     val ratio = (count / maxWords).coerceIn(0.05f, 1.0f)
+                    val rankColor = if (index == 0) targetColor else series1Color
                     if (index > 0) {
                         Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
-                            Box(modifier = Modifier.fillMaxWidth().height(0.8.dp).background(brush = Brush.horizontalGradient(colors = listOf(Color.Transparent, accentColor.copy(alpha = 0.25f), accentColor.copy(alpha = 0.25f), Color.Transparent))))
+                            Box(modifier = Modifier.fillMaxWidth().height(0.8.dp).background(brush = Brush.horizontalGradient(colors = listOf(Color.Transparent, series1Color.copy(alpha = 0.25f), series1Color.copy(alpha = 0.25f), Color.Transparent))))
                         }
                     }
                     Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                                Box(modifier = Modifier.size(22.dp).clip(CircleShape).background(accentColor.copy(alpha = if (index == 0) 0.22f else 0.10f)), contentAlignment = Alignment.Center) {
-                                    Text(text = "${index + 1}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = accentColor)
+                                Box(modifier = Modifier.size(22.dp).clip(CircleShape).background(rankColor.copy(alpha = if (index == 0) 0.22f else 0.10f)), contentAlignment = Alignment.Center) {
+                                    Text(text = "${index + 1}", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = rankColor)
                                 }
                                 Text(text = note.name.replace("\n", " · "), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             }
-                            Text(text = "$count words", fontSize = 12.sp, color = accentColor, fontWeight = FontWeight.Medium)
+                            Text(text = "$count words", fontSize = 12.sp, color = rankColor, fontWeight = FontWeight.Medium)
                         }
                         Text(text = "Folder: ${note.folderPath}", fontSize = 11.sp, color = onSurfaceVariant)
-                        ScribeProgressBar(progress = ratio, modifier = Modifier.fillMaxWidth().height(6.dp))
+                        ScribeProgressBar(progress = ratio, color = series1Color, modifier = Modifier.fillMaxWidth().height(6.dp))
                     }
                 }
             }

@@ -23,4 +23,10 @@ IMPROVEMENT_PLAN.md
 PORTING_PLAN.md
 node_modules/
 dist/
+bun.lock
+index.html
+package.json
+src/
+tsconfig.json
+vite.config.ts
 

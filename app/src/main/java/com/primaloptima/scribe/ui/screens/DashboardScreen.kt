@@ -256,7 +256,7 @@ private fun DashboardGreeting(streak: Int, accentColor: Color) {
         if (streak > 0) {
             ScribePill(
                 text  = "🔥 $streak ${if (streak == 1) "Day" else "Days"}",
-                color = ScribeTheme.colors.analytics.positive
+                color = ScribeTheme.colors.analytics.warning
             )
         }
     }
@@ -460,8 +460,10 @@ private fun CurrentProjectCard(
                             verticalAlignment     = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
+                            val progressColor = if (progressFraction >= 1f) ScribeTheme.colors.analytics.positive else ScribeTheme.colors.analytics.series1
                             ScribeProgressBar(
                                 progress = progressFraction,
+                                color    = progressColor,
                                 modifier = Modifier.weight(1f).height(6.dp)
                             )
                             Text(
@@ -469,7 +471,7 @@ private fun CurrentProjectCard(
                                 fontSize   = 13.sp,
                                 lineHeight = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color      = accentColor
+                                color      = progressColor
                             )
                         }
                     }
@@ -743,13 +745,14 @@ private fun WritingProgressCard(
                 iconTint  = ScribeTheme.colors.analytics.warning,
                 extra     = {
                     Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
+                        val streakWarningColor = ScribeTheme.colors.analytics.warning
                         streakDots.forEach { (_, hasWords) ->
                             Box(
                                 modifier = Modifier
                                     .size(6.dp)
                                     .clip(CircleShape)
                                     .background(
-                                        if (hasWords) accentColor
+                                        if (hasWords) streakWarningColor
                                         else MaterialTheme.colorScheme.outlineVariant
                                     )
                             )
@@ -767,8 +770,10 @@ private fun WritingProgressCard(
                 subLabel  = "${formatWordCount(monthWritten)} written",
                 icon      = Icons.Outlined.TrackChanges,
                 extra     = {
+                    val monthProgressColor = if (monthProgress >= 1f) ScribeTheme.colors.analytics.positive else ScribeTheme.colors.analytics.series1
                     ScribeProgressBar(
                         progress = monthProgress,
+                        color    = monthProgressColor,
                         modifier = Modifier
                             .fillMaxWidth(0.75f)
                             .height(4.dp)
@@ -805,9 +810,8 @@ private fun WritingProgressCard(
             }
             Spacer(modifier = Modifier.height(10.dp))
             PremiumWeekBarChart(
-                weekData    = weekData,
-                accentColor = accentColor,
-                modifier    = Modifier.fillMaxWidth().height(80.dp)
+                weekData = weekData,
+                modifier = Modifier.fillMaxWidth().height(80.dp)
             )
         }
 
@@ -873,10 +877,10 @@ private fun WritingProgressCard(
 @Composable
 private fun PremiumWeekBarChart(
     weekData: List<Triple<String, Int, Boolean>>,
-    accentColor: Color = Color.Unspecified,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    seriesColor: Color = ScribeTheme.colors.analytics.series1,
+    targetColor: Color = ScribeTheme.colors.analytics.target
 ) {
-    val seriesColor = if (accentColor != Color.Unspecified) accentColor else ScribeTheme.colors.analytics.series1
     val maxVal      = remember(weekData) { (weekData.maxOfOrNull { it.second } ?: 1).coerceAtLeast(1) }
     val trackColor  = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.18f)
     val labelColor  = ScribeTheme.colors.content.secondary
@@ -937,7 +941,7 @@ private fun PremiumWeekBarChart(
 
                 if (isToday && fraction > 0.01f) {
                     drawCircle(
-                        color  = seriesColor,
+                        color  = targetColor,
                         radius = dotSizePx,
                         center = Offset(left + barW / 2f, top - dotSizePx - 2f)
                     )

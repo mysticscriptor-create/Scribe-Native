@@ -37,6 +37,7 @@ import com.primaloptima.scribe.ui.components.FullScreenImageViewer
 import com.primaloptima.scribe.ui.components.ImageCropperDialog
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
 import com.primaloptima.scribe.ui.theme.ScribeTheme
+import com.primaloptima.scribe.ui.theme.categoryMeta
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.util.WorldImageUtil
 import com.primaloptima.scribe.viewmodel.SheetsViewModel

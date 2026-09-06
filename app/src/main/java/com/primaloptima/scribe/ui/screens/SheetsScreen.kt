@@ -64,6 +64,7 @@ import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.ScribeTheme
+import com.primaloptima.scribe.ui.theme.categoryMeta
 import com.primaloptima.scribe.ui.theme.frostedChip
 import com.primaloptima.scribe.ui.theme.frostedSearchBox
 import com.primaloptima.scribe.util.AppJson
@@ -126,14 +127,14 @@ private fun CategoryPill(
                 imageVector = icon,
                 contentDescription = null,
                 modifier = Modifier.size(15.dp),
-                tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else color
+                tint = color
             )
             Spacer(modifier = Modifier.width(4.dp))
             Text(
                 text = if (count > 0 && key != "more") "$label ($count)" else label,
                 fontSize = 11.5.sp,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                color = if (selected) ScribeTheme.colors.content.primary else ScribeTheme.colors.content.secondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -155,7 +156,7 @@ fun SheetsScreen(
     val focusManager = LocalFocusManager.current
     val allEntries by vm.allEntries.collectAsStateWithLifecycle()
 
-    val categoryKeys = remember { listOf("All", "character", "location", "faction", "item", "lore", "timeline") }
+    val categoryKeys = remember { listOf("All", "character", "location", "faction", "item", "lore", "timeline", "relationship") }
     val pagerState = rememberPagerState(initialPage = 0) { categoryKeys.size }
 
     var searchQuery by remember { mutableStateOf("") }

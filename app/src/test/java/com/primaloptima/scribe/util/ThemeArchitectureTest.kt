@@ -1001,4 +1001,144 @@ class ThemeArchitectureTest {
             assertTrue("Theme ${theme.name} heading contrast >= 3.0:1 (was $headingContrast)", headingContrast >= 3.0)
         }
     }
+
+    // ── Test 40: Phase 6 World Tokens Complete Across Six Built-in Themes ─────
+    @Test
+    fun testPhase6_canonicalWorldEntityTokensCompleteAcrossSixThemes() {
+        val themes = DefaultThemes.all
+        assertEquals("Six default themes exist", 6, themes.size)
+
+        for (theme in themes) {
+            val resolved = ThemeManager.resolveTheme(theme)
+            val c = resolved.colors
+
+            assertTrue("${theme.name} has valid worldCharacter", c.worldCharacter.isNotBlank() && c.worldCharacter.startsWith("#"))
+            assertTrue("${theme.name} has valid worldLocation", c.worldLocation.isNotBlank() && c.worldLocation.startsWith("#"))
+            assertTrue("${theme.name} has valid worldFaction", c.worldFaction.isNotBlank() && c.worldFaction.startsWith("#"))
+            assertTrue("${theme.name} has valid worldItem", c.worldItem.isNotBlank() && c.worldItem.startsWith("#"))
+            assertTrue("${theme.name} has valid worldLore", c.worldLore.isNotBlank() && c.worldLore.startsWith("#"))
+            assertTrue("${theme.name} has valid worldEvent", c.worldEvent.isNotBlank() && c.worldEvent.startsWith("#"))
+            assertTrue("${theme.name} has valid worldRelationship", c.worldRelationship.isNotBlank() && c.worldRelationship.startsWith("#"))
+
+            // Verify that world tokens are distinct hues and not identical placeholders
+            val setOfWorldColors = setOf(
+                c.worldLocation, c.worldFaction, c.worldItem, c.worldLore, c.worldEvent, c.worldRelationship
+            )
+            assertTrue("${theme.name} world category hues are distinct (${setOfWorldColors.size}/6)", setOfWorldColors.size >= 5)
+        }
+    }
+
+    // ── Test 41: Phase 6 World Role Overrides Do Not Cross-Contaminate ─────────
+    @Test
+    fun testPhase6_worldRoleOverridesIndependence() {
+        val base = DefaultThemes.obsidian
+        val customLoc = "#00FF7F"
+        val customItem = "#FFD700"
+
+        val overrides = ThemeColorOverrides(
+            worldLocation = customLoc,
+            worldItem = customItem
+        )
+        val resolved = ThemeManager.resolveTheme(base.copy(overrides = overrides))
+
+        // Target tokens are updated
+        assertEquals(customLoc, resolved.colors.worldLocation)
+        assertEquals(customItem, resolved.colors.worldItem)
+
+        // Non-world tokens remain untainted
+        assertEquals(base.colors.accent, resolved.colors.accent)
+        assertEquals(base.colors.success, resolved.colors.success)
+        assertEquals(base.colors.warning, resolved.colors.warning)
+        assertEquals(base.colors.error, resolved.colors.error)
+        assertEquals(base.colors.selection, resolved.colors.selection)
+
+        // Other world tokens resolve to their defaults
+        assertNotNull(resolved.colors.worldCharacter)
+        assertNotNull(resolved.colors.worldFaction)
+        assertNotNull(resolved.colors.worldLore)
+        assertNotNull(resolved.colors.worldEvent)
+        assertNotNull(resolved.colors.worldRelationship)
+    }
+
+    // ── Test 42: Phase 6 World Category Metadata Resolution Integrity ─────────
+    @Test
+    fun testPhase6_worldCategoryMetadataIntegrity() {
+        val categories = com.primaloptima.scribe.ui.theme.CANONICAL_WORLD_CATEGORIES
+        val keys = categories.map { it.key }
+
+        assertTrue("Contains all entity keys", keys.containsAll(listOf(
+            "All", "character", "location", "faction", "item", "lore", "timeline", "relationship"
+        )))
+
+        // Aliasing: "event" resolves to timeline/event metadata
+        val eventMeta = com.primaloptima.scribe.ui.theme.categoryMeta("event")
+        assertEquals("Timeline", eventMeta.label)
+
+        // Case insensitivity
+        val charMeta = com.primaloptima.scribe.ui.theme.categoryMeta("CHARACTER")
+        assertEquals("character", charMeta.key)
+        assertEquals("Characters", charMeta.label)
+
+        // Unknown key fallback
+        val unknownMeta = com.primaloptima.scribe.ui.theme.categoryMeta("custom_creature")
+        assertEquals("custom_creature", unknownMeta.key)
+        assertEquals("Custom_creature", unknownMeta.label)
+    }
+
+    // ── Test 43: Phase 7 Analytics Tokens Completeness and Defaults ───────────
+    @Test
+    fun testPhase7_analyticsTokensCompletenessAndDefaults() {
+        val themes = DefaultThemes.builtInThemes
+        for (theme in themes) {
+            val resolved = ThemeManager.resolveTheme(theme)
+            val c = resolved.colors
+
+            assertTrue("${theme.name} must have valid analyticsPositive", c.analyticsPositive.isNotBlank() && c.analyticsPositive.startsWith("#"))
+            assertTrue("${theme.name} must have valid analyticsNeutral", c.analyticsNeutral.isNotBlank() && c.analyticsNeutral.startsWith("#"))
+            assertTrue("${theme.name} must have valid analyticsNegative", c.analyticsNegative.isNotBlank() && c.analyticsNegative.startsWith("#"))
+            assertTrue("${theme.name} must have valid analyticsSeries1", c.analyticsSeries1.isNotBlank() && c.analyticsSeries1.startsWith("#"))
+            assertTrue("${theme.name} must have valid analyticsSeries2", c.analyticsSeries2.isNotBlank() && c.analyticsSeries2.startsWith("#"))
+            assertTrue("${theme.name} must have valid analyticsSeries3", c.analyticsSeries3.isNotBlank() && c.analyticsSeries3.startsWith("#"))
+            assertTrue("${theme.name} must have valid analyticsTarget", c.analyticsTarget.isNotBlank() && c.analyticsTarget.startsWith("#"))
+            assertTrue("${theme.name} must have valid analyticsWarning", c.analyticsWarning.isNotBlank() && c.analyticsWarning.startsWith("#"))
+        }
+    }
+
+    // ── Test 44: Phase 7 Analytics Token Override Isolation ───────────────────
+    @Test
+    fun testPhase7_analyticsTokenOverrideIsolation() {
+        val base = DefaultThemes.midnight
+        val customSeries1 = "#00FFCC"
+        val customTarget  = "#FFD700"
+
+        val overrides = ThemeColorOverrides(
+            analyticsSeries1 = customSeries1,
+            analyticsTarget  = customTarget
+        )
+        val resolved = ThemeManager.resolveTheme(base.copy(overrides = overrides))
+
+        // Target tokens are updated
+        assertEquals(customSeries1, resolved.colors.analyticsSeries1)
+        assertEquals(customTarget, resolved.colors.analyticsTarget)
+
+        // Non-analytics tokens remain untainted
+        assertEquals(base.colors.accent, resolved.colors.accent)
+        assertEquals(base.colors.success, resolved.colors.success)
+        assertEquals(base.colors.warning, resolved.colors.warning)
+        assertEquals(base.colors.error, resolved.colors.error)
+        assertEquals(base.colors.worldCharacter, resolved.colors.worldCharacter)
+        assertEquals(base.colors.worldLocation, resolved.colors.worldLocation)
+    }
+
+    // ── Test 45: Phase 7 Analytics Distinct Series Channels ───────────────────
+    @Test
+    fun testPhase7_analyticsDistinctSeriesChannels() {
+        val sources = ThemeSourcePalette(background = "#121212", text = "#FFFFFF", accent = "#BB86FC")
+        val derived = ThemeManager.generateThemeDefaults(sources, isDark = true)
+
+        assertNotEquals("series1 and series2 must be distinct", derived.analyticsSeries1, derived.analyticsSeries2)
+        assertNotEquals("series2 and series3 must be distinct", derived.analyticsSeries2, derived.analyticsSeries3)
+        assertNotEquals("series1 and series3 must be distinct", derived.analyticsSeries1, derived.analyticsSeries3)
+        assertNotEquals("target and series1 must be distinct", derived.analyticsTarget, derived.analyticsSeries1)
+    }
 }

@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.ScribeTheme
+import com.primaloptima.scribe.ui.theme.categoryMeta
 import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.data.WorldEntry
@@ -550,18 +551,31 @@ fun AddWorldSheetModal(
                                 Spacer(Modifier.width(8.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
+                                        val catMeta = categoryMeta(entry.type)
                                         Surface(
                                             shape = RoundedCornerShape(4.dp),
-                                            color = MaterialTheme.colorScheme.secondaryContainer,
+                                            color = catMeta.color.copy(alpha = 0.15f),
+                                            border = androidx.compose.foundation.BorderStroke(0.5.dp, catMeta.color.copy(alpha = 0.35f)),
                                             modifier = Modifier.padding(end = 6.dp)
                                         ) {
-                                            Text(
-                                                text = entry.type.uppercase(),
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                            )
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = catMeta.icon,
+                                                    contentDescription = null,
+                                                    tint = catMeta.color,
+                                                    modifier = Modifier.size(10.dp)
+                                                )
+                                                Spacer(Modifier.width(3.dp))
+                                                Text(
+                                                    text = catMeta.label.dropLast(1).ifEmpty { catMeta.label }.uppercase(),
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = catMeta.color
+                                                )
+                                            }
                                         }
                                         Text(
                                             text = entry.name,

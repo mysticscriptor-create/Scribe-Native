@@ -66,14 +66,27 @@ Two semantic roles may resolve to the identical RGB value in a particular theme 
 - **`info` / `onInfo` / `infoContainer` / `onInfoContainer`**: Informational alerts, tooltips, guidance badges.
 
 ### F. Analytics & Metrics Roles (`AnalyticsColors`)
-- **`positive`**: Upward trend, wordcount delta surplus (+N words).
+- **`positive`**: Upward trend, wordcount delta surplus (+N words), goal completed milestone (progress $\ge$ 100%).
 - **`neutral`**: Flat trend, baseline target metric, neutral word count delta (0 words).
 - **`negative`**: Downward trend, deficit, wordcount delta reduction (-N words).
-- **`series1`**: Primary data chart series, primary word map bar.
-- **`series2`**: Secondary data chart series, comparison chart line.
-- **`series3`**: Tertiary data chart series, cumulative background area.
-- **`target`**: Benchmark goal line, top rank indicator, milestone marker.
-- **`warning`**: Writing streak fire icon, pacing deficit warning, deadline proximity warning.
+- **`series1`**: Primary data chart series, primary word count bar, primary progress metric.
+- **`series2`**: Secondary data chart series, comparison chart line, file count metric.
+- **`series3`**: Tertiary data chart series, cumulative background area, structural/folder metric, short sentence rhythm category.
+- **`target`**: Benchmark goal line, top rank indicator badge, milestone marker.
+- **`warning`**: Writing streak fire icon, pacing deficit warning, deadline proximity warning, excessive sentence length alert.
+
+#### Analytics Token Usage & Accessibility Rules:
+1. **Multi-Modal Redundancy (WCAG 2.2 SC 1.4.1)**: Color must *never* be the sole indicator of analytics trends, milestones, or series.
+   - Trend deltas must pair color with directional signs/arrows (`+`, `-`) and numeric values.
+   - Chart bars and target lines must provide textual legends or value labels (e.g., "Goal: 1,500w").
+   - Streak indicators must pair `warning` tint with a fire icon (`🔥` / `Icons.Default.LocalFireDepartment`) and explicit day count text.
+2. **Series Separation & Role Integrity**:
+   - `series1` is strictly reserved for primary writing velocity (words written).
+   - `series2` represents secondary structural units (files/notes/reading time).
+   - `series3` represents tertiary organizational units (folders/speaking time/short rhythmic units).
+   - Never substitute `interaction.primary` (accent) or generic theme colors for chart series when `analytics.series*` tokens are designated.
+3. **Contrast Compliance on Elevated Surfaces**:
+   - Analytics series and target indicators drawn on `surfaces.surface` or `surfaces.surfaceRaised` must maintain $\ge 3.0:1$ graphical contrast (WCAG AA non-text contrast) and $\ge 45$ Lc APCA lightness contrast.
 
 ### G. Worldbuilding Entity Roles (`WorldEntityColors`)
 - **`character`**: Character codex badges, POV markers, dialogue attribution.
@@ -83,6 +96,11 @@ Two semantic roles may resolve to the identical RGB value in a particular theme 
 - **`lore`**: World history, mythology, world rules, magic systems.
 - **`event`**: Timelines, historical events, chronological milestones.
 - **`relationship`**: Character ties, social graphs, alignment connections.
+
+#### World Token Usage & Accessibility Rules:
+1. **Multi-Modal Redundancy (WCAG 2.2 SC 1.4.1)**: Category color must *never* be the sole indicator of an entity type. UI elements representing entity categories must pair the world token with a textual type label and/or distinct icon (e.g., `Icons.Default.Person` for character, `Icons.Default.Place` for location, `Icons.Default.Link` for relationship).
+2. **Filter & Selection State Separation**: Selected states (e.g. filter chips, active pills) must be expressed via container elevation/border/selection tokens (`interaction.selection`), while the category icon or dot retains its canonical world token. Category tokens must not be hijacked to signify selection.
+3. **Status vs. Type Independence**: State indications (e.g. errors, warnings, deletions) must use `semantic.*` tokens and must not overwrite or mutate the entity's category color.
 
 ### H. Border Hierarchy Roles (`BorderColors`)
 - **`subtle`**: Low-contrast internal dividers, nested card outlines, table gridlines.

@@ -200,7 +200,7 @@ private fun DetailedStatisticsTab(
                     }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
-                CombinedBarTrendChart(entries = chartData)
+                CombinedBarTrendChart(entries = chartData, dailyGoal = dailyGoal)
             }
         }
 
@@ -361,8 +361,9 @@ private fun DetailedStatisticsTab(
 }
 
 @Composable
-private fun CombinedBarTrendChart(entries: List<DailyWordEntry>) {
+private fun CombinedBarTrendChart(entries: List<DailyWordEntry>, dailyGoal: Int = 0) {
     val series1Color = ScribeTheme.colors.analytics.series1
+    val targetColor = ScribeTheme.colors.analytics.target
     val onSurface = MaterialTheme.colorScheme.onSurface
     val gridColor = onSurface.copy(alpha = 0.08f)
     var selectedIndex by remember { mutableStateOf<Int?>(null) }
@@ -418,6 +419,18 @@ private fun CombinedBarTrendChart(entries: List<DailyWordEntry>) {
                     end = Offset(size.width - rightPadding, yPos),
                     pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f),
                     strokeWidth = 1.dp.toPx()
+                )
+            }
+
+            // Target benchmark line if dailyGoal is set
+            if (dailyGoal > 0 && dailyGoal <= maxVal * 1.25f) {
+                val targetY = (topPadding + chartHeight - (dailyGoal.toFloat() / maxVal * chartHeight)).coerceIn(topPadding, topPadding + chartHeight)
+                drawLine(
+                    color = targetColor.copy(alpha = 0.70f),
+                    start = Offset(leftPadding, targetY),
+                    end = Offset(size.width - rightPadding, targetY),
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f),
+                    strokeWidth = 1.5.dp.toPx()
                 )
             }
 
