@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.ui.components.FrostedBottomSheet
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.frostedSearchBox
 
 @OptIn(ExperimentalLayoutApi::class)
