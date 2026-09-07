@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Maximize
@@ -88,16 +87,18 @@ private fun FloatingWindowItem(
     val offsetX = windowState.x.coerceIn(0f, (screenWidthPx - windowWidthPx).coerceAtLeast(0f))
     val offsetY = windowState.y.coerceIn(0f, (screenHeightPx - 200f).coerceAtLeast(0f))
 
+    val windowShape = ScribeTheme.shapes.cardSmall
+
     Surface(
         modifier = Modifier
             .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
             .width(windowWidthDp)
-            .shadow(12.dp, RoundedCornerShape(12.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(12.dp))
+            .shadow(12.dp, windowShape)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, windowShape)
             .onGloballyPositioned { coords ->
                 registerBounds("floating_window_${windowState.id}", coords.boundsInRoot())
             },
-        shape = RoundedCornerShape(12.dp),
+        shape = windowShape,
         color = MaterialTheme.colorScheme.surface
     ) {
         Column {

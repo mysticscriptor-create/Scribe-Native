@@ -132,7 +132,13 @@ fun ScribeCard(
     val hazeState    = LocalHazeState.current
     val hasBgImage   = localHasBgImage()
     val solidSurface = LocalSolidSurface.current
-    val cardShape    = shape ?: RoundedCornerShape(cornerRadius)
+    val cardShape    = shape ?: when (cornerRadius) {
+        ScribeCardTokens.RadiusLarge  -> ScribeCardTokens.ShapeLarge
+        ScribeCardTokens.RadiusMedium -> ScribeCardTokens.ShapeMedium
+        ScribeCardTokens.RadiusSmall  -> ScribeCardTokens.ShapeSmall
+        ScribeCardTokens.RadiusTiny   -> ScribeCardTokens.ShapeTiny
+        else                          -> RoundedCornerShape(cornerRadius)
+    }
 
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -226,6 +232,7 @@ fun ScribeContentCard(
     title: String,
     modifier: Modifier = Modifier,
     cornerRadius: Dp = ScribeCardTokens.RadiusLarge,
+    shape: androidx.compose.ui.graphics.Shape? = null,
     onClick: (() -> Unit)? = null,
     // Legacy parameters — kept so DashboardScreen does not need changes.
     // For new screens, use headerTrailing instead.
@@ -261,6 +268,7 @@ fun ScribeContentCard(
     ScribeCard(
         modifier     = modifier,
         cornerRadius = cornerRadius,
+        shape        = shape,
         onClick      = onClick,
         shine        = true,
     ) {
@@ -375,7 +383,8 @@ fun ScribeStripCard(
     onClick: (() -> Unit)? = null,
     showDivider: Boolean = false,
     wrapInCard: Boolean = true,
-    cornerRadius: Dp = ScribeCardTokens.RadiusMedium
+    cornerRadius: Dp = ScribeCardTokens.RadiusMedium,
+    shape: androidx.compose.ui.graphics.Shape? = null
 ) {
     val contentPrimary = ScribeTheme.colors.content.primary
     val contentSecondary = ScribeTheme.colors.content.secondary
@@ -463,6 +472,7 @@ fun ScribeStripCard(
         ScribeCard(
             modifier     = modifier,
             cornerRadius = cornerRadius,
+            shape        = shape,
             onClick      = onClick,
             shine        = true
         ) {
@@ -560,13 +570,14 @@ fun ScribeActionTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isPrimary: Boolean = false,
+    shape: androidx.compose.ui.graphics.Shape? = null,
     badge: (@Composable BoxScope.() -> Unit)? = null
 ) {
     val accentColor  = ScribeTheme.colors.interaction.primary
     val hazeState    = LocalHazeState.current
     val hasBgImage   = localHasBgImage()
     val solidSurface = LocalSolidSurface.current
-    val shape        = ScribeCardTokens.ShapeMedium
+    val tileShape    = shape ?: ScribeCardTokens.ShapeMedium
 
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -586,11 +597,11 @@ fun ScribeActionTile(
     Box(
         modifier = modifier
             .scale(scale)
-            .clip(shape)
+            .clip(tileShape)
             .background(containerColor)
-            .then(if (!isPrimary) Modifier.frostedCard(hazeState, shape = shape) else Modifier)
+            .then(if (!isPrimary) Modifier.frostedCard(hazeState, shape = tileShape) else Modifier)
             .then(
-                if (isFocused) Modifier.border(2.dp, ScribeTheme.colors.interaction.focus, shape)
+                if (isFocused) Modifier.border(2.dp, ScribeTheme.colors.interaction.focus, tileShape)
                 else Modifier
             )
             .clickable(

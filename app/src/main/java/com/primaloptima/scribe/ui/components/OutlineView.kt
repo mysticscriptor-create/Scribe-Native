@@ -3,7 +3,6 @@ package com.primaloptima.scribe.ui.components
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FormatListNumbered
 import androidx.compose.material3.*
@@ -66,7 +65,7 @@ fun OutlineView(
                             editor.setSelection(line, 0)
                         }
                     },
-                    shape = RoundedCornerShape(6.dp),
+                    shape = ScribeTheme.shapes.buttonSmall,
                     color = Color.Transparent,
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -77,7 +76,7 @@ fun OutlineView(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Surface(
-                            shape = RoundedCornerShape(3.dp),
+                            shape = ScribeTheme.shapes.extraSmall,
                             color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                             modifier = Modifier.padding(end = 8.dp)
                         ) {

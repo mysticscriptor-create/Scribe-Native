@@ -3,7 +3,6 @@ package com.primaloptima.scribe.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -101,7 +100,7 @@ object ScribeBarTokens {
     // ── Shape ─────────────────────────────────────────────────────────────────
 
     /** Bars are full-width rectangles — no corner rounding needed. */
-    val Shape = RoundedCornerShape(0.dp)
+    val Shape = ScribeShapeTokens.None
 
     // ── Border — matches FAB and Card accent border exactly ───────────────────
 
@@ -494,7 +493,7 @@ fun ScribeEditorTopBar(
             modifier   = titleModifier
                 .weight(1f)
                 .padding(start = ScribeBarTokens.TitleStartPadding, end = 4.dp)
-                .clip(RoundedCornerShape(6.dp))
+                .clip(ScribeTheme.shapes.buttonSmall)
                 .then(
                     if (title != null)
                         Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
@@ -584,7 +583,7 @@ fun ScribeNavBar(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(ScribeTheme.shapes.button)
                     .then(
                         if (isSelected) Modifier.background(ScribeTheme.colors.surfaces.surfaceSelected)
                         else Modifier
@@ -597,7 +596,7 @@ fun ScribeNavBar(
                     verticalArrangement = Arrangement.Center,
                     modifier = Modifier
                         .fillMaxSize()
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(ScribeTheme.shapes.button)
                         .then(
                             Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
                         )

@@ -13,7 +13,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -133,7 +132,7 @@ fun ImageCropperDialog(
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary
                         ),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = ScribeTheme.shapes.button,
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
                     ) {
                         Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -148,7 +147,7 @@ fun ImageCropperDialog(
                         .weight(1f)
                         .fillMaxWidth()
                         .padding(16.dp)
-                        .clip(RoundedCornerShape(16.dp))
+                        .clip(ScribeTheme.shapes.cardMedium)
                         .background(surfaceLowest)
                         .onGloballyPositioned { coordinates ->
                             viewportSize = coordinates.size

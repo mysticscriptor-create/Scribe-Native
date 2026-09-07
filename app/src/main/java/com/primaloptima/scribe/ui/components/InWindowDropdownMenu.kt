@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.LocalContentColor
@@ -247,7 +246,7 @@ fun FrostedInWindowDropdownMenu(
     offset: DpOffset = DpOffset.Zero,
     scrollState: ScrollState = rememberScrollState(),
     properties: PopupProperties = PopupProperties(focusable = true),
-    shape: Shape = RoundedCornerShape(14.dp),
+    shape: Shape = ScribeShapeTokens.Menu,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val menuHost = LocalInWindowMenuHost.current

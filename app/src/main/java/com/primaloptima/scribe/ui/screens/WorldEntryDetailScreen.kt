@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
@@ -162,8 +161,8 @@ fun WorldEntryDetailScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(180.dp)
-                                        .clip(RoundedCornerShape(16.dp))
-                                        .border(1.5.dp, meta.color.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                                        .clip(ScribeTheme.shapes.cardMedium)
+                                        .border(1.5.dp, meta.color.copy(alpha = 0.5f), ScribeTheme.shapes.cardMedium)
                                         .clickable { showImageViewer = true }
                                 ) {
                                     AsyncImage(
@@ -207,8 +206,8 @@ fun WorldEntryDetailScreen(
                                     modifier = Modifier
                                         .width(115.dp)
                                         .height(150.dp)
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .border(1.5.dp, meta.color.copy(alpha = 0.7f), RoundedCornerShape(14.dp))
+                                        .clip(ScribeTheme.shapes.cardMedium)
+                                        .border(1.5.dp, meta.color.copy(alpha = 0.7f), ScribeTheme.shapes.cardMedium)
                                         .clickable { showImageViewer = true }
                                 ) {
                                     AsyncImage(

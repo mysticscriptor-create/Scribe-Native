@@ -300,6 +300,7 @@ object ScribeShapeTokens {
     val FabSmall: CornerBasedShape = Medium                                    // 12.dp - Small FAB
     val SpeedDial: CornerBasedShape = ExtraLarge                               // 20.dp - Speed dial menu card
     val Handle: CornerBasedShape = RoundedCornerShape(2.dp)                    // 2.dp  - Drag handles
+    val Tag: CornerBasedShape = RoundedCornerShape(6.dp)                       // 6.dp  - Tag and entity badges
 }
 
 @Immutable
@@ -329,7 +330,8 @@ data class ScribeShapes(
     val fab: CornerBasedShape = ScribeShapeTokens.Fab,
     val fabSmall: CornerBasedShape = ScribeShapeTokens.FabSmall,
     val speedDial: CornerBasedShape = ScribeShapeTokens.SpeedDial,
-    val handle: CornerBasedShape = ScribeShapeTokens.Handle
+    val handle: CornerBasedShape = ScribeShapeTokens.Handle,
+    val tag: CornerBasedShape = ScribeShapeTokens.Tag
 ) {
     fun toMaterialShapes(): androidx.compose.material3.Shapes = androidx.compose.material3.Shapes(
         extraSmall = extraSmall,

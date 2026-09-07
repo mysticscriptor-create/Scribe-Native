@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -146,7 +145,7 @@ fun ProseAnalysisView(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp)),
+                            .clip(ScribeTheme.shapes.extraSmall),
                         color = progressColor,
                         trackColor = colors.surfaces.surfaceLowest
                     )
@@ -279,7 +278,7 @@ fun ProseAnalysisView(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(10.dp)
-                            .clip(RoundedCornerShape(5.dp))
+                            .clip(ScribeTheme.shapes.extraSmall)
                     ) {
                         Box(
                             modifier = Modifier
@@ -398,7 +397,7 @@ fun ProseAnalysisView(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(64.dp)
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(ScribeTheme.shapes.cardNested)
                                 .background(surfaceLowest.copy(alpha = 0.6f))
                                 .padding(horizontal = 6.dp, vertical = 6.dp)
                         ) {

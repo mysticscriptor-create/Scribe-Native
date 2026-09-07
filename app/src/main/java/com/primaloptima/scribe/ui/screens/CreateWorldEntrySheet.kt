@@ -110,8 +110,8 @@ fun CreateWorldEntrySheet(
                                     tint = meta.color
                                 )
                             },
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.frostedChip(hazeState, shape = RoundedCornerShape(12.dp), isSelected = selected)
+                            shape = ScribeTheme.shapes.cardSmall,
+                            modifier = Modifier.frostedChip(hazeState, shape = ScribeTheme.shapes.cardSmall, isSelected = selected)
                         )
                     }
                 }

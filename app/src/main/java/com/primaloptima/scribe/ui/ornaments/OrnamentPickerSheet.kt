@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -110,12 +109,14 @@ fun OrnamentPickerSheet(
                         Color.Transparent
                     }
 
+                    val itemShape = ScribeTheme.shapes.cardSmall
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
+                            .clip(itemShape)
                             .background(itemBg)
-                            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+                            .border(1.dp, borderColor, itemShape)
                             .clickable {
                                 onSelect(ornament.id)
                                 onDismiss()

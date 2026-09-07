@@ -39,6 +39,7 @@ import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.ScribeShapeTokens
 import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.components.ScribeBarAction
@@ -227,7 +228,7 @@ private fun ThemeCard(
     val textColor = parseComposeColor(theme.colors.text, ScribeTheme.colors.content.primary)
     val mutedColor = parseComposeColor(theme.colors.mutedText, ScribeTheme.colors.content.secondary)
     val accentColor = parseComposeColor(theme.colors.accent, MaterialTheme.colorScheme.primary)
-    val cardShape = RoundedCornerShape(12.dp)
+    val cardShape = ScribeTheme.shapes.cardSmall
 
     val displayName = if (!theme.emoji.isNullOrEmpty()) "${theme.emoji} ${theme.name}" else theme.name
 
@@ -268,7 +269,7 @@ private fun ThemeCard(
                     .fillMaxHeight()
                     .background(
                         accentColor,
-                        shape = RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp)
+                        shape = RoundedCornerShape(topStart = ScribeShapeTokens.RadiusMedium, bottomStart = ScribeShapeTokens.RadiusMedium)
                     )
             )
 

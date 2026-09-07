@@ -5,7 +5,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -67,15 +66,16 @@ fun SectionOverflowMenu(
         onDismissRequest = onDismiss,
         properties = PopupProperties(focusable = true)
     ) {
+        val menuShape = ScribeTheme.shapes.menu
         Surface(
             modifier = Modifier
                 .widthIn(min = 210.dp, max = 270.dp)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(menuShape)
                 .then(
-                    if (hasBgImage) Modifier.frostedCard(hazeState, RoundedCornerShape(12.dp), applyFallbackBackground = true)
-                    else Modifier.background(solidSurface, RoundedCornerShape(12.dp))
+                    if (hasBgImage) Modifier.frostedCard(hazeState, menuShape, applyFallbackBackground = true)
+                    else Modifier.background(solidSurface, menuShape)
                 ),
-            shape = RoundedCornerShape(12.dp),
+            shape = menuShape,
             color = if (hasBgImage) Color.Transparent else solidSurface,
             tonalElevation = 8.dp,
             shadowElevation = 10.dp,

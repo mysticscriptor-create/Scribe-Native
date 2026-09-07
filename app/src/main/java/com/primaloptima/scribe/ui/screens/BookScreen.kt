@@ -1016,7 +1016,7 @@ private fun BookInfoHeader(
                     modifier = Modifier
                         .width(90.dp)
                         .height(130.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(ScribeTheme.shapes.cardSmall)
                         .background(accentColor.copy(alpha = 0.12f))
                 ) {
                     if (!book.coverUri.isNullOrBlank()) {
@@ -1069,7 +1069,7 @@ private fun BookInfoHeader(
                             items(tagList) { tag ->
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(20.dp))
+                                        .clip(ScribeTheme.shapes.pill)
                                         .background(accentColor.copy(alpha = 0.14f))
                                         .padding(horizontal = 10.dp, vertical = 4.dp)
                                 ) {
@@ -1114,7 +1114,7 @@ private fun BookInfoHeader(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(ScribeTheme.shapes.cardSmall)
                     .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
@@ -1365,7 +1365,7 @@ private fun NoteListRow(
                     // Word count pill
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
+                            .clip(ScribeTheme.shapes.pill)
                             .background(accentColor.copy(alpha = 0.13f))
                             .padding(horizontal = 8.dp, vertical = 3.dp)
                     ) {

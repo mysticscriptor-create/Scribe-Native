@@ -19,7 +19,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -865,7 +864,7 @@ fun MainEditorScreen(
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .clip(RoundedCornerShape(8.dp))
+                                                .clip(ScribeTheme.shapes.button)
                                                 .clickable {
                                                     showOrnamentPicker = true
                                                 }
@@ -1339,7 +1338,7 @@ private fun EditorOptionsBottomSheet(
                 ).forEach { (label, format) ->
                     Surface(
                         onClick = { onExport(format) },
-                        shape = RoundedCornerShape(10.dp),
+                        shape = ScribeTheme.shapes.button,
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f),
                         modifier = Modifier.weight(1f)
                     ) {
@@ -1417,7 +1416,7 @@ private fun EditorTrayActionCard(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(14.dp),
+        shape = ScribeTheme.shapes.cardSmall,
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f),
         modifier = modifier
     ) {
@@ -1472,7 +1471,7 @@ private fun EditorTrayMenuItem(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(10.dp),
+        shape = ScribeTheme.shapes.button,
         color = Color.Transparent,
         modifier = Modifier
             .fillMaxWidth()
