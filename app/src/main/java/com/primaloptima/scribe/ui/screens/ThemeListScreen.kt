@@ -269,7 +269,7 @@ private fun ThemeCard(
                     .fillMaxHeight()
                     .background(
                         accentColor,
-                        shape = RoundedCornerShape(topStart = ScribeShapeTokens.RadiusMedium, bottomStart = ScribeShapeTokens.RadiusMedium)
+                        shape = RoundedCornerShape(topStart = cardShape.topStart, bottomStart = cardShape.bottomStart)
                     )
             )
 

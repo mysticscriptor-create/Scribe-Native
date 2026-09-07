@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -40,7 +39,7 @@ fun ThemeTypographyPanel(
         // 1. Font Family Selection with Live Specimen
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = ScribeTheme.shapes.themeEditorSection,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
@@ -59,7 +58,7 @@ fun ThemeTypographyPanel(
                     )
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                        shape = RoundedCornerShape(6.dp)
+                        shape = ScribeTheme.shapes.themeEditorControl
                     ) {
                         Text(
                             text = "Editorial Fonts",
@@ -87,9 +86,9 @@ fun ThemeTypographyPanel(
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
+                                .clip(ScribeTheme.shapes.cardSmall)
                                 .clickable { onFontFamilyChange(option.key) },
-                            shape = RoundedCornerShape(10.dp),
+                            shape = ScribeTheme.shapes.cardSmall,
                             colors = CardDefaults.cardColors(
                                 containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                                 else MaterialTheme.colorScheme.surfaceContainerLow
@@ -146,7 +145,7 @@ fun ThemeTypographyPanel(
         // 2. Metrics & Spacing
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = ScribeTheme.shapes.themeEditorSection,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
@@ -166,7 +165,7 @@ fun ThemeTypographyPanel(
                     )
                     Surface(
                         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f),
-                        shape = RoundedCornerShape(6.dp)
+                        shape = ScribeTheme.shapes.themeEditorControl
                     ) {
                         Text(
                             text = "Geometry & Spacing",
@@ -187,7 +186,7 @@ fun ThemeTypographyPanel(
                         Text("Base Font Size", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = ScribeTheme.colors.content.primary)
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            shape = RoundedCornerShape(4.dp)
+                            shape = ScribeTheme.shapes.extraSmall
                         ) {
                             Text(
                                 text = "${fontSize.toInt()} sp",
@@ -215,7 +214,7 @@ fun ThemeTypographyPanel(
                         Text("Line Spacing Multiplier", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = ScribeTheme.colors.content.primary)
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            shape = RoundedCornerShape(4.dp)
+                            shape = ScribeTheme.shapes.extraSmall
                         ) {
                             Text(
                                 text = String.format(java.util.Locale.US, "%.2fx", lineHeight),
@@ -242,7 +241,7 @@ fun ThemeTypographyPanel(
                         Text("Paragraph Spacing", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = ScribeTheme.colors.content.primary)
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            shape = RoundedCornerShape(4.dp)
+                            shape = ScribeTheme.shapes.extraSmall
                         ) {
                             Text(
                                 text = "${paragraphSpacing.toInt()} dp",
@@ -270,7 +269,7 @@ fun ThemeTypographyPanel(
                         Text("Horizontal Reading Margins", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = ScribeTheme.colors.content.primary)
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            shape = RoundedCornerShape(4.dp)
+                            shape = ScribeTheme.shapes.extraSmall
                         ) {
                             Text(
                                 text = "${sideMargins.toInt()} dp",

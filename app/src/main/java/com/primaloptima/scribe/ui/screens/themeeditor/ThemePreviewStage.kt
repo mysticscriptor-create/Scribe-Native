@@ -9,7 +9,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
@@ -35,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.primaloptima.scribe.ui.theme.FontHelper
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.parseComposeColor
 import com.primaloptima.scribe.ui.theme.specularRimBorder
 import com.primaloptima.scribe.util.ThemeManager
@@ -100,7 +100,7 @@ fun ThemePreviewStage(
         modifier = modifier
             .fillMaxWidth()
             .height(230.dp),
-        shape = RoundedCornerShape(16.dp),
+        shape = ScribeTheme.shapes.actionCard,
         colors = CardDefaults.cardColors(containerColor = bgColor),
         border = androidx.compose.foundation.BorderStroke(1.dp, borderSubtleColor.copy(alpha = 0.6f))
     ) {
@@ -175,7 +175,7 @@ fun ThemePreviewStage(
                     ) {
                         Surface(
                             color = accentMutedColor,
-                            shape = RoundedCornerShape(4.dp)
+                            shape = ScribeTheme.shapes.extraSmall
                         ) {
                             Text(
                                 text = "840 words",
@@ -251,10 +251,10 @@ fun ThemePreviewStage(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(ScribeTheme.shapes.cardNested)
                             .background(surfaceRaisedColor.copy(alpha = 0.95f))
                             .specularRimBorder(
-                                shape = RoundedCornerShape(8.dp),
+                                shape = ScribeTheme.shapes.cardNested,
                                 isDark = ThemeManager.isDarkColor(colors.background),
                                 strokeWidth = 1.dp
                             )
@@ -274,7 +274,7 @@ fun ThemePreviewStage(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
+                                    .clip(ScribeTheme.shapes.extraSmall)
                                     .background(annotationColor.copy(alpha = 0.15f))
                                     .padding(horizontal = 5.dp, vertical = 2.dp)
                             ) {
@@ -287,7 +287,7 @@ fun ThemePreviewStage(
                             }
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
+                                    .clip(ScribeTheme.shapes.extraSmall)
                                     .background(accentMutedColor)
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {

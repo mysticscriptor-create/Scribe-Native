@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
@@ -172,7 +171,7 @@ fun ThemeEditScreen(
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
+                            shape = ScribeTheme.shapes.themeEditorSection,
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             border = BorderStroke(1.dp, ScribeTheme.colors.borders.subtle)
                         ) {
@@ -185,7 +184,7 @@ fun ThemeEditScreen(
                             ) {
                                 Surface(
                                     onClick = { showEmojiDialog = true },
-                                    shape = RoundedCornerShape(10.dp),
+                                    shape = ScribeTheme.shapes.cardSmall,
                                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
                                     border = BorderStroke(1.dp, ScribeTheme.colors.borders.subtle),
                                     modifier = Modifier.size(48.dp)
@@ -200,7 +199,7 @@ fun ThemeEditScreen(
                                     onValueChange = { draft = draft.copy(name = it) },
                                     label = { Text("Theme Name") },
                                     singleLine = true,
-                                    shape = RoundedCornerShape(10.dp),
+                                    shape = ScribeTheme.shapes.field,
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -229,7 +228,7 @@ fun ThemeEditScreen(
                 item {
                     Surface(
                         color = MaterialTheme.colorScheme.surfaceContainerLow,
-                        shape = RoundedCornerShape(12.dp),
+                        shape = ScribeTheme.shapes.cardSmall,
                         border = BorderStroke(1.dp, ScribeTheme.colors.borders.subtle),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -243,7 +242,7 @@ fun ThemeEditScreen(
                                 val isSelected = selectedCategory == cat
                                 Surface(
                                     onClick = { selectedCategory = cat },
-                                    shape = RoundedCornerShape(8.dp),
+                                    shape = ScribeTheme.shapes.navigationItem,
                                     color = if (isSelected) MaterialTheme.colorScheme.surface else Color.Transparent,
                                     border = if (isSelected) BorderStroke(1.dp, ScribeTheme.colors.borders.subtle) else null,
                                     modifier = Modifier
@@ -362,7 +361,7 @@ fun ThemeEditScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(50.dp),
-                        shape = RoundedCornerShape(12.dp),
+                        shape = ScribeTheme.shapes.button,
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
                         if (isLuminancePending) {
@@ -389,7 +388,7 @@ fun ThemeEditScreen(
                                 exportThemeJson(context, currentThemeToExport)
                             },
                             modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp)
+                            shape = ScribeTheme.shapes.button
                         ) {
                             Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
@@ -474,7 +473,7 @@ fun ThemeEditScreen(
                                 Box(
                                     modifier = Modifier
                                         .size(40.dp)
-                                        .clip(RoundedCornerShape(8.dp))
+                                        .clip(ScribeTheme.shapes.cardNested)
                                         .clickable {
                                             draft = draft.copy(emoji = em)
                                             showEmojiDialog = false

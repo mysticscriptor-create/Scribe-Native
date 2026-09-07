@@ -7,6 +7,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.primaloptima.scribe.ui.theme.ScribeShapeTokens
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -66,9 +67,9 @@ fun EdgeTabRail(
                 ?.takeOrElse { MaterialTheme.colorScheme.primary } ?: MaterialTheme.colorScheme.primary
 
             val shape = if (side == EdgeSide.LEFT) {
-                RoundedCornerShape(topEnd = 8.dp, bottomEnd = 8.dp)
+                RoundedCornerShape(topEnd = ScribeShapeTokens.Small.topStart, bottomEnd = ScribeShapeTokens.Small.bottomStart)
             } else {
-                RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp)
+                RoundedCornerShape(topStart = ScribeShapeTokens.Small.topStart, bottomStart = ScribeShapeTokens.Small.bottomStart)
             }
 
             Surface(
@@ -108,9 +109,9 @@ private fun EdgeTabItem(
 ) {
     val accent = pane.accentColor.toComposeColor(isDark).takeOrElse { MaterialTheme.colorScheme.primary }
     val shape = if (side == EdgeSide.LEFT) {
-        RoundedCornerShape(topEnd = 8.dp, bottomEnd = 8.dp)
+        RoundedCornerShape(topEnd = ScribeShapeTokens.Small.topStart, bottomEnd = ScribeShapeTokens.Small.bottomStart)
     } else {
-        RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp)
+        RoundedCornerShape(topStart = ScribeShapeTokens.Small.topStart, bottomStart = ScribeShapeTokens.Small.bottomStart)
     }
 
     Surface(

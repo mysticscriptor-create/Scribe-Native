@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
@@ -47,9 +46,9 @@ fun FoundationColorTile(
 
     Card(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(ScribeTheme.shapes.cardSmall)
             .clickable { onClick() },
-        shape = RoundedCornerShape(12.dp),
+        shape = ScribeTheme.shapes.cardSmall,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.7f)),
         border = androidx.compose.foundation.BorderStroke(1.dp, borderSubtle)
     ) {
@@ -61,8 +60,8 @@ fun FoundationColorTile(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .border(1.dp, borderSubtle.copy(alpha = 0.8f), RoundedCornerShape(8.dp))
+                    .clip(ScribeTheme.shapes.cardNested)
+                    .border(1.dp, borderSubtle.copy(alpha = 0.8f), ScribeTheme.shapes.cardNested)
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val squareSize = 8.dp.toPx()
@@ -140,9 +139,9 @@ fun OverrideColorTile(
 
     Card(
         modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
+            .clip(ScribeTheme.shapes.cardSmall)
             .clickable { onClick() },
-        shape = RoundedCornerShape(10.dp),
+        shape = ScribeTheme.shapes.cardSmall,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.5f)),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
@@ -157,8 +156,8 @@ fun OverrideColorTile(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(38.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .border(1.dp, borderSubtle.copy(alpha = 0.8f), RoundedCornerShape(6.dp))
+                    .clip(ScribeTheme.shapes.themeEditorControl)
+                    .border(1.dp, borderSubtle.copy(alpha = 0.8f), ScribeTheme.shapes.themeEditorControl)
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val squareSize = 8.dp.toPx()
@@ -233,7 +232,7 @@ fun OverrideColorTile(
                     color = if (isOverridden)
                         MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                     else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                    shape = RoundedCornerShape(4.dp)
+                    shape = ScribeTheme.shapes.extraSmall
                 ) {
                     Text(
                         text = if (isOverridden) "Custom" else "Auto",
@@ -398,7 +397,7 @@ fun ColorPickerBottomSheet(
                 Text(title, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                 Surface(
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shape = RoundedCornerShape(6.dp)
+                    shape = ScribeTheme.shapes.badge
                 ) {
                     Text(
                         text = hexText.uppercase(),
@@ -476,7 +475,7 @@ fun ColorPickerBottomSheet(
                     },
                     label = { Text("Hex Code") },
                     singleLine = true,
-                    shape = RoundedCornerShape(10.dp),
+                    shape = ScribeTheme.shapes.field,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -488,7 +487,7 @@ fun ColorPickerBottomSheet(
                     onDismiss()
                 },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp)
+                shape = ScribeTheme.shapes.button
             ) {
                 Text("Apply Color", fontWeight = FontWeight.Bold)
             }

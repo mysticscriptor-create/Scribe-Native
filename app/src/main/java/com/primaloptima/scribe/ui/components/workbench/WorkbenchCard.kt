@@ -13,6 +13,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.primaloptima.scribe.ui.theme.ScribeShapeTokens
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -158,16 +160,16 @@ fun WorkbenchCard(
                 scaleX = if (isDetached) 0.98f else 1f
                 scaleY = if (isDetached) 0.98f else 1f
             }
-            .clip(RoundedCornerShape(12.dp))
+            .clip(ScribeTheme.shapes.cardSmall)
             .then(
-                if (!hasBgImage) Modifier.background(solidSurface, RoundedCornerShape(12.dp))
-                else Modifier.frostedCard(hazeState, RoundedCornerShape(12.dp), applyFallbackBackground = true)
+                if (!hasBgImage) Modifier.background(solidSurface, ScribeTheme.shapes.cardSmall)
+                else Modifier.frostedCard(hazeState, ScribeTheme.shapes.cardSmall, applyFallbackBackground = true)
             )
             .then(
                 if (!hasBgImage) Modifier.border(
                     width = 1.dp,
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = ScribeTheme.shapes.cardSmall
                 ) else Modifier
             )
             .onGloballyPositioned { layoutCoordinates ->
@@ -185,14 +187,14 @@ fun WorkbenchCard(
                     .width(3.5.dp)
                     .fillMaxHeight()
                     .align(Alignment.CenterStart)
-                    .background(paneAccentColor, RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
+                    .background(paneAccentColor, RoundedCornerShape(topStart = ScribeShapeTokens.CardSmall.topStart, bottomStart = ScribeShapeTokens.CardSmall.bottomStart))
             )
         }
 
         Box(
             modifier = Modifier
                 .matchParentSize()
-                .clip(RoundedCornerShape(12.dp))
+                .clip(ScribeTheme.shapes.cardSmall)
                 .drawBehind {
                     val alpha = if (isDark) 0.06f else 0.12f
                     drawRoundRect(
@@ -347,7 +349,7 @@ fun WorkbenchCard(
                                 overflow = TextOverflow.Ellipsis,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(3.dp))
+                                    .clip(ScribeTheme.shapes.extraSmall)
                                     .clickable { showReferencesOverlay = true }
                                     .padding(horizontal = 2.dp, vertical = 0.dp)
                             )
@@ -511,7 +513,7 @@ fun WorkbenchCard(
                             .padding(6.dp)
                     ) {
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
+                            shape = ScribeTheme.shapes.cardSmall,
                             color = if (hasBgImage) MaterialTheme.colorScheme.surface.copy(alpha = 0.75f)
                             else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.90f),
                             border = androidx.compose.foundation.BorderStroke(
@@ -582,7 +584,7 @@ fun WorkbenchCard(
                             .padding(6.dp)
                     ) {
                         Surface(
-                            shape = RoundedCornerShape(10.dp),
+                            shape = ScribeTheme.shapes.cardNested,
                             color = if (hasBgImage) MaterialTheme.colorScheme.surface.copy(alpha = 0.65f)
                             else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.80f),
                             border = androidx.compose.foundation.BorderStroke(
@@ -659,7 +661,7 @@ fun WorkbenchCard(
                                     onSelectIndex(idx)
                                     showReferencesOverlay = false
                                 },
-                                shape = RoundedCornerShape(8.dp),
+                                shape = ScribeTheme.shapes.button,
                                 color = if (isCurrent) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
                                 else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                                 modifier = Modifier.fillMaxWidth()

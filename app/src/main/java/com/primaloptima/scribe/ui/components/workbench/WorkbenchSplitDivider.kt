@@ -7,7 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -129,7 +129,7 @@ fun WorkbenchSplitDivider(
                 }
                 .width(32.dp)
                 .height(4.dp)
-                .clip(RoundedCornerShape(2.dp))
+                .clip(ScribeTheme.shapes.handle)
                 .background(handleColor)
         )
     }

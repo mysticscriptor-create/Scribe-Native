@@ -301,6 +301,14 @@ object ScribeShapeTokens {
     val SpeedDial: CornerBasedShape = ExtraLarge                               // 20.dp - Speed dial menu card
     val Handle: CornerBasedShape = RoundedCornerShape(2.dp)                    // 2.dp  - Drag handles
     val Tag: CornerBasedShape = RoundedCornerShape(6.dp)                       // 6.dp  - Tag and entity badges
+    val ActionCard: CornerBasedShape = CardSmall                               // 12.dp - Action tiles & secondary interactive cards
+    val NavigationItem: CornerBasedShape = Small                               // 8.dp  - Navigation bar/rail items
+    val FloatingPanel: CornerBasedShape = Menu                                 // 14.dp - Floating overlay windows & detached panels
+    val Badge: CornerBasedShape = Tag                                          // 6.dp  - Status badges & indicators
+    val ImageContainer: CornerBasedShape = CardSmall                           // 12.dp - Media previews & image frames
+    val WorldEntityCard: CornerBasedShape = CardMedium                         // 16.dp - World building entity cards
+    val ThemeEditorControl: CornerBasedShape = ButtonSmall                     // 6.dp  - Theme editor chips & micro controls
+    val ThemeEditorSection: CornerBasedShape = Menu                            // 14.dp - Theme editor section containers
 }
 
 @Immutable
@@ -331,7 +339,15 @@ data class ScribeShapes(
     val fabSmall: CornerBasedShape = ScribeShapeTokens.FabSmall,
     val speedDial: CornerBasedShape = ScribeShapeTokens.SpeedDial,
     val handle: CornerBasedShape = ScribeShapeTokens.Handle,
-    val tag: CornerBasedShape = ScribeShapeTokens.Tag
+    val tag: CornerBasedShape = ScribeShapeTokens.Tag,
+    val actionCard: CornerBasedShape = ScribeShapeTokens.ActionCard,
+    val navigationItem: CornerBasedShape = ScribeShapeTokens.NavigationItem,
+    val floatingPanel: CornerBasedShape = ScribeShapeTokens.FloatingPanel,
+    val badge: CornerBasedShape = ScribeShapeTokens.Badge,
+    val imageContainer: CornerBasedShape = ScribeShapeTokens.ImageContainer,
+    val worldEntityCard: CornerBasedShape = ScribeShapeTokens.WorldEntityCard,
+    val themeEditorControl: CornerBasedShape = ScribeShapeTokens.ThemeEditorControl,
+    val themeEditorSection: CornerBasedShape = ScribeShapeTokens.ThemeEditorSection
 ) {
     fun toMaterialShapes(): androidx.compose.material3.Shapes = androidx.compose.material3.Shapes(
         extraSmall = extraSmall,

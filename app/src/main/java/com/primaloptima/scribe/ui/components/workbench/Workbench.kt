@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.Splitscreen
@@ -1170,20 +1170,20 @@ fun Workbench(
                                         scaleX = 1.05f
                                         scaleY = 1.05f
                                         shadowElevation = 24.dp.toPx()
-                                        shape = RoundedCornerShape(14.dp)
+                                        shape = ScribeTheme.shapes.floatingPanel
                                         clip = true
                                         alpha = 0.94f
                                     }
                                     .border(
                                         width = if (isHighlighted) 2.dp else 1.2.dp,
                                         color = proxyBorderColor,
-                                        shape = RoundedCornerShape(14.dp)
+                                        shape = ScribeTheme.shapes.floatingPanel
                                     )
                                     .then(
-                                        if (hasBgImage) Modifier.frostedCard(hazeState, RoundedCornerShape(14.dp), applyFallbackBackground = true)
+                                        if (hasBgImage) Modifier.frostedCard(hazeState, ScribeTheme.shapes.floatingPanel, applyFallbackBackground = true)
                                         else Modifier
                                     ),
-                                shape = RoundedCornerShape(14.dp),
+                                shape = ScribeTheme.shapes.floatingPanel,
                                 color = if (hasBgImage) Color.Transparent else solidSurface.copy(alpha = 0.96f),
                                 tonalElevation = 12.dp,
                                 shadowElevation = 20.dp
@@ -1198,7 +1198,7 @@ fun Workbench(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Surface(
-                                            shape = RoundedCornerShape(4.dp),
+                                            shape = ScribeTheme.shapes.extraSmall,
                                             color = accentColor.copy(alpha = 0.15f),
                                         ) {
                                             Text(
@@ -1499,7 +1499,7 @@ fun Workbench(
                                     onRestorePane(incoming.id)
                                     slotSwapReplaceTarget = null
                                 },
-                                shape = RoundedCornerShape(8.dp),
+                                shape = ScribeTheme.shapes.button,
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -1578,7 +1578,7 @@ fun Workbench(
                                 handleRestorePane(p)
                                 edgeTabLongPressPane = null
                             },
-                            shape = RoundedCornerShape(8.dp),
+                            shape = ScribeTheme.shapes.button,
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -1596,7 +1596,7 @@ fun Workbench(
                                 removeCandidatePane = p
                                 edgeTabLongPressPane = null
                             },
-                            shape = RoundedCornerShape(8.dp),
+                            shape = ScribeTheme.shapes.button,
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -1638,7 +1638,7 @@ fun Workbench(
                                     handleRestorePane(pane)
                                     showEdgeTabGroupPopup = null
                                 },
-                                shape = RoundedCornerShape(8.dp),
+                                shape = ScribeTheme.shapes.button,
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -1712,18 +1712,18 @@ private fun SpatialDropZoneCard(
                 scaleX = animatedScale
                 scaleY = animatedScale
             }
-            .clip(RoundedCornerShape(14.dp))
+            .clip(ScribeTheme.shapes.floatingPanel)
             .border(
                 width = if (isHighlighted) 2.dp else 1.dp,
                 color = animatedBorderColor,
-                shape = RoundedCornerShape(14.dp)
+                shape = ScribeTheme.shapes.floatingPanel
             )
             .then(
-                if (hasBgImage) Modifier.frostedCard(hazeState, RoundedCornerShape(14.dp), applyFallbackBackground = false)
+                if (hasBgImage) Modifier.frostedCard(hazeState, ScribeTheme.shapes.floatingPanel, applyFallbackBackground = false)
                 else Modifier
             ),
         color = animatedBgColor,
-        shape = RoundedCornerShape(14.dp),
+        shape = ScribeTheme.shapes.floatingPanel,
     ) {
         Box(
             modifier = Modifier

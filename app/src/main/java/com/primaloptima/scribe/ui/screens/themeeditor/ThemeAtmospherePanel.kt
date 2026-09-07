@@ -1,7 +1,6 @@
 package com.primaloptima.scribe.ui.screens.themeeditor
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Delete
@@ -46,7 +45,7 @@ fun ThemeAtmospherePanel(
         // Background Image Card
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = ScribeTheme.shapes.themeEditorSection,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
@@ -65,7 +64,7 @@ fun ThemeAtmospherePanel(
                     )
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                        shape = RoundedCornerShape(6.dp)
+                        shape = ScribeTheme.shapes.themeEditorControl
                     ) {
                         Text(
                             text = if (bgUri.isNullOrEmpty()) "Solid Base" else "Artwork Active",
@@ -88,7 +87,7 @@ fun ThemeAtmospherePanel(
                     OutlinedButton(
                         onClick = onPickImage,
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp)
+                        shape = ScribeTheme.shapes.button
                     ) {
                         Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(modifier = Modifier.width(8.dp))
@@ -102,7 +101,7 @@ fun ThemeAtmospherePanel(
                         Button(
                             onClick = onPickImage,
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(10.dp)
+                            shape = ScribeTheme.shapes.button
                         ) {
                             Text("Change Image", fontWeight = FontWeight.SemiBold)
                         }
@@ -110,7 +109,7 @@ fun ThemeAtmospherePanel(
                         if (!bgOriginalUri.isNullOrEmpty() || !bgUri.isNullOrEmpty()) {
                             OutlinedButton(
                                 onClick = onCropImage,
-                                shape = RoundedCornerShape(10.dp)
+                                shape = ScribeTheme.shapes.button
                             ) {
                                 Icon(Icons.Default.Crop, contentDescription = "Crop", modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(4.dp))
@@ -150,7 +149,7 @@ fun ThemeAtmospherePanel(
                                 Text("Artwork Blur Radius", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                                 Surface(
                                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                    shape = RoundedCornerShape(4.dp)
+                                    shape = ScribeTheme.shapes.extraSmall
                                 ) {
                                     Text(
                                         text = "${blurIntensity.toInt()} dp",
@@ -178,7 +177,7 @@ fun ThemeAtmospherePanel(
                             Text("Contrast Darkening Overlay", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                             Surface(
                                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                shape = RoundedCornerShape(4.dp)
+                                shape = ScribeTheme.shapes.extraSmall
                             ) {
                                 Text(
                                     text = "${(bgOpacity * 100).toInt()}%",
@@ -202,7 +201,7 @@ fun ThemeAtmospherePanel(
         // Frosted Glass Card
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = ScribeTheme.shapes.themeEditorSection,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
@@ -221,7 +220,7 @@ fun ThemeAtmospherePanel(
                     )
                     Surface(
                         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f),
-                        shape = RoundedCornerShape(6.dp)
+                        shape = ScribeTheme.shapes.themeEditorControl
                     ) {
                         Text(
                             text = if (frostedGlassEnabled) "Glass On" else "Opaque Surface",
@@ -273,7 +272,7 @@ fun ThemeAtmospherePanel(
                             Text("Glass Blur Strength", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                             Surface(
                                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                shape = RoundedCornerShape(4.dp)
+                                shape = ScribeTheme.shapes.extraSmall
                             ) {
                                 Text(
                                     text = "${frostedBlurRadius.toInt()} dp",

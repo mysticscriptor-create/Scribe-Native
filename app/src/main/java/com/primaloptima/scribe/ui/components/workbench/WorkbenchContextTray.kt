@@ -13,7 +13,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DeleteOutline
@@ -119,14 +119,14 @@ fun WorkbenchContextTray(
                         }
                         .width(36.dp)
                         .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp))
+                        .clip(ScribeTheme.shapes.handle)
                         .background(handleBarColor)
                 )
 
                 // Optional waiting badge on right edge if any panes are waiting
                 if (waitingCount > 0 && !trayExpanded) {
                     Surface(
-                        shape = RoundedCornerShape(4.dp),
+                        shape = ScribeTheme.shapes.extraSmall,
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f),
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
@@ -175,7 +175,7 @@ fun WorkbenchContextTray(
 
                         if (waitingCount > 0) {
                             Surface(
-                                shape = RoundedCornerShape(4.dp),
+                                shape = ScribeTheme.shapes.extraSmall,
                                 color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f)
                             ) {
                                 Text(
@@ -203,7 +203,7 @@ fun WorkbenchContextTray(
                             },
                             modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                            shape = RoundedCornerShape(8.dp)
+                            shape = ScribeTheme.shapes.button
                         ) {
                             Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(Modifier.width(4.dp))
@@ -215,7 +215,7 @@ fun WorkbenchContextTray(
                             onClick = onToggleRemove,
                             modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                            shape = RoundedCornerShape(8.dp),
+                            shape = ScribeTheme.shapes.button,
                             colors = if (removeMode) ButtonDefaults.outlinedButtonColors(
                                 containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f),
                                 contentColor = MaterialTheme.colorScheme.error
@@ -239,7 +239,7 @@ fun WorkbenchContextTray(
                             },
                             modifier = Modifier.weight(1f),
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                            shape = RoundedCornerShape(8.dp)
+                            shape = ScribeTheme.shapes.button
                         ) {
                             Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(Modifier.width(4.dp))

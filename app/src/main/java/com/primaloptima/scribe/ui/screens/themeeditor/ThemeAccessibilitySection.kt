@@ -6,7 +6,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material3.*
@@ -48,7 +47,7 @@ fun AccessibilitySummaryCard(
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
+        shape = ScribeTheme.shapes.cardSmall,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
     ) {
         Column(
@@ -79,7 +78,7 @@ fun AccessibilitySummaryCard(
 
                 Surface(
                     color = containerColor,
-                    shape = RoundedCornerShape(50)
+                    shape = ScribeTheme.shapes.pill
                 ) {
                     Text(
                         text = "${(contrastReport.overallPassRate * 100).toInt()}% Passed",
@@ -109,7 +108,7 @@ fun AccessibilitySummaryCard(
             ) {
                 OutlinedButton(
                     onClick = onOpenDiagnostics,
-                    shape = RoundedCornerShape(8.dp),
+                    shape = ScribeTheme.shapes.button,
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Text(
@@ -168,7 +167,7 @@ fun AccessibilityDiagnosticsDialog(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .clip(ScribeTheme.shapes.cardNested)
                                     .background(MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f))
                                     .padding(horizontal = 10.dp, vertical = 6.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -273,9 +272,9 @@ fun AccessibilitySampleCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
+                .clip(ScribeTheme.shapes.cardSmall)
                 .background(surface)
-                .border(1.dp, borderSubtle, RoundedCornerShape(10.dp))
+                .border(1.dp, borderSubtle, ScribeTheme.shapes.cardSmall)
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -333,7 +332,7 @@ fun AccessibilitySampleCard(
             ) {
                 Surface(
                     color = accent,
-                    shape = RoundedCornerShape(6.dp)
+                    shape = ScribeTheme.shapes.badge
                 ) {
                     Text(
                         text = "Save Chapter",
@@ -403,7 +402,7 @@ fun AccessibilitySampleCard(
             ) {
                 Surface(
                     color = annotationColor.copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(4.dp)
+                    shape = ScribeTheme.shapes.extraSmall
                 ) {
                     Text(
                         text = "Note: foreshadows arrival",
@@ -425,7 +424,7 @@ fun AccessibilitySampleCard(
             ) {
                 Surface(
                     color = highlightColor.copy(alpha = 0.20f),
-                    shape = RoundedCornerShape(4.dp)
+                    shape = ScribeTheme.shapes.extraSmall
                 ) {
                     Text(
                         text = "mountains",
@@ -447,7 +446,7 @@ fun AccessibilitySampleCard(
             ) {
                 Surface(
                     color = warningColor.copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(6.dp),
+                    shape = ScribeTheme.shapes.badge,
                     border = BorderStroke(1.dp, warningColor.copy(alpha = 0.35f))
                 ) {
                     Row(
@@ -476,7 +475,7 @@ fun AccessibilitySampleCard(
             ) {
                 Surface(
                     color = errorColor.copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(6.dp),
+                    shape = ScribeTheme.shapes.badge,
                     border = BorderStroke(1.dp, errorColor.copy(alpha = 0.35f))
                 ) {
                     Row(
@@ -527,7 +526,7 @@ fun AccessibilitySampleRow(
             )
             Surface(
                 color = if (passes) Color(0xFF10B981).copy(alpha = 0.15f) else Color(0xFFEF4444).copy(alpha = 0.15f),
-                shape = RoundedCornerShape(4.dp)
+                shape = ScribeTheme.shapes.extraSmall
             ) {
                 Text(
                     text = if (wcagRatio >= 4.5) "AA Pass (${String.format(java.util.Locale.US, "%.1f:1", wcagRatio)})"

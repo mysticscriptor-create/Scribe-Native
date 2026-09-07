@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.FormatAlignLeft
 import androidx.compose.material.icons.filled.FormatAlignCenter
@@ -37,7 +36,7 @@ fun ThemeLayoutPanel(
         // Text Alignment Card
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = ScribeTheme.shapes.themeEditorSection,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
@@ -57,7 +56,7 @@ fun ThemeLayoutPanel(
                     )
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                        shape = RoundedCornerShape(6.dp)
+                        shape = ScribeTheme.shapes.themeEditorControl
                     ) {
                         Text(
                             text = "Canvas Flow",
@@ -90,9 +89,9 @@ fun ThemeLayoutPanel(
                         Card(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
+                                .clip(ScribeTheme.shapes.cardSmall)
                                 .clickable { onTextAlignmentChange(key) },
-                            shape = RoundedCornerShape(10.dp),
+                            shape = ScribeTheme.shapes.cardSmall,
                             colors = CardDefaults.cardColors(
                                 containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                                 else MaterialTheme.colorScheme.surfaceContainerLow
@@ -131,7 +130,7 @@ fun ThemeLayoutPanel(
         // Theme Scope Card
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = ScribeTheme.shapes.themeEditorSection,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
@@ -151,7 +150,7 @@ fun ThemeLayoutPanel(
                     )
                     Surface(
                         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f),
-                        shape = RoundedCornerShape(6.dp)
+                        shape = ScribeTheme.shapes.themeEditorControl
                     ) {
                         Text(
                             text = "Target Shell",

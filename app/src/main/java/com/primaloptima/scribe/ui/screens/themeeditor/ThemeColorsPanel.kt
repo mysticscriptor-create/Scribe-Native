@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -41,7 +40,7 @@ fun ThemeColorsPanel(
         // ── 1. FOUNDATION SOURCES ──────────────────────────────────────────
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = ScribeTheme.shapes.themeEditorSection,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
@@ -60,7 +59,7 @@ fun ThemeColorsPanel(
                     )
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                        shape = RoundedCornerShape(6.dp)
+                        shape = ScribeTheme.shapes.themeEditorControl
                     ) {
                         Text(
                             text = "Core Driving Inputs",
@@ -111,7 +110,7 @@ fun ThemeColorsPanel(
         // ── 2. WRITING & PROSE SEMANTICS (Overrideable) ───────────────────
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = ScribeTheme.shapes.themeEditorSection,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
@@ -131,7 +130,7 @@ fun ThemeColorsPanel(
                     )
                     Surface(
                         color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f),
-                        shape = RoundedCornerShape(6.dp)
+                        shape = ScribeTheme.shapes.themeEditorControl
                     ) {
                         Text(
                             text = "Lexer Tokens",
@@ -214,7 +213,7 @@ fun ThemeColorsPanel(
         // ── 3. SUPPORTING ACCENTS (Overrideable) ───────────────────────────
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = ScribeTheme.shapes.themeEditorSection,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
@@ -255,7 +254,7 @@ fun ThemeColorsPanel(
         // ── 4. AUTO-DERIVED ELEVATION RAMP (5-Tier) ────────────────────────
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = ScribeTheme.shapes.themeEditorSection,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
@@ -299,9 +298,9 @@ fun ThemeColorsPanel(
                         Column(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(6.dp))
+                                .clip(ScribeTheme.shapes.themeEditorControl)
                                 .background(swatchColor)
-                                .border(1.dp, borderSubtle, RoundedCornerShape(6.dp))
+                                .border(1.dp, borderSubtle, ScribeTheme.shapes.themeEditorControl)
                                 .padding(vertical = 6.dp, horizontal = 2.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
@@ -339,7 +338,7 @@ fun ThemeColorsPanel(
         // ── 5. STATUS COLORS ──────────────────────────────────────────────
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
+            shape = ScribeTheme.shapes.themeEditorSection,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(
@@ -367,9 +366,9 @@ fun ThemeColorsPanel(
                         Row(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
+                                .clip(ScribeTheme.shapes.cardNested)
                                 .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), ScribeTheme.shapes.cardNested)
                                 .padding(horizontal = 8.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp)

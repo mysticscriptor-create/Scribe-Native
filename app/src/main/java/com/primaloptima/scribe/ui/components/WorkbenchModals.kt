@@ -9,7 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.automirrored.filled.NoteAdd
@@ -111,7 +111,7 @@ private fun AddChoiceItem(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
+        shape = ScribeTheme.shapes.actionCard,
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
         modifier = Modifier
             .fillMaxWidth()
@@ -348,7 +348,7 @@ fun AddFileSheet(
                             onClick = {
                                 selectedIds = if (isChecked) selectedIds - note.id else selectedIds + note.id
                             },
-                            shape = RoundedCornerShape(8.dp),
+                            shape = ScribeTheme.shapes.button,
                             color = if (isChecked) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                             else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
                             modifier = Modifier.fillMaxWidth()
@@ -531,7 +531,7 @@ fun AddWorldSheetModal(
                             onClick = {
                                 selectedIds = if (isChecked) selectedIds - entry.id else selectedIds + entry.id
                             },
-                            shape = RoundedCornerShape(8.dp),
+                            shape = ScribeTheme.shapes.button,
                             color = if (isChecked) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                             else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
                             modifier = Modifier.fillMaxWidth()
@@ -553,7 +553,7 @@ fun AddWorldSheetModal(
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         val catMeta = categoryMeta(entry.type)
                                         Surface(
-                                            shape = RoundedCornerShape(4.dp),
+                                            shape = ScribeTheme.shapes.extraSmall,
                                             color = catMeta.color.copy(alpha = 0.15f),
                                             border = androidx.compose.foundation.BorderStroke(0.5.dp, catMeta.color.copy(alpha = 0.35f)),
                                             modifier = Modifier.padding(end = 6.dp)
@@ -682,7 +682,7 @@ fun SectionAppearanceSheet(
                                 onClick = {
                                     onUpdatePane { it.copy(accentColor = colorEnum) }
                                 },
-                                shape = RoundedCornerShape(8.dp),
+                                shape = ScribeTheme.shapes.button,
                                 color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                                 else Color.Transparent,
                                 modifier = Modifier.fillMaxWidth()
@@ -740,7 +740,7 @@ fun SectionAppearanceSheet(
                     )
 
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
+                        shape = ScribeTheme.shapes.cardSmall,
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -892,7 +892,7 @@ fun SectionScopeSheet(
                     onClick = {
                         onUpdatePane { it.copy(primaryScope = scope) }
                     },
-                    shape = RoundedCornerShape(8.dp),
+                    shape = ScribeTheme.shapes.button,
                     color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                     else Color.Transparent,
                     modifier = Modifier.fillMaxWidth()
@@ -984,7 +984,7 @@ fun SectionScopeSheet(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), ScribeTheme.shapes.cardNested)
                         .padding(12.dp)
                 ) {
                     Text("Select a location to add:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -1176,7 +1176,7 @@ fun WorkbenchSettingsSheet(
             outOfScopeOptions.forEach { (mode, label) ->
                 val isSelected = workbenchState.outOfScopeDefault == mode
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = ScribeTheme.shapes.button,
                     color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                             else Color.Transparent,
                     onClick = { onUpdateWorkbench { it.copy(outOfScopeDefault = mode) } },
@@ -1244,7 +1244,7 @@ fun OutOfScopeRestoreSheet(
 
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                shape = RoundedCornerShape(12.dp),
+                shape = ScribeTheme.shapes.cardSmall,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(Modifier.padding(14.dp)) {
