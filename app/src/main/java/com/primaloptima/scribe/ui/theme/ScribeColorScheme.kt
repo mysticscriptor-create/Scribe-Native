@@ -97,8 +97,11 @@ class ScribeColorScheme(
 
         // ── Search & Highlight Tokens (Canonical Bridge) ──────────────────────
         val highlightColor = colors.writing.highlight.toArgb()
-        // Sora 0.24.x uses MATCHED_TEXT_BACKGROUND (29) for search matches
-        setColor(MATCHED_TEXT_BACKGROUND, withAlpha(highlightColor, 130))
+        // Sora 0.24.x uses MATCHED_TEXT_BACKGROUND (29) for search matches.
+        // Calibrate opacity: in dark mode 120 provides a luminous search target without glare;
+        // in light mode 100 delivers a crisp, legible translucent marker stroke over editorial glyphs.
+        val highlightAlpha = if (isDark) 120 else 100
+        setColor(MATCHED_TEXT_BACKGROUND, withAlpha(highlightColor, highlightAlpha))
 
         // ── Diagnostic Colors (Decoupled Semantic Status) ─────────────────────
         // Truthful semantic mapping:

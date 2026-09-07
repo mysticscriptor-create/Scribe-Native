@@ -390,7 +390,7 @@ class ThemeManager(private val context: Context) {
                 val warningDefault = createOklchColor(0.82, 0.16, 85.0)
                 val errorDefault = createOklchColor(0.72, 0.18, 25.0)
                 val infoDefault = createOklchColor(0.75, 0.14, 230.0)
-                val specialHighlightDefault = createOklchColor(0.86, 0.14, 88.0)
+                val specialHighlightDefault = createOklchColor(0.78, 0.16, 60.0)
 
                 // Containers & Selection
                 val accentMuted = blend(accentInt, bgInt, 0.80f)
@@ -510,7 +510,7 @@ class ThemeManager(private val context: Context) {
                 val warningDefault = createOklchColor(0.55, 0.16, 80.0)
                 val errorDefault = createOklchColor(0.50, 0.20, 25.0)
                 val infoDefault = createOklchColor(0.52, 0.15, 230.0)
-                val specialHighlightDefault = createOklchColor(0.52, 0.15, 75.0)
+                val specialHighlightDefault = createOklchColor(0.60, 0.16, 85.0)
 
                 // Containers & Selection
                 val accentMuted = blend(accentInt, bgInt, 0.88f)
@@ -522,7 +522,7 @@ class ThemeManager(private val context: Context) {
                 val borderProminent = accentHex
 
                 // Lexer & Writing Engine Syntactical Roles
-                val dialogueDefault = createOklchColor(0.45, 0.15, 65.0)
+                val dialogueDefault = createOklchColor(0.44, 0.16, 45.0)
                 val monologueDefault = createOklchColor(0.40, 0.12, 255.0)
                 val headingDefault = accentHex
                 val annotationDefault = createOklchColor(0.48, 0.16, 300.0)
@@ -759,6 +759,7 @@ class ThemeManager(private val context: Context) {
             val normalBorderCol = ComposeColor(parseColor(derived.border))
             val focusBorderCol = ComposeColor(parseColor(derived.borderProminent))
             val focusInteractiveCol = if (derived.focus.isNotBlank()) ComposeColor(parseColor(derived.focus)) else focusBorderCol
+            val selectionCol = if (derived.selection.isNotBlank()) ComposeColor(parseColor(derived.selection)) else accentCol.copy(alpha = 0.25f)
 
             val dialogueCol = ComposeColor(parseColor(derived.dialogueText))
             val monologueCol = ComposeColor(parseColor(derived.monologueText))
@@ -863,7 +864,7 @@ class ThemeManager(private val context: Context) {
                     onPrimaryContainer = onPrimaryContainerCol,
                     secondary = secondaryCol,
                     tertiary = tertiaryCol,
-                    selection = accentCol.copy(alpha = 0.25f),
+                    selection = selectionCol,
                     focus = focusInteractiveCol,
                     link = linkCol
                 ),
