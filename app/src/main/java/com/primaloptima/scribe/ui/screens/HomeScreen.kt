@@ -349,7 +349,7 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(4.dp))
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(50))
+                                .clip(ScribeTheme.shapes.chip)
                                 .background(streakColor.copy(alpha = 0.20f))
                                 .padding(horizontal = 8.dp, vertical = 3.dp)
                         ) {
@@ -378,7 +378,7 @@ fun HomeScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 14.dp)
-                        .clip(RoundedCornerShape(18.dp))
+                        .clip(ScribeTheme.shapes.cardMedium)
                         .background(innerCardBg)
                 ) {
                     Column(modifier = Modifier.padding(vertical = 12.dp)) {
@@ -472,11 +472,11 @@ fun HomeScreen(
                                     if (searchQuery.isNotEmpty()) searchQuery = "" else isSearching = false
                                 }) { Icon(Icons.Default.Clear, contentDescription = "Clear") }
                             },
-                            shape = RoundedCornerShape(14.dp),
+                            shape = ScribeTheme.shapes.searchBar,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(54.dp)
-                                .frostedSearchBox(hazeState, shape = RoundedCornerShape(14.dp))
+                                .frostedSearchBox(hazeState, shape = ScribeTheme.shapes.searchBar)
                         )
                     }
                 }
@@ -986,7 +986,7 @@ private fun BookGridCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(0.72f)
-                .clip(RoundedCornerShape(8.dp))
+                .clip(ScribeTheme.shapes.cardNested)
         ) {
             if (book.coverUri != null) {
                 val context = LocalContext.current
@@ -1106,7 +1106,7 @@ private fun BookListRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onOpen() },
-        shape = RoundedCornerShape(12.dp)
+        shape = ScribeTheme.shapes.cardSmall
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(
@@ -1116,7 +1116,7 @@ private fun BookListRow(
                 Box(
                     modifier = Modifier
                         .size(width = 56.dp, height = 80.dp)
-                        .clip(RoundedCornerShape(4.dp))
+                        .clip(ScribeTheme.shapes.extraSmall)
                 ) {
                     if (book.coverUri != null) {
                         val context = LocalContext.current
@@ -1221,7 +1221,7 @@ private fun NotesTabContent(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onOpenNote(note) },
-                        shape = RoundedCornerShape(12.dp)
+                        shape = ScribeTheme.shapes.cardSmall
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Row(
@@ -1282,7 +1282,7 @@ private fun SearchResultsView(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onOpenNote(note) },
-                        shape = RoundedCornerShape(10.dp)
+                        shape = ScribeTheme.shapes.cardSmall
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Text(

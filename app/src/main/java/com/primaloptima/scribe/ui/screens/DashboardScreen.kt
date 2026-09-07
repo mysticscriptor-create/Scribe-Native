@@ -307,7 +307,7 @@ private fun NoProjectCard(
             Button(
                 onClick = onSetProject,
                 colors  = ButtonDefaults.buttonColors(containerColor = accentColor),
-                shape   = RoundedCornerShape(ScribeCardTokens.RadiusSmall)
+                shape   = ScribeTheme.shapes.cardSmall
             ) {
                 Icon(
                     Icons.Outlined.Bookmark,
@@ -421,9 +421,9 @@ private fun CurrentProjectCard(
                         PLACEHOLDER_TAGS.forEach { tag ->
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(50))
+                                    .clip(ScribeTheme.shapes.chip)
                                     .background(accentColor.copy(alpha = 0.09f))
-                                    .border(0.5.dp, accentColor.copy(alpha = 0.18f), RoundedCornerShape(50))
+                                    .border(0.5.dp, accentColor.copy(alpha = 0.18f), ScribeTheme.shapes.chip)
                                     .padding(horizontal = 8.dp, vertical = 3.dp)
                             ) {
                                 Text(
@@ -534,7 +534,7 @@ private fun CurrentProjectCard(
                     onClick  = onContinueWriting,
                     modifier = Modifier.weight(1f).height(42.dp),
                     colors   = ButtonDefaults.buttonColors(containerColor = accentColor),
-                    shape    = RoundedCornerShape(ScribeCardTokens.RadiusSmall),
+                    shape    = ScribeTheme.shapes.cardSmall,
                     enabled  = chapters.isNotEmpty()
                 ) {
                     Icon(Icons.Outlined.Edit, null, modifier = Modifier.size(15.dp))
@@ -549,7 +549,7 @@ private fun CurrentProjectCard(
                 OutlinedButton(
                     onClick  = onNewChapter,
                     modifier = Modifier.height(42.dp),
-                    shape    = RoundedCornerShape(ScribeCardTokens.RadiusSmall),
+                    shape    = ScribeTheme.shapes.cardSmall,
                     border   = BorderStroke(1.dp, accentColor.copy(alpha = 0.5f))
                 ) {
                     Icon(Icons.Default.Add, "New Chapter",
@@ -626,7 +626,7 @@ private fun UniformActionTile(
     val hazeState    = LocalHazeState.current
     val hasBgImage   = localHasBgImage()
     val solidSurface = LocalSolidSurface.current
-    val shape        = RoundedCornerShape(ScribeCardTokens.RadiusSmall)
+    val shape        = ScribeTheme.shapes.cardSmall
 
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -1046,10 +1046,10 @@ private fun CompactChapterRow(
             Box(
                 modifier = Modifier
                     .size(36.dp)
-                    .clip(RoundedCornerShape(ScribeCardTokens.RadiusTiny))
+                    .clip(ScribeTheme.shapes.cardNested)
                     .background(accentColor.copy(alpha = 0.09f))
                     .border(0.6.dp, accentColor.copy(alpha = 0.16f),
-                        RoundedCornerShape(ScribeCardTokens.RadiusTiny)),
+                        ScribeTheme.shapes.cardNested),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -1092,7 +1092,7 @@ private fun CompactChapterRow(
                 OutlinedButton(
                     onClick = onClick,
                     modifier = Modifier.height(30.dp),
-                    shape    = RoundedCornerShape(ScribeCardTokens.RadiusTiny),
+                    shape    = ScribeTheme.shapes.cardNested,
                     border   = BorderStroke(1.dp, accentColor.copy(alpha = 0.35f)),
                     contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp)
                 ) {
@@ -1161,7 +1161,7 @@ private fun GoalSettingSheet(
                     )
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(ScribeCardTokens.RadiusTiny))
+                            .clip(ScribeTheme.shapes.cardNested)
                             .background(accentColor.copy(alpha = 0.12f))
                             .padding(horizontal = 10.dp, vertical = 4.dp)
                     ) {
@@ -1209,7 +1209,7 @@ private fun GoalSettingSheet(
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(ScribeCardTokens.RadiusTiny))
+                                .clip(ScribeTheme.shapes.cardNested)
                                 .background(
                                     if (isSelected) accentColor.copy(alpha = 0.14f)
                                     else MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
@@ -1218,7 +1218,7 @@ private fun GoalSettingSheet(
                                     1.dp,
                                     if (isSelected) accentColor.copy(alpha = 0.40f)
                                     else MaterialTheme.colorScheme.outlineVariant,
-                                    RoundedCornerShape(ScribeCardTokens.RadiusTiny)
+                                    ScribeTheme.shapes.cardNested
                                 )
                                 .clickable { totalTarget = option }
                                 .padding(vertical = 10.dp),
@@ -1252,7 +1252,7 @@ private fun GoalSettingSheet(
                 },
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 colors   = ButtonDefaults.buttonColors(containerColor = accentColor),
-                shape    = RoundedCornerShape(ScribeCardTokens.RadiusSmall)
+                shape    = ScribeTheme.shapes.cardSmall
             ) {
                 Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(8.dp))
@@ -1311,7 +1311,7 @@ private fun BookPickerSheet(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(ScribeCardTokens.RadiusSmall))
+                            .clip(ScribeTheme.shapes.cardSmall)
                             .background(
                                 if (isSelected) accentColor.copy(alpha = 0.10f)
                                 else Color.Transparent
@@ -1324,7 +1324,7 @@ private fun BookPickerSheet(
                         Box(
                             modifier = Modifier
                                 .size(width = 36.dp, height = 50.dp)
-                                .clip(RoundedCornerShape(4.dp))
+                                .clip(ScribeTheme.shapes.extraSmall)
                         ) {
                             if (book.coverUri != null) {
                                 AsyncImage(

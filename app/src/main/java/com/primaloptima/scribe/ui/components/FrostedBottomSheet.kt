@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.dp
 import com.primaloptima.scribe.ui.theme.LocalAppTheme
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.ScribeShapeTokens
 import com.primaloptima.scribe.ui.theme.autoTextColor
 import com.primaloptima.scribe.ui.theme.frostedPanel
 import dev.chrisbanes.haze.HazeState
@@ -75,7 +76,7 @@ fun FrostedSheetDragHandle(
                 .size(width = 36.dp, height = 4.dp)
                 .background(
                     color = color,
-                    shape = RoundedCornerShape(2.dp)
+                    shape = ScribeShapeTokens.Handle
                 )
         )
     }
@@ -91,7 +92,7 @@ fun FrostedBottomSheet(
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
     hazeState: HazeState? = LocalHazeState.current,
-    shape: Shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+    shape: Shape = ScribeShapeTokens.BottomSheet,
     isDark: Boolean = LocalAppTheme.current?.isDark == true,
     dragHandle: @Composable (() -> Unit)? = { FrostedSheetDragHandle() },
     content: @Composable ColumnScope.() -> Unit

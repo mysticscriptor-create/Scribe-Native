@@ -110,11 +110,11 @@ private fun CategoryPill(
 ) {
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(12.dp),
+        shape = ScribeTheme.shapes.cardSmall,
         color = Color.Transparent,
         modifier = modifier
             .height(36.dp)
-            .frostedChip(hazeState, shape = RoundedCornerShape(12.dp), isSelected = selected)
+            .frostedChip(hazeState, shape = ScribeTheme.shapes.cardSmall, isSelected = selected)
     ) {
         Row(
             modifier = Modifier
@@ -320,7 +320,7 @@ fun SheetsScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(38.dp)
-                                            .frostedSearchBox(hazeState, shape = RoundedCornerShape(12.dp))
+                                            .frostedSearchBox(hazeState, shape = ScribeTheme.shapes.searchBar)
                                             .padding(horizontal = 10.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
@@ -398,10 +398,10 @@ fun SheetsScreen(
                                     labelColor = ScribeTheme.colors.content.primary,
                                     selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
                                 ),
-                                shape = RoundedCornerShape(12.dp),
+                                shape = ScribeTheme.shapes.cardSmall,
                                 modifier = Modifier
                                     .height(38.dp)
-                                    .frostedChip(hazeState, shape = RoundedCornerShape(12.dp), isSelected = hasTagFilters)
+                                    .frostedChip(hazeState, shape = ScribeTheme.shapes.cardSmall, isSelected = hasTagFilters)
                             )
 
                             // Sort Chip Button
@@ -434,10 +434,10 @@ fun SheetsScreen(
                                         labelColor = ScribeTheme.colors.content.primary,
                                         selectedLabelColor = MaterialTheme.colorScheme.onSecondaryContainer
                                     ),
-                                    shape = RoundedCornerShape(12.dp),
+                                    shape = ScribeTheme.shapes.cardSmall,
                                     modifier = Modifier
                                         .height(38.dp)
-                                        .frostedChip(hazeState, shape = RoundedCornerShape(12.dp), isSelected = isSortSelected)
+                                        .frostedChip(hazeState, shape = ScribeTheme.shapes.cardSmall, isSelected = isSortSelected)
                                 )
 
                                 FrostedDropdownMenu(
@@ -668,8 +668,8 @@ fun SheetsScreen(
                                                 containerColor = Color.Transparent,
                                                 selectedContainerColor = Color.Transparent
                                             ),
-                                            shape = RoundedCornerShape(8.dp),
-                                            modifier = Modifier.frostedChip(hazeState, shape = RoundedCornerShape(8.dp), isSelected = true)
+                                            shape = ScribeTheme.shapes.button,
+                                            modifier = Modifier.frostedChip(hazeState, shape = ScribeTheme.shapes.button, isSelected = true)
                                         )
                                     }
                                     TextButton(
@@ -969,8 +969,8 @@ private fun WorldEntryCard(
                 Box(
                     modifier = Modifier
                         .size(width = 58.dp, height = 70.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .border(1.5.dp, meta.color.copy(alpha = 0.8f), RoundedCornerShape(10.dp))
+                        .clip(ScribeTheme.shapes.cardNested)
+                        .border(1.5.dp, meta.color.copy(alpha = 0.8f), ScribeTheme.shapes.cardNested)
                         .clickable { onImageClick() }
                 ) {
                     AsyncImage(
@@ -984,9 +984,9 @@ private fun WorldEntryCard(
                 Box(
                     modifier = Modifier
                         .size(width = 58.dp, height = 70.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(ScribeTheme.shapes.cardNested)
                         .background(meta.color.copy(alpha = 0.15f))
-                        .border(1.dp, meta.color.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+                        .border(1.dp, meta.color.copy(alpha = 0.35f), ScribeTheme.shapes.cardNested),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -1055,7 +1055,7 @@ private fun WorldEntryCard(
                     ) {
                         tags.take(3).forEach { tag ->
                             Surface(
-                                shape = RoundedCornerShape(6.dp),
+                                shape = ScribeTheme.shapes.tag,
                                 color = meta.color.copy(alpha = 0.10f),
                                 border = androidx.compose.foundation.BorderStroke(0.5.dp, meta.color.copy(alpha = 0.25f))
                             ) {

@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.ScribeShapeTokens
 import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.frostedContainerColor
 import com.primaloptima.scribe.ui.theme.frostedFab
@@ -97,6 +98,11 @@ object ScribeFabTokens {
     // Corner radii — squircle feel, not full circle
     val RadiusDefault = 16.dp
     val RadiusSmall   = 12.dp
+
+    // Semantic shapes aligned with ScribeShapeTokens
+    val ShapeDefault   = ScribeShapeTokens.Fab
+    val ShapeSmall     = ScribeShapeTokens.FabSmall
+    val SpeedDialShape = ScribeShapeTokens.SpeedDial
 
     // Elevation — always 0; frosted glass provides depth
     val Elevation = 0.dp
@@ -176,7 +182,9 @@ fun ScribeFab(
     val hasBgImage  = localHasBgImage()
     val hazeState   = LocalHazeState.current
     val accentColor = ScribeTheme.colors.interaction.primary
-    val shape       = RoundedCornerShape(cornerRadius)
+    val shape       = if (cornerRadius == ScribeFabTokens.RadiusDefault) ScribeTheme.shapes.fab
+                      else if (cornerRadius == ScribeFabTokens.RadiusSmall) ScribeTheme.shapes.fabSmall
+                      else RoundedCornerShape(cornerRadius)
 
     // Press-scale — interaction source drives both the scale and suppresses
     // the default ripple (glass surfaces use scale feedback instead).
@@ -460,7 +468,7 @@ private fun SpeedDialCard(
     val accentColor = ScribeTheme.colors.interaction.primary
     val hasBgImage  = localHasBgImage()
     val solidSurface = LocalSolidSurface.current
-    val shape       = RoundedCornerShape(ScribeFabTokens.SpeedDialRadius)
+    val shape       = ScribeFabTokens.SpeedDialShape
 
     // Stagger trigger: flip to true after the card enters so items animate in
     var showItems by remember { mutableStateOf(false) }
@@ -572,7 +580,7 @@ private fun SpeedDialRow(
             .fillMaxWidth()
             .height(ScribeFabTokens.ItemHeight)
             .then(
-                if (isFocused) Modifier.border(2.dp, ScribeTheme.colors.interaction.focus, RoundedCornerShape(8.dp))
+                if (isFocused) Modifier.border(2.dp, ScribeTheme.colors.interaction.focus, ScribeTheme.shapes.button)
                 else Modifier
             )
             .clickable(
@@ -592,12 +600,12 @@ private fun SpeedDialRow(
         Box(
             modifier = Modifier
                 .size(30.dp)
-                .clip(RoundedCornerShape(ScribeCardTokens.RadiusTiny))
+                .clip(ScribeTheme.shapes.cardNested)
                 .background(accentColor.copy(alpha = 0.12f))
                 .border(
                     width = 0.6.dp,
                     color = accentColor.copy(alpha = 0.22f),
-                    shape = RoundedCornerShape(ScribeCardTokens.RadiusTiny)
+                    shape = ScribeTheme.shapes.cardNested
                 ),
             contentAlignment = Alignment.Center
         ) {

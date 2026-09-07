@@ -5,7 +5,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.*
@@ -136,7 +135,7 @@ fun CreateWorldEntrySheet(
                 placeholder = { Text(defaultPlaceholder, fontSize = 13.sp) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
+                shape = ScribeTheme.shapes.cardSmall
             )
 
             // Template preview box
@@ -153,12 +152,12 @@ fun CreateWorldEntrySheet(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(ScribeTheme.shapes.cardSmall)
                     .background(if (surfaceRaised != Color.Unspecified) surfaceRaised else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
                     .border(
                         0.7.dp,
                         borderSubtle,
-                        RoundedCornerShape(12.dp)
+                        ScribeTheme.shapes.cardSmall
                     )
                     .padding(14.dp)
             ) {
@@ -196,14 +195,14 @@ fun CreateWorldEntrySheet(
                 OutlinedButton(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = ScribeTheme.shapes.button
                 ) {
                     Text("Cancel")
                 }
                 Button(
                     onClick = { onConfirm(name, type) },
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = ScribeTheme.shapes.button,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = accentColor,
                         contentColor = ScribeTheme.colors.content.onAccent

@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
@@ -102,8 +101,8 @@ fun TagFilterSheet(
                             }
                         }
                     },
-                    modifier = Modifier.fillMaxWidth().frostedSearchBox(hazeState, shape = RoundedCornerShape(12.dp)),
-                    shape = RoundedCornerShape(12.dp)
+                    modifier = Modifier.fillMaxWidth().frostedSearchBox(hazeState, shape = ScribeTheme.shapes.searchBar),
+                    shape = ScribeTheme.shapes.searchBar
                 )
             }
 
@@ -174,7 +173,7 @@ fun TagFilterSheet(
                                         )
                                     }
                                 } else null,
-                                shape = RoundedCornerShape(10.dp)
+                                shape = ScribeTheme.shapes.button
                             )
                         }
                     }
@@ -185,7 +184,7 @@ fun TagFilterSheet(
             Button(
                 onClick = { onApply(selectedTags) },
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp)
+                shape = ScribeTheme.shapes.button
             ) {
                 Text(
                     text = if (selectedTags.isEmpty()) "Show All Sheets"

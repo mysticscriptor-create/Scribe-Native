@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.ui.theme.FrostedCardContent
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.ScribeShapeTokens
 import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.frostedCard
 import com.primaloptima.scribe.ui.theme.frostedContainerColor
@@ -74,6 +75,12 @@ object ScribeCardTokens {
     val RadiusSmall  = 12.dp   // action tiles, pills
     val RadiusTiny   = 8.dp    // icon boxes, sub-elements
 
+    // Semantic shapes aligned with ScribeShapeTokens
+    val ShapeLarge   = ScribeShapeTokens.Card
+    val ShapeMedium  = ScribeShapeTokens.CardMedium
+    val ShapeSmall   = ScribeShapeTokens.CardSmall
+    val ShapeTiny    = ScribeShapeTokens.CardNested
+
     // Elevation — always 0 because frosted glass handles depth visually
     val Elevation = 0.dp
 
@@ -117,6 +124,7 @@ object ScribeCardTokens {
 fun ScribeCard(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = ScribeCardTokens.RadiusLarge,
+    shape: androidx.compose.ui.graphics.Shape? = null,
     onClick: (() -> Unit)? = null,
     shine: Boolean = true,
     content: @Composable BoxScope.() -> Unit
@@ -124,7 +132,7 @@ fun ScribeCard(
     val hazeState    = LocalHazeState.current
     val hasBgImage   = localHasBgImage()
     val solidSurface = LocalSolidSurface.current
-    val shape        = RoundedCornerShape(cornerRadius)
+    val cardShape    = shape ?: RoundedCornerShape(cornerRadius)
 
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -143,13 +151,13 @@ fun ScribeCard(
     Box(
         modifier = modifier
             .scale(scale)
-            .clip(shape)
+            .clip(cardShape)
             // Solid fallback fill — transparent when frosted glass is active
             .background(containerColor)
             // Haze blur on a plain Box, no Surface intercepting it
-            .frostedCard(hazeState, shape = shape)
+            .frostedCard(hazeState, shape = cardShape)
             .then(
-                if (isFocused) Modifier.border(2.dp, ScribeTheme.colors.interaction.focus, shape)
+                if (isFocused) Modifier.border(2.dp, ScribeTheme.colors.interaction.focus, cardShape)
                 else Modifier
             )
             .then(
@@ -558,7 +566,7 @@ fun ScribeActionTile(
     val hazeState    = LocalHazeState.current
     val hasBgImage   = localHasBgImage()
     val solidSurface = LocalSolidSurface.current
-    val shape        = RoundedCornerShape(ScribeCardTokens.RadiusMedium)
+    val shape        = ScribeCardTokens.ShapeMedium
 
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
@@ -806,9 +814,9 @@ fun ScribePill(
     val bg = color ?: accentColor
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(50))
+            .clip(ScribeShapeTokens.Chip)
             .background(bg.copy(alpha = 0.13f))
-            .border(0.6.dp, bg.copy(alpha = 0.22f), RoundedCornerShape(50))
+            .border(0.6.dp, bg.copy(alpha = 0.22f), ScribeShapeTokens.Chip)
             .padding(horizontal = 10.dp, vertical = 4.dp)
     ) {
         Text(
@@ -844,7 +852,7 @@ fun ScribeProgressBar(
     )
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(50))
+            .clip(ScribeShapeTokens.Chip)
             .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
     ) {
         Box(

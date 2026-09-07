@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -179,9 +178,9 @@ fun HistoryScreen(
                             Box(
                                 modifier = Modifier
                                     .size(36.dp)
-                                    .clip(RoundedCornerShape(ScribeCardTokens.RadiusSmall))
+                                    .clip(ScribeTheme.shapes.cardSmall)
                                     .background(accentColor.copy(alpha = 0.12f))
-                                    .border(0.6.dp, accentColor.copy(alpha = 0.22f), RoundedCornerShape(ScribeCardTokens.RadiusSmall)),
+                                    .border(0.6.dp, accentColor.copy(alpha = 0.22f), ScribeTheme.shapes.cardSmall),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -278,12 +277,12 @@ fun HistoryScreen(
                             .verticalScroll(rememberScrollState())
                             .background(
                                 if (raisedSurface != Color.Unspecified) raisedSurface else MaterialTheme.colorScheme.surfaceVariant,
-                                RoundedCornerShape(ScribeCardTokens.RadiusSmall)
+                                ScribeTheme.shapes.cardSmall
                             )
                             .border(
                                 0.7.dp,
                                 borderSubtle,
-                                RoundedCornerShape(ScribeCardTokens.RadiusSmall)
+                                ScribeTheme.shapes.cardSmall
                             )
                             .padding(12.dp)
                     ) {

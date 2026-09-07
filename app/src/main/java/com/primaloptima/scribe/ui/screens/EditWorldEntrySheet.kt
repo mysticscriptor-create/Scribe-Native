@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -133,7 +132,7 @@ fun EditWorldEntrySheet(
                             )
                         )
                     },
-                    shape = RoundedCornerShape(12.dp),
+                    shape = ScribeTheme.shapes.button,
                     contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp)
                 ) {
                     Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -153,7 +152,7 @@ fun EditWorldEntrySheet(
             ) {
                 // ── Image Section (with Crop & Adjust) ────────────────
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = ScribeTheme.shapes.cardMedium,
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -166,8 +165,8 @@ fun EditWorldEntrySheet(
                             Box(
                                 modifier = Modifier
                                     .size(width = 72.dp, height = 84.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .border(1.5.dp, meta.color, RoundedCornerShape(12.dp))
+                                    .clip(ScribeTheme.shapes.cardSmall)
+                                    .border(1.5.dp, meta.color, ScribeTheme.shapes.cardSmall)
                                     .clickable { showImageViewer = true }
                             ) {
                                 AsyncImage(
@@ -197,9 +196,9 @@ fun EditWorldEntrySheet(
                             Box(
                                 modifier = Modifier
                                     .size(width = 72.dp, height = 84.dp)
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .clip(ScribeTheme.shapes.cardSmall)
                                     .background(meta.color.copy(alpha = 0.15f))
-                                    .border(1.dp, meta.color.copy(alpha = 0.4f), RoundedCornerShape(12.dp)),
+                                    .border(1.dp, meta.color.copy(alpha = 0.4f), ScribeTheme.shapes.cardSmall),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -224,7 +223,7 @@ fun EditWorldEntrySheet(
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 FilledTonalButton(
                                     onClick = { imagePicker.launch("image/*") },
-                                    shape = RoundedCornerShape(10.dp),
+                                    shape = ScribeTheme.shapes.button,
                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                 ) {
                                     Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(15.dp))
@@ -238,7 +237,7 @@ fun EditWorldEntrySheet(
                                             val uri = Uri.parse(imageUri)
                                             pendingCropUri = uri
                                         },
-                                        shape = RoundedCornerShape(10.dp),
+                                        shape = ScribeTheme.shapes.button,
                                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                                     ) {
                                         Icon(Icons.Default.Crop, contentDescription = "Crop", modifier = Modifier.size(15.dp))
@@ -270,7 +269,7 @@ fun EditWorldEntrySheet(
                     label = { Text("Name / Title") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = ScribeTheme.shapes.cardSmall
                 )
 
                 OutlinedTextField(
@@ -279,12 +278,12 @@ fun EditWorldEntrySheet(
                     label = { Text("Summary / Logline / Brief Overview") },
                     maxLines = 5,
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = ScribeTheme.shapes.cardSmall
                 )
 
                 // ── Tags Section (Comma Auto-tagging) ────────────────
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
+                    shape = ScribeTheme.shapes.cardMedium,
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -326,7 +325,7 @@ fun EditWorldEntrySheet(
                                                     .clickable { tags = tags - tag }
                                             )
                                         },
-                                        shape = RoundedCornerShape(8.dp)
+                                        shape = ScribeTheme.shapes.button
                                     )
                                 }
                             }
@@ -349,7 +348,7 @@ fun EditWorldEntrySheet(
                                 placeholder = { Text("Add tag (press comma to complete)…", fontSize = 12.sp) },
                                 singleLine = true,
                                 modifier = Modifier.weight(1f),
-                                shape = RoundedCornerShape(10.dp)
+                                shape = ScribeTheme.shapes.button
                             )
                             IconButton(
                                 onClick = { addTagsFromInput(newTagInput) },
@@ -375,7 +374,7 @@ fun EditWorldEntrySheet(
                         onClick = {
                             fields = fields + SheetsViewModel.Companion.Field("New Attribute", "")
                         },
-                        shape = RoundedCornerShape(10.dp),
+                        shape = ScribeTheme.shapes.button,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(14.dp))
@@ -482,7 +481,7 @@ private fun AttributeEditCard(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(14.dp),
+        shape = ScribeTheme.shapes.cardSmall,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f)
         )
@@ -505,7 +504,7 @@ private fun AttributeEditCard(
                     label = { Text("Label", fontSize = 11.sp) },
                     singleLine = true,
                     modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = ScribeTheme.shapes.button
                 )
 
                 val subtleTextColor = ScribeTheme.colors.content.tertiary
@@ -558,7 +557,7 @@ private fun AttributeEditCard(
                 label = { Text("Value (use commas to auto-format pills)", fontSize = 11.sp) },
                 maxLines = 4,
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp)
+                shape = ScribeTheme.shapes.button
             )
 
             // Dynamic Pills Preview if comma separated
@@ -582,7 +581,7 @@ private fun AttributeEditCard(
                             SuggestionChip(
                                 onClick = {},
                                 label = { Text(pill, fontSize = 10.sp) },
-                                shape = RoundedCornerShape(6.dp),
+                                shape = ScribeTheme.shapes.tag,
                                 modifier = Modifier.height(24.dp)
                             )
                         }

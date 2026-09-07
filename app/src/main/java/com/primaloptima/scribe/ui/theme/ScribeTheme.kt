@@ -804,7 +804,7 @@ fun Modifier.specularGlassBorder(
  * Creates tactile physical separation between cards and background without heavy muddy shadows.
  */
 fun Modifier.specularRimBorder(
-    shape: Shape = RoundedCornerShape(12.dp),
+    shape: Shape = ScribeShapeTokens.Medium,
     isDark: Boolean = true,
     strokeWidth: Dp = 1.dp,
     topAlpha: Float = if (isDark) 0.16f else 0.45f,
@@ -929,7 +929,7 @@ fun Modifier.drawWithBackdropBitmap(
 @Composable
 fun Modifier.frostedBar(
     hazeState: HazeState?,
-    shape: Shape = RectangleShape,
+    shape: Shape = ScribeShapeTokens.None,
     isDark: Boolean = LocalAppTheme.current?.isDark == true
 ): Modifier {
     val theme = LocalAppTheme.current
@@ -1095,7 +1095,7 @@ fun Modifier.frostedBar(
 @Composable
 fun Modifier.frostedFab(
     hazeState: HazeState?,
-    shape: Shape = androidx.compose.foundation.shape.CircleShape,
+    shape: Shape = ScribeShapeTokens.Full,
     isDark: Boolean = LocalAppTheme.current?.isDark == true
 ): Modifier {
     val theme = LocalAppTheme.current
@@ -1259,7 +1259,7 @@ fun Modifier.frostedFab(
 @Composable
 fun Modifier.frostedPanel(
     hazeState: HazeState?,
-    shape: Shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+    shape: Shape = ScribeShapeTokens.BottomSheet,
     isDark: Boolean = LocalAppTheme.current?.isDark == true
 ): Modifier {
     val theme = LocalAppTheme.current
@@ -1423,7 +1423,7 @@ fun Modifier.frostedPanel(
 @Composable
 fun Modifier.frostedMenu(
     hazeState: HazeState?,
-    shape: Shape = RoundedCornerShape(14.dp),
+    shape: Shape = ScribeShapeTokens.Menu,
     isDark: Boolean = LocalAppTheme.current?.isDark == true
 ): Modifier {
     val theme = LocalAppTheme.current
@@ -1596,7 +1596,7 @@ fun FrostedDropdownMenu(
     offset: DpOffset = DpOffset(0.dp, 0.dp),
     scrollState: ScrollState = rememberScrollState(),
     properties: PopupProperties = PopupProperties(focusable = true),
-    shape: Shape = RoundedCornerShape(14.dp),
+    shape: Shape = ScribeShapeTokens.Menu,
     content: @Composable ColumnScope.() -> Unit
 ) {
     FrostedInWindowDropdownMenu(
@@ -1617,7 +1617,7 @@ fun FrostedDropdownMenu(
 @Composable
 fun Modifier.frostedCard(
     hazeState: HazeState?,
-    shape: Shape = RoundedCornerShape(16.dp),
+    shape: Shape = ScribeShapeTokens.CardMedium,
     isDark: Boolean = LocalAppTheme.current?.isDark == true,
     solidAlpha: Float = 0.92f,
     applyFallbackBackground: Boolean = true
@@ -1787,7 +1787,7 @@ fun Modifier.frostedCard(
 @Composable
 fun Modifier.frostedChip(
     hazeState: HazeState?,
-    shape: Shape = RoundedCornerShape(12.dp),
+    shape: Shape = ScribeShapeTokens.Chip,
     isDark: Boolean = LocalAppTheme.current?.isDark == true,
     isSelected: Boolean = false,
     selectedAlpha: Float = 0.25f,
@@ -1965,7 +1965,7 @@ fun Modifier.frostedChip(
 @Composable
 fun Modifier.scribeFocusRing(
     interactionSource: InteractionSource,
-    shape: Shape = RoundedCornerShape(12.dp),
+    shape: Shape = ScribeShapeTokens.CardSmall,
     strokeWidth: androidx.compose.ui.unit.Dp = 2.dp
 ): Modifier {
     val isFocused by interactionSource.collectIsFocusedAsState()
@@ -1982,7 +1982,7 @@ fun Modifier.scribeFocusRing(
 @Composable
 fun Modifier.frostedSearchBox(
     hazeState: HazeState?,
-    shape: Shape = RoundedCornerShape(12.dp),
+    shape: Shape = ScribeShapeTokens.SearchBar,
     isDark: Boolean = LocalAppTheme.current?.isDark == true,
     solidAlpha: Float = 0.92f
 ): Modifier {
@@ -2231,7 +2231,7 @@ fun FrostedDialog(
     icon: @Composable (() -> Unit)? = null,
     title: @Composable (() -> Unit)? = null,
     text: @Composable (() -> Unit)? = null,
-    shape: Shape = RoundedCornerShape(28.dp),
+    shape: Shape = ScribeShapeTokens.Dialog,
 ) {
     val hazeState = LocalHazeState.current
     val isDark = LocalAppTheme.current?.isDark == true
@@ -3250,6 +3250,7 @@ fun ScribeComposeTheme(
 
     MaterialTheme(
         colorScheme = animatedColorScheme,
+        shapes = scribeShapes.toMaterialShapes(),
         content = {
             Box(
                 modifier = Modifier

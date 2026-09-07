@@ -60,6 +60,7 @@ import androidx.compose.ui.window.PopupProperties
 import com.primaloptima.scribe.ui.theme.LocalAppTheme
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.ScribeShapeTokens
 import com.primaloptima.scribe.ui.theme.autoTextColor
 import com.primaloptima.scribe.ui.theme.frostedMenu
 import java.util.UUID
@@ -94,7 +95,7 @@ data class InWindowMenuData(
     val id: String = UUID.randomUUID().toString(),
     val anchorBoundsInWindow: Rect,
     val offset: DpOffset = DpOffset.Zero,
-    val shape: Shape = RoundedCornerShape(14.dp),
+    val shape: Shape = ScribeShapeTokens.Menu,
     val onDismissRequest: () -> Unit,
     val content: @Composable ColumnScope.() -> Unit
 )

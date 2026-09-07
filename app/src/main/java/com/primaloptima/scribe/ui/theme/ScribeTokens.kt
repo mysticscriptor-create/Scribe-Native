@@ -1,5 +1,6 @@
 package com.primaloptima.scribe.ui.theme
 
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -7,6 +8,8 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -256,25 +259,86 @@ data class ScribeColors(
 )
 
 // ── Shapes ──────────────────────────────────────────────────────────────────
+
+/**
+ * Centralized design tokens for Scribe's shape and corner geometry.
+ *
+ * Scribe's corner language follows a disciplined physical hierarchy:
+ * - [None] (0.dp): Full-bleed surfaces (top bars, bottom navigation rails, manuscript canvas).
+ * - [ExtraSmall] (4.dp): Fine accents (status indicators, slider tracks, progress bars).
+ * - [Small] (8.dp): Compact interactive controls (standard buttons, text input fields, nested cards).
+ * - [Medium] (12.dp): Tactile interactive elements (action tiles, search bars, secondary cards).
+ * - [Large] (16.dp): Prominent floating controls (standard FABs, section cards, drawer panels).
+ * - [ExtraLarge] (20.dp): Primary content cards (book cards, hero project cards, speed dial containers).
+ * - [Full] (CircleShape): Organic pill badges, circular action buttons, floating chips.
+ */
+object ScribeShapeTokens {
+    // ── Base Geometric Scale ────────────────────────────────────────────────
+    val None: Shape = RectangleShape
+    val ExtraSmall: CornerBasedShape = RoundedCornerShape(4.dp)
+    val Small: CornerBasedShape = RoundedCornerShape(8.dp)
+    val Medium: CornerBasedShape = RoundedCornerShape(12.dp)
+    val Large: CornerBasedShape = RoundedCornerShape(16.dp)
+    val ExtraLarge: CornerBasedShape = RoundedCornerShape(20.dp)
+    val Full: CornerBasedShape = CircleShape
+
+    // ── Semantic Component Radii / Shapes ───────────────────────────────────
+    val Card: CornerBasedShape = ExtraLarge                                    // 20.dp - Hero & Primary Content Cards
+    val CardMedium: CornerBasedShape = Large                                   // 16.dp - Secondary Cards, Strip Rows
+    val CardSmall: CornerBasedShape = Medium                                   // 12.dp - Action Tiles, Compact Cards
+    val CardNested: CornerBasedShape = Small                                   // 8.dp  - Inner grouping cards, icon boxes
+    val Button: CornerBasedShape = Small                                       // 8.dp  - Standard Buttons
+    val ButtonSmall: CornerBasedShape = RoundedCornerShape(6.dp)               // 6.dp  - Toolbar / compact buttons
+    val Field: CornerBasedShape = Small                                        // 8.dp  - Text input fields
+    val SearchBar: CornerBasedShape = Medium                                   // 12.dp - Search boxes
+    val Chip: CornerBasedShape = Full                                          // Pill  - Filter chips, status badges
+    val ChipRect: CornerBasedShape = Small                                     // 8.dp  - Rectangular tag chips
+    val Menu: CornerBasedShape = RoundedCornerShape(14.dp)                     // 14.dp - Dropdown & context menus
+    val Dialog: CornerBasedShape = RoundedCornerShape(24.dp)                   // 24.dp - Dialog surfaces
+    val BottomSheet: CornerBasedShape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 0.dp, bottomEnd = 0.dp)
+    val Fab: CornerBasedShape = Large                                          // 16.dp - Squircle FAB
+    val FabSmall: CornerBasedShape = Medium                                    // 12.dp - Small FAB
+    val SpeedDial: CornerBasedShape = ExtraLarge                               // 20.dp - Speed dial menu card
+    val Handle: CornerBasedShape = RoundedCornerShape(2.dp)                    // 2.dp  - Drag handles
+}
+
 @Immutable
 data class ScribeShapes(
-    val extraSmall: CornerBasedShape = RoundedCornerShape(4.dp),
-    val small: CornerBasedShape = RoundedCornerShape(8.dp),
-    val medium: CornerBasedShape = RoundedCornerShape(12.dp),
-    val large: CornerBasedShape = RoundedCornerShape(16.dp),
-    val extraLarge: CornerBasedShape = RoundedCornerShape(20.dp),
-    val full: CornerBasedShape = RoundedCornerShape(50),
+    val none: Shape = ScribeShapeTokens.None,
+    val extraSmall: CornerBasedShape = ScribeShapeTokens.ExtraSmall,
+    val small: CornerBasedShape = ScribeShapeTokens.Small,
+    val medium: CornerBasedShape = ScribeShapeTokens.Medium,
+    val large: CornerBasedShape = ScribeShapeTokens.Large,
+    val extraLarge: CornerBasedShape = ScribeShapeTokens.ExtraLarge,
+    val full: CornerBasedShape = ScribeShapeTokens.Full,
 
     // Semantic Component Shape Aliases
-    val card: CornerBasedShape = RoundedCornerShape(12.dp),
-    val cardNested: CornerBasedShape = RoundedCornerShape(8.dp),
-    val button: CornerBasedShape = RoundedCornerShape(8.dp),
-    val field: CornerBasedShape = RoundedCornerShape(8.dp),
-    val chip: CornerBasedShape = RoundedCornerShape(50),
-    val dialog: CornerBasedShape = RoundedCornerShape(16.dp),
-    val bottomSheet: CornerBasedShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
-    val fab: CornerBasedShape = RoundedCornerShape(16.dp)
-)
+    val card: CornerBasedShape = ScribeShapeTokens.Card,
+    val cardMedium: CornerBasedShape = ScribeShapeTokens.CardMedium,
+    val cardSmall: CornerBasedShape = ScribeShapeTokens.CardSmall,
+    val cardNested: CornerBasedShape = ScribeShapeTokens.CardNested,
+    val button: CornerBasedShape = ScribeShapeTokens.Button,
+    val buttonSmall: CornerBasedShape = ScribeShapeTokens.ButtonSmall,
+    val field: CornerBasedShape = ScribeShapeTokens.Field,
+    val searchBar: CornerBasedShape = ScribeShapeTokens.SearchBar,
+    val chip: CornerBasedShape = ScribeShapeTokens.Chip,
+    val chipRect: CornerBasedShape = ScribeShapeTokens.ChipRect,
+    val dialog: CornerBasedShape = ScribeShapeTokens.Dialog,
+    val bottomSheet: CornerBasedShape = ScribeShapeTokens.BottomSheet,
+    val menu: CornerBasedShape = ScribeShapeTokens.Menu,
+    val fab: CornerBasedShape = ScribeShapeTokens.Fab,
+    val fabSmall: CornerBasedShape = ScribeShapeTokens.FabSmall,
+    val speedDial: CornerBasedShape = ScribeShapeTokens.SpeedDial,
+    val handle: CornerBasedShape = ScribeShapeTokens.Handle
+) {
+    fun toMaterialShapes(): androidx.compose.material3.Shapes = androidx.compose.material3.Shapes(
+        extraSmall = extraSmall,
+        small = small,
+        medium = medium,
+        large = large,
+        extraLarge = extraLarge
+    )
+}
 
 // ── Spacing Scale ───────────────────────────────────────────────────────────
 @Immutable

@@ -4,7 +4,6 @@ import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -115,8 +114,8 @@ fun SettingsScreen(
                             leadingIcon = if (homeStartPage == "books") {
                                 { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
                             } else null,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.frostedChip(hazeState, shape = RoundedCornerShape(12.dp), isSelected = homeStartPage == "books")
+                            shape = ScribeTheme.shapes.cardSmall,
+                            modifier = Modifier.frostedChip(hazeState, shape = ScribeTheme.shapes.cardSmall, isSelected = homeStartPage == "books")
                         )
                         FilterChip(
                             selected = homeStartPage == "dashboard",
@@ -125,8 +124,8 @@ fun SettingsScreen(
                             leadingIcon = if (homeStartPage == "dashboard") {
                                 { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp)) }
                             } else null,
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.frostedChip(hazeState, shape = RoundedCornerShape(12.dp), isSelected = homeStartPage == "dashboard")
+                            shape = ScribeTheme.shapes.cardSmall,
+                            modifier = Modifier.frostedChip(hazeState, shape = ScribeTheme.shapes.cardSmall, isSelected = homeStartPage == "dashboard")
                         )
                     }
                 }

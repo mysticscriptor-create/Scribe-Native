@@ -9,7 +9,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ShortText
@@ -192,9 +191,9 @@ private fun ShortcutRow(
             Box(
                 modifier = Modifier
                     .size(36.dp)
-                    .clip(RoundedCornerShape(ScribeCardTokens.RadiusSmall))
+                    .clip(ScribeTheme.shapes.cardSmall)
                     .background(accentColor.copy(alpha = 0.12f))
-                    .border(0.6.dp, accentColor.copy(alpha = 0.22f), RoundedCornerShape(ScribeCardTokens.RadiusSmall)),
+                    .border(0.6.dp, accentColor.copy(alpha = 0.22f), ScribeTheme.shapes.cardSmall),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
