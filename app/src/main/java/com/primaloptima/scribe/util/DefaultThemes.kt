@@ -109,9 +109,9 @@ object DefaultThemes {
             id = "paper", name = "Paper", isDark = false, builtIn = true,
             colors = ThemeColors(
                 background      = "#FAF8F5",
-                surfaceLowest   = "#F2EFE9",
-                surface         = "#FFFFFF",
-                surfaceRaised   = "#FFFFFF",
+                surfaceLowest   = "#ECE6DC",
+                surface         = "#F3EFE7",
+                surfaceRaised   = "#FDFBF8",
                 surfaceOverlay  = "#FFFFFF",
                 text            = "#1C211E",
                 mutedText       = "#4F5953",
@@ -131,7 +131,7 @@ object DefaultThemes {
                 dialogueText    = "#8C4318",
                 monologueText   = "#3B5A4B",
                 headingText     = "#143326",
-                toolbar         = "#FFFFFF",
+                toolbar         = "#F3EFE7",
                 toolbarText     = "#1C211E"
             ),
             fontFamily = "serif", fontSize = 18, lineHeight = 1.72f,
@@ -175,9 +175,9 @@ object DefaultThemes {
             id = "typewriter", name = "Typewriter", isDark = false, builtIn = true,
             colors = ThemeColors(
                 background      = "#F7F7F8",
-                surfaceLowest   = "#EDEDF0",
-                surface         = "#FFFFFF",
-                surfaceRaised   = "#FFFFFF",
+                surfaceLowest   = "#E8E8EC",
+                surface         = "#F0F0F3",
+                surfaceRaised   = "#FCFCFD",
                 surfaceOverlay  = "#FFFFFF",
                 text            = "#111113",
                 mutedText       = "#48484F",
@@ -197,7 +197,7 @@ object DefaultThemes {
                 dialogueText    = "#9A3412",
                 monologueText   = "#48484F",
                 headingText     = "#000000",
-                toolbar         = "#FFFFFF",
+                toolbar         = "#F0F0F3",
                 toolbarText     = "#111113"
             ),
             fontFamily = "mono", fontSize = 16, lineHeight = 1.80f,

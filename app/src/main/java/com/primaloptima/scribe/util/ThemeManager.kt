@@ -477,10 +477,25 @@ class ThemeManager(private val context: Context) {
                 )
             } else {
                 // Light & Tinted Mode Elevation Ramp
-                val surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.035).coerceIn(0.05, 0.98), bgOklch.c * 1.05, bgOklch.h))
-                val surface = oklchToHex(Oklch((bgOklch.l + 0.045).coerceIn(0.05, 0.99), bgOklch.c * 0.88, bgOklch.h))
-                val surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.085).coerceIn(0.05, 1.0), bgOklch.c * 0.75, bgOklch.h))
-                val surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.130).coerceIn(0.05, 1.0), bgOklch.c * 0.65, bgOklch.h))
+                val surfaceLowest: String
+                val surface: String
+                val surfaceRaised: String
+                val surfaceOverlay: String
+
+                if (bgOklch.l >= 0.90) {
+                    // High-key light themes (Paper, Typewriter, near-white canvases)
+                    // Headroom towards 1.0 is minimal; ground the frame slightly and reserve pure tones for raised and overlay
+                    surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.050).coerceIn(0.05, 0.98), bgOklch.c * 1.05, bgOklch.h))
+                    surface = oklchToHex(Oklch((bgOklch.l - 0.024).coerceIn(0.05, 0.98), bgOklch.c * 0.95, bgOklch.h))
+                    surfaceRaised = oklchToHex(Oklch((bgOklch.l + (1.0 - bgOklch.l) * 0.45).coerceIn(0.05, 0.992), bgOklch.c * 0.70, bgOklch.h))
+                    surfaceOverlay = oklchToHex(Oklch(1.0, 0.0, bgOklch.h))
+                } else {
+                    // Tinted / mid-light themes (Sepia, parchment, pastel)
+                    surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.045).coerceIn(0.05, 0.98), bgOklch.c * 1.05, bgOklch.h))
+                    surface = oklchToHex(Oklch((bgOklch.l - 0.025).coerceIn(0.05, 0.98), bgOklch.c * 0.95, bgOklch.h))
+                    surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.05, 0.99), bgOklch.c * 0.80, bgOklch.h))
+                    surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.050).coerceIn(0.05, 1.0), bgOklch.c * 0.65, bgOklch.h))
+                }
 
                 // Content & Typography Hierarchy (increasing lightness in OKLCH with reduced chroma)
                 val mutedText = oklchToHex(Oklch((textOklch.l + 0.28).coerceIn(0.20, 0.75), (textOklch.c * 0.65).coerceAtLeast(0.0), textOklch.h))
