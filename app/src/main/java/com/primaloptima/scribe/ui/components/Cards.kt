@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -127,6 +128,7 @@ fun ScribeCard(
 
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    val isFocused by interactionSource.collectIsFocusedAsState()
     val scale by animateFloatAsState(
         targetValue   = if (isPressed && onClick != null) 0.97f else 1f,
         animationSpec = tween(120, easing = FastOutSlowInEasing),
@@ -146,6 +148,10 @@ fun ScribeCard(
             .background(containerColor)
             // Haze blur on a plain Box, no Surface intercepting it
             .frostedCard(hazeState, shape = shape)
+            .then(
+                if (isFocused) Modifier.border(2.dp, ScribeTheme.colors.interaction.focus, shape)
+                else Modifier
+            )
             .then(
                 if (onClick != null) Modifier.clickable(
                     interactionSource = interactionSource,
@@ -556,6 +562,7 @@ fun ScribeActionTile(
 
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    val isFocused by interactionSource.collectIsFocusedAsState()
     val scale by animateFloatAsState(
         targetValue   = if (isPressed) 0.95f else 1f,
         animationSpec = tween(100, easing = FastOutSlowInEasing),
@@ -574,6 +581,10 @@ fun ScribeActionTile(
             .clip(shape)
             .background(containerColor)
             .then(if (!isPrimary) Modifier.frostedCard(hazeState, shape = shape) else Modifier)
+            .then(
+                if (isFocused) Modifier.border(2.dp, ScribeTheme.colors.interaction.focus, shape)
+                else Modifier
+            )
             .clickable(
                 interactionSource = interactionSource,
                 indication        = null

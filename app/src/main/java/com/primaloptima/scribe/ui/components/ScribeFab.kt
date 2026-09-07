@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -181,6 +182,7 @@ fun ScribeFab(
     // the default ripple (glass surfaces use scale feedback instead).
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    val isFocused by interactionSource.collectIsFocusedAsState()
     val scale by animateFloatAsState(
         targetValue   = if (isPressed) ScribeFabTokens.PressScale else 1f,
         animationSpec = ScribeFabTokens.PressScaleSpec,
@@ -201,6 +203,10 @@ fun ScribeFab(
             // Frosted glass modifier — no-ops gracefully when no bg image
             .frostedFab(hazeState, shape = shape)
             .clip(shape)
+            .then(
+                if (isFocused) Modifier.border(2.dp, ScribeTheme.colors.interaction.focus, shape)
+                else Modifier
+            )
             .clickable(
                 interactionSource = interactionSource,
                 indication        = null,   // scale replaces ripple on glass
@@ -554,6 +560,7 @@ private fun SpeedDialRow(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
+    val isFocused by interactionSource.collectIsFocusedAsState()
     val rowAlpha by animateFloatAsState(
         targetValue   = if (isPressed) 0.70f else 1f,
         animationSpec = tween(80),
@@ -564,6 +571,10 @@ private fun SpeedDialRow(
         modifier = Modifier
             .fillMaxWidth()
             .height(ScribeFabTokens.ItemHeight)
+            .then(
+                if (isFocused) Modifier.border(2.dp, ScribeTheme.colors.interaction.focus, RoundedCornerShape(8.dp))
+                else Modifier
+            )
             .clickable(
                 interactionSource = interactionSource,
                 indication        = null

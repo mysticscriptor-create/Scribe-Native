@@ -771,6 +771,8 @@ class ThemeManager(private val context: Context) {
             val linkCol = if (derived.link.isNotBlank()) ComposeColor(parseColor(derived.link)) else accentCol
             val highlightCol = if (derived.specialHighlight.isNotBlank()) ComposeColor(parseColor(derived.specialHighlight)) else (if (isDark) ComposeColor(0xFFE7B85A) else ComposeColor(0xFFB45309))
 
+            val accentMutedCol = if (derived.accentMuted.isNotBlank()) ComposeColor(parseColor(derived.accentMuted)) else accentCol.copy(alpha = 0.15f)
+
             val onPrimaryCol = ContrastResolver.resolveOnColor(
                 container = accentCol,
                 preferredForeground = if (isDark) bgCol else textCol,
@@ -778,7 +780,7 @@ class ThemeManager(private val context: Context) {
                 isDarkTheme = isDark
             )
             val onPrimaryContainerCol = ContrastResolver.resolveOnColor(
-                container = accentCol.copy(alpha = 0.15f),
+                container = accentMutedCol,
                 preferredForeground = textCol,
                 minRatio = 3.5,
                 isDarkTheme = isDark
@@ -847,8 +849,8 @@ class ThemeManager(private val context: Context) {
                     surface = surfaceCol,
                     surfaceRaised = surfaceRaisedCol,
                     surfaceOverlay = surfaceOverlayCol,
-                    surfaceSelected = accentCol.copy(alpha = 0.15f),
-                    surfacePressed = accentCol.copy(alpha = 0.25f)
+                    surfaceSelected = if (isDark) surfaceRaisedCol.copy(alpha = 0.6f) else accentMutedCol,
+                    surfacePressed = surfaceCol.copy(alpha = 0.8f)
                 ),
                 content = com.primaloptima.scribe.ui.theme.ContentColors(
                     primary = textCol,
@@ -859,7 +861,7 @@ class ThemeManager(private val context: Context) {
                 ),
                 interaction = com.primaloptima.scribe.ui.theme.InteractionColors(
                     primary = accentCol,
-                    primaryContainer = accentCol.copy(alpha = 0.15f),
+                    primaryContainer = accentMutedCol,
                     onPrimary = onPrimaryCol,
                     onPrimaryContainer = onPrimaryContainerCol,
                     secondary = secondaryCol,

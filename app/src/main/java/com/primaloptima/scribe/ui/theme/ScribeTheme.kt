@@ -9,7 +9,11 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.InteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -1922,8 +1926,9 @@ fun Modifier.frostedChip(
         }
     }
 
+    val selectedSurface = ScribeTheme.colors.surfaces.surfaceSelected
     return if (!hasBgImage) {
-        val fallbackBg = if (isSelected) accentColor.copy(alpha = 0.18f) else solidSurface.copy(alpha = solidAlpha)
+        val fallbackBg = if (isSelected) selectedSurface else solidSurface.copy(alpha = solidAlpha)
         this.clip(shape).background(fallbackBg, shape = shape)
     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hazeState != null) {
         this
@@ -1935,18 +1940,41 @@ fun Modifier.frostedChip(
             )
             .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom)
     } else if (barBlurBitmap != null) {
-        val fallbackBg = if (isSelected) accentColor.copy(alpha = 0.18f) else solidSurface.copy(alpha = solidAlpha)
+        val fallbackBg = if (isSelected) selectedSurface else solidSurface.copy(alpha = solidAlpha)
         this
             .then(positionModifier)
             .clip(shape)
             .drawWithBackdropBitmap(barBlurBitmap, tintColor, shape, isDark, fallbackBg, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom, edgeLighting = specularEdges)
     } else {
-        val fallbackBg = if (isSelected) accentColor.copy(alpha = 0.18f) else solidSurface.copy(alpha = solidAlpha)
+        val fallbackBg = if (isSelected) selectedSurface else solidSurface.copy(alpha = solidAlpha)
         this
             .then(positionModifier)
             .clip(shape)
             .background(fallbackBg, shape = shape)
             .specularGlassBorder(shape, isDark, topColor = adaptiveTokens.glassSpecularTop, bottomColor = adaptiveTokens.glassSpecularBottom, edgeLighting = specularEdges)
+    }
+}
+
+/**
+ * Renders a canonical accessibility focus ring using [ScribeColors.interaction.focus]
+ * when the component receives keyboard, switch, or accessibility focus.
+ *
+ * Preserves semantic independence:
+ * - Does not override persistent selection fills (e.g. [SurfaceColors.surfaceSelected]).
+ * - Does not conflict with transient press scale or touch ripples.
+ * - Conforms to WCAG 2.4.7 (Focus Visible) and WCAG 2.4.11 (Focus Appearance).
+ */
+@Composable
+fun Modifier.scribeFocusRing(
+    interactionSource: InteractionSource,
+    shape: Shape = RoundedCornerShape(12.dp),
+    strokeWidth: androidx.compose.ui.unit.Dp = 2.dp
+): Modifier {
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    return if (isFocused) {
+        this.border(strokeWidth, ScribeTheme.colors.interaction.focus, shape)
+    } else {
+        this
     }
 }
 
@@ -2709,7 +2737,7 @@ fun ScribeComposeTheme(
         primary = animPrimary,
         onPrimary = animOnPrimary,
         primaryContainer = accentMutedResolved,
-        onPrimaryContainer = animOnSurface,
+        onPrimaryContainer = onPrimaryContainerColor,
         secondary = secondaryColor,
         onSecondary = animOnPrimary,
         secondaryContainer = glassySurfaceVariant,

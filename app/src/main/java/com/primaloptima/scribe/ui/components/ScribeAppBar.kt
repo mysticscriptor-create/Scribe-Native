@@ -586,7 +586,7 @@ fun ScribeNavBar(
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(10.dp))
                     .then(
-                        if (isSelected) Modifier.background(accentColor.copy(alpha = 0.10f))
+                        if (isSelected) Modifier.background(ScribeTheme.colors.surfaces.surfaceSelected)
                         else Modifier
                     )
                     .padding(0.dp),
