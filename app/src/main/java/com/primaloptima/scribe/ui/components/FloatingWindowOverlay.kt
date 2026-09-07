@@ -27,6 +27,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.ui.screens.LocalInteractiveBoundsRegistry
 import com.primaloptima.scribe.ui.theme.ScribeColorScheme
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.FloatingWindow
 import io.github.rosemoe.sora.widget.CodeEditor

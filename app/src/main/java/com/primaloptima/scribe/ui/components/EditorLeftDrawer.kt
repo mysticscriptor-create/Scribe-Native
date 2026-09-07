@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.frostedPanel
 
 @OptIn(ExperimentalMaterial3Api::class)

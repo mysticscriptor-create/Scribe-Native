@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.ui.components.FrostedBottomSheet
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 
 /**
  * Bottom sheet displaying all available manuscript divider ornaments.

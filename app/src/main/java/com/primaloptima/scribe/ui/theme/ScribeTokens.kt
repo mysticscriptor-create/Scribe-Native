@@ -2,6 +2,7 @@ package com.primaloptima.scribe.ui.theme
 
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CornerBasedShape
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
@@ -281,6 +282,14 @@ object ScribeShapeTokens {
     val Large: CornerBasedShape = RoundedCornerShape(16.dp)
     val ExtraLarge: CornerBasedShape = RoundedCornerShape(20.dp)
     val Full: CornerBasedShape = CircleShape
+    val Pill: CornerBasedShape = Full
+
+    // ── Raw Radii Dimensions ────────────────────────────────────────────────
+    val RadiusExtraSmall: Dp = 4.dp
+    val RadiusSmall: Dp = 8.dp
+    val RadiusMedium: Dp = 12.dp
+    val RadiusLarge: Dp = 16.dp
+    val RadiusExtraLarge: Dp = 20.dp
 
     // ── Semantic Component Radii / Shapes ───────────────────────────────────
     val Card: CornerBasedShape = ExtraLarge                                    // 20.dp - Hero & Primary Content Cards
@@ -320,6 +329,7 @@ data class ScribeShapes(
     val large: CornerBasedShape = ScribeShapeTokens.Large,
     val extraLarge: CornerBasedShape = ScribeShapeTokens.ExtraLarge,
     val full: CornerBasedShape = ScribeShapeTokens.Full,
+    val pill: CornerBasedShape = ScribeShapeTokens.Pill,
 
     // Semantic Component Shape Aliases
     val card: CornerBasedShape = ScribeShapeTokens.Card,
@@ -357,6 +367,14 @@ data class ScribeShapes(
         extraLarge = extraLarge
     )
 }
+
+/** Returns a copy with only start corners (topStart, bottomStart) rounded. */
+fun CornerBasedShape.startOnly(): CornerBasedShape =
+    copy(topEnd = CornerSize(0.dp), bottomEnd = CornerSize(0.dp))
+
+/** Returns a copy with only end corners (topEnd, bottomEnd) rounded. */
+fun CornerBasedShape.endOnly(): CornerBasedShape =
+    copy(topStart = CornerSize(0.dp), bottomStart = CornerSize(0.dp))
 
 // ── Spacing Scale ───────────────────────────────────────────────────────────
 @Immutable

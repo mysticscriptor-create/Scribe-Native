@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.primaloptima.scribe.ui.theme.ScribeShapeTokens
 import com.primaloptima.scribe.ui.theme.ScribeTheme
+import com.primaloptima.scribe.ui.theme.startOnly
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -187,7 +188,7 @@ fun WorkbenchCard(
                     .width(3.5.dp)
                     .fillMaxHeight()
                     .align(Alignment.CenterStart)
-                    .background(paneAccentColor, RoundedCornerShape(topStart = ScribeShapeTokens.CardSmall.topStart, bottomStart = ScribeShapeTokens.CardSmall.bottomStart))
+                    .background(paneAccentColor, ScribeShapeTokens.CardSmall.startOnly())
             )
         }
 

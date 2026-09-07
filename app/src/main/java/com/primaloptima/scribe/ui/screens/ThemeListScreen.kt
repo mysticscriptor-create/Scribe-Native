@@ -41,6 +41,7 @@ import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
 import com.primaloptima.scribe.ui.theme.ScribeShapeTokens
 import com.primaloptima.scribe.ui.theme.ScribeTheme
+import com.primaloptima.scribe.ui.theme.startOnly
 import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.components.ScribeBarAction
 import com.primaloptima.scribe.ui.components.ScribeBarIconButton
@@ -269,7 +270,7 @@ private fun ThemeCard(
                     .fillMaxHeight()
                     .background(
                         accentColor,
-                        shape = RoundedCornerShape(topStart = cardShape.topStart, bottomStart = cardShape.bottomStart)
+                        shape = cardShape.startOnly()
                     )
             )
 

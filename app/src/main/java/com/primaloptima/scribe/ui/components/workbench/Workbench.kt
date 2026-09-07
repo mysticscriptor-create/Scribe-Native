@@ -1153,6 +1153,8 @@ fun Workbench(
                                 label = "ProxyBorder"
                             )
 
+                            val panelShape = ScribeTheme.shapes.floatingPanel
+
                             Surface(
                                 modifier = Modifier
                                     .size(
@@ -1170,20 +1172,20 @@ fun Workbench(
                                         scaleX = 1.05f
                                         scaleY = 1.05f
                                         shadowElevation = 24.dp.toPx()
-                                        shape = ScribeTheme.shapes.floatingPanel
+                                        shape = panelShape
                                         clip = true
                                         alpha = 0.94f
                                     }
                                     .border(
                                         width = if (isHighlighted) 2.dp else 1.2.dp,
                                         color = proxyBorderColor,
-                                        shape = ScribeTheme.shapes.floatingPanel
+                                        shape = panelShape
                                     )
                                     .then(
-                                        if (hasBgImage) Modifier.frostedCard(hazeState, ScribeTheme.shapes.floatingPanel, applyFallbackBackground = true)
+                                        if (hasBgImage) Modifier.frostedCard(hazeState, panelShape, applyFallbackBackground = true)
                                         else Modifier
                                     ),
-                                shape = ScribeTheme.shapes.floatingPanel,
+                                shape = panelShape,
                                 color = if (hasBgImage) Color.Transparent else solidSurface.copy(alpha = 0.96f),
                                 tonalElevation = 12.dp,
                                 shadowElevation = 20.dp

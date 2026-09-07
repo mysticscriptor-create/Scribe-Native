@@ -21,6 +21,7 @@ import com.primaloptima.scribe.ui.theme.FrostedBarContent
 import com.primaloptima.scribe.ui.theme.LocalBarBlurBitmap
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
+import com.primaloptima.scribe.ui.theme.ScribeShapeTokens
 import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.frostedBar
 import com.primaloptima.scribe.ui.theme.rememberAdaptiveTextColor
