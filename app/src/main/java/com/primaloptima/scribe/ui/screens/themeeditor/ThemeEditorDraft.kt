@@ -4,10 +4,14 @@ import androidx.compose.runtime.Immutable
 import com.primaloptima.scribe.util.ThemeGenerationEngine
 import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.util.model.AppTheme
+import com.primaloptima.scribe.util.model.ImageInfluence
+import com.primaloptima.scribe.util.model.ImageUnderstanding
 import com.primaloptima.scribe.util.model.ThemeColorOverrides
 import com.primaloptima.scribe.util.model.ThemeColors
+import com.primaloptima.scribe.util.model.ThemeGenerationRecipe
 import com.primaloptima.scribe.util.model.ThemeSchema
 import com.primaloptima.scribe.util.model.ThemeSourcePalette
+import com.primaloptima.scribe.util.model.WritingCharacter
 
 /**
  * High-level category tabs for the decomposed Theme Editor.
@@ -90,7 +94,14 @@ data class ThemeEditorDraft(
     val zonalVarianceMatrix: List<Float> = emptyList(),
     val bgDominantColor: String? = null,
     val zonalColorsMatrix: List<String> = emptyList(),
-    val luminanceFieldMatrix: List<Float> = emptyList()
+    val luminanceFieldMatrix: List<Float> = emptyList(),
+
+    // Phase 18: Intelligent Image Generation State
+    val extractedCandidates: List<Int> = emptyList(),
+    val activeRecipe: ThemeGenerationRecipe = ThemeGenerationRecipe.BALANCED,
+    val activeInfluence: ImageInfluence = ImageInfluence.BALANCED,
+    val activeWritingCharacter: WritingCharacter = WritingCharacter.NEUTRAL,
+    val activeUnderstanding: ImageUnderstanding? = null
 ) {
     /**
      * Resolves the canonical active ThemeColors by layering overrides onto generated defaults.
@@ -197,7 +208,106 @@ data class ThemeEditorDraft(
     fun withImageGeneratedPalette(rankedColors: List<Int>, resetOverrides: Boolean = false): ThemeEditorDraft {
         val dark = ThemeManager.isDarkColor(bgHex)
         val palette = ThemeGenerationEngine.generateSourcePalette(rankedColors, dark)
-        return withFoundationPalette(palette, resetOverrides)
+        return withFoundationPalette(palette, resetOverrides).copy(extractedCandidates = rankedColors)
+    }
+
+    /**
+     * Applies an [ImageUnderstanding] directly into foundation sources using the chosen [recipe],
+     * [candidateColor], [influence], and [writingCharacter].
+     * Changing any recipe parameter recomputes the foundation palette instantly without re-running quantization.
+     */
+    fun withImageUnderstanding(
+        understanding: ImageUnderstanding,
+        recipe: ThemeGenerationRecipe = activeRecipe,
+        candidateColor: Int? = null,
+        influence: ImageInfluence = activeInfluence,
+        writingCharacter: WritingCharacter = activeWritingCharacter,
+        resetOverrides: Boolean = false
+    ): ThemeEditorDraft {
+        val dark = ThemeManager.isDarkColor(bgHex)
+        val palette = ThemeGenerationEngine.generateSourcePalette(
+            understanding = understanding,
+            recipe = recipe,
+            candidateColor = candidateColor,
+            isDark = dark,
+            influence = influence,
+            writingCharacter = writingCharacter
+        )
+        return copy(
+            bgHex = palette.background,
+            textHex = palette.text,
+            accentHex = palette.accent,
+            overrides = if (resetOverrides) null else overrides,
+            extractedCandidates = understanding.rankedCandidates,
+            activeRecipe = recipe,
+            activeInfluence = influence,
+            activeWritingCharacter = writingCharacter,
+            activeUnderstanding = understanding
+        )
+    }
+
+    /**
+     * Switches the active seed color candidate from the existing [ImageUnderstanding] candidates list.
+     * Reuses understanding and re-generates downstream tokens without re-quantizing.
+     */
+    fun withCandidateSelection(candidateColor: Int, resetOverrides: Boolean = false): ThemeEditorDraft {
+        val understanding = activeUnderstanding
+        return if (understanding != null) {
+            withImageUnderstanding(
+                understanding = understanding,
+                recipe = activeRecipe,
+                candidateColor = candidateColor,
+                influence = activeInfluence,
+                writingCharacter = activeWritingCharacter,
+                resetOverrides = resetOverrides
+            )
+        } else {
+            val dark = ThemeManager.isDarkColor(bgHex)
+            val palette = ThemeGenerationEngine.generateSourcePaletteFromSeed(candidateColor, dark)
+            withFoundationPalette(palette, resetOverrides)
+        }
+    }
+
+    /**
+     * Switches the active theme recipe (Balanced, Atmospheric, Ink, Expressive).
+     */
+    fun withRecipe(recipe: ThemeGenerationRecipe, resetOverrides: Boolean = false): ThemeEditorDraft {
+        val understanding = activeUnderstanding ?: return copy(activeRecipe = recipe)
+        return withImageUnderstanding(
+            understanding = understanding,
+            recipe = recipe,
+            influence = activeInfluence,
+            writingCharacter = activeWritingCharacter,
+            resetOverrides = resetOverrides
+        )
+    }
+
+    /**
+     * Switches image influence (Subtle, Balanced, Strong).
+     */
+    fun withInfluence(influence: ImageInfluence, resetOverrides: Boolean = false): ThemeEditorDraft {
+        val understanding = activeUnderstanding ?: return copy(activeInfluence = influence)
+        return withImageUnderstanding(
+            understanding = understanding,
+            recipe = activeRecipe,
+            influence = influence,
+            writingCharacter = activeWritingCharacter,
+            resetOverrides = resetOverrides
+        )
+    }
+
+    /**
+     * Switches writing character (Neutral, Warm, Cool, Dramatic).
+     */
+    fun withWritingCharacter(character: WritingCharacter, resetOverrides: Boolean = false): ThemeEditorDraft {
+        val understanding = activeUnderstanding ?: return copy(activeWritingCharacter = character)
+        return withImageUnderstanding(
+            understanding = understanding,
+            recipe = activeRecipe,
+            influence = activeInfluence,
+            writingCharacter = character,
+            resetOverrides = resetOverrides
+        )
     }
 
     /**

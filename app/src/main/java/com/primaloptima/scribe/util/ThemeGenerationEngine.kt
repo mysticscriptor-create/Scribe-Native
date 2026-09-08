@@ -1,18 +1,34 @@
 package com.primaloptima.scribe.util
 
 import android.graphics.Bitmap
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import com.google.android.material.color.utilities.QuantizerCelebi
 import com.google.android.material.color.utilities.Score
 import com.primaloptima.scribe.ui.theme.ContrastResolver
+import com.primaloptima.scribe.util.model.ChromaticCharacter
+import com.primaloptima.scribe.util.model.DarkLightBias
+import com.primaloptima.scribe.util.model.ImageInfluence
+import com.primaloptima.scribe.util.model.ImageUnderstanding
+import com.primaloptima.scribe.util.model.PaletteDiversity
+import com.primaloptima.scribe.util.model.TemperatureBias
+import com.primaloptima.scribe.util.model.ThemeGenerationRecipe
 import com.primaloptima.scribe.util.model.ThemeSourcePalette
+import com.primaloptima.scribe.util.model.TonalCharacter
+import com.primaloptima.scribe.util.model.WritingCharacter
+import java.util.Collections
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /**
  * Phase 18 — Image-Derived Theme Generation Engine.
  *
- * Implements deterministic extraction of foundation colors from wallpaper / artwork:
- * Image (Bitmap) -> Downscale (128x128 max) -> Celebi Quantization -> Score Ranking
- * -> Extraction of Dominant / Seed Color -> Derivation of ThemeSourcePalette
- * (Background, Text, Accent) with guaranteed contrast via ContrastResolver.
+ * Implements deterministic, multi-recipe extraction of foundation colors from wallpaper / artwork:
+ * Image (Bitmap) -> Downscale (128x128 max) -> Celebi Quantization + MCU Score Ranking
+ * -> Structured Perceptual Analysis (ImageUnderstanding)
+ * -> Multi-Recipe Source Generation (Balanced, Atmospheric, Ink, Expressive)
+ * -> Derivation of ThemeSourcePalette (Background, Text, Accent) with guaranteed contrast via ContrastResolver.
  *
  * Architecture Invariant:
  * USER SOURCE (Image -> ThemeSourcePalette)
@@ -29,6 +45,25 @@ object ThemeGenerationEngine {
 
     const val ANALYSIS_SAMPLE_SIZE = 128
     const val MAX_QUANTIZER_COLORS = 128
+
+    // In-memory cache for deterministic session reuse of ImageUnderstanding (keyed by imageFingerprint or URI hash)
+    private val understandingCache = Collections.synchronizedMap(
+        object : LinkedHashMap<String, ImageUnderstanding>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, ImageUnderstanding>?): Boolean {
+                return size > 24
+            }
+        }
+    )
+
+    fun getCachedUnderstanding(key: String): ImageUnderstanding? = understandingCache[key]
+
+    fun putCachedUnderstanding(key: String, understanding: ImageUnderstanding) {
+        understandingCache[key] = understanding
+    }
+
+    fun clearCache() {
+        understandingCache.clear()
+    }
 
     /**
      * Extracts a list of ranked dominant ARGB color integers from an integer pixel array.
@@ -169,4 +204,414 @@ object ThemeGenerationEngine {
         val ranked = extractRankedColors(bitmap)
         return generateSourcePalette(ranked, isDark)
     }
+
+    /**
+     * Phase 18 — Analyzes a software [Bitmap] to extract a structured, deterministic [ImageUnderstanding].
+     * Scales down to [ANALYSIS_SAMPLE_SIZE]x[ANALYSIS_SAMPLE_SIZE] max to guarantee determinism and fast execution.
+     * Caches result in-memory by fingerprint for instant reuse across recipe selections.
+     */
+    fun analyzeImage(bitmap: Bitmap, focusRegion: String? = null): ImageUnderstanding {
+        if (bitmap.config == Bitmap.Config.HARDWARE || bitmap.width == 0 || bitmap.height == 0) {
+            return fallbackUnderstanding(focusRegion)
+        }
+
+        val sample = if (bitmap.width > ANALYSIS_SAMPLE_SIZE || bitmap.height > ANALYSIS_SAMPLE_SIZE) {
+            val scale = minOf(
+                ANALYSIS_SAMPLE_SIZE.toFloat() / bitmap.width,
+                ANALYSIS_SAMPLE_SIZE.toFloat() / bitmap.height
+            )
+            val sw = (bitmap.width * scale).toInt().coerceAtLeast(1)
+            val sh = (bitmap.height * scale).toInt().coerceAtLeast(1)
+            Bitmap.createScaledBitmap(bitmap, sw, sh, true)
+        } else {
+            bitmap
+        }
+
+        val w = sample.width
+        val h = sample.height
+        val pixels = IntArray(w * h)
+        sample.getPixels(pixels, 0, w, 0, 0, w, h)
+
+        if (sample !== bitmap) {
+            sample.recycle()
+        }
+
+        val understanding = analyzePixels(pixels, w, h, focusRegion)
+        understanding.imageFingerprint?.let { fp ->
+            putCachedUnderstanding(fp, understanding)
+        }
+        return understanding
+    }
+
+    /**
+     * Phase 18 — Analyzes a downscaled pixel array into a structured [ImageUnderstanding].
+     */
+    fun analyzePixels(
+        pixels: IntArray,
+        width: Int,
+        height: Int,
+        focusRegion: String? = null
+    ): ImageUnderstanding {
+        if (pixels.isEmpty() || width <= 0 || height <= 0) {
+            return fallbackUnderstanding(focusRegion)
+        }
+
+        // 1. Ranked candidates via MCU QuantizerCelebi & Score
+        val extracted = extractRankedColors(pixels, MAX_QUANTIZER_COLORS)
+        val rankedCandidates = if (extracted.isNotEmpty()) {
+            extracted
+        } else {
+            listOf(0xFF3B82F6.toInt(), 0xFF1D4ED8.toInt(), 0xFF10B981.toInt(), 0xFFF59E0B.toInt())
+        }
+        val dominantColors = rankedCandidates.take(8).map { String.format("#%06X", 0xFFFFFF and it) }
+
+        // 2. Sample pixel luminance and lightness in OKLCH
+        val step = maxOf(1, pixels.size / 1024)
+        var totalLightness = 0.0
+        var sampledCount = 0
+        for (i in pixels.indices step step) {
+            val oklch = ContrastResolver.colorToOklch(pixels[i])
+            totalLightness += oklch.l
+            sampledCount++
+        }
+        val averageLightness = (if (sampledCount > 0) totalLightness / sampledCount else 0.5).toFloat()
+
+        // 3. Tonal Character
+        val tonalCharacter = when {
+            averageLightness >= 0.62f -> TonalCharacter.HIGH_KEY
+            averageLightness <= 0.38f -> TonalCharacter.LOW_KEY
+            else -> TonalCharacter.MID_KEY
+        }
+
+        // 4. Dark/Light Bias
+        val darkLightBias = when {
+            averageLightness >= 0.55f -> DarkLightBias.LIGHT_BIASED
+            averageLightness <= 0.45f -> DarkLightBias.DARK_BIASED
+            else -> DarkLightBias.BALANCED
+        }
+
+        // 5. Candidate chromatic character and temperature
+        val candidateOklch = rankedCandidates.take(8).map { ContrastResolver.colorToOklch(it) }
+        val meanChroma = if (candidateOklch.isNotEmpty()) candidateOklch.map { it.c }.average() else 0.08
+        val chromaticCharacter = when {
+            meanChroma < 0.055 -> ChromaticCharacter.MUTED
+            meanChroma > 0.135 -> ChromaticCharacter.VIVID
+            else -> ChromaticCharacter.BALANCED
+        }
+
+        // 6. Temperature bias from candidate hues and chroma
+        var warmScore = 0.0
+        var coolScore = 0.0
+        candidateOklch.forEachIndexed { index, oklch ->
+            val weight = (8.0 - index) * oklch.c.coerceAtLeast(0.02)
+            val h = oklch.h
+            if ((h in 15.0..115.0) || (h in 335.0..360.0)) {
+                warmScore += weight
+            } else if (h in 140.0..290.0) {
+                coolScore += weight
+            }
+        }
+        val temperatureBias = when {
+            warmScore > coolScore * 1.35 -> TemperatureBias.WARM
+            coolScore > warmScore * 1.35 -> TemperatureBias.COOL
+            else -> TemperatureBias.NEUTRAL
+        }
+
+        // 7. Palette diversity
+        val paletteDiversity = if (candidateOklch.size <= 1) {
+            PaletteDiversity.CONCENTRATED
+        } else {
+            var maxHueDist = 0.0
+            for (i in candidateOklch.indices) {
+                for (j in i + 1 until candidateOklch.size) {
+                    val diff = abs(candidateOklch[i].h - candidateOklch[j].h)
+                    val circularDist = minOf(diff, 360.0 - diff)
+                    if (circularDist > maxHueDist) maxHueDist = circularDist
+                }
+            }
+            when {
+                maxHueDist < 25.0 -> PaletteDiversity.CONCENTRATED
+                maxHueDist > 85.0 -> PaletteDiversity.DIVERSE
+                else -> PaletteDiversity.MODERATE
+            }
+        }
+
+        // 8. Deterministic content fingerprint (64-bit luminance hash)
+        val fingerprint = computeFingerprint(pixels, width, height)
+
+        return ImageUnderstanding(
+            rankedCandidates = rankedCandidates,
+            dominantColors = dominantColors,
+            averageLightness = averageLightness,
+            tonalCharacter = tonalCharacter,
+            chromaticCharacter = chromaticCharacter,
+            temperatureBias = temperatureBias,
+            darkLightBias = darkLightBias,
+            paletteDiversity = paletteDiversity,
+            imageFingerprint = fingerprint,
+            focusRegion = focusRegion
+        )
+    }
+
+    /**
+     * Computes a deterministic 64-bit luminance difference hash formatted as a 16-hex string.
+     */
+    fun computeFingerprint(pixels: IntArray, width: Int, height: Int): String {
+        if (pixels.isEmpty() || width <= 0 || height <= 0) return "0000000000000000"
+        val grid = 8
+        val blockW = maxOf(1, width / grid)
+        val blockH = maxOf(1, height / grid)
+        val blockLums = DoubleArray(64)
+        var overallSum = 0.0
+
+        for (gy in 0 until grid) {
+            for (gx in 0 until grid) {
+                val startX = gx * blockW
+                val startY = gy * blockH
+                var blockSum = 0.0
+                var blockCount = 0
+                for (y in startY until minOf(startY + blockH, height)) {
+                    for (x in startX until minOf(startX + blockW, width)) {
+                        val p = pixels[y * width + x]
+                        val r = (p shr 16) and 0xFF
+                        val g = (p shr 8) and 0xFF
+                        val b = p and 0xFF
+                        // Rec. 709 relative luminance
+                        val lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+                        blockSum += lum
+                        blockCount++
+                    }
+                }
+                val avgLum = if (blockCount > 0) blockSum / blockCount else 128.0
+                val idx = gy * grid + gx
+                blockLums[idx] = avgLum
+                overallSum += avgLum
+            }
+        }
+
+        val mean = overallSum / 64.0
+        var hash = 0L
+        for (i in 0 until 64) {
+            if (blockLums[i] >= mean) {
+                hash = hash or (1L shl i)
+            }
+        }
+        return String.format("%016X", hash)
+    }
+
+    /**
+     * Phase 18 — Multi-Recipe Theme Generation.
+     *
+     * Transforms an [ImageUnderstanding] into an authoritative [ThemeSourcePalette] according
+     * to a selected [ThemeGenerationRecipe], [ImageInfluence], and [WritingCharacter].
+     *
+     * Guaranteed Invariant:
+     * - Changing recipe, candidate, influence, or polarity NEVER re-runs quantization.
+     * - All source tokens route through [ContrastResolver] to guarantee reading and UI accessibility.
+     */
+    fun generateSourcePalette(
+        understanding: ImageUnderstanding,
+        recipe: ThemeGenerationRecipe,
+        candidateColor: Int? = null,
+        isDark: Boolean,
+        influence: ImageInfluence = ImageInfluence.BALANCED,
+        writingCharacter: WritingCharacter = WritingCharacter.NEUTRAL
+    ): ThemeSourcePalette {
+        val seedInt = candidateColor
+            ?: understanding.rankedCandidates.firstOrNull()
+            ?: if (isDark) 0xFF3B82F6.toInt() else 0xFF1D4ED8.toInt()
+
+        val seedOklch = ContrastResolver.colorToOklch(seedInt)
+        val seedHue = seedOklch.h
+        val seedChroma = seedOklch.c.coerceIn(0.01, 0.28)
+
+        val influenceScale = when (influence) {
+            ImageInfluence.SUBTLE -> 0.45
+            ImageInfluence.BALANCED -> 1.00
+            ImageInfluence.STRONG -> 1.55
+        }
+        val accentScale = when (influence) {
+            ImageInfluence.SUBTLE -> 0.85
+            ImageInfluence.BALANCED -> 1.00
+            ImageInfluence.STRONG -> 1.25
+        }
+
+        // Compute Background and Accent targets per recipe
+        val (bgTargetL, bgTargetC, bgHue) = when (recipe) {
+            ThemeGenerationRecipe.BALANCED -> {
+                if (isDark) {
+                    Triple(0.12, (seedChroma * 0.15 * influenceScale).coerceIn(0.005, 0.026), seedHue)
+                } else {
+                    Triple(0.97, (seedChroma * 0.12 * influenceScale).coerceIn(0.004, 0.022), seedHue)
+                }
+            }
+            ThemeGenerationRecipe.ATMOSPHERIC -> {
+                // Deeper mood and richer environmental tinting
+                if (isDark) {
+                    Triple(0.105, (seedChroma * 0.32 * influenceScale).coerceIn(0.012, 0.042), seedHue)
+                } else {
+                    Triple(0.955, (seedChroma * 0.25 * influenceScale).coerceIn(0.008, 0.035), seedHue)
+                }
+            }
+            ThemeGenerationRecipe.INK -> {
+                // Writing-first, near-monochrome paper or ink canvas
+                if (isDark) {
+                    Triple(0.08, (0.003 * influenceScale).coerceIn(0.001, 0.008), seedHue)
+                } else {
+                    Triple(0.985, (0.003 * influenceScale).coerceIn(0.001, 0.008), seedHue)
+                }
+            }
+            ThemeGenerationRecipe.EXPRESSIVE -> {
+                // Pronounced chromatic presence and character
+                if (isDark) {
+                    Triple(0.13, (seedChroma * 0.28 * influenceScale).coerceIn(0.010, 0.040), (seedHue + 6.0) % 360.0)
+                } else {
+                    Triple(0.96, (seedChroma * 0.22 * influenceScale).coerceIn(0.008, 0.035), (seedHue + 6.0) % 360.0)
+                }
+            }
+        }
+
+        val bgOklch = ContrastResolver.Oklch(l = bgTargetL, c = bgTargetC, h = bgHue)
+        val bgInt = ContrastResolver.oklchToColorInt(bgOklch)
+        val bgHex = String.format("#%06X", 0xFFFFFF and bgInt)
+
+        // Accent target per recipe
+        val (accentTargetL, accentBaseC) = when (recipe) {
+            ThemeGenerationRecipe.BALANCED -> {
+                if (isDark) Pair(0.72, maxOf(seedChroma, 0.13)) else Pair(0.45, maxOf(seedChroma, 0.13))
+            }
+            ThemeGenerationRecipe.ATMOSPHERIC -> {
+                if (isDark) Pair(0.74, maxOf(seedChroma, 0.15)) else Pair(0.43, maxOf(seedChroma, 0.15))
+            }
+            ThemeGenerationRecipe.INK -> {
+                if (isDark) Pair(0.70, maxOf(seedChroma, 0.12)) else Pair(0.46, maxOf(seedChroma, 0.12))
+            }
+            ThemeGenerationRecipe.EXPRESSIVE -> {
+                if (isDark) Pair(0.75, maxOf(seedChroma * 1.25, 0.18)) else Pair(0.42, maxOf(seedChroma * 1.25, 0.18))
+            }
+        }
+
+        val accentTargetC = (accentBaseC * accentScale).coerceIn(0.08, 0.25)
+        val accentOklch = ContrastResolver.Oklch(l = accentTargetL, c = accentTargetC, h = seedHue)
+        val candidateAccentInt = ContrastResolver.oklchToColorInt(accentOklch)
+        val resolvedAccent = ContrastResolver.resolveContrast(
+            background = Color(bgInt),
+            preferredForeground = Color(candidateAccentInt),
+            minRatio = 3.0,
+            role = ContrastResolver.ContrastRole.UI_CONTROL
+        )
+        val accentHex = String.format("#%06X", 0xFFFFFF and resolvedAccent.color.toArgb())
+
+        // Text target modulated by WritingCharacter and recipe
+        val (textL, textC, textH) = when (writingCharacter) {
+            WritingCharacter.NEUTRAL -> {
+                val l = if (isDark) 0.94 else 0.14
+                Triple(l, 0.003, seedHue)
+            }
+            WritingCharacter.WARM -> {
+                val l = if (isDark) 0.93 else 0.15
+                Triple(l, 0.010, 65.0) // Gentle amber undertone
+            }
+            WritingCharacter.COOL -> {
+                val l = if (isDark) 0.93 else 0.15
+                Triple(l, 0.010, 225.0) // Gentle slate undertone
+            }
+            WritingCharacter.DRAMATIC -> {
+                val l = if (isDark) 0.97 else 0.10 // Maximum stark contrast
+                Triple(l, 0.002, seedHue)
+            }
+        }
+
+        val textOklch = ContrastResolver.Oklch(l = textL, c = textC, h = textH)
+        val candidateTextInt = ContrastResolver.oklchToColorInt(textOklch)
+        val resolvedText = ContrastResolver.resolveContrast(
+            background = Color(bgInt),
+            preferredForeground = Color(candidateTextInt),
+            minRatio = 4.5,
+            role = ContrastResolver.ContrastRole.NORMAL_TEXT
+        )
+        val textHex = String.format("#%06X", 0xFFFFFF and resolvedText.color.toArgb())
+
+        return ThemeSourcePalette(
+            background = bgHex,
+            text = textHex,
+            accent = accentHex
+        )
+    }
+
+    /**
+     * Generates all 4 recipe interpretations at once for preview or comparison.
+     */
+    fun generateInterpretations(
+        understanding: ImageUnderstanding,
+        candidateColor: Int? = null,
+        isDark: Boolean,
+        influence: ImageInfluence = ImageInfluence.BALANCED,
+        writingCharacter: WritingCharacter = WritingCharacter.NEUTRAL
+    ): Map<ThemeGenerationRecipe, ThemeSourcePalette> {
+        return ThemeGenerationRecipe.values().associateWith { recipe ->
+            generateSourcePalette(
+                understanding = understanding,
+                recipe = recipe,
+                candidateColor = candidateColor,
+                isDark = isDark,
+                influence = influence,
+                writingCharacter = writingCharacter
+            )
+        }
+    }
+
+    /**
+     * Generates a poetic, human-readable editorial name for the theme based on hue and recipe.
+     */
+    fun generateThemeName(
+        understanding: ImageUnderstanding,
+        recipe: ThemeGenerationRecipe,
+        seedColor: Int,
+        isDark: Boolean
+    ): String {
+        val seedOklch = ContrastResolver.colorToOklch(seedColor)
+        val hueName = getHueDescriptor(seedOklch.h, seedOklch.c)
+        val recipeWord = when (recipe) {
+            ThemeGenerationRecipe.BALANCED -> if (isDark) "Dusk" else "Dawn"
+            ThemeGenerationRecipe.ATMOSPHERIC -> if (isDark) "Atmosphere" else "Haze"
+            ThemeGenerationRecipe.INK -> if (isDark) "Ink" else "Script"
+            ThemeGenerationRecipe.EXPRESSIVE -> if (isDark) "Radiance" else "Pulse"
+        }
+        return "$hueName $recipeWord"
+    }
+
+    private fun getHueDescriptor(hue: Double, chroma: Double): String {
+        if (chroma < 0.04) return "Monochrome"
+        return when (hue.roundToInt()) {
+            in 0..25 -> "Crimson"
+            in 26..50 -> "Amber"
+            in 51..85 -> "Gold"
+            in 86..145 -> "Sage"
+            in 146..185 -> "Emerald"
+            in 186..230 -> "Teal"
+            in 231..275 -> "Cobalt"
+            in 276..315 -> "Iris"
+            in 316..345 -> "Rose"
+            else -> "Crimson"
+        }
+    }
+
+    private fun fallbackUnderstanding(focusRegion: String?): ImageUnderstanding {
+        val defaultSeed = 0xFF3B82F6.toInt()
+        val defaultDominant = listOf("#3B82F6", "#1D4ED8", "#10B981", "#F59E0B")
+        return ImageUnderstanding(
+            rankedCandidates = listOf(defaultSeed, 0xFF1D4ED8.toInt(), 0xFF10B981.toInt(), 0xFFF59E0B.toInt()),
+            dominantColors = defaultDominant,
+            averageLightness = 0.5f,
+            tonalCharacter = TonalCharacter.MID_KEY,
+            chromaticCharacter = ChromaticCharacter.BALANCED,
+            temperatureBias = TemperatureBias.NEUTRAL,
+            darkLightBias = DarkLightBias.BALANCED,
+            paletteDiversity = PaletteDiversity.MODERATE,
+            imageFingerprint = "0000000000000000",
+            focusRegion = focusRegion
+        )
+    }
 }
+

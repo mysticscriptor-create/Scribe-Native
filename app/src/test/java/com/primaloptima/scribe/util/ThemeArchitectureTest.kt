@@ -5,6 +5,15 @@ import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.ThemeColorOverrides
 import com.primaloptima.scribe.util.model.ThemeColors
 import com.primaloptima.scribe.util.model.ThemeSourcePalette
+import com.primaloptima.scribe.util.model.ChromaticCharacter
+import com.primaloptima.scribe.util.model.DarkLightBias
+import com.primaloptima.scribe.util.model.ImageInfluence
+import com.primaloptima.scribe.util.model.ImageUnderstanding
+import com.primaloptima.scribe.util.model.PaletteDiversity
+import com.primaloptima.scribe.util.model.TemperatureBias
+import com.primaloptima.scribe.util.model.ThemeGenerationRecipe
+import com.primaloptima.scribe.util.model.TonalCharacter
+import com.primaloptima.scribe.util.model.WritingCharacter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
@@ -1382,5 +1391,95 @@ class ThemeArchitectureTest {
         assertTrue("Empty color list fallback must produce valid light background", paletteLight.background.startsWith("#"))
         assertTrue("Empty color list fallback must produce valid text", paletteDark.text.startsWith("#"))
         assertTrue("Empty color list fallback must produce valid accent", paletteDark.accent.startsWith("#"))
+    }
+    @Test
+    fun testPhase18_multiRecipe_generatesAllFourDistinctRecipes() {
+        val testSeed = 0xFF4A90E2.toInt()
+        val understanding = ImageUnderstanding(
+            rankedCandidates = listOf(testSeed, 0xFF50E3C2.toInt(), 0xFFFF5722.toInt()),
+            dominantColors = listOf("#4A90E2", "#50E3C2", "#FF5722"),
+            averageLightness = 0.45f,
+            tonalCharacter = TonalCharacter.MID_KEY,
+            chromaticCharacter = ChromaticCharacter.BALANCED,
+            temperatureBias = TemperatureBias.COOL,
+            darkLightBias = DarkLightBias.BALANCED,
+            paletteDiversity = PaletteDiversity.MODERATE,
+            imageFingerprint = "fingerprint_123"
+        )
+        val darkInterpretations = ThemeGenerationEngine.generateInterpretations(
+            understanding = understanding,
+            candidateColor = testSeed,
+            isDark = true
+        )
+        assertEquals(4, darkInterpretations.size)
+        assertTrue(darkInterpretations.containsKey(ThemeGenerationRecipe.BALANCED))
+        assertTrue(darkInterpretations.containsKey(ThemeGenerationRecipe.ATMOSPHERIC))
+        assertTrue(darkInterpretations.containsKey(ThemeGenerationRecipe.INK))
+        assertTrue(darkInterpretations.containsKey(ThemeGenerationRecipe.EXPRESSIVE))
+
+        for ((recipe, palette) in darkInterpretations) {
+            val bg = androidx.compose.ui.graphics.Color(ThemeManager.parseColor(palette.background))
+            val text = androidx.compose.ui.graphics.Color(ThemeManager.parseColor(palette.text))
+            val accent = androidx.compose.ui.graphics.Color(ThemeManager.parseColor(palette.accent))
+            val textRatio = ContrastResolver.calculateWcagContrastRatio(text, bg)
+            val accentRatio = ContrastResolver.calculateWcagContrastRatio(accent, bg)
+            assertTrue("Recipe $recipe text ratio >= 4.5", textRatio >= 4.5)
+            assertTrue("Recipe $recipe accent ratio >= 2.8", accentRatio >= 2.8)
+        }
+    }
+
+    @Test
+    fun testPhase18_generateThemeName_generatesExpectedFormat() {
+        val testSeed = 0xFF2196F3.toInt() // Blue
+        val understanding = ImageUnderstanding(
+            rankedCandidates = listOf(testSeed),
+            dominantColors = listOf("#2196F3"),
+            averageLightness = 0.5f,
+            tonalCharacter = TonalCharacter.MID_KEY,
+            chromaticCharacter = ChromaticCharacter.BALANCED,
+            temperatureBias = TemperatureBias.COOL,
+            darkLightBias = DarkLightBias.BALANCED,
+            paletteDiversity = PaletteDiversity.CONCENTRATED
+        )
+        val nameDark = ThemeGenerationEngine.generateThemeName(understanding, ThemeGenerationRecipe.BALANCED, testSeed, isDark = true)
+        val nameLight = ThemeGenerationEngine.generateThemeName(understanding, ThemeGenerationRecipe.BALANCED, testSeed, isDark = false)
+        assertTrue(nameDark.endsWith("Dusk"))
+        assertTrue(nameLight.endsWith("Dawn"))
+    }
+
+    @Test
+    fun testPhase18_draftCandidateAndRecipeSwitching_deterministic() {
+        val testSeed1 = 0xFF4A90E2.toInt()
+        val testSeed2 = 0xFFE91E63.toInt()
+        val understanding = ImageUnderstanding(
+            rankedCandidates = listOf(testSeed1, testSeed2),
+            dominantColors = listOf("#4A90E2", "#E91E63"),
+            averageLightness = 0.5f,
+            tonalCharacter = TonalCharacter.MID_KEY,
+            chromaticCharacter = ChromaticCharacter.BALANCED,
+            temperatureBias = TemperatureBias.NEUTRAL,
+            darkLightBias = DarkLightBias.BALANCED,
+            paletteDiversity = PaletteDiversity.MODERATE
+        )
+        var draft = com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorDraft(
+            bgHex = "#121214",
+            textHex = "#F0F0F2",
+            accentHex = "#4A90E2"
+        ).withImageUnderstanding(understanding = understanding, candidateColor = testSeed1)
+
+        assertEquals(testSeed1, draft.extractedCandidates.first())
+        assertEquals(ThemeGenerationRecipe.BALANCED, draft.activeRecipe)
+
+        draft = draft.withCandidateSelection(testSeed2)
+        assertEquals(ThemeGenerationRecipe.BALANCED, draft.activeRecipe)
+
+        draft = draft.withRecipe(ThemeGenerationRecipe.INK)
+        assertEquals(ThemeGenerationRecipe.INK, draft.activeRecipe)
+
+        draft = draft.withInfluence(ImageInfluence.STRONG)
+        assertEquals(ImageInfluence.STRONG, draft.activeInfluence)
+
+        draft = draft.withWritingCharacter(WritingCharacter.WARM)
+        assertEquals(WritingCharacter.WARM, draft.activeWritingCharacter)
     }
 }
