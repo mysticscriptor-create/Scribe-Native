@@ -806,6 +806,55 @@ class ThemeManager(private val context: Context) {
         }
 
         /**
+         * Applies explicit user overrides onto a base ThemeColors instance.
+         */
+        fun applyOverrides(base: ThemeColors, overrides: ThemeColorOverrides): ThemeColors {
+            return base.copy(
+                surfaceLowest = overrides.surfaceLowest?.takeIf { it.isNotBlank() } ?: base.surfaceLowest,
+                surface = overrides.surface?.takeIf { it.isNotBlank() } ?: base.surface,
+                surfaceRaised = overrides.surfaceRaised?.takeIf { it.isNotBlank() } ?: base.surfaceRaised,
+                surfaceOverlay = overrides.surfaceOverlay?.takeIf { it.isNotBlank() } ?: base.surfaceOverlay,
+                mutedText = overrides.mutedText?.takeIf { it.isNotBlank() } ?: base.mutedText,
+                subtleText = overrides.subtleText?.takeIf { it.isNotBlank() } ?: base.subtleText,
+                secondary = overrides.secondary?.takeIf { it.isNotBlank() } ?: base.secondary,
+                tertiary = overrides.tertiary?.takeIf { it.isNotBlank() } ?: base.tertiary,
+                accentMuted = overrides.accentMuted?.takeIf { it.isNotBlank() } ?: base.accentMuted,
+                selection = overrides.selection?.takeIf { it.isNotBlank() } ?: base.selection,
+                borderSubtle = overrides.borderSubtle?.takeIf { it.isNotBlank() } ?: base.borderSubtle,
+                border = overrides.border?.takeIf { it.isNotBlank() } ?: base.border,
+                borderProminent = overrides.borderProminent?.takeIf { it.isNotBlank() } ?: base.borderProminent,
+                focus = overrides.focus?.takeIf { it.isNotBlank() } ?: base.focus.takeIf { it.isNotBlank() } ?: base.borderProminent,
+                success = overrides.success?.takeIf { it.isNotBlank() } ?: base.success,
+                warning = overrides.warning?.takeIf { it.isNotBlank() } ?: base.warning,
+                error = overrides.error?.takeIf { it.isNotBlank() } ?: base.error,
+                specialHighlight = overrides.specialHighlight?.takeIf { it.isNotBlank() } ?: base.specialHighlight,
+                info = overrides.info?.takeIf { it.isNotBlank() } ?: base.info,
+                dialogueText = overrides.dialogueText?.takeIf { it.isNotBlank() } ?: base.dialogueText,
+                monologueText = overrides.monologueText?.takeIf { it.isNotBlank() } ?: base.monologueText,
+                headingText = overrides.headingText?.takeIf { it.isNotBlank() } ?: base.headingText,
+                annotation = overrides.annotation?.takeIf { it.isNotBlank() } ?: base.annotation,
+                link = overrides.link?.takeIf { it.isNotBlank() } ?: base.link,
+                analyticsPositive = overrides.analyticsPositive?.takeIf { it.isNotBlank() } ?: base.analyticsPositive,
+                analyticsNeutral = overrides.analyticsNeutral?.takeIf { it.isNotBlank() } ?: base.analyticsNeutral,
+                analyticsNegative = overrides.analyticsNegative?.takeIf { it.isNotBlank() } ?: base.analyticsNegative,
+                analyticsSeries1 = overrides.analyticsSeries1?.takeIf { it.isNotBlank() } ?: base.analyticsSeries1,
+                analyticsSeries2 = overrides.analyticsSeries2?.takeIf { it.isNotBlank() } ?: base.analyticsSeries2,
+                analyticsSeries3 = overrides.analyticsSeries3?.takeIf { it.isNotBlank() } ?: base.analyticsSeries3,
+                analyticsTarget = overrides.analyticsTarget?.takeIf { it.isNotBlank() } ?: base.analyticsTarget,
+                analyticsWarning = overrides.analyticsWarning?.takeIf { it.isNotBlank() } ?: base.analyticsWarning,
+                worldCharacter = overrides.worldCharacter?.takeIf { it.isNotBlank() } ?: base.worldCharacter,
+                worldLocation = overrides.worldLocation?.takeIf { it.isNotBlank() } ?: base.worldLocation,
+                worldFaction = overrides.worldFaction?.takeIf { it.isNotBlank() } ?: base.worldFaction,
+                worldItem = overrides.worldItem?.takeIf { it.isNotBlank() } ?: base.worldItem,
+                worldLore = overrides.worldLore?.takeIf { it.isNotBlank() } ?: base.worldLore,
+                worldEvent = overrides.worldEvent?.takeIf { it.isNotBlank() } ?: base.worldEvent,
+                worldRelationship = overrides.worldRelationship?.takeIf { it.isNotBlank() } ?: base.worldRelationship,
+                toolbar = overrides.surface?.takeIf { it.isNotBlank() } ?: base.surface,
+                toolbarText = base.toolbarText
+            )
+        }
+
+        /**
          * Phase 1 Resolution Pipeline:
          * Resolves the full ThemeColors by layering explicit User Overrides onto Generated Defaults.
          *
@@ -823,49 +872,7 @@ class ThemeManager(private val context: Context) {
             if (overrides == null || overrides.isEmpty()) {
                 return defaults
             }
-            return defaults.copy(
-                surfaceLowest = overrides.surfaceLowest?.takeIf { it.isNotBlank() } ?: defaults.surfaceLowest,
-                surface = overrides.surface?.takeIf { it.isNotBlank() } ?: defaults.surface,
-                surfaceRaised = overrides.surfaceRaised?.takeIf { it.isNotBlank() } ?: defaults.surfaceRaised,
-                surfaceOverlay = overrides.surfaceOverlay?.takeIf { it.isNotBlank() } ?: defaults.surfaceOverlay,
-                mutedText = overrides.mutedText?.takeIf { it.isNotBlank() } ?: defaults.mutedText,
-                subtleText = overrides.subtleText?.takeIf { it.isNotBlank() } ?: defaults.subtleText,
-                secondary = overrides.secondary?.takeIf { it.isNotBlank() } ?: defaults.secondary,
-                tertiary = overrides.tertiary?.takeIf { it.isNotBlank() } ?: defaults.tertiary,
-                accentMuted = overrides.accentMuted?.takeIf { it.isNotBlank() } ?: defaults.accentMuted,
-                selection = overrides.selection?.takeIf { it.isNotBlank() } ?: defaults.selection,
-                borderSubtle = overrides.borderSubtle?.takeIf { it.isNotBlank() } ?: defaults.borderSubtle,
-                border = overrides.border?.takeIf { it.isNotBlank() } ?: defaults.border,
-                borderProminent = overrides.borderProminent?.takeIf { it.isNotBlank() } ?: defaults.borderProminent,
-                focus = overrides.focus?.takeIf { it.isNotBlank() } ?: defaults.focus.takeIf { it.isNotBlank() } ?: defaults.borderProminent,
-                success = overrides.success?.takeIf { it.isNotBlank() } ?: defaults.success,
-                warning = overrides.warning?.takeIf { it.isNotBlank() } ?: defaults.warning,
-                error = overrides.error?.takeIf { it.isNotBlank() } ?: defaults.error,
-                specialHighlight = overrides.specialHighlight?.takeIf { it.isNotBlank() } ?: defaults.specialHighlight,
-                info = overrides.info?.takeIf { it.isNotBlank() } ?: defaults.info,
-                dialogueText = overrides.dialogueText?.takeIf { it.isNotBlank() } ?: defaults.dialogueText,
-                monologueText = overrides.monologueText?.takeIf { it.isNotBlank() } ?: defaults.monologueText,
-                headingText = overrides.headingText?.takeIf { it.isNotBlank() } ?: defaults.headingText,
-                annotation = overrides.annotation?.takeIf { it.isNotBlank() } ?: defaults.annotation,
-                link = overrides.link?.takeIf { it.isNotBlank() } ?: defaults.link,
-                analyticsPositive = overrides.analyticsPositive?.takeIf { it.isNotBlank() } ?: defaults.analyticsPositive,
-                analyticsNeutral = overrides.analyticsNeutral?.takeIf { it.isNotBlank() } ?: defaults.analyticsNeutral,
-                analyticsNegative = overrides.analyticsNegative?.takeIf { it.isNotBlank() } ?: defaults.analyticsNegative,
-                analyticsSeries1 = overrides.analyticsSeries1?.takeIf { it.isNotBlank() } ?: defaults.analyticsSeries1,
-                analyticsSeries2 = overrides.analyticsSeries2?.takeIf { it.isNotBlank() } ?: defaults.analyticsSeries2,
-                analyticsSeries3 = overrides.analyticsSeries3?.takeIf { it.isNotBlank() } ?: defaults.analyticsSeries3,
-                analyticsTarget = overrides.analyticsTarget?.takeIf { it.isNotBlank() } ?: defaults.analyticsTarget,
-                analyticsWarning = overrides.analyticsWarning?.takeIf { it.isNotBlank() } ?: defaults.analyticsWarning,
-                worldCharacter = overrides.worldCharacter?.takeIf { it.isNotBlank() } ?: defaults.worldCharacter,
-                worldLocation = overrides.worldLocation?.takeIf { it.isNotBlank() } ?: defaults.worldLocation,
-                worldFaction = overrides.worldFaction?.takeIf { it.isNotBlank() } ?: defaults.worldFaction,
-                worldItem = overrides.worldItem?.takeIf { it.isNotBlank() } ?: defaults.worldItem,
-                worldLore = overrides.worldLore?.takeIf { it.isNotBlank() } ?: defaults.worldLore,
-                worldEvent = overrides.worldEvent?.takeIf { it.isNotBlank() } ?: defaults.worldEvent,
-                worldRelationship = overrides.worldRelationship?.takeIf { it.isNotBlank() } ?: defaults.worldRelationship,
-                toolbar = overrides.surface?.takeIf { it.isNotBlank() } ?: defaults.surface,
-                toolbarText = defaults.toolbarText
-            )
+            return applyOverrides(defaults, overrides)
         }
 
         fun resolveThemeColors(
@@ -884,13 +891,22 @@ class ThemeManager(private val context: Context) {
 
         /**
          * Resolves an entire AppTheme instance to its authoritative resolved colors.
+         * For built-in themes without overrides, preserves handcrafted reference colors.
+         * For built-in themes with overrides, layers explicit user overrides onto reference colors.
+         * For custom themes, resolves deterministic OKLCH defaults from foundation sources and layers overrides.
          */
         fun resolveTheme(theme: AppTheme): AppTheme {
-            val resolvedColors = resolveThemeColors(
-                sources = theme.sourcePalette(),
-                overrides = theme.overrides,
-                isDark = theme.isDark
-            )
+            val resolvedColors = if (theme.builtIn && (theme.overrides == null || theme.overrides.isEmpty())) {
+                theme.colors
+            } else if (theme.builtIn && theme.overrides != null) {
+                applyOverrides(theme.colors, theme.overrides)
+            } else {
+                resolveThemeColors(
+                    sources = theme.sourcePalette(),
+                    overrides = theme.overrides,
+                    isDark = theme.isDark
+                )
+            }
             return theme.copy(colors = resolvedColors)
         }
 
@@ -994,7 +1010,7 @@ class ThemeManager(private val context: Context) {
                 isDarkTheme = isDark
             )
 
-            val successBase = ComposeColor(0xFF10B981)
+            val successBase = if (derived.success.isNotBlank()) ComposeColor(parseColor(derived.success)) else (if (isDark) ComposeColor(0xFF55D18A) else ComposeColor(0xFF2E7D32))
             val successContainerCol = successBase.copy(alpha = if (isDark) 0.16f else 0.12f)
             val onSuccessCol = ContrastResolver.resolveOnColor(
                 container = successBase,
@@ -1008,7 +1024,7 @@ class ThemeManager(private val context: Context) {
                 minRatio = 3.5
             ).color
 
-            val warningBase = ComposeColor(0xFFF59E0B)
+            val warningBase = if (derived.warning.isNotBlank()) ComposeColor(parseColor(derived.warning)) else (if (isDark) ComposeColor(0xFFFFC857) else ComposeColor(0xFFD97706))
             val warningContainerCol = warningBase.copy(alpha = if (isDark) 0.16f else 0.12f)
             val onWarningCol = ContrastResolver.resolveOnColor(
                 container = warningBase,
@@ -1022,7 +1038,7 @@ class ThemeManager(private val context: Context) {
                 minRatio = 3.5
             ).color
 
-            val errorBase = ComposeColor(0xFFEF4444)
+            val errorBase = if (derived.error.isNotBlank()) ComposeColor(parseColor(derived.error)) else (if (isDark) ComposeColor(0xFFFF6B7A) else ComposeColor(0xFFDC2626))
             val errorContainerCol = errorBase.copy(alpha = if (isDark) 0.16f else 0.12f)
             val onErrorCol = ContrastResolver.resolveOnColor(
                 container = errorBase,

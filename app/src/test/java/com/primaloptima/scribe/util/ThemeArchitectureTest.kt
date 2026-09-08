@@ -1141,4 +1141,149 @@ class ThemeArchitectureTest {
         assertNotEquals("series1 and series3 must be distinct", derived.analyticsSeries1, derived.analyticsSeries3)
         assertNotEquals("target and series1 must be distinct", derived.analyticsTarget, derived.analyticsSeries1)
     }
+
+    // ── Phase 16 Tests: Authoritative Ownership, Resolution & Bridge Tests ──
+
+    @Test
+    fun testPhase16_sourcePropagation_accentUpdatesPrimaryDependentTokens() {
+        val baseSources = ThemeSourcePalette(background = "#121214", text = "#F4F4F6", accent = "#3B82F6")
+        val altSources = ThemeSourcePalette(background = "#121214", text = "#F4F4F6", accent = "#EC4899")
+
+        val baseDerived = ThemeManager.generateThemeDefaults(baseSources, isDark = true)
+        val altDerived = ThemeManager.generateThemeDefaults(altSources, isDark = true)
+
+        assertNotEquals("Accent change must propagate to secondary", baseDerived.secondary, altDerived.secondary)
+        assertNotEquals("Accent change must propagate to tertiary", baseDerived.tertiary, altDerived.tertiary)
+        assertNotEquals("Accent change must propagate to accentMuted", baseDerived.accentMuted, altDerived.accentMuted)
+        assertNotEquals("Accent change must propagate to selection", baseDerived.selection, altDerived.selection)
+        assertEquals("Background should remain identical", baseDerived.background, altDerived.background)
+        assertEquals("Text should remain identical", baseDerived.text, altDerived.text)
+    }
+
+    @Test
+    fun testPhase16_sourcePropagation_backgroundUpdatesSurfacesAndBorders() {
+        val baseSources = ThemeSourcePalette(background = "#121214", text = "#F4F4F6", accent = "#3B82F6")
+        val altSources = ThemeSourcePalette(background = "#1C1D22", text = "#F4F4F6", accent = "#3B82F6")
+
+        val baseDerived = ThemeManager.generateThemeDefaults(baseSources, isDark = true)
+        val altDerived = ThemeManager.generateThemeDefaults(altSources, isDark = true)
+
+        assertNotEquals("Background change must propagate to surfaceLowest", baseDerived.surfaceLowest, altDerived.surfaceLowest)
+        assertNotEquals("Background change must propagate to surface", baseDerived.surface, altDerived.surface)
+        assertNotEquals("Background change must propagate to surfaceRaised", baseDerived.surfaceRaised, altDerived.surfaceRaised)
+        assertNotEquals("Background change must propagate to surfaceOverlay", baseDerived.surfaceOverlay, altDerived.surfaceOverlay)
+        assertNotEquals("Background change must propagate to border", baseDerived.border, altDerived.border)
+        assertNotEquals("Background change must propagate to borderSubtle", baseDerived.borderSubtle, altDerived.borderSubtle)
+    }
+
+    @Test
+    fun testPhase16_sourcePropagation_textUpdatesHierarchy() {
+        val baseSources = ThemeSourcePalette(background = "#121214", text = "#F4F4F6", accent = "#3B82F6")
+        val altSources = ThemeSourcePalette(background = "#121214", text = "#A1A1AA", accent = "#3B82F6")
+
+        val baseDerived = ThemeManager.generateThemeDefaults(baseSources, isDark = true)
+        val altDerived = ThemeManager.generateThemeDefaults(altSources, isDark = true)
+
+        assertNotEquals("Text change must propagate to mutedText", baseDerived.mutedText, altDerived.mutedText)
+        assertNotEquals("Text change must propagate to subtleText", baseDerived.subtleText, altDerived.subtleText)
+    }
+
+    @Test
+    fun testPhase16_overrides_precedenceAndReset() {
+        val sources = ThemeSourcePalette(background = "#121214", text = "#F4F4F6", accent = "#3B82F6")
+        val defaultDerived = ThemeManager.generateThemeDefaults(sources, isDark = true)
+
+        val customDialogue = "#FFB703"
+        val overrides = ThemeColorOverrides(dialogueText = customDialogue)
+        val resolvedWithOverride = ThemeManager.resolveThemeColors(sources, overrides, isDark = true)
+
+        assertEquals("Explicit override must take precedence", customDialogue, resolvedWithOverride.dialogueText)
+        assertEquals("Non-overridden token must match generated default", defaultDerived.monologueText, resolvedWithOverride.monologueText)
+
+        // Clear override
+        val resolvedCleared = ThemeManager.resolveThemeColors(sources, ThemeColorOverrides(), isDark = true)
+        assertEquals("Clearing override restores generated default", defaultDerived.dialogueText, resolvedCleared.dialogueText)
+    }
+
+    @Test
+    fun testPhase16_environmentalIsolation_wallpaperDoesNotMutateSemanticTheme() {
+        val sources = ThemeSourcePalette(background = "#121214", text = "#F4F4F6", accent = "#3B82F6")
+        val baseTheme = AppTheme(
+            id = "custom_env_test",
+            name = "Env Test",
+            isDark = true,
+            builtIn = false,
+            colors = ThemeManager.generateThemeDefaults(sources, isDark = true),
+            bgImageUri = "content://media/external/images/media/42",
+            savedBgLuminance = 0.85f,
+            savedBgDominantColor = "#FF5500",
+            savedBgZonalColors = listOf("#111111", "#222222", "#333333", "#444444", "#555555", "#666666", "#777777", "#888888", "#999999"),
+            savedBgLuminanceField = listOf(0.1f, 0.2f, 0.3f, 0.4f)
+        )
+
+        val resolvedTheme = ThemeManager.resolveTheme(baseTheme)
+
+        assertEquals("Semantic background must not be mutated by wallpaper luminance or dominant color", sources.background, resolvedTheme.colors.background)
+        assertEquals("Semantic text must not be mutated by wallpaper luminance", sources.text, resolvedTheme.colors.text)
+        assertEquals("Semantic accent must not be mutated by wallpaper", sources.accent, resolvedTheme.colors.accent)
+        assertEquals("Environmental metadata must be preserved on theme", 0.85f, resolvedTheme.savedBgLuminance, 0.001f)
+        assertEquals("Dominant color metadata must be preserved", "#FF5500", resolvedTheme.savedBgDominantColor)
+    }
+
+    @Test
+    fun testPhase16_soraBridge_canonicalSemanticTokensPassThrough() {
+        val sources = ThemeSourcePalette(background = "#121214", text = "#F4F4F6", accent = "#3B82F6")
+        val overrides = ThemeColorOverrides(
+            dialogueText = "#FEF08A",
+            monologueText = "#D4D4D8",
+            headingText = "#60A5FA",
+            success = "#22C55E",
+            warning = "#F59E0B",
+            error = "#EF4444"
+        )
+        val customTheme = AppTheme(
+            id = "custom_bridge_test",
+            name = "Bridge Test",
+            isDark = true,
+            builtIn = false,
+            colors = ThemeManager.resolveThemeColors(sources, overrides, isDark = true),
+            overrides = overrides
+        )
+
+        val scribeColors = ThemeManager.resolveToScribeColors(customTheme)
+
+        val expectedDialogueInt = ThemeManager.parseColor("#FEF08A")
+        val expectedMonologueInt = ThemeManager.parseColor("#D4D4D8")
+        val expectedHeadingInt = ThemeManager.parseColor("#60A5FA")
+        val expectedSuccessInt = ThemeManager.parseColor("#22C55E")
+        val expectedWarningInt = ThemeManager.parseColor("#F59E0B")
+        val expectedErrorInt = ThemeManager.parseColor("#EF4444")
+
+        assertEquals("Sora/writing dialogue token must match canonical resolved theme", expectedDialogueInt, androidx.compose.ui.graphics.toArgb(scribeColors.writing.dialogue))
+        assertEquals("Sora/writing monologue token must match canonical resolved theme", expectedMonologueInt, androidx.compose.ui.graphics.toArgb(scribeColors.writing.monologue))
+        assertEquals("Sora/writing heading token must match canonical resolved theme", expectedHeadingInt, androidx.compose.ui.graphics.toArgb(scribeColors.writing.heading))
+        assertEquals("Semantic success token must match canonical resolved theme", expectedSuccessInt, androidx.compose.ui.graphics.toArgb(scribeColors.semantic.success))
+        assertEquals("Semantic warning token must match canonical resolved theme", expectedWarningInt, androidx.compose.ui.graphics.toArgb(scribeColors.semantic.warning))
+        assertEquals("Semantic error token must match canonical resolved theme", expectedErrorInt, androidx.compose.ui.graphics.toArgb(scribeColors.semantic.error))
+    }
+
+    @Test
+    fun testPhase16_builtInThemes_remainIntact() {
+        val builtIns = DefaultThemes.all
+        assertEquals(6, builtIns.size)
+
+        for (builtIn in builtIns) {
+            val resolved = ThemeManager.resolveTheme(builtIn)
+            assertEquals("Built-in ${builtIn.name} colors must remain 100% intact", builtIn.colors, resolved.colors)
+            assertTrue("Built-in ${builtIn.name} background must not be blank", resolved.colors.background.isNotBlank())
+            assertTrue("Built-in ${builtIn.name} text must not be blank", resolved.colors.text.isNotBlank())
+            assertTrue("Built-in ${builtIn.name} accent must not be blank", resolved.colors.accent.isNotBlank())
+            assertTrue("Built-in ${builtIn.name} dialogueText must not be blank", resolved.colors.dialogueText.isNotBlank())
+            assertTrue("Built-in ${builtIn.name} monologueText must not be blank", resolved.colors.monologueText.isNotBlank())
+            assertTrue("Built-in ${builtIn.name} headingText must not be blank", resolved.colors.headingText.isNotBlank())
+            assertTrue("Built-in ${builtIn.name} success must not be blank", resolved.colors.success.isNotBlank())
+            assertTrue("Built-in ${builtIn.name} warning must not be blank", resolved.colors.warning.isNotBlank())
+            assertTrue("Built-in ${builtIn.name} error must not be blank", resolved.colors.error.isNotBlank())
+        }
+    }
 }
