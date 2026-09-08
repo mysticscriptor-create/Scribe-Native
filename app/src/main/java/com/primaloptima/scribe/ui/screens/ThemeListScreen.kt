@@ -161,13 +161,15 @@ fun ThemeListScreen(
             )
         },
         floatingActionButton = {
-            ScribeSingleFab(
-                icon = Icons.Default.Add,
-                contentDescription = "New Theme",
-                onClick = {
-                    showCreateOptionsSheet = true
-                }
-            )
+            if (creationImageUri == null) {
+                ScribeSingleFab(
+                    icon = Icons.Default.Add,
+                    contentDescription = "New Theme",
+                    onClick = {
+                        showCreateOptionsSheet = true
+                    }
+                )
+            }
         }
     ) { padding ->
         LazyColumn(
@@ -345,21 +347,21 @@ fun ThemeListScreen(
                 }
             }
         }
+    }
 
-        if (creationImageUri != null) {
-            CreateThemeFromImageScreen(
-                imageUri = creationImageUri!!,
-                baseTheme = activeTheme ?: DefaultThemes.all.first(),
-                onThemeCreated = { newTheme ->
-                    vm.save(newTheme)
-                    creationImageUri = null
-                    onEditTheme(newTheme.id)
-                },
-                onCancel = {
-                    creationImageUri = null
-                }
-            )
-        }
+    if (creationImageUri != null) {
+        CreateThemeFromImageScreen(
+            imageUri = creationImageUri!!,
+            baseTheme = activeTheme ?: DefaultThemes.all.first(),
+            onThemeCreated = { newTheme ->
+                vm.save(newTheme)
+                creationImageUri = null
+                onEditTheme(newTheme.id)
+            },
+            onCancel = {
+                creationImageUri = null
+            }
+        )
     }
 }
 

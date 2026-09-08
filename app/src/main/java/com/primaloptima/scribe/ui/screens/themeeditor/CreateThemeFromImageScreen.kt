@@ -1,5 +1,6 @@
 package com.primaloptima.scribe.ui.screens.themeeditor
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -43,6 +44,8 @@ fun CreateThemeFromImageScreen(
     baseTheme: AppTheme = DefaultThemes.all.first(),
     modifier: Modifier = Modifier
 ) {
+    BackHandler(onBack = onCancel)
+
     val context = LocalContext.current
     var session by remember { mutableStateOf<ImageThemeGenerationSession?>(null) }
     var isAnalyzing by remember { mutableStateOf(true) }
