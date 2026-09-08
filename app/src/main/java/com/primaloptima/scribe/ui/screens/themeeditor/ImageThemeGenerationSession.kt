@@ -134,7 +134,8 @@ data class ImageThemeGenerationSession(
             backgroundImageUri = bgUri,
             backgroundImageOriginalUri = if (relationshipMode == ThemeRelationshipMode.THEME_ONLY) null else imageUri,
             frostedGlassEnabled = frosted,
-            savedBgDominantColor = understanding.dominantHueDescriptor
+            savedBgDominantColor = if (relationshipMode == ThemeRelationshipMode.THEME_ONLY) null else understanding.dominantColors.firstOrNull(),
+            savedBgLuminance = if (relationshipMode == ThemeRelationshipMode.THEME_ONLY) -1f else understanding.averageLightness
         )
     }
 }

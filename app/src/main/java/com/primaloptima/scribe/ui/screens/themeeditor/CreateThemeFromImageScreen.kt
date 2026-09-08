@@ -241,10 +241,10 @@ fun CreateThemeFromImageScreen(
                             colors = resolvedColors,
                             themeName = currentSession.effectiveThemeName,
                             fontFamily = baseTheme.fontFamily,
-                            fontSize = baseTheme.fontSize,
+                            fontSize = baseTheme.fontSize.toFloat(),
                             lineHeight = baseTheme.lineHeight,
                             textAlignment = baseTheme.textAlignment,
-                            sideMargins = baseTheme.paddingHorizontal,
+                            sideMargins = baseTheme.paddingHorizontal.toFloat(),
                             bgMode = if (currentSession.relationshipMode == ThemeRelationshipMode.THEME_ONLY) "color" else "image",
                             bgUri = previewBgUri,
                             bgOpacity = baseTheme.backgroundImageOpacity ?: 0.35f,
@@ -377,7 +377,7 @@ fun CreateThemeFromImageScreen(
                             onValueChange = { session = currentSession.withThemeName(it) },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth(),
-                            shape = ScribeTheme.shapes.input,
+                            shape = ScribeTheme.shapes.field,
                             placeholder = { Text("Enter theme name") }
                         )
                     }
