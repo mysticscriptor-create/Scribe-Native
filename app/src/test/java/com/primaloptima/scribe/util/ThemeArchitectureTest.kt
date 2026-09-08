@@ -1481,5 +1481,17 @@ class ThemeArchitectureTest {
 
         draft = draft.withWritingCharacter(WritingCharacter.WARM)
         assertEquals(WritingCharacter.WARM, draft.activeWritingCharacter)
+
+        assertEquals(testSeed2, draft.activeCandidate)
+
+        // Polarity toggle test
+        val isDarkInitial = ThemeManager.isDarkColor(draft.bgHex)
+        draft = draft.withPolarity(!isDarkInitial)
+        val isDarkAfter = ThemeManager.isDarkColor(draft.bgHex)
+        assertNotEquals(isDarkInitial, isDarkAfter)
+
+        // Relationship mode test
+        draft = draft.withRelationshipMode(com.primaloptima.scribe.ui.screens.themeeditor.RelationshipMode.COMPLEMENTARY)
+        assertEquals(com.primaloptima.scribe.ui.screens.themeeditor.RelationshipMode.COMPLEMENTARY, draft.getRelationshipMode())
     }
 }

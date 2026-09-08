@@ -9,6 +9,7 @@ import com.primaloptima.scribe.util.model.ImageUnderstanding
 import com.primaloptima.scribe.util.model.ThemeColorOverrides
 import com.primaloptima.scribe.util.model.ThemeColors
 import com.primaloptima.scribe.util.model.ThemeGenerationRecipe
+import com.primaloptima.scribe.util.model.ThemeRelationshipMode
 import com.primaloptima.scribe.util.model.ThemeSchema
 import com.primaloptima.scribe.util.model.ThemeSourcePalette
 import com.primaloptima.scribe.util.model.WritingCharacter
@@ -98,6 +99,7 @@ data class ThemeEditorDraft(
 
     // Phase 18: Intelligent Image Generation State
     val extractedCandidates: List<Int> = emptyList(),
+    val activeCandidate: Int? = null,
     val activeRecipe: ThemeGenerationRecipe = ThemeGenerationRecipe.BALANCED,
     val activeInfluence: ImageInfluence = ImageInfluence.BALANCED,
     val activeWritingCharacter: WritingCharacter = WritingCharacter.NEUTRAL,
@@ -225,10 +227,11 @@ data class ThemeEditorDraft(
         resetOverrides: Boolean = false
     ): ThemeEditorDraft {
         val dark = ThemeManager.isDarkColor(bgHex)
+        val chosenCandidate = candidateColor ?: activeCandidate ?: understanding.rankedCandidates.firstOrNull()
         val palette = ThemeGenerationEngine.generateSourcePalette(
             understanding = understanding,
             recipe = recipe,
-            candidateColor = candidateColor,
+            candidateColor = chosenCandidate,
             isDark = dark,
             influence = influence,
             writingCharacter = writingCharacter
@@ -239,6 +242,7 @@ data class ThemeEditorDraft(
             accentHex = palette.accent,
             overrides = if (resetOverrides) null else overrides,
             extractedCandidates = understanding.rankedCandidates,
+            activeCandidate = chosenCandidate,
             activeRecipe = recipe,
             activeInfluence = influence,
             activeWritingCharacter = writingCharacter,
@@ -264,7 +268,7 @@ data class ThemeEditorDraft(
         } else {
             val dark = ThemeManager.isDarkColor(bgHex)
             val palette = ThemeGenerationEngine.generateSourcePaletteFromSeed(candidateColor, dark)
-            withFoundationPalette(palette, resetOverrides)
+            withFoundationPalette(palette, resetOverrides).copy(activeCandidate = candidateColor)
         }
     }
 
@@ -276,6 +280,7 @@ data class ThemeEditorDraft(
         return withImageUnderstanding(
             understanding = understanding,
             recipe = recipe,
+            candidateColor = activeCandidate,
             influence = activeInfluence,
             writingCharacter = activeWritingCharacter,
             resetOverrides = resetOverrides
@@ -290,6 +295,7 @@ data class ThemeEditorDraft(
         return withImageUnderstanding(
             understanding = understanding,
             recipe = activeRecipe,
+            candidateColor = activeCandidate,
             influence = influence,
             writingCharacter = activeWritingCharacter,
             resetOverrides = resetOverrides
@@ -304,10 +310,70 @@ data class ThemeEditorDraft(
         return withImageUnderstanding(
             understanding = understanding,
             recipe = activeRecipe,
+            candidateColor = activeCandidate,
             influence = activeInfluence,
             writingCharacter = character,
             resetOverrides = resetOverrides
         )
+    }
+
+    /**
+     * Re-derives the foundation palette for light/dark mode without re-quantizing.
+     */
+    fun withPolarity(isDark: Boolean, resetOverrides: Boolean = false): ThemeEditorDraft {
+        val understanding = activeUnderstanding
+        return if (understanding != null) {
+            val chosenCandidate = activeCandidate ?: understanding.rankedCandidates.firstOrNull()
+            val palette = ThemeGenerationEngine.generateSourcePalette(
+                understanding = understanding,
+                recipe = activeRecipe,
+                candidateColor = chosenCandidate,
+                isDark = isDark,
+                influence = activeInfluence,
+                writingCharacter = activeWritingCharacter
+            )
+            copy(
+                bgHex = palette.background,
+                textHex = palette.text,
+                accentHex = palette.accent,
+                overrides = if (resetOverrides) null else overrides
+            )
+        } else {
+            val currentSeed = activeCandidate ?: try { ThemeManager.parseColor(accentHex) } catch (_: Exception) { 0xFF3B82F6.toInt() }
+            val palette = ThemeGenerationEngine.generateSourcePaletteFromSeed(currentSeed, isDark)
+            withFoundationPalette(palette, resetOverrides)
+        }
+    }
+
+    /**
+     * Applies the high-level presentation relationship mode without altering color generation.
+     */
+    fun withRelationshipMode(mode: ThemeRelationshipMode): ThemeEditorDraft {
+        return when (mode) {
+            ThemeRelationshipMode.THEME_ONLY -> copy(
+                bgMode = "color",
+                frostedGlassEnabled = false
+            )
+            ThemeRelationshipMode.THEME_IMAGE -> copy(
+                bgMode = if (bgMode == "color") "image" else bgMode,
+                frostedGlassEnabled = false
+            )
+            ThemeRelationshipMode.THEME_GLASS -> copy(
+                bgMode = if (bgMode == "color") "image" else bgMode,
+                frostedGlassEnabled = true
+            )
+        }
+    }
+
+    /**
+     * Inspects the current presentation settings to infer the active [ThemeRelationshipMode].
+     */
+    fun getRelationshipMode(): ThemeRelationshipMode {
+        return when {
+            frostedGlassEnabled && bgMode != "color" -> ThemeRelationshipMode.THEME_GLASS
+            bgMode != "color" && !bgUri.isNullOrBlank() -> ThemeRelationshipMode.THEME_IMAGE
+            else -> ThemeRelationshipMode.THEME_ONLY
+        }
     }
 
     /**

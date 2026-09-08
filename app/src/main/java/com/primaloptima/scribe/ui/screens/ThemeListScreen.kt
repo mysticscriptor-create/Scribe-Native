@@ -8,6 +8,7 @@ import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -50,6 +51,7 @@ import com.primaloptima.scribe.ui.theme.parseComposeColor
 import com.primaloptima.scribe.ui.theme.FontHelper
 import com.primaloptima.scribe.util.BitmapBlur
 import com.primaloptima.scribe.util.DefaultThemes
+import com.primaloptima.scribe.util.SAFHelper
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.util.decodeAppTheme
@@ -75,6 +77,32 @@ fun ThemeListScreen(
 
     var themeToDelete by remember { mutableStateOf<AppTheme?>(null) }
     var showTopMenu by remember { mutableStateOf(false) }
+    var showCreateOptionsSheet by remember { mutableStateOf(false) }
+
+    val scope = rememberCoroutineScope()
+    val pictureThemePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            scope.launch {
+                val newId = vm.generateId()
+                val localUri = SAFHelper.copyBgImageToInternalStorage(context, uri, newId)
+                val stableUri = (localUri ?: uri).toString()
+                val active = activeTheme ?: DefaultThemes.all.first()
+                val newTheme = active.copy(
+                    id = newId,
+                    name = "Image Theme",
+                    builtIn = false,
+                    emoji = "🎨",
+                    bgMode = "image",
+                    backgroundImageUri = stableUri,
+                    backgroundImageOriginalUri = stableUri
+                )
+                vm.save(newTheme)
+                onEditTheme(newTheme.id)
+            }
+        }
+    }
 
     val view = LocalView.current
     val blurRadiusPx = com.primaloptima.scribe.ui.theme.LocalFrostedBlurRadius.current.toInt().coerceIn(1, 25)
@@ -145,15 +173,7 @@ fun ThemeListScreen(
                 icon = Icons.Default.Add,
                 contentDescription = "New Theme",
                 onClick = {
-                    val active = activeTheme ?: DefaultThemes.all.first()
-                    val newTheme = active.copy(
-                        id = vm.generateId(),
-                        name = "Custom Theme",
-                        builtIn = false,
-                        emoji = "🖊️"
-                    )
-                    vm.save(newTheme)
-                    onEditTheme(newTheme.id)
+                    showCreateOptionsSheet = true
                 }
             )
         }
@@ -210,6 +230,128 @@ fun ThemeListScreen(
                     TextButton(onClick = { themeToDelete = null }) { Text("Cancel") }
                 }
             )
+        }
+    }
+
+    if (showCreateOptionsSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showCreateOptionsSheet = false },
+            containerColor = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 36.dp, top = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = "Create New Theme",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = ScribeTheme.colors.content.primary
+                )
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showCreateOptionsSheet = false
+                            pictureThemePicker.launch("image/*")
+                        },
+                    shape = ScribeTheme.shapes.cardSmall,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    border = BorderStroke(1.dp, ScribeTheme.colors.borders.subtle)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "Generate from a Picture",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ScribeTheme.colors.content.primary
+                            )
+                            Text(
+                                text = "Extract palette candidates & intelligent recipes from artwork",
+                                fontSize = 12.sp,
+                                color = ScribeTheme.colors.content.secondary
+                            )
+                        }
+                    }
+                }
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            showCreateOptionsSheet = false
+                            val active = activeTheme ?: DefaultThemes.all.first()
+                            val newTheme = active.copy(
+                                id = vm.generateId(),
+                                name = "Custom Theme",
+                                builtIn = false,
+                                emoji = "🖊️"
+                            )
+                            vm.save(newTheme)
+                            onEditTheme(newTheme.id)
+                        },
+                    shape = ScribeTheme.shapes.cardSmall,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    border = BorderStroke(1.dp, ScribeTheme.colors.borders.subtle)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            modifier = Modifier.size(44.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.Palette,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "Manual Custom Theme",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ScribeTheme.colors.content.primary
+                            )
+                            Text(
+                                text = "Start with a clean palette and customize colors manually",
+                                fontSize = 12.sp,
+                                color = ScribeTheme.colors.content.secondary
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }

@@ -19,7 +19,9 @@ import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.autoTextColor
 import com.primaloptima.scribe.ui.theme.parseComposeColor
+import com.primaloptima.scribe.util.model.ImageInfluence
 import com.primaloptima.scribe.util.model.ThemeColors
+import com.primaloptima.scribe.util.model.ThemeGenerationRecipe
 
 /**
  * Inspector panel for Color management in the Theme Editor.
@@ -34,6 +36,11 @@ fun ThemeColorsPanel(
     onResetOverride: (ColorPickerTarget) -> Unit,
     onOpenAccessibilityDiagnostics: () -> Unit,
     onExtractFromArtwork: (() -> Unit)? = null,
+    onSelectCandidate: ((Int) -> Unit)? = null,
+    onSelectRecipe: ((ThemeGenerationRecipe) -> Unit)? = null,
+    onSelectInfluence: ((ImageInfluence) -> Unit)? = null,
+    onOpenGenerationStudio: (() -> Unit)? = null,
+    onPickImage: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -48,7 +55,7 @@ fun ThemeColorsPanel(
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -81,25 +88,7 @@ fun ThemeColorsPanel(
                     lineHeight = 16.sp
                 )
 
-                if (onExtractFromArtwork != null && (!draft.bgDominantColor.isNullOrBlank() || draft.zonalColorsMatrix.isNotEmpty())) {
-                    OutlinedButton(
-                        onClick = onExtractFromArtwork,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = ScribeTheme.shapes.button,
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Icon(
-                            Icons.Default.AutoAwesome,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Extract Foundation from Artwork", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-
+                // Foundation Color Tiles
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -125,6 +114,105 @@ fun ThemeColorsPanel(
                         onClick = { onSelectTarget(ColorPickerTarget.ACCENT) },
                         modifier = Modifier.weight(1f)
                     )
+                }
+
+                // Phase 18: Intelligent Image Extraction & Candidate Swatch Strip
+                if (draft.extractedCandidates.isNotEmpty()) {
+                    HorizontalDivider(color = ScribeTheme.colors.borders.subtle)
+
+                    CandidateSwatchStrip(
+                        candidates = draft.extractedCandidates,
+                        selectedCandidate = draft.activeCandidate,
+                        onSelectCandidate = { candidate ->
+                            onSelectCandidate?.invoke(candidate)
+                        }
+                    )
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Active Recipe",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = ScribeTheme.colors.content.primary
+                            )
+                            if (onOpenGenerationStudio != null) {
+                                TextButton(
+                                    onClick = onOpenGenerationStudio,
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.AutoAwesome,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Open Studio", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            ThemeGenerationRecipe.values().forEach { recipe ->
+                                val isSelected = draft.activeRecipe == recipe
+                                FilterChip(
+                                    selected = isSelected,
+                                    onClick = { onSelectRecipe?.invoke(recipe) },
+                                    label = { Text(recipe.label, fontSize = 11.sp) },
+                                    shape = ScribeTheme.shapes.themeEditorControl,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    val hasArtwork = !draft.bgUri.isNullOrBlank() || !draft.bgOriginalUri.isNullOrBlank() || !draft.bgDominantColor.isNullOrBlank()
+                    if (hasArtwork && (onOpenGenerationStudio != null || onExtractFromArtwork != null)) {
+                        Button(
+                            onClick = {
+                                if (onOpenGenerationStudio != null) onOpenGenerationStudio()
+                                else onExtractFromArtwork?.invoke()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = ScribeTheme.shapes.button,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        ) {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Generate Theme from Artwork", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    } else if (onPickImage != null) {
+                        OutlinedButton(
+                            onClick = onPickImage,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = ScribeTheme.shapes.button,
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Icon(
+                                Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Generate Palette from Picture...", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                 }
             }
         }

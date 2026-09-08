@@ -597,7 +597,12 @@ object ThemeGenerationEngine {
         }
     }
 
-    private fun fallbackUnderstanding(focusRegion: String?): ImageUnderstanding {
+    fun getColorDescriptor(colorInt: Int): String {
+        val seedOklch = ContrastResolver.colorToOklch(colorInt)
+        return getHueDescriptor(seedOklch.h, seedOklch.c)
+    }
+
+    internal fun fallbackUnderstanding(focusRegion: String? = null): ImageUnderstanding {
         val defaultSeed = 0xFF3B82F6.toInt()
         val defaultDominant = listOf("#3B82F6", "#1D4ED8", "#10B981", "#F59E0B")
         return ImageUnderstanding(

@@ -40,6 +40,8 @@ import com.primaloptima.scribe.ui.theme.computeGlobalDominantColor
 import com.primaloptima.scribe.ui.theme.computeZonalDominantColorMatrix
 import com.primaloptima.scribe.ui.theme.computeZonalLuminanceMatrix
 import com.primaloptima.scribe.ui.theme.computeZonalVarianceMatrix
+import com.primaloptima.scribe.util.ThemeGenerationEngine
+import com.primaloptima.scribe.util.model.ImageUnderstanding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -103,6 +105,29 @@ suspend fun computeBgAnalysis(context: Context, imageUri: String): BgAnalysisRes
             BgAnalysisResult(avgL, zonal, zonalVar, globalDomHex, zonalDomHexes, lumField)
         } catch (_: Exception) {
             BgAnalysisResult(-1f, emptyList(), emptyList(), null, emptyList(), emptyList())
+        }
+    }
+}
+
+/**
+ * Loads [imageUri] through Coil at software sample resolution and derives a structured [ImageUnderstanding].
+ */
+suspend fun computeImageUnderstanding(context: Context, imageUri: String): ImageUnderstanding {
+    return withContext(Dispatchers.IO) {
+        try {
+            val request = ImageRequest.Builder(context)
+                .data(imageUri)
+                .size(coil3.size.Size(128, 128))
+                .allowHardware(false)
+                .build()
+            val bitmap = (ImageLoader(context).execute(request) as? SuccessResult)
+                ?.image
+                ?.let { (it as? BitmapImage)?.bitmap }
+                ?: return@withContext ThemeGenerationEngine.fallbackUnderstanding(null)
+
+            ThemeGenerationEngine.analyzeImage(bitmap)
+        } catch (_: Exception) {
+            ThemeGenerationEngine.fallbackUnderstanding(null)
         }
     }
 }
