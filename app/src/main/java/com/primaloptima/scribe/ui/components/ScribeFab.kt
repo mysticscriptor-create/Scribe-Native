@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.ScribeMetricTokens
 import com.primaloptima.scribe.ui.theme.ScribeShapeTokens
 import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.frostedContainerColor
@@ -92,12 +93,12 @@ import com.primaloptima.scribe.ui.theme.localHasBgImage
 object ScribeFabTokens {
 
     // Sizes
-    val SizeDefault  = 56.dp   // standard M3 FAB footprint
-    val SizeSmall    = 40.dp   // small variant (secondary action)
+    val SizeDefault: Dp  = ScribeMetricTokens.FabSize          // standard M3 FAB footprint (56.dp)
+    val SizeSmall: Dp    = ScribeMetricTokens.FabSizeSmall     // small variant (secondary action 40.dp)
 
     // Corner radii — squircle feel, not full circle
-    val RadiusDefault = 16.dp
-    val RadiusSmall   = 12.dp
+    val RadiusDefault: Dp = ScribeShapeTokens.RadiusLarge
+    val RadiusSmall: Dp   = ScribeShapeTokens.RadiusMedium
 
     // Semantic shapes aligned with ScribeShapeTokens
     val ShapeDefault   = ScribeShapeTokens.Fab
@@ -105,12 +106,12 @@ object ScribeFabTokens {
     val SpeedDialShape = ScribeShapeTokens.SpeedDial
 
     // Elevation — always 0; frosted glass provides depth
-    val Elevation = 0.dp
+    val Elevation: Dp = ScribeMetricTokens.ElevationNone
 
     // Speed-dial card
-    val SpeedDialWidth   = 210.dp
-    val SpeedDialRadius  = 20.dp
-    val ItemHeight       = 52.dp
+    val SpeedDialWidth: Dp   = ScribeMetricTokens.SpeedDialWidth
+    val SpeedDialRadius: Dp  = ScribeShapeTokens.RadiusExtraLarge
+    val ItemHeight: Dp       = ScribeMetricTokens.SpeedDialItemHeight
 
     // Animation — press scale
     val PressScale = 0.93f

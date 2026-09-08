@@ -51,6 +51,7 @@ import com.primaloptima.scribe.ui.theme.LocalAppTheme
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
 import com.primaloptima.scribe.ui.theme.ScribeShapeTokens
+import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.autoTextColor
 import com.primaloptima.scribe.ui.theme.frostedPanel
 import dev.chrisbanes.haze.HazeState
@@ -67,12 +68,15 @@ fun FrostedSheetDragHandle(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 12.dp),
+            .padding(vertical = ScribeTheme.spacing.medium),
         contentAlignment = Alignment.Center
     ) {
         Box(
             modifier = Modifier
-                .size(width = 36.dp, height = 4.dp)
+                .size(
+                    width = ScribeTheme.metrics.dragHandleWidth,
+                    height = ScribeTheme.metrics.dragHandleHeight
+                )
                 .background(
                     color = color,
                     shape = ScribeShapeTokens.Handle

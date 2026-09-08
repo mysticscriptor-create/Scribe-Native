@@ -168,7 +168,7 @@ fun WorkbenchCard(
             )
             .then(
                 if (!hasBgImage) Modifier.border(
-                    width = 1.dp,
+                    width = ScribeTheme.metrics.borderThin,
                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
                     shape = ScribeTheme.shapes.cardSmall
                 ) else Modifier
@@ -185,7 +185,7 @@ fun WorkbenchCard(
         if (hasAccentBar) {
             Box(
                 modifier = Modifier
-                    .width(3.5.dp)
+                    .width(ScribeTheme.metrics.accentBarWidth)
                     .fillMaxHeight()
                     .align(Alignment.CenterStart)
                     .background(paneAccentColor, ScribeShapeTokens.CardSmall.startOnly())
@@ -359,7 +359,7 @@ fun WorkbenchCard(
                         if (pinnedIds.size > 1) {
                             Box(
                                 modifier = Modifier
-                                    .size(20.dp)
+                                    .size(ScribeTheme.metrics.touchTargetMicro)
                                     .clip(CircleShape)
                                     .clickable(onClick = onPrev),
                                 contentAlignment = Alignment.Center
@@ -367,20 +367,20 @@ fun WorkbenchCard(
                                 Icon(
                                     Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                                     contentDescription = "Previous note",
-                                    modifier = Modifier.size(14.dp),
+                                    modifier = Modifier.size(ScribeTheme.metrics.iconSmall),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            Spacer(Modifier.width(2.dp))
+                            Spacer(Modifier.width(ScribeTheme.spacing.hairline))
                             Text(
                                 "${pinnedIndex + 1}/${pinnedIds.size}",
                                 fontSize = 10.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Spacer(Modifier.width(2.dp))
+                            Spacer(Modifier.width(ScribeTheme.spacing.hairline))
                             Box(
                                 modifier = Modifier
-                                    .size(20.dp)
+                                    .size(ScribeTheme.metrics.touchTargetMicro)
                                     .clip(CircleShape)
                                     .clickable(onClick = onNext),
                                 contentAlignment = Alignment.Center
@@ -388,7 +388,7 @@ fun WorkbenchCard(
                                 Icon(
                                     Icons.AutoMirrored.Filled.KeyboardArrowRight,
                                     contentDescription = "Next note",
-                                    modifier = Modifier.size(14.dp),
+                                    modifier = Modifier.size(ScribeTheme.metrics.iconSmall),
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -397,7 +397,7 @@ fun WorkbenchCard(
                         if (removeMode) {
                             Box(
                                 modifier = Modifier
-                                    .size(20.dp)
+                                    .size(ScribeTheme.metrics.touchTargetMicro)
                                     .clip(CircleShape)
                                     .clickable { onRemoveClick?.invoke() },
                                 contentAlignment = Alignment.Center
@@ -414,7 +414,7 @@ fun WorkbenchCard(
                         Box {
                             Box(
                                 modifier = Modifier
-                                    .size(20.dp)
+                                    .size(ScribeTheme.metrics.touchTargetMicro)
                                     .clip(CircleShape)
                                     .clickable { showOverflow = true },
                                 contentAlignment = Alignment.Center

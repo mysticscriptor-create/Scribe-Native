@@ -1216,11 +1216,11 @@ private fun FloatingPillButton(
         shape = CircleShape,
         color = frostedContainerColor(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f)),
         tonalElevation = 0.dp,
-        shadowElevation = 2.dp,
+        shadowElevation = ScribeTheme.metrics.elevationLow,
         modifier = modifier
             .clip(CircleShape)
             .frostedFab(hazeState)
-            .size(40.dp)
+            .size(ScribeTheme.metrics.touchTargetCompact)
     ) {
         Box(
             contentAlignment = Alignment.Center,
@@ -1230,7 +1230,7 @@ private fun FloatingPillButton(
                 imageVector = icon,
                 contentDescription = contentDescription,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(ScribeTheme.metrics.iconNormal)
             )
         }
     }
@@ -1529,9 +1529,9 @@ private fun FindReplaceBar(
     onClose         : () -> Unit,
 ) {
     if (!visible) return
-    Surface(shadowElevation = 4.dp, modifier = Modifier.fillMaxWidth()) {
+    Surface(shadowElevation = ScribeTheme.metrics.elevationMedium, modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier          = Modifier.fillMaxWidth().padding(8.dp),
+            modifier          = Modifier.fillMaxWidth().padding(ScribeTheme.spacing.compact),
             verticalAlignment = Alignment.CenterVertically
         ) {
             OutlinedTextField(
@@ -1539,15 +1539,15 @@ private fun FindReplaceBar(
                 onValueChange = onFindChange,
                 placeholder   = { Text("Find") },
                 singleLine    = true,
-                modifier      = Modifier.weight(1f).height(48.dp)
+                modifier      = Modifier.weight(1f).height(ScribeTheme.metrics.fieldHeightCompact)
             )
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(ScribeTheme.spacing.small))
             OutlinedTextField(
                 value         = replaceQuery,
                 onValueChange = onReplaceChange,
                 placeholder   = { Text("Replace") },
                 singleLine    = true,
-                modifier      = Modifier.weight(1f).height(48.dp)
+                modifier      = Modifier.weight(1f).height(ScribeTheme.metrics.fieldHeightCompact)
             )
             IconButton(onClick = onPrevious) {
                 Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = "Previous")
@@ -1610,7 +1610,7 @@ private fun WordCountPill(
                 shape           = CircleShape,
                 color           = frostedContainerColor(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.85f)),
                 tonalElevation  = 0.dp,
-                shadowElevation = 2.dp,
+                shadowElevation = ScribeTheme.metrics.elevationLow,
                 modifier        = Modifier
                     .clip(CircleShape)
                     .frostedFab(hazeState)
@@ -1625,8 +1625,8 @@ private fun WordCountPill(
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .height(28.dp)
-                        .padding(horizontal = 10.dp, vertical = 2.dp)
+                        .height(ScribeTheme.metrics.chipHeightCompact)
+                        .padding(horizontal = 10.dp, vertical = ScribeTheme.spacing.hairline)
                 ) {
                     AnimatedContent(
                         targetState    = pillMode,
@@ -1665,11 +1665,11 @@ private fun FormatButton(
                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
         contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary
                        else MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier     = Modifier.height(32.dp)
+        modifier     = Modifier.height(ScribeTheme.metrics.chipHeight)
     ) {
         Box(
             contentAlignment = Alignment.Center,
-            modifier         = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+            modifier         = Modifier.padding(horizontal = ScribeTheme.spacing.medium, vertical = ScribeTheme.spacing.micro)
         ) {
             Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }

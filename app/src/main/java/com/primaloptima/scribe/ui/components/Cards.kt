@@ -30,7 +30,9 @@ import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.ui.theme.FrostedCardContent
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalSolidSurface
+import com.primaloptima.scribe.ui.theme.ScribeMetricTokens
 import com.primaloptima.scribe.ui.theme.ScribeShapeTokens
+import com.primaloptima.scribe.ui.theme.ScribeSpacingTokens
 import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.frostedCard
 import com.primaloptima.scribe.ui.theme.frostedContainerColor
@@ -70,10 +72,10 @@ import com.primaloptima.scribe.ui.theme.localHasBgImage
 
 object ScribeCardTokens {
     // Corner radii
-    val RadiusLarge  = 20.dp   // content cards, project cards
-    val RadiusMedium = 16.dp   // secondary cards, strip rows
-    val RadiusSmall  = 12.dp   // action tiles, pills
-    val RadiusTiny   = 8.dp    // icon boxes, sub-elements
+    val RadiusLarge: Dp  = ScribeShapeTokens.RadiusExtraLarge // content cards, project cards (20.dp)
+    val RadiusMedium: Dp = ScribeShapeTokens.RadiusLarge      // secondary cards, strip rows (16.dp)
+    val RadiusSmall: Dp  = ScribeShapeTokens.RadiusMedium     // action tiles, pills (12.dp)
+    val RadiusTiny: Dp   = ScribeShapeTokens.RadiusSmall      // icon boxes, sub-elements (8.dp)
 
     // Semantic shapes aligned with ScribeShapeTokens
     val ShapeLarge   = ScribeShapeTokens.Card
@@ -82,12 +84,12 @@ object ScribeCardTokens {
     val ShapeTiny    = ScribeShapeTokens.CardNested
 
     // Elevation — always 0 because frosted glass handles depth visually
-    val Elevation = 0.dp
+    val Elevation: Dp = ScribeMetricTokens.ElevationNone
 
     // Padding presets
-    val PaddingOuter      = 16.dp  // card → screen edge
-    val PaddingInner      = 16.dp  // content inside card
-    val PaddingInnerTight = 12.dp
+    val PaddingOuter: Dp      = ScribeMetricTokens.ScreenPadding     // card → screen edge (16.dp)
+    val PaddingInner: Dp      = ScribeMetricTokens.CardPadding       // content inside card (16.dp)
+    val PaddingInnerTight: Dp = ScribeMetricTokens.CardPaddingTight  // dense content inside card (12.dp)
 
     // Accent border — the subtle glow line on top of premium cards
     val AccentBorderAlpha = 0.18f
@@ -404,9 +406,9 @@ fun ScribeStripCard(
                             interactionSource = remember { MutableInteractionSource() }
                         ) { onClick() } else Modifier
                     )
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                    .padding(horizontal = ScribeCardTokens.PaddingInnerTight, vertical = ScribeCardTokens.PaddingInnerTight),
                 verticalAlignment     = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(ScribeTheme.spacing.medium)
             ) {
                 // Leading slot (icon box, avatar, thumbnail…)
                 leading?.invoke()
@@ -414,7 +416,7 @@ fun ScribeStripCard(
                 // Text block
                 Column(
                     modifier            = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                    verticalArrangement = Arrangement.spacedBy(ScribeTheme.spacing.hairline)
                 ) {
                     Text(
                         text     = title,
@@ -440,7 +442,7 @@ fun ScribeStripCard(
                         )
                     }
                     if (!footerLines.isNullOrEmpty()) {
-                        Spacer(modifier = Modifier.height(2.dp))
+                        Spacer(modifier = Modifier.height(ScribeTheme.spacing.hairline))
                         footerLines.forEach { line ->
                             Text(
                                 text     = line,
@@ -482,15 +484,15 @@ fun ScribeStripCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                        .padding(horizontal = ScribeCardTokens.PaddingInnerTight, vertical = ScribeCardTokens.PaddingInnerTight),
                     verticalAlignment     = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(ScribeTheme.spacing.medium)
                 ) {
                     leading?.invoke()
 
                     Column(
                         modifier            = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                        verticalArrangement = Arrangement.spacedBy(ScribeTheme.spacing.hairline)
                     ) {
                         Text(
                             text     = title,
@@ -516,7 +518,7 @@ fun ScribeStripCard(
                             )
                         }
                         if (!footerLines.isNullOrEmpty()) {
-                            Spacer(modifier = Modifier.height(2.dp))
+                            Spacer(modifier = Modifier.height(ScribeTheme.spacing.hairline))
                             footerLines.forEach { line ->
                                 Text(
                                     text     = line,
@@ -601,7 +603,7 @@ fun ScribeActionTile(
             .background(containerColor)
             .then(if (!isPrimary) Modifier.frostedCard(hazeState, shape = tileShape) else Modifier)
             .then(
-                if (isFocused) Modifier.border(2.dp, ScribeTheme.colors.interaction.focus, tileShape)
+                if (isFocused) Modifier.border(ScribeTheme.metrics.borderThick, ScribeTheme.colors.interaction.focus, tileShape)
                 else Modifier
             )
             .clickable(
@@ -618,16 +620,16 @@ fun ScribeActionTile(
                 val onPrimary = MaterialTheme.colorScheme.onPrimary
                 Box(
                     modifier = if (isPrimary) Modifier
-                        .size(36.dp)
+                        .size(ScribeTheme.metrics.touchTargetMicro)
                         .clip(CircleShape)
                         .background(onPrimary.copy(alpha = 0.15f))
-                    else Modifier.size(36.dp),
+                    else Modifier.size(ScribeTheme.metrics.touchTargetMicro),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector        = icon,
                         contentDescription = label,
-                        modifier           = Modifier.size(20.dp),
+                        modifier           = Modifier.size(ScribeTheme.metrics.iconNormal),
                         tint               = if (isPrimary) onPrimary else accentColor
                     )
                 }
@@ -722,7 +724,7 @@ fun ScribeStatColumn(
     Column(
         modifier            = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp)
+        verticalArrangement = Arrangement.spacedBy(ScribeTheme.spacing.micro)
     ) {
         if (icon != null) {
             Box(
@@ -730,13 +732,13 @@ fun ScribeStatColumn(
                     .size(30.dp)
                     .clip(CircleShape)
                     .background(tint.copy(alpha = 0.13f))
-                    .border(0.6.dp, tint.copy(alpha = 0.20f), CircleShape),
+                    .border(ScribeTheme.metrics.borderHairline, tint.copy(alpha = 0.20f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector        = icon,
                     contentDescription = null,
-                    modifier           = Modifier.size(14.dp),
+                    modifier           = Modifier.size(ScribeTheme.metrics.iconSmall),
                     tint               = tint
                 )
             }
@@ -827,8 +829,8 @@ fun ScribePill(
         modifier = modifier
             .clip(ScribeShapeTokens.Chip)
             .background(bg.copy(alpha = 0.13f))
-            .border(0.6.dp, bg.copy(alpha = 0.22f), ScribeShapeTokens.Chip)
-            .padding(horizontal = 10.dp, vertical = 4.dp)
+            .border(ScribeTheme.metrics.borderHairline, bg.copy(alpha = 0.22f), ScribeShapeTokens.Chip)
+            .padding(horizontal = 10.dp, vertical = ScribeTheme.spacing.micro)
     ) {
         Text(
             text  = text,
@@ -891,7 +893,7 @@ fun ScribeVerticalDivider(
 ) {
     Box(
         modifier = modifier
-            .width(0.8.dp)
+            .width(ScribeTheme.metrics.borderHairline)
             .height(height)
             .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
     )

@@ -21,7 +21,9 @@ import com.primaloptima.scribe.ui.theme.FrostedBarContent
 import com.primaloptima.scribe.ui.theme.LocalBarBlurBitmap
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
+import com.primaloptima.scribe.ui.theme.ScribeMetricTokens
 import com.primaloptima.scribe.ui.theme.ScribeShapeTokens
+import com.primaloptima.scribe.ui.theme.ScribeSpacingTokens
 import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.frostedBar
 import com.primaloptima.scribe.ui.theme.rememberAdaptiveTextColor
@@ -80,23 +82,23 @@ object ScribeBarTokens {
     // ── Sizing ────────────────────────────────────────────────────────────────
 
     /** Height of the actual content row (icons + title text). System insets are added on top. */
-    val TopBarContentHeight = 48.dp
+    val TopBarContentHeight: Dp = ScribeMetricTokens.TopBarContentHeight
 
     /** Height of the navigation bar content row. System inset is added below. */
-    val NavBarContentHeight = 52.dp
+    val NavBarContentHeight: Dp = ScribeMetricTokens.NavBarContentHeight
 
     /**
      * Horizontal padding inside the bar — gap between the bar edge and the
      * first/last icon.  Smaller than M3 default (which adds 4dp per IconButton
      * plus internal padding), giving a tighter, more compact feel.
      */
-    val ContentPaddingHorizontal = 4.dp
+    val ContentPaddingHorizontal: Dp = ScribeSpacingTokens.Micro
 
     /**
      * Padding between the title text and the navigation icon on its left.
      * Keeps the title visually close to the back button without crowding it.
      */
-    val TitleStartPadding = 2.dp
+    val TitleStartPadding: Dp = ScribeSpacingTokens.Hairline
 
     // ── Shape ─────────────────────────────────────────────────────────────────
 
@@ -109,7 +111,7 @@ object ScribeBarTokens {
      * Thickness of the gradient border line.
      * Same as ScribeFab (0.7.dp) and ScribeCard (0.7.dp).
      */
-    val BorderWidth: Dp = 0.7.dp
+    val BorderWidth: Dp = ScribeMetricTokens.BorderHairline
 
     /**
      * Alpha of the accent colour at the bright end of the border gradient.
@@ -127,10 +129,10 @@ object ScribeBarTokens {
     // ── Icon sizes ────────────────────────────────────────────────────────────
 
     /** Nav icon and action icon size inside the top bar. */
-    val IconSize = 22.dp
+    val IconSize: Dp = ScribeMetricTokens.IconLarge
 
     /** Navigation-tab icon size inside the bottom nav bar. */
-    val NavTabIconSize = 20.dp
+    val NavTabIconSize: Dp = ScribeMetricTokens.IconNormal
 
     /** Label font size for bottom nav tab labels. */
     val NavTabLabelSize = 9.sp

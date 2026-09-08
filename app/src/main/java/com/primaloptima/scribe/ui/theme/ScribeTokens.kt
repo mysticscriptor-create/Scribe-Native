@@ -377,41 +377,179 @@ fun CornerBasedShape.endOnly(): CornerBasedShape =
     copy(topStart = CornerSize(0.dp), bottomStart = CornerSize(0.dp))
 
 // ── Spacing Scale ───────────────────────────────────────────────────────────
+
+/**
+ * Centralized design tokens for Scribe's 4dp/8dp spacing system.
+ *
+ * Negative space hierarchy:
+ * - [None] (0.dp): Zero padding / margin reset.
+ * - [Hairline] (2.dp): Micro separation, badge-to-label offsets, hairline dividers.
+ * - [Micro] (4.dp): Fine insets, pill padding, bar horizontal margins.
+ * - [Compact] (8.dp): Related element grouping, icon-to-label spacing, tight list rows.
+ * - [Medium] (12.dp): Card header vertical padding, tight card body padding, dense gaps.
+ * - [Standard] (16.dp): Screen margins, standard card body padding, dialog insets.
+ * - [Section] (24.dp): Vertical rhythm between major content cards/sections.
+ * - [Large] (32.dp): Spacious separation, thematic groupings, empty-state tops.
+ * - [Huge] (48.dp): Generous scroll bottoms (overscroll clearance), hero visual spacing.
+ */
+object ScribeSpacingTokens {
+    val None: Dp = 0.dp
+    val Hairline: Dp = 2.dp
+    val Micro: Dp = 4.dp
+    val Compact: Dp = 8.dp
+    val Medium: Dp = 12.dp
+    val Standard: Dp = 16.dp
+    val Section: Dp = 24.dp
+    val Large: Dp = 32.dp
+    val Huge: Dp = 48.dp
+}
+
 @Immutable
 data class ScribeSpacing(
-    val none: Dp = 0.dp,
-    val xs: Dp = 4.dp,
-    val sm: Dp = 8.dp,
-    val md: Dp = 12.dp,
-    val lg: Dp = 16.dp,
-    val xl: Dp = 24.dp,
-    val xxl: Dp = 32.dp,
-    val huge: Dp = 48.dp
+    // Canonical semantic scale
+    val none: Dp = ScribeSpacingTokens.None,
+    val hairline: Dp = ScribeSpacingTokens.Hairline,
+    val micro: Dp = ScribeSpacingTokens.Micro,
+    val compact: Dp = ScribeSpacingTokens.Compact,
+    val medium: Dp = ScribeSpacingTokens.Medium,
+    val standard: Dp = ScribeSpacingTokens.Standard,
+    val section: Dp = ScribeSpacingTokens.Section,
+    val large: Dp = ScribeSpacingTokens.Large,
+    val huge: Dp = ScribeSpacingTokens.Huge,
+
+    // Backward-compatible & scale aliases
+    val xxs: Dp = hairline,
+    val xs: Dp = micro,
+    val sm: Dp = compact,
+    val md: Dp = medium,
+    val lg: Dp = standard,
+    val xl: Dp = section,
+    val xxl: Dp = large,
+    val xxxl: Dp = huge
 )
 
-// ── Metrics & Spacing ───────────────────────────────────────────────────────
+// ── Metrics & Layout Dimensions ─────────────────────────────────────────────
+
+/**
+ * Centralized design tokens for physical component metrics, heights, touch bounds, and icon footprints.
+ */
+object ScribeMetricTokens {
+    // ── Touch Target Boundaries ─────────────────────────────────────────────
+    val TouchTargetMin: Dp = 48.dp         // WCAG / Material minimum interactive target
+    val TouchTargetCompact: Dp = 40.dp     // Dense toolbar & compact card hit targets
+    val TouchTargetMicro: Dp = 36.dp       // Dense secondary header controls with padding
+
+    // ── Control & Bar Heights ───────────────────────────────────────────────
+    val TopBarContentHeight: Dp = 48.dp    // Scribe top app bar content height
+    val NavBarContentHeight: Dp = 52.dp    // Scribe bottom navigation bar content height
+    val EditorBarContentHeight: Dp = 44.dp // Compact editor formatting bar height
+    val FabSize: Dp = 56.dp                // Standard floating action button
+    val FabSizeSmall: Dp = 40.dp           // Secondary / quick-action FAB
+    val SpeedDialWidth: Dp = 210.dp        // Speed dial menu card width
+    val SpeedDialItemHeight: Dp = 52.dp    // Speed dial menu row height
+    val ChipHeight: Dp = 32.dp             // Standard filter / category chip
+    val ChipHeightCompact: Dp = 28.dp      // Word counter pill / micro badge
+    val FieldHeight: Dp = 56.dp            // Standard text input field
+    val FieldHeightCompact: Dp = 48.dp     // Compact search bar / find & replace field
+    val DragHandleWidth: Dp = 36.dp        // Bottom sheet tactile drag handle width
+    val DragHandleHeight: Dp = 4.dp        // Bottom sheet drag handle thickness
+
+    // ── Icon Footprints (Visual Scale) ───────────────────────────────────────
+    val IconMicro: Dp = 12.dp              // Micro indicators & inline arrows
+    val IconSmall: Dp = 14.dp              // Sub-label indicators, stat icons, pane controls
+    val IconMedium: Dp = 18.dp             // Toolbar actions, section headers, badges
+    val IconNormal: Dp = 20.dp             // Nav tab icons, secondary FAB icons
+    val IconLarge: Dp = 22.dp              // Top bar navigation & action icons
+    val IconDisplay: Dp = 24.dp            // Empty-state icons, primary visual icons
+    val IconHero: Dp = 32.dp               // Hero illustrations
+
+    // ── Semantic Screen & Container Insets ──────────────────────────────────
+    val ScreenPadding: Dp = 16.dp          // Standard screen margin
+    val ScreenPaddingWide: Dp = 24.dp      // Tablet / expanded screen margin
+    val CardPadding: Dp = 16.dp            // Standard card inner padding
+    val CardPaddingTight: Dp = 12.dp       // Dense list strip inner padding
+    val CardPaddingSpacious: Dp = 20.dp    // Primary hero card padding
+    val DialogPadding: Dp = 24.dp          // Modal dialog internal inset
+    val SheetPadding: Dp = 20.dp           // Bottom sheet content inset
+
+    // ── Strokes & Borders ───────────────────────────────────────────────────
+    val BorderHairline: Dp = 0.7.dp        // Subtle frosted glass border stroke
+    val BorderThin: Dp = 1.dp              // Standard container stroke
+    val BorderThick: Dp = 2.dp             // Active selection / focus ring
+    val AccentBarWidth: Dp = 3.5.dp        // Leading edge accent bar for cards/panes
+
+    // ── Elevation & Blur ────────────────────────────────────────────────────
+    val ElevationNone: Dp = 0.dp
+    val ElevationLow: Dp = 2.dp
+    val ElevationMedium: Dp = 4.dp
+    val ElevationHigh: Dp = 8.dp
+    val DefaultBlurRadius: Dp = 15.dp
+}
+
 @Immutable
 data class ScribeMetrics(
     val spacing: ScribeSpacing = ScribeSpacing(),
-    val spaceNone: Dp = 0.dp,
-    val spaceExtraSmall: Dp = 4.dp,
-    val spaceSmall: Dp = 8.dp,
-    val spaceMedium: Dp = 12.dp,
-    val spaceNormal: Dp = 16.dp,
-    val spaceLarge: Dp = 24.dp,
-    val spaceExtraLarge: Dp = 32.dp,
-    val spaceHuge: Dp = 48.dp,
 
-    // Border Widths
-    val borderHairline: Dp = 1.dp,
-    val borderThick: Dp = 2.dp,
+    // Touch Targets
+    val touchTargetMin: Dp = ScribeMetricTokens.TouchTargetMin,
+    val touchTargetCompact: Dp = ScribeMetricTokens.TouchTargetCompact,
+    val touchTargetMicro: Dp = ScribeMetricTokens.TouchTargetMicro,
+
+    // Control & Bar Heights
+    val topBarHeight: Dp = ScribeMetricTokens.TopBarContentHeight,
+    val bottomBarHeight: Dp = ScribeMetricTokens.NavBarContentHeight,
+    val editorBarHeight: Dp = ScribeMetricTokens.EditorBarContentHeight,
+    val fabSize: Dp = ScribeMetricTokens.FabSize,
+    val fabSizeSmall: Dp = ScribeMetricTokens.FabSizeSmall,
+    val speedDialWidth: Dp = ScribeMetricTokens.SpeedDialWidth,
+    val speedDialItemHeight: Dp = ScribeMetricTokens.SpeedDialItemHeight,
+    val chipHeight: Dp = ScribeMetricTokens.ChipHeight,
+    val chipHeightCompact: Dp = ScribeMetricTokens.ChipHeightCompact,
+    val fieldHeight: Dp = ScribeMetricTokens.FieldHeight,
+    val fieldHeightCompact: Dp = ScribeMetricTokens.FieldHeightCompact,
+    val dragHandleWidth: Dp = ScribeMetricTokens.DragHandleWidth,
+    val dragHandleHeight: Dp = ScribeMetricTokens.DragHandleHeight,
+
+    // Icon Footprints
+    val iconMicro: Dp = ScribeMetricTokens.IconMicro,
+    val iconSmall: Dp = ScribeMetricTokens.IconSmall,
+    val iconMedium: Dp = ScribeMetricTokens.IconMedium,
+    val iconNormal: Dp = ScribeMetricTokens.IconNormal,
+    val iconLarge: Dp = ScribeMetricTokens.IconLarge,
+    val iconDisplay: Dp = ScribeMetricTokens.IconDisplay,
+    val iconHero: Dp = ScribeMetricTokens.IconHero,
+
+    // Semantic Insets
+    val screenPadding: Dp = ScribeMetricTokens.ScreenPadding,
+    val screenPaddingWide: Dp = ScribeMetricTokens.ScreenPaddingWide,
+    val cardPadding: Dp = ScribeMetricTokens.CardPadding,
+    val cardPaddingTight: Dp = ScribeMetricTokens.CardPaddingTight,
+    val cardPaddingSpacious: Dp = ScribeMetricTokens.CardPaddingSpacious,
+    val dialogPadding: Dp = ScribeMetricTokens.DialogPadding,
+    val sheetPadding: Dp = ScribeMetricTokens.SheetPadding,
+
+    // Strokes & Borders
+    val borderHairline: Dp = ScribeMetricTokens.BorderHairline,
+    val borderThin: Dp = ScribeMetricTokens.BorderThin,
+    val borderThick: Dp = ScribeMetricTokens.BorderThick,
+    val accentBarWidth: Dp = ScribeMetricTokens.AccentBarWidth,
 
     // Elevation & Blur
-    val elevationNone: Dp = 0.dp,
-    val elevationLow: Dp = 2.dp,
-    val elevationMedium: Dp = 4.dp,
-    val elevationHigh: Dp = 8.dp,
-    val defaultBlurRadius: Dp = 15.dp
+    val elevationNone: Dp = ScribeMetricTokens.ElevationNone,
+    val elevationLow: Dp = ScribeMetricTokens.ElevationLow,
+    val elevationMedium: Dp = ScribeMetricTokens.ElevationMedium,
+    val elevationHigh: Dp = ScribeMetricTokens.ElevationHigh,
+    val defaultBlurRadius: Dp = ScribeMetricTokens.DefaultBlurRadius,
+
+    // Backward-compatible spacing fields on ScribeMetrics
+    val spaceNone: Dp = spacing.none,
+    val spaceExtraSmall: Dp = spacing.micro,
+    val spaceSmall: Dp = spacing.compact,
+    val spaceMedium: Dp = spacing.medium,
+    val spaceNormal: Dp = spacing.standard,
+    val spaceLarge: Dp = spacing.section,
+    val spaceExtraLarge: Dp = spacing.large,
+    val spaceHuge: Dp = spacing.huge
 )
 
 // ── Typography ──────────────────────────────────────────────────────────────
