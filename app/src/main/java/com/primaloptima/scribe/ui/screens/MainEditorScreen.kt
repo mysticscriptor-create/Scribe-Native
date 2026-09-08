@@ -1541,7 +1541,7 @@ private fun FindReplaceBar(
                 singleLine    = true,
                 modifier      = Modifier.weight(1f).height(ScribeTheme.metrics.fieldHeightCompact)
             )
-            Spacer(Modifier.width(ScribeTheme.spacing.small))
+            Spacer(Modifier.width(ScribeTheme.spacing.compact))
             OutlinedTextField(
                 value         = replaceQuery,
                 onValueChange = onReplaceChange,

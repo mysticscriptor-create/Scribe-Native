@@ -425,7 +425,13 @@ data class ScribeSpacing(
     val lg: Dp = standard,
     val xl: Dp = section,
     val xxl: Dp = large,
-    val xxxl: Dp = huge
+    val xxxl: Dp = huge,
+
+    // Additional intuitive aliases
+    val extraSmall: Dp = micro,
+    val small: Dp = compact,
+    val normal: Dp = standard,
+    val extraLarge: Dp = large
 )
 
 // ── Metrics & Layout Dimensions ─────────────────────────────────────────────
