@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -31,6 +33,7 @@ fun ThemeColorsPanel(
     onSelectTarget: (ColorPickerTarget) -> Unit,
     onResetOverride: (ColorPickerTarget) -> Unit,
     onOpenAccessibilityDiagnostics: () -> Unit,
+    onExtractFromArtwork: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -77,6 +80,25 @@ fun ThemeColorsPanel(
                     color = ScribeTheme.colors.content.secondary,
                     lineHeight = 16.sp
                 )
+
+                if (onExtractFromArtwork != null && (!draft.bgDominantColor.isNullOrBlank() || draft.zonalColorsMatrix.isNotEmpty())) {
+                    OutlinedButton(
+                        onClick = onExtractFromArtwork,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = ScribeTheme.shapes.button,
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Icon(
+                            Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Extract Foundation from Artwork", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),

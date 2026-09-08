@@ -134,6 +134,8 @@ dependencies {
 
     // Material Design 3
     implementation("com.google.android.material:material:1.14.0")
+    // Phase 18: Material Color Utilities for algorithmic theme generation from images
+    implementation("com.materialkolor:material-color-utilities:5.0.1")
 
     // ViewModel + LiveData + coroutines
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.11.0")

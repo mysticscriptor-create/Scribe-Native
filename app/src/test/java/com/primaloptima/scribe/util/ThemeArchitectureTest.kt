@@ -1286,4 +1286,101 @@ class ThemeArchitectureTest {
             assertTrue("Built-in ${builtIn.name} error must not be blank", resolved.colors.error.isNotBlank())
         }
     }
+
+    // ── Phase 18: Image-Derived Theme Generation Engine Tests ─────────────────
+
+    @Test
+    fun testPhase18_generateSourcePalette_extractsDeterministicPalette() {
+        val testSeed = 0xFF4A90E2.toInt() // Blue seed
+        val rankedColors = listOf(testSeed, 0xFF50E3C2.toInt())
+
+        val darkPalette1 = ThemeGenerationEngine.generateSourcePalette(rankedColors, isDark = true)
+        val darkPalette2 = ThemeGenerationEngine.generateSourcePalette(rankedColors, isDark = true)
+
+        assertEquals("Dark generation must be completely deterministic", darkPalette1, darkPalette2)
+        assertTrue("Dark background must be dark", ThemeManager.isDarkColor(darkPalette1.background))
+        assertTrue("Text must not be blank", darkPalette1.text.isNotBlank())
+        assertTrue("Accent must not be blank", darkPalette1.accent.isNotBlank())
+
+        val lightPalette = ThemeGenerationEngine.generateSourcePalette(rankedColors, isDark = false)
+        assertTrue("Light background must be light", !ThemeManager.isDarkColor(lightPalette.background))
+        assertNotEquals("Light and dark backgrounds must differ", darkPalette1.background, lightPalette.background)
+    }
+
+    @Test
+    fun testPhase18_generateSourcePalette_preservesContrastCompliance() {
+        val seedColors = listOf(
+            0xFFFF5722.toInt(), // Deep Orange
+            0xFF2196F3.toInt(), // Blue
+            0xFF4CAF50.toInt(), // Green
+            0xFF9C27B0.toInt(), // Purple
+            0xFFFFEB3B.toInt(), // Yellow
+            0xFF000000.toInt(), // Black
+            0xFFFFFFFF.toInt()  // White
+        )
+
+        for (seed in seedColors) {
+            for (isDark in listOf(true, false)) {
+                val palette = ThemeGenerationEngine.generateSourcePaletteFromSeed(seed, isDark)
+                val bg = androidx.compose.ui.graphics.Color(ThemeManager.parseColor(palette.background))
+                val text = androidx.compose.ui.graphics.Color(ThemeManager.parseColor(palette.text))
+                val accent = androidx.compose.ui.graphics.Color(ThemeManager.parseColor(palette.accent))
+
+                val textRatio = ContrastResolver.calculateWcagContrastRatio(text, bg)
+                val accentRatio = ContrastResolver.calculateWcagContrastRatio(accent, bg)
+
+                assertTrue("Text contrast must meet WCAG AA (>= 4.5:1) for seed $seed, isDark=$isDark (got $textRatio)", textRatio >= 4.5)
+                assertTrue("Accent contrast must meet UI control threshold (>= 2.8:1) for seed $seed, isDark=$isDark (got $accentRatio)", accentRatio >= 2.8)
+            }
+        }
+    }
+
+    @Test
+    fun testPhase18_pipelineIntegration_preservesUserOverridesWhenApplyingImagePalette() {
+        val initialSources = ThemeSourcePalette(background = "#121214", text = "#F4F4F6", accent = "#E4E4E7")
+        val customDialogue = "#FF1493" // Deep pink custom override
+        val customHeading = "#00CED1"  // Dark turquoise custom override
+        val overrides = ThemeColorOverrides(
+            dialogueText = customDialogue,
+            headingText = customHeading
+        )
+
+        val draft = com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorDraft(
+            bgHex = initialSources.background,
+            textHex = initialSources.text,
+            accentHex = initialSources.accent,
+            overrides = overrides
+        )
+
+        // Simulate applying image-generated palette
+        val newSeed = 0xFF2E7D32.toInt() // Forest Green seed
+        val updatedDraft = draft.withImageGeneratedPalette(listOf(newSeed), resetOverrides = false)
+
+        // Verify foundation inputs changed
+        assertNotEquals("Background should be updated from image", initialSources.background, updatedDraft.bgHex)
+        assertNotEquals("Accent should be updated from image", initialSources.accent, updatedDraft.accentHex)
+
+        // Verify explicit user overrides survived
+        assertEquals("User dialogue override must survive", customDialogue, updatedDraft.overrides?.dialogueText)
+        assertEquals("User heading override must survive", customHeading, updatedDraft.overrides?.headingText)
+
+        // Verify canonical resolved theme colors reflect the override on top of new baseline
+        val resolved = updatedDraft.resolveColors()
+        assertEquals("Resolved dialogue must retain user override", customDialogue, resolved.dialogueText)
+        assertEquals("Resolved heading must retain user override", customHeading, resolved.headingText)
+        assertEquals("Resolved background must match new foundation", updatedDraft.bgHex, resolved.background)
+        assertEquals("Resolved accent must match new foundation", updatedDraft.accentHex, resolved.accent)
+    }
+
+    @Test
+    fun testPhase18_quantizerCelebiRanking_fallbackOnEmpty() {
+        val emptyList = emptyList<Int>()
+        val paletteDark = ThemeGenerationEngine.generateSourcePalette(emptyList, isDark = true)
+        val paletteLight = ThemeGenerationEngine.generateSourcePalette(emptyList, isDark = false)
+
+        assertTrue("Empty color list fallback must produce valid dark background", paletteDark.background.startsWith("#"))
+        assertTrue("Empty color list fallback must produce valid light background", paletteLight.background.startsWith("#"))
+        assertTrue("Empty color list fallback must produce valid text", paletteDark.text.startsWith("#"))
+        assertTrue("Empty color list fallback must produce valid accent", paletteDark.accent.startsWith("#"))
+    }
 }

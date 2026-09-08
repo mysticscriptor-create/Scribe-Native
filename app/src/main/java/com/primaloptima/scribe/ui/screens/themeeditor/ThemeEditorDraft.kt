@@ -1,6 +1,7 @@
 package com.primaloptima.scribe.ui.screens.themeeditor
 
 import androidx.compose.runtime.Immutable
+import com.primaloptima.scribe.util.ThemeGenerationEngine
 import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.ThemeColorOverrides
@@ -174,6 +175,29 @@ data class ThemeEditorDraft(
             else -> overrides
         }
         return copy(overrides = if (updated.isEmpty()) null else updated)
+    }
+
+    /**
+     * Updates foundation driving sources from an algorithmic [ThemeSourcePalette].
+     * Preserves existing explicit overrides unless [resetOverrides] is true.
+     */
+    fun withFoundationPalette(palette: ThemeSourcePalette, resetOverrides: Boolean = false): ThemeEditorDraft {
+        return copy(
+            bgHex = palette.background,
+            textHex = palette.text,
+            accentHex = palette.accent,
+            overrides = if (resetOverrides) null else overrides
+        )
+    }
+
+    /**
+     * Applies image-generated colors from ranked color ints (or dominant color) into foundation sources.
+     * Preserves existing explicit user overrides, strictly respecting the unidirectional pipeline.
+     */
+    fun withImageGeneratedPalette(rankedColors: List<Int>, resetOverrides: Boolean = false): ThemeEditorDraft {
+        val dark = ThemeManager.isDarkColor(bgHex)
+        val palette = ThemeGenerationEngine.generateSourcePalette(rankedColors, dark)
+        return withFoundationPalette(palette, resetOverrides)
     }
 
     /**

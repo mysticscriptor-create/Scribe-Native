@@ -285,6 +285,27 @@ fun ThemeEditScreen(
                                 },
                                 onOpenAccessibilityDiagnostics = {
                                     showAccessibilityDiagnostics = true
+                                },
+                                onExtractFromArtwork = {
+                                    val dominantHex = draft.bgDominantColor
+                                    val zonalHexes = draft.zonalColorsMatrix
+                                    val dominantInt = if (!dominantHex.isNullOrBlank()) {
+                                        try { ThemeManager.parseColor(dominantHex) } catch (_: Exception) { null }
+                                    } else null
+
+                                    val rankedInts = mutableListOf<Int>()
+                                    if (dominantInt != null) rankedInts.add(dominantInt)
+                                    zonalHexes.forEach { zh ->
+                                        try {
+                                            val c = ThemeManager.parseColor(zh)
+                                            if (c !in rankedInts) rankedInts.add(c)
+                                        } catch (_: Exception) {}
+                                    }
+
+                                    if (rankedInts.isNotEmpty()) {
+                                        draft = draft.withImageGeneratedPalette(rankedInts)
+                                        Toast.makeText(context, "Extracted foundation colors from artwork", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                             )
                         }
