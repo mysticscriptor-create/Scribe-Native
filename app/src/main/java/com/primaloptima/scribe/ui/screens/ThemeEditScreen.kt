@@ -45,7 +45,6 @@ import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.util.BitmapBlur
 import com.primaloptima.scribe.util.DefaultThemes
 import com.primaloptima.scribe.util.SAFHelper
-import com.primaloptima.scribe.util.ThemeGenerationEngine
 import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.viewmodel.ThemeViewModel
@@ -88,20 +87,8 @@ fun ThemeEditScreen(
     var showEmojiDialog by remember { mutableStateOf(false) }
     var showAccessibilityDiagnostics by remember { mutableStateOf(false) }
     var showCropScreen by remember { mutableStateOf(false) }
-    var showGenerationStudio by remember { mutableStateOf(false) }
     var pendingCropUri by remember { mutableStateOf<String?>(null) }
     var isLuminancePending by remember { mutableStateOf(false) }
-
-    LaunchedEffect(draft.bgUri) {
-        val targetUri = draft.bgUri ?: draft.bgOriginalUri
-        if (targetUri != null && draft.activeUnderstanding == null) {
-            val understanding = computeImageUnderstanding(context, targetUri)
-            draft = draft.copy(
-                extractedCandidates = understanding.rankedCandidates,
-                activeUnderstanding = understanding
-            )
-        }
-    }
 
     val view = LocalView.current
     val hazeState = LocalHazeState.current
@@ -299,36 +286,6 @@ fun ThemeEditScreen(
                                 },
                                 onOpenAccessibilityDiagnostics = {
                                     showAccessibilityDiagnostics = true
-                                },
-                                onSelectCandidate = { candidate ->
-                                    draft = draft.withCandidateSelection(candidate)
-                                },
-                                onSelectRecipe = { recipe ->
-                                    draft = draft.withRecipe(recipe)
-                                },
-                                onSelectInfluence = { influence ->
-                                    draft = draft.withInfluence(influence)
-                                },
-                                onOpenGenerationStudio = {
-                                    val targetUri = draft.bgUri ?: draft.bgOriginalUri
-                                    if (targetUri != null) {
-                                        if (draft.activeUnderstanding != null) {
-                                            showGenerationStudio = true
-                                        } else {
-                                            isLuminancePending = true
-                                            scope.launch {
-                                                val understanding = computeImageUnderstanding(context, targetUri)
-                                                draft = draft.withImageUnderstanding(understanding)
-                                                isLuminancePending = false
-                                                showGenerationStudio = true
-                                            }
-                                        }
-                                    } else {
-                                        bgImagePicker.launch("image/*")
-                                    }
-                                },
-                                onPickImage = {
-                                    bgImagePicker.launch("image/*")
                                 }
                             )
                         }
@@ -554,28 +511,15 @@ fun ThemeEditScreen(
                         isLuminancePending = true
                         scope.launch {
                             val analysis = computeBgAnalysis(context, croppedUri)
-                            val understanding = computeImageUnderstanding(context, croppedUri)
-                            val isDark = ThemeManager.isDarkColor(draft.bgHex)
-                            val defaultSeed = understanding.rankedCandidates.firstOrNull() ?: 0xFF3B82F6.toInt()
-                            val generatedName = ThemeGenerationEngine.generateThemeName(
-                                understanding = understanding,
-                                recipe = draft.activeRecipe,
-                                seedColor = defaultSeed,
-                                isDark = isDark
-                            )
-
                             draft = draft.copy(
-                                name = if (draft.name.isBlank() || draft.name == "Custom Theme" || draft.name == "Image Theme" || draft.name == "New Theme") generatedName else draft.name,
                                 bgLuminance = analysis.avgLightness,
                                 zonalLuminanceMatrix = analysis.zonalLuminance,
                                 zonalVarianceMatrix = analysis.zonalVariance,
                                 bgDominantColor = analysis.dominantColor,
                                 zonalColorsMatrix = analysis.zonalColors,
                                 luminanceFieldMatrix = analysis.bgLuminanceField
-                            ).withImageUnderstanding(understanding)
-
+                            )
                             isLuminancePending = false
-                            showGenerationStudio = true
                         }
                     },
                     onCancel = {
@@ -584,20 +528,6 @@ fun ThemeEditScreen(
                     }
                 )
             }
-        }
-
-        // ── Phase 18: Intelligent Image Theme Studio Overlay ──────────────────
-        if (showGenerationStudio && draft.activeUnderstanding != null) {
-            ThemeGenerationSheet(
-                draft = draft,
-                understanding = draft.activeUnderstanding!!,
-                onDraftChange = { updated -> draft = updated },
-                onApply = {
-                    showGenerationStudio = false
-                    Toast.makeText(context, "Applied generated theme", Toast.LENGTH_SHORT).show()
-                },
-                onDismiss = { showGenerationStudio = false }
-            )
         }
     }
 }

@@ -59,6 +59,7 @@ import com.primaloptima.scribe.util.encodeAppTheme
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import com.primaloptima.scribe.viewmodel.ThemeViewModel
+import com.primaloptima.scribe.ui.screens.themeeditor.CreateThemeFromImageScreen
 import dev.chrisbanes.haze.hazeSource
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -79,6 +80,7 @@ fun ThemeListScreen(
     var themeToDelete by remember { mutableStateOf<AppTheme?>(null) }
     var showTopMenu by remember { mutableStateOf(false) }
     var showCreateOptionsSheet by remember { mutableStateOf(false) }
+    var creationImageUri by remember { mutableStateOf<String?>(null) }
 
     val scope = rememberCoroutineScope()
     val pictureThemePicker = rememberLauncherForActivityResult(
@@ -86,21 +88,10 @@ fun ThemeListScreen(
     ) { uri: Uri? ->
         if (uri != null) {
             scope.launch {
-                val newId = vm.generateId()
-                val localUri = SAFHelper.copyBgImageToInternalStorage(context, uri, newId)
+                val tempId = vm.generateId()
+                val localUri = SAFHelper.copyBgImageToInternalStorage(context, uri, tempId)
                 val stableUri = (localUri ?: uri).toString()
-                val active = activeTheme ?: DefaultThemes.all.first()
-                val newTheme = active.copy(
-                    id = newId,
-                    name = "Image Theme",
-                    builtIn = false,
-                    emoji = "🎨",
-                    bgMode = "image",
-                    backgroundImageUri = stableUri,
-                    backgroundImageOriginalUri = stableUri
-                )
-                vm.save(newTheme)
-                onEditTheme(newTheme.id)
+                creationImageUri = stableUri
             }
         }
     }
@@ -353,6 +344,21 @@ fun ThemeListScreen(
                     }
                 }
             }
+        }
+
+        if (creationImageUri != null) {
+            CreateThemeFromImageScreen(
+                imageUri = creationImageUri!!,
+                baseTheme = activeTheme ?: DefaultThemes.all.first(),
+                onThemeCreated = { newTheme ->
+                    vm.save(newTheme)
+                    creationImageUri = null
+                    onEditTheme(newTheme.id)
+                },
+                onCancel = {
+                    creationImageUri = null
+                }
+            )
         }
     }
 }

@@ -19,6 +19,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 
 /**
@@ -1493,5 +1494,217 @@ class ThemeArchitectureTest {
         // Relationship mode test
         draft = draft.withRelationshipMode(com.primaloptima.scribe.util.model.ThemeRelationshipMode.THEME_GLASS)
         assertEquals(com.primaloptima.scribe.util.model.ThemeRelationshipMode.THEME_GLASS, draft.getRelationshipMode())
+    }
+
+    // ── Phase 18.1: Strict Separation of Generation from Editing ─────────────
+
+    @Test
+    fun testPhase18_1_normalThemeEditor_imageSelectionDoesNotMutateColorsOrOverrides() {
+        val baseCustomTheme = AppTheme(
+            id = "custom-theme-18-1",
+            name = "My Custom Theme",
+            isDark = true,
+            builtIn = false,
+            colors = ThemeManager.resolveThemeColors(
+                sources = ThemeSourcePalette(
+                    background = "#181825",
+                    text = "#CDD6F4",
+                    accent = "#89B4FA"
+                ),
+                overrides = ThemeColorOverrides(
+                    headingText = "#F38BA8",
+                    dialogueText = "#A6E3A1"
+                ),
+                isDark = true
+            ),
+            overrides = ThemeColorOverrides(
+                headingText = "#F38BA8",
+                dialogueText = "#A6E3A1"
+            )
+        )
+
+        var draft = com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorDraft.fromAppTheme(baseCustomTheme)
+        val initialResolvedColors = draft.resolveColors()
+
+        // User selects a background image and atmosphere analysis completes
+        draft = draft.copy(
+            bgOriginalUri = "content://wallpaper_original.jpg",
+            bgUri = "content://wallpaper_cropped.jpg",
+            bgMode = "image",
+            bgLuminance = 0.82f,
+            zonalLuminanceMatrix = listOf(0.7f, 0.8f, 0.9f),
+            zonalVarianceMatrix = listOf(0.01f, 0.02f),
+            bgDominantColor = "#FF5722",
+            zonalColorsMatrix = listOf("#FF5722", "#4CAF50"),
+            luminanceFieldMatrix = listOf(0.75f, 0.85f)
+        )
+
+        // 1. Foundation color inputs MUST NOT CHANGE
+        assertEquals("#181825", draft.bgHex)
+        assertEquals("#CDD6F4", draft.textHex)
+        assertEquals("#89B4FA", draft.accentHex)
+
+        // 2. Explicit overrides MUST NOT CHANGE
+        assertEquals("#F38BA8", draft.overrides?.headingText)
+        assertEquals("#A6E3A1", draft.overrides?.dialogueText)
+
+        // 3. Derived semantic colors MUST BE EXACTLY PRESERVED
+        assertEquals(initialResolvedColors, draft.resolveColors())
+
+        // 4. Saving the theme preserves colors and persists only image presentation
+        val savedTheme = draft.toAppTheme(baseCustomTheme)
+        assertEquals(initialResolvedColors, savedTheme.colors)
+        assertEquals("#F38BA8", savedTheme.overrides?.headingText)
+        assertEquals("content://wallpaper_cropped.jpg", savedTheme.backgroundImageUri)
+        assertEquals("image", savedTheme.bgMode)
+        assertEquals(0.82f, savedTheme.savedBgLuminance)
+    }
+
+    @Test
+    fun testPhase18_1_dedicatedImageThemeCreationSession_generatesAndProducesNormalAppTheme() {
+        val testSeed = 0xFF4CAF50.toInt() // Green
+        val understanding = ImageUnderstanding(
+            rankedCandidates = listOf(testSeed),
+            dominantColors = listOf("#4CAF50"),
+            averageLightness = 0.5f,
+            tonalCharacter = TonalCharacter.MID_KEY,
+            chromaticCharacter = ChromaticCharacter.BALANCED,
+            temperatureBias = TemperatureBias.NEUTRAL,
+            darkLightBias = DarkLightBias.BALANCED,
+            paletteDiversity = PaletteDiversity.MODERATE
+        )
+
+        var session = com.primaloptima.scribe.ui.screens.themeeditor.ImageThemeGenerationSession(
+            imageUri = "content://sample_nature.jpg",
+            understanding = understanding
+        )
+
+        assertEquals(testSeed, session.effectiveCandidate)
+        assertEquals(ThemeGenerationRecipe.BALANCED, session.activeRecipe)
+
+        session = session.withRecipe(ThemeGenerationRecipe.ATMOSPHERIC)
+            .withInfluence(ImageInfluence.STRONG)
+            .withWritingCharacter(WritingCharacter.WARM)
+            .withPolarity(isDark = false)
+            .withRelationshipMode(com.primaloptima.scribe.util.model.ThemeRelationshipMode.THEME_GLASS)
+
+        val generatedPalette = session.sourcePalette
+        assertNotNull(generatedPalette.background)
+        assertNotNull(generatedPalette.text)
+        assertNotNull(generatedPalette.accent)
+
+        // Convert the session to a permanent AppTheme
+        val baseTheme = DefaultThemes.all.first()
+        val createdTheme = session.toAppTheme("new-image-theme-id", baseTheme)
+
+        assertEquals("new-image-theme-id", createdTheme.id)
+        assertFalse(createdTheme.builtIn)
+        assertEquals("image", createdTheme.bgMode)
+        assertEquals("content://sample_nature.jpg", createdTheme.backgroundImageUri)
+        assertTrue(createdTheme.frostedGlassEnabled)
+        assertEquals(session.resolvedColors, createdTheme.colors)
+
+        // Verify that loading this newly created theme into normal ThemeEditorDraft
+        // does NOT trigger automatic regeneration
+        val normalDraft = com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorDraft.fromAppTheme(createdTheme)
+        assertTrue(normalDraft.extractedCandidates.isEmpty())
+        assertNull(normalDraft.activeUnderstanding)
+        assertEquals(createdTheme.colors, normalDraft.resolveColors())
+    }
+
+    @Test
+    fun testPhase18_1_generationSessionIsolation_cancellingLeavesOriginalIntact() {
+        val originalTheme = DefaultThemes.all.first()
+        val originalColors = originalTheme.colors
+
+        val understanding = ImageUnderstanding(
+            rankedCandidates = listOf(0xFFE91E63.toInt()),
+            dominantColors = listOf("#E91E63"),
+            averageLightness = 0.4f,
+            tonalCharacter = TonalCharacter.MID_KEY,
+            chromaticCharacter = ChromaticCharacter.BALANCED,
+            temperatureBias = TemperatureBias.WARM,
+            darkLightBias = DarkLightBias.BALANCED,
+            paletteDiversity = PaletteDiversity.MODERATE
+        )
+
+        var session = com.primaloptima.scribe.ui.screens.themeeditor.ImageThemeGenerationSession(
+            imageUri = "content://sunset.jpg",
+            understanding = understanding
+        )
+        session = session.withRecipe(ThemeGenerationRecipe.EXPRESSIVE)
+            .withInfluence(ImageInfluence.DOMINANT)
+            .withPolarity(true)
+
+        // Session was configured, but user hits Cancel -> session is discarded!
+        // Original theme remains completely untouched
+        assertEquals(originalColors, originalTheme.colors)
+    }
+
+    @Test
+    fun testPhase18_1_imageRelationshipModes_doNotTriggerColorRegeneration() {
+        val understanding = ImageUnderstanding(
+            rankedCandidates = listOf(0xFF2196F3.toInt()),
+            dominantColors = listOf("#2196F3"),
+            averageLightness = 0.5f,
+            tonalCharacter = TonalCharacter.MID_KEY,
+            chromaticCharacter = ChromaticCharacter.BALANCED,
+            temperatureBias = TemperatureBias.COOL,
+            darkLightBias = DarkLightBias.BALANCED,
+            paletteDiversity = PaletteDiversity.MODERATE
+        )
+
+        val session = com.primaloptima.scribe.ui.screens.themeeditor.ImageThemeGenerationSession(
+            imageUri = "content://ocean.jpg",
+            understanding = understanding
+        )
+
+        val baseTheme = DefaultThemes.all.first()
+
+        // 1. THEME_ONLY: image is detached, pure theme colors
+        val themeOnly = session.withRelationshipMode(com.primaloptima.scribe.util.model.ThemeRelationshipMode.THEME_ONLY)
+            .toAppTheme("theme-only-id", baseTheme)
+        assertEquals("color", themeOnly.bgMode)
+        assertNull(themeOnly.backgroundImageUri)
+        assertFalse(themeOnly.frostedGlassEnabled)
+
+        // 2. THEME_IMAGE: background image is attached
+        val themeImage = session.withRelationshipMode(com.primaloptima.scribe.util.model.ThemeRelationshipMode.THEME_IMAGE)
+            .toAppTheme("theme-image-id", baseTheme)
+        assertEquals("image", themeImage.bgMode)
+        assertEquals("content://ocean.jpg", themeImage.backgroundImageUri)
+        assertFalse(themeImage.frostedGlassEnabled)
+
+        // 3. THEME_GLASS: background image with frosted glass
+        val themeGlass = session.withRelationshipMode(com.primaloptima.scribe.util.model.ThemeRelationshipMode.THEME_GLASS)
+            .toAppTheme("theme-glass-id", baseTheme)
+        assertEquals("image", themeGlass.bgMode)
+        assertEquals("content://ocean.jpg", themeGlass.backgroundImageUri)
+        assertTrue(themeGlass.frostedGlassEnabled)
+
+        // All three share the exact same generated semantic colors
+        assertEquals(themeOnly.colors, themeImage.colors)
+        assertEquals(themeImage.colors, themeGlass.colors)
+    }
+
+    @Test
+    fun testPhase18_1_glassIsolation_environmentalAnalysisDoesNotMutateSourcePalette() {
+        val baseTheme = DefaultThemes.all.first()
+        val draft = com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorDraft.fromAppTheme(baseTheme)
+        val initialSources = ThemeSourcePalette(background = draft.bgHex, text = draft.textHex, accent = draft.accentHex)
+
+        // Mutating environmental / glass analysis properties
+        val updatedDraft = draft.copy(
+            frostedGlassEnabled = true,
+            frostedBlurRadius = 20f,
+            frostedTintEnabled = true,
+            bgLuminance = 0.95f,
+            zonalLuminanceMatrix = listOf(0.9f, 0.95f, 0.92f),
+            luminanceFieldMatrix = listOf(0.91f, 0.93f)
+        )
+
+        val postSources = ThemeSourcePalette(background = updatedDraft.bgHex, text = updatedDraft.textHex, accent = updatedDraft.accentHex)
+        assertEquals(initialSources, postSources)
+        assertEquals(draft.resolveColors(), updatedDraft.resolveColors())
     }
 }
