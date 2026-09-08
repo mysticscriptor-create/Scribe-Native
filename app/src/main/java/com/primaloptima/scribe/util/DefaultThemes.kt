@@ -2,12 +2,14 @@ package com.primaloptima.scribe.util
 
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.ThemeColors
+import com.primaloptima.scribe.util.model.ThemeSchema
 
 object DefaultThemes {
 
-    val all: List<AppTheme> = listOf(
+    private val rawList: List<AppTheme> = listOf(
         AppTheme(
             id = "obsidian", name = "Obsidian", isDark = true, builtIn = true,
+            schemaVersion = ThemeSchema.CURRENT_VERSION,
             colors = ThemeColors(
                 background      = "#121214",
                 surfaceLowest   = "#161619",
@@ -205,6 +207,9 @@ object DefaultThemes {
             paddingHorizontal = 24, paddingVertical = 20, maxWidth = 680
         )
     )
+    
+    val all: List<AppTheme> = rawList.map { it.copy(schemaVersion = ThemeSchema.CURRENT_VERSION) }
+    val builtInThemes: List<AppTheme> get() = all
 
     fun findById(id: String): AppTheme = all.firstOrNull { it.id == id } ?: all.first()
 

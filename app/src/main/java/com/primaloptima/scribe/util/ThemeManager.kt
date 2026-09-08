@@ -23,6 +23,7 @@ import com.primaloptima.scribe.R
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.ThemeColors
 import com.primaloptima.scribe.util.model.ThemeColorOverrides
+import com.primaloptima.scribe.util.model.ThemeSchema
 import com.primaloptima.scribe.util.model.ThemeSourcePalette
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
@@ -69,9 +70,7 @@ class ThemeManager(private val context: Context) {
     /** All themes = built-ins + custom themes. Reads from in-memory cache. */
     fun allThemes(): List<AppTheme> {
         val json = cachedCustomThemesJson ?: "[]"
-        val custom = try {
-            AppJson.decodeFromString<List<AppTheme>>(json).map { migrateTheme(it) }
-        } catch (_: Exception) { emptyList() }
+        val custom = AppJson.decodeAppThemes(json)
         val builtInIds = DefaultThemes.all.map { it.id }.toSet()
         val customMap = custom.associateBy { it.id }
         val updatedBuiltIns = DefaultThemes.all.map { builtIn -> customMap[builtIn.id] ?: builtIn }
@@ -94,13 +93,13 @@ class ThemeManager(private val context: Context) {
         val list = allCustomThemes().toMutableList()
         val idx = list.indexOfFirst { it.id == migrated.id }
         if (idx >= 0) list[idx] = migrated else list.add(migrated)
-        val json = AppJson.encodeToString(list)
+        val json = AppJson.encodeAppThemes(list)
         cachedCustomThemesJson = json
     }
 
     fun deleteCustomTheme(id: String) {
         val list = allCustomThemes().filter { it.id != id }
-        val json = AppJson.encodeToString(list)
+        val json = AppJson.encodeAppThemes(list)
         cachedCustomThemesJson = json
         if (cachedActiveThemeId == id) {
             cachedActiveThemeId = "paper"
@@ -110,9 +109,10 @@ class ThemeManager(private val context: Context) {
     fun duplicateTheme(id: String): AppTheme? {
         val source = allThemes().firstOrNull { it.id == id } ?: return null
         val copy = source.copy(
-            id = System.currentTimeMillis().toString() + Math.random().toString().takeLast(6),
+            id = System.currentTimeMillis().toString() + (1000..9999).random().toString(),
             name = "${source.name} Copy",
-            builtIn = false
+            builtIn = false,
+            schemaVersion = CURRENT_SCHEMA_VERSION
         )
         saveCustomTheme(copy)
         return copy
@@ -120,9 +120,7 @@ class ThemeManager(private val context: Context) {
 
     fun allCustomThemes(): List<AppTheme> {
         val json = cachedCustomThemesJson ?: "[]"
-        return try {
-            AppJson.decodeFromString<List<AppTheme>>(json).map { migrateTheme(it) }
-        } catch (_: Exception) { emptyList() }
+        return AppJson.decodeAppThemes(json)
     }
 
     // ── Activity theming (unchanged) ──────────────────────────────────────────
@@ -167,36 +165,246 @@ class ThemeManager(private val context: Context) {
 
     companion object {
         /** Current schema version for theme serialization & migration */
-        const val CURRENT_SCHEMA_VERSION = 1
+        const val CURRENT_SCHEMA_VERSION = ThemeSchema.CURRENT_VERSION
 
         /**
-         * Defensive centralized migration strategy.
-         * Upgrades older theme instances to the latest schema version.
-         * If the theme is already current or unrecognised, returns it safely without throwing.
+         * Defensive centralized migration pipeline.
+         * Sequentially upgrades older theme instances to the current schema version,
+         * populates missing semantic tokens, and sanitizes fields against schema invariants.
+         *
+         * Guarantees:
+         * - Never throws an unhandled exception or discards valid theme data.
+         * - Preserves existing user-defined values and explicit overrides.
+         * - Synthesizes missing semantic roles deterministically.
+         * - Roundtrip idempotent: migrateTheme(migrateTheme(t)) == migrateTheme(t).
          */
         fun migrateTheme(theme: AppTheme): AppTheme {
             return try {
-                if (theme.schemaVersion >= CURRENT_SCHEMA_VERSION) {
-                    theme
-                } else {
-                    // Migration path from legacy (schemaVersion 0 or missing):
-                    // Derive full semantic tokens and set schemaVersion = CURRENT_SCHEMA_VERSION
-                    val resolvedColors = resolveThemeColors(
-                        bgHex = theme.colors.background,
-                        textHex = theme.colors.text,
-                        accentHex = theme.colors.accent,
-                        isDark = theme.isDark,
-                        overrides = theme.overrides
-                    )
-                    theme.copy(
-                        schemaVersion = CURRENT_SCHEMA_VERSION,
-                        colors = resolvedColors
-                    )
+                var current = theme
+
+                // Step 1: Version 0 (Legacy / unversioned) -> Version 1
+                if (current.schemaVersion < ThemeSchema.VERSION_1) {
+                    current = migrateV0ToV1(current)
                 }
+
+                // Step 2: Future version migrations chain here:
+                // if (current.schemaVersion < ThemeSchema.VERSION_2) {
+                //     current = migrateV1ToV2(current)
+                // }
+
+                // Step 3: Sanitize and enforce schema invariants
+                sanitizeTheme(current)
             } catch (_: Exception) {
-                // Defensive fallback: return original theme unchanged
-                theme
+                // Safe recovery hierarchy: attempt sanitization with current version stamp
+                try {
+                    sanitizeTheme(theme.copy(schemaVersion = ThemeSchema.CURRENT_VERSION))
+                } catch (_: Exception) {
+                    // Safe canonical fallback
+                    DefaultThemes.paper
+                }
             }
+        }
+
+        /**
+         * Migrates a legacy (v0 or unversioned) theme to Version 1:
+         * - Derives 5-tier elevation surface tokens and 3-tier boundary tokens.
+         * - Derives editorial lexer writing, analytics, and worldbuilding entity roles.
+         * - Preserves explicit user color customizations and overrides.
+         * - Updates schemaVersion to VERSION_1.
+         */
+        fun migrateV0ToV1(legacy: AppTheme): AppTheme {
+            val isDark = legacy.isDark
+            val bg = sanitizeHexColor(legacy.colors.background, if (isDark) "#121214" else "#FAF8F5")
+            val text = sanitizeHexColor(legacy.colors.text, if (isDark) "#F4F4F6" else "#1C211E")
+            val accent = sanitizeHexColor(legacy.colors.accent, if (isDark) "#E4E4E7" else "#234B39")
+
+            val generatedDefaults = generateThemeDefaults(bg, text, accent, isDark)
+            val resolved = resolveThemeColors(
+                sources = ThemeSourcePalette(background = bg, text = text, accent = accent),
+                overrides = legacy.overrides,
+                isDark = isDark
+            )
+            val finalColors = mergeLegacyCustomColors(legacy.colors, resolved, generatedDefaults)
+
+            return legacy.copy(
+                schemaVersion = ThemeSchema.VERSION_1,
+                colors = finalColors,
+                overrides = legacy.overrides
+            )
+        }
+
+        /**
+         * Preserves explicit user color customizations that may exist in legacy theme colors.
+         */
+        fun mergeLegacyCustomColors(
+            legacy: ThemeColors,
+            resolved: ThemeColors,
+            defaults: ThemeColors
+        ): ThemeColors {
+            return resolved.copy(
+                toolbar = legacy.toolbar.takeIf { it.isNotBlank() && isValidHexColor(it) } ?: resolved.toolbar,
+                toolbarText = legacy.toolbarText.takeIf { it.isNotBlank() && isValidHexColor(it) } ?: resolved.toolbarText,
+                surface = legacy.surface.takeIf { it.isNotBlank() && isValidHexColor(it) && it != legacy.background } ?: resolved.surface,
+                success = legacy.success.takeIf { it.isNotBlank() && isValidHexColor(it) } ?: resolved.success,
+                warning = legacy.warning.takeIf { it.isNotBlank() && isValidHexColor(it) } ?: resolved.warning,
+                error = legacy.error.takeIf { it.isNotBlank() && isValidHexColor(it) } ?: resolved.error,
+                specialHighlight = legacy.specialHighlight.takeIf { it.isNotBlank() && isValidHexColor(it) } ?: resolved.specialHighlight,
+                dialogueText = legacy.dialogueText.takeIf { it.isNotBlank() && isValidHexColor(it) && it != legacy.accent } ?: resolved.dialogueText,
+                monologueText = legacy.monologueText.takeIf { it.isNotBlank() && isValidHexColor(it) && it != legacy.text } ?: resolved.monologueText,
+                headingText = legacy.headingText.takeIf { it.isNotBlank() && isValidHexColor(it) && it != legacy.accent } ?: resolved.headingText
+            )
+        }
+
+        /**
+         * Validates and sanitizes all fields of an AppTheme against schema invariants.
+         * Ensures non-empty identifiers, valid hex color tokens, and bounded typography/layout metrics.
+         */
+        fun sanitizeTheme(theme: AppTheme): AppTheme {
+            val isDark = theme.isDark
+            val defaultBg = if (isDark) "#121214" else "#FAF8F5"
+            val defaultText = if (isDark) "#F4F4F6" else "#1C211E"
+            val defaultAccent = if (isDark) "#E4E4E7" else "#234B39"
+
+            val bg = sanitizeHexColor(theme.colors.background, defaultBg)
+            val text = sanitizeHexColor(theme.colors.text, defaultText)
+            val accent = sanitizeHexColor(theme.colors.accent, defaultAccent)
+
+            val safeId = if (theme.id.isBlank()) {
+                System.currentTimeMillis().toString() + (1000..9999).random().toString()
+            } else theme.id
+
+            val safeName = if (theme.name.isBlank()) "Custom Theme" else theme.name
+
+            val defaults = generateThemeDefaults(bg, text, accent, isDark)
+            val c = theme.colors
+            val sanitizedColors = ThemeColors(
+                background = bg,
+                surfaceLowest = sanitizeHexColor(c.surfaceLowest, defaults.surfaceLowest),
+                surface = sanitizeHexColor(c.surface, defaults.surface),
+                surfaceRaised = sanitizeHexColor(c.surfaceRaised, defaults.surfaceRaised),
+                surfaceOverlay = sanitizeHexColor(c.surfaceOverlay, defaults.surfaceOverlay),
+                text = text,
+                mutedText = sanitizeHexColor(c.mutedText, defaults.mutedText),
+                subtleText = sanitizeHexColor(c.subtleText, defaults.subtleText),
+                accent = accent,
+                secondary = sanitizeHexColor(c.secondary, defaults.secondary),
+                tertiary = sanitizeHexColor(c.tertiary, defaults.tertiary),
+                accentMuted = sanitizeHexColor(c.accentMuted, defaults.accentMuted),
+                selection = sanitizeHexColor(c.selection, defaults.selection),
+                success = sanitizeHexColor(c.success, defaults.success),
+                warning = sanitizeHexColor(c.warning, defaults.warning),
+                error = sanitizeHexColor(c.error, defaults.error),
+                info = sanitizeHexColor(c.info, defaults.info),
+                specialHighlight = sanitizeHexColor(c.specialHighlight, defaults.specialHighlight),
+                border = sanitizeHexColor(c.border, defaults.border),
+                borderSubtle = sanitizeHexColor(c.borderSubtle, defaults.borderSubtle),
+                borderProminent = sanitizeHexColor(c.borderProminent, defaults.borderProminent),
+                focus = sanitizeHexColor(c.focus, defaults.focus.ifBlank { defaults.borderProminent }),
+                dialogueText = sanitizeHexColor(c.dialogueText, defaults.dialogueText),
+                monologueText = sanitizeHexColor(c.monologueText, defaults.monologueText),
+                headingText = sanitizeHexColor(c.headingText, defaults.headingText),
+                annotation = sanitizeHexColor(c.annotation, defaults.annotation),
+                link = sanitizeHexColor(c.link, defaults.link),
+                analyticsPositive = sanitizeHexColor(c.analyticsPositive, defaults.analyticsPositive),
+                analyticsNeutral = sanitizeHexColor(c.analyticsNeutral, defaults.analyticsNeutral),
+                analyticsNegative = sanitizeHexColor(c.analyticsNegative, defaults.analyticsNegative),
+                analyticsSeries1 = sanitizeHexColor(c.analyticsSeries1, defaults.analyticsSeries1),
+                analyticsSeries2 = sanitizeHexColor(c.analyticsSeries2, defaults.analyticsSeries2),
+                analyticsSeries3 = sanitizeHexColor(c.analyticsSeries3, defaults.analyticsSeries3),
+                analyticsTarget = sanitizeHexColor(c.analyticsTarget, defaults.analyticsTarget),
+                analyticsWarning = sanitizeHexColor(c.analyticsWarning, defaults.analyticsWarning),
+                worldCharacter = sanitizeHexColor(c.worldCharacter, defaults.worldCharacter),
+                worldLocation = sanitizeHexColor(c.worldLocation, defaults.worldLocation),
+                worldFaction = sanitizeHexColor(c.worldFaction, defaults.worldFaction),
+                worldItem = sanitizeHexColor(c.worldItem, defaults.worldItem),
+                worldLore = sanitizeHexColor(c.worldLore, defaults.worldLore),
+                worldEvent = sanitizeHexColor(c.worldEvent, defaults.worldEvent),
+                worldRelationship = sanitizeHexColor(c.worldRelationship, defaults.worldRelationship),
+                toolbar = sanitizeHexColor(c.toolbar, defaults.toolbar),
+                toolbarText = sanitizeHexColor(c.toolbarText, defaults.toolbarText)
+            )
+
+            val sanitizedOverrides = theme.overrides?.let { o ->
+                fun cleanOverride(v: String?): String? = v?.takeIf { it.isNotBlank() && isValidHexColor(it) }
+                val cleaned = o.copy(
+                    surfaceLowest = cleanOverride(o.surfaceLowest),
+                    surface = cleanOverride(o.surface),
+                    surfaceRaised = cleanOverride(o.surfaceRaised),
+                    surfaceOverlay = cleanOverride(o.surfaceOverlay),
+                    mutedText = cleanOverride(o.mutedText),
+                    subtleText = cleanOverride(o.subtleText),
+                    secondary = cleanOverride(o.secondary),
+                    tertiary = cleanOverride(o.tertiary),
+                    accentMuted = cleanOverride(o.accentMuted),
+                    selection = cleanOverride(o.selection),
+                    border = cleanOverride(o.border),
+                    borderSubtle = cleanOverride(o.borderSubtle),
+                    borderProminent = cleanOverride(o.borderProminent),
+                    focus = cleanOverride(o.focus),
+                    success = cleanOverride(o.success),
+                    warning = cleanOverride(o.warning),
+                    error = cleanOverride(o.error),
+                    info = cleanOverride(o.info),
+                    specialHighlight = cleanOverride(o.specialHighlight),
+                    dialogueText = cleanOverride(o.dialogueText),
+                    monologueText = cleanOverride(o.monologueText),
+                    headingText = cleanOverride(o.headingText),
+                    annotation = cleanOverride(o.annotation),
+                    link = cleanOverride(o.link),
+                    analyticsPositive = cleanOverride(o.analyticsPositive),
+                    analyticsNeutral = cleanOverride(o.analyticsNeutral),
+                    analyticsNegative = cleanOverride(o.analyticsNegative),
+                    analyticsSeries1 = cleanOverride(o.analyticsSeries1),
+                    analyticsSeries2 = cleanOverride(o.analyticsSeries2),
+                    analyticsSeries3 = cleanOverride(o.analyticsSeries3),
+                    analyticsTarget = cleanOverride(o.analyticsTarget),
+                    analyticsWarning = cleanOverride(o.analyticsWarning),
+                    worldCharacter = cleanOverride(o.worldCharacter),
+                    worldLocation = cleanOverride(o.worldLocation),
+                    worldFaction = cleanOverride(o.worldFaction),
+                    worldItem = cleanOverride(o.worldItem),
+                    worldLore = cleanOverride(o.worldLore),
+                    worldEvent = cleanOverride(o.worldEvent),
+                    worldRelationship = cleanOverride(o.worldRelationship)
+                )
+                if (cleaned.isEmpty()) null else cleaned
+            }
+
+            return theme.copy(
+                id = safeId,
+                name = safeName,
+                schemaVersion = maxOf(theme.schemaVersion, ThemeSchema.CURRENT_VERSION),
+                colors = sanitizedColors,
+                overrides = sanitizedOverrides,
+                fontFamily = if (theme.fontFamily.isBlank()) "sans" else theme.fontFamily,
+                fontSize = theme.fontSize.coerceIn(10, 48),
+                lineHeight = theme.lineHeight.coerceIn(1.0f, 3.0f),
+                letterSpacing = theme.letterSpacing.coerceIn(-1.0f, 2.0f),
+                paragraphSpacing = theme.paragraphSpacing.coerceIn(0, 60),
+                paddingHorizontal = theme.paddingHorizontal.coerceIn(0, 120),
+                paddingVertical = theme.paddingVertical.coerceIn(0, 120),
+                maxWidth = theme.maxWidth.coerceIn(320, 2560),
+                bgMode = if (theme.bgMode in listOf("color", "image", "blurred")) theme.bgMode else "color",
+                blurIntensity = theme.blurIntensity.coerceIn(0f, 100f),
+                frostedBlurRadius = theme.frostedBlurRadius.coerceIn(0f, 100f),
+                backgroundImageOpacity = theme.backgroundImageOpacity?.coerceIn(0f, 1f) ?: 0.35f,
+                textAlignment = if (theme.textAlignment in listOf("left", "justified", "center")) theme.textAlignment else "left",
+                themeScope = if (theme.themeScope in listOf("whole_app", "editor_only")) theme.themeScope else "whole_app"
+            )
+        }
+
+        fun isValidHexColor(hex: String?): Boolean {
+            if (hex.isNullOrBlank()) return false
+            val clean = hex.trim().removePrefix("#")
+            if (clean.length != 6 && clean.length != 8 && clean.length != 3) return false
+            return clean.all { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' }
+        }
+
+        fun sanitizeHexColor(hex: String?, fallback: String): String {
+            if (hex.isNullOrBlank()) return fallback
+            val trimmed = hex.trim()
+            val formatted = if (trimmed.startsWith("#")) trimmed else "#$trimmed"
+            return if (isValidHexColor(formatted)) formatted else fallback
         }
 
         fun parseColor(hex: String): Int = try {

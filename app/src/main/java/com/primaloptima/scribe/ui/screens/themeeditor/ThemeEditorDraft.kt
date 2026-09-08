@@ -5,6 +5,7 @@ import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.ThemeColorOverrides
 import com.primaloptima.scribe.util.model.ThemeColors
+import com.primaloptima.scribe.util.model.ThemeSchema
 import com.primaloptima.scribe.util.model.ThemeSourcePalette
 
 /**
@@ -181,6 +182,7 @@ data class ThemeEditorDraft(
     fun toAppTheme(base: AppTheme): AppTheme {
         val resolved = resolveColors()
         return base.copy(
+            schemaVersion = maxOf(base.schemaVersion, ThemeSchema.CURRENT_VERSION),
             name = name,
             isDark = ThemeManager.isDarkColor(bgHex),
             emoji = emoji,

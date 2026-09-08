@@ -52,6 +52,8 @@ import com.primaloptima.scribe.util.BitmapBlur
 import com.primaloptima.scribe.util.DefaultThemes
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.AppJson
+import com.primaloptima.scribe.util.decodeAppTheme
+import com.primaloptima.scribe.util.encodeAppTheme
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import com.primaloptima.scribe.viewmodel.ThemeViewModel
@@ -400,7 +402,7 @@ private fun ThemeCard(
 
 private fun exportThemeJson(context: Context, theme: AppTheme) {
     try {
-        val json = AppJson.encodeToString(theme)
+        val json = AppJson.encodeAppTheme(theme)
         val fileName = "${theme.name.lowercase().replace(Regex("[^a-z0-9]"), "_")}_theme.json"
         val dir = File(context.cacheDir, "exported_themes").also { it.mkdirs() }
         val file = File(dir, fileName).also { it.writeText(json) }
@@ -421,8 +423,8 @@ private fun importThemeFromUri(context: Context, uri: Uri, vm: ThemeViewModel) {
         val inputStream = context.contentResolver.openInputStream(uri)
         val json = inputStream?.bufferedReader()?.use { it.readText() }
         if (!json.isNullOrEmpty()) {
-            val imported = try { AppJson.decodeFromString<AppTheme>(json) } catch (_: Exception) { null }
-            if (imported != null && !imported.name.isNullOrBlank()) {
+            val imported = try { AppJson.decodeAppTheme(json) } catch (_: Exception) { null }
+            if (imported != null && imported.name.isNotBlank()) {
                 val newTheme = imported.copy(
                     id = vm.generateId(),
                     builtIn = false,

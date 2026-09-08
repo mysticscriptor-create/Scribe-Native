@@ -70,6 +70,33 @@ data class OutlineEntry(
 // ── App theme ─────────────────────────────────────────────────────────────────
 
 /**
+ * Theme schema version constants and evolution documentation.
+ */
+object ThemeSchema {
+    /**
+     * Legacy schema version prior to explicit semantic role versioning.
+     * Themes without a "schemaVersion" field in JSON deserialize as VERSION_LEGACY (0).
+     */
+    const val VERSION_LEGACY = 0
+
+    /**
+     * Schema Version 1:
+     * - Complete 5-tier elevation hierarchy (surfaceLowest, surface, surfaceRaised, surfaceOverlay).
+     * - 3-tier boundary hierarchy (borderSubtle, border, borderProminent, focus).
+     * - Semantic statuses (success, warning, error, info, specialHighlight).
+     * - Editorial writing lexer semantics (dialogueText, monologueText, headingText, annotation, link).
+     * - Analytics series semantics (analyticsPositive, analyticsNeutral, analyticsNegative, analyticsSeries1-3, analyticsTarget, analyticsWarning).
+     * - Worldbuilding entity semantics (worldCharacter, worldLocation, worldFaction, worldItem, worldLore, worldEvent, worldRelationship).
+     * - Explicit ThemeColorOverrides model for user modifications.
+     * - Background image luminance & zonal metrics.
+     */
+    const val VERSION_1 = 1
+
+    /** The current active schema version emitted by the application. */
+    const val CURRENT_VERSION = VERSION_1
+}
+
+/**
  * Phase 1 Foundation Sources:
  * Authoritative authoring inputs that drive default color generation.
  */
@@ -159,23 +186,23 @@ data class ThemeColorOverrides(
 @Serializable
 data class ThemeColors(
     // ── Surfaces & Elevation (5-Tier Perceptual Hierarchy) ──
-    val background: String,                  // L0: Canvas base background
+    val background: String = "#121214",      // L0: Canvas base background
     val surfaceLowest: String = background,  // L1: Recessed gutters, split rails
-    val surface: String,                     // L2: App bars, drawers, primary panels
+    val surface: String = background,        // L2: App bars, drawers, primary panels
     val surfaceRaised: String = surface,     // L3: Floating cards, workbench cards
     val surfaceOverlay: String = surface,    // L4: Popovers, elevated menus, dialogs
 
     // ── Text & Typography Hierarchy ──
-    val text: String,                        // Primary foreground prose & headers
-    val mutedText: String,                   // Secondary metadata, word counts, subtitles
+    val text: String = "#F4F4F6",            // Primary foreground prose & headers
+    val mutedText: String = text,            // Secondary metadata, word counts, subtitles
     val subtleText: String = mutedText,      // Inactive hints, timestamps, subtle counters
 
     // ── Brand & Interactive Accents (Source Hues) ──
-    val accent: String,                      // Primary interactive controls & carets (Primary source hue)
+    val accent: String = text,               // Primary interactive controls & carets (Primary source hue)
     val secondary: String = accent,          // Secondary source hue (cool violet/slate)
     val tertiary: String = accent,           // Tertiary source hue (teal/cyan)
     val accentMuted: String = surface,       // Subtle badge & chip background fill
-    val selection: String,                   // Selection highlight tint
+    val selection: String = accent,          // Selection highlight tint
 
     // ── Semantic Status Source Hues ──
     val success: String = "",                // Semantic success source hue
@@ -185,7 +212,7 @@ data class ThemeColors(
     val specialHighlight: String = "",       // Literary gold / emphasis hue
 
     // ── Boundaries & Dividers ──
-    val border: String,                      // Standard component boundary (outline)
+    val border: String = text,               // Standard component boundary (outline)
     val borderSubtle: String = border,       // Subtle 1px structural hairline (outlineVariant)
     val borderProminent: String = accent,    // High-emphasis boundary (active keylines, selected states)
     val focus: String = "",                  // Keyboard navigation focus rings & accessibility outlines (defaults to borderProminent if blank)
@@ -231,23 +258,23 @@ data class ThemeColors(
 @Stable
 @Serializable
 data class AppTheme(
-    val id: String,
-    val name: String,
-    val isDark: Boolean,
-    val builtIn: Boolean,
+    val id: String = "",
+    val name: String = "Custom Theme",
+    val isDark: Boolean = false,
+    val builtIn: Boolean = false,
     val colors: ThemeColors,
     val overrides: ThemeColorOverrides? = null,
     /** Font family key matching Google Fonts or system fonts */
-    val fontFamily: String,
-    val fontSize: Int,
-    val lineHeight: Float,
-    val letterSpacing: Float,
-    val paragraphSpacing: Int,
-    val paddingHorizontal: Int,
-    val paddingVertical: Int,
-    val maxWidth: Int,
+    val fontFamily: String = "sans",
+    val fontSize: Int = 17,
+    val lineHeight: Float = 1.7f,
+    val letterSpacing: Float = 0.1f,
+    val paragraphSpacing: Int = 14,
+    val paddingHorizontal: Int = 24,
+    val paddingVertical: Int = 20,
+    val maxWidth: Int = 720,
     /** Explicit schema version for safe forward-compatible serialization & migration */
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = ThemeSchema.VERSION_LEGACY,
     val backgroundImageUri: String? = null,
     /** The original full-resolution image the user picked, before cropping.
      *  Preserved so the user can re-crop later without quality loss, and so
