@@ -62,6 +62,7 @@ import com.primaloptima.scribe.viewmodel.ThemeViewModel
 import dev.chrisbanes.haze.hazeSource
 import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)

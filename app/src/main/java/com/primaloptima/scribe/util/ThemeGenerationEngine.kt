@@ -74,7 +74,7 @@ object ThemeGenerationEngine {
         val quantizerResult = QuantizerCelebi.quantize(pixels, maxColors)
         val scored = Score.score(quantizerResult)
         return scored.ifEmpty {
-            quantizerResult.colorToCount.keys.toList()
+            quantizerResult.keys.toList()
         }
     }
 

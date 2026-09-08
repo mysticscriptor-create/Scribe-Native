@@ -1491,7 +1491,7 @@ class ThemeArchitectureTest {
         assertNotEquals(isDarkInitial, isDarkAfter)
 
         // Relationship mode test
-        draft = draft.withRelationshipMode(com.primaloptima.scribe.ui.screens.themeeditor.RelationshipMode.COMPLEMENTARY)
-        assertEquals(com.primaloptima.scribe.ui.screens.themeeditor.RelationshipMode.COMPLEMENTARY, draft.getRelationshipMode())
+        draft = draft.withRelationshipMode(com.primaloptima.scribe.util.model.ThemeRelationshipMode.THEME_GLASS)
+        assertEquals(com.primaloptima.scribe.util.model.ThemeRelationshipMode.THEME_GLASS, draft.getRelationshipMode())
     }
 }
