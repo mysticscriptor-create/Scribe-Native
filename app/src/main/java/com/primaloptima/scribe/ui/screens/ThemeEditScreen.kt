@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -20,6 +21,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -47,6 +50,7 @@ import com.primaloptima.scribe.util.DefaultThemes
 import com.primaloptima.scribe.util.SAFHelper
 import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.util.model.AppTheme
+import com.primaloptima.scribe.util.model.ThemeColors
 import com.primaloptima.scribe.viewmodel.ThemeViewModel
 import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.Dispatchers
@@ -79,8 +83,10 @@ fun ThemeEditScreen(
         draft.resolveColors()
     }
 
-    // ── Active Category Navigation Tab ────────────────────────────────────────
-    var selectedCategory by remember { mutableStateOf(ThemeEditorCategory.COLORS) }
+    // ── Active Category Navigation Tab (4-Pillar Architecture) ─────────────────
+    var selectedCategory by remember { mutableStateOf(ThemeEditorCategory.APPEARANCE) }
+    var isExpandedPreview by remember { mutableStateOf(true) }
+    var showDiscardDialog by remember { mutableStateOf(false) }
 
     // ── Modal Dialog & Sheet States ───────────────────────────────────────────
     var activeColorPickerTarget by remember { mutableStateOf<ColorPickerTarget?>(null) }
@@ -96,7 +102,7 @@ fun ThemeEditScreen(
     var dialogCaptured by remember { mutableStateOf(false) }
 
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-        val anyDialogOpen = showEmojiDialog || activeColorPickerTarget != null || showAccessibilityDiagnostics
+        val anyDialogOpen = showEmojiDialog || activeColorPickerTarget != null || showAccessibilityDiagnostics || showDiscardDialog
         LaunchedEffect(anyDialogOpen) {
             if (anyDialogOpen && !dialogCaptured) {
                 dialogCaptured = true
@@ -140,6 +146,19 @@ fun ThemeEditScreen(
         onBack()
     }
 
+    // ── Safe Back Navigation with Unsaved Changes Guard ────────────────────────
+    val handleBack = {
+        if (draft.isDirty(originalTheme)) {
+            showDiscardDialog = true
+        } else {
+            onBack()
+        }
+    }
+
+    BackHandler(enabled = draft.isDirty(originalTheme)) {
+        showDiscardDialog = true
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime),
@@ -147,7 +166,7 @@ fun ThemeEditScreen(
                 ScribeTopBar(
                     title = if (originalTheme.builtIn) "View Theme" else "Edit Theme",
                     navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
-                    onNavigationClick = onBack,
+                    onNavigationClick = handleBack,
                     actions = if (originalTheme.builtIn) emptyList() else listOf(
                         ScribeBarAction(Icons.Default.Check, "Save") {
                             if (!isLuminancePending) {
@@ -158,169 +177,209 @@ fun ThemeEditScreen(
                 )
             }
         ) { paddingValues ->
-            LazyColumn(
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
                     .then(if (hazeState != null) Modifier.hazeSource(hazeState) else Modifier)
                     .padding(paddingValues)
-                    .padding(horizontal = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                contentPadding = PaddingValues(vertical = 12.dp)
             ) {
-                // ── 1. THEME DETAILS (Name & Emoji) ───────────────────────────
-                if (!originalTheme.builtIn) {
-                    item {
-                        Card(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = ScribeTheme.shapes.themeEditorSection,
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            border = BorderStroke(1.dp, ScribeTheme.colors.borders.subtle)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Surface(
-                                    onClick = { showEmojiDialog = true },
-                                    shape = ScribeTheme.shapes.cardSmall,
-                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                    border = BorderStroke(1.dp, ScribeTheme.colors.borders.subtle),
-                                    modifier = Modifier.size(48.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(draft.emoji, fontSize = 22.sp)
-                                    }
-                                }
+                val isWide = maxWidth >= 720.dp
 
-                                OutlinedTextField(
-                                    value = draft.name,
-                                    onValueChange = { draft = draft.copy(name = it) },
-                                    label = { Text("Theme Name") },
-                                    singleLine = true,
-                                    shape = ScribeTheme.shapes.field,
-                                    modifier = Modifier.weight(1f)
+                if (isWide) {
+                    // Two-Pane Responsive Layout for Tablets & Landscape
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // Left Pane: Sticky Preview Stage & Identity
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight(),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            if (!originalTheme.builtIn) {
+                                ThemeIdentityCard(
+                                    emoji = draft.emoji,
+                                    name = draft.name,
+                                    onEmojiClick = { showEmojiDialog = true },
+                                    onNameChange = { draft = draft.copy(name = it) }
+                                )
+                            }
+
+                            ThemePreviewStage(
+                                colors = resolvedColors,
+                                themeName = draft.name,
+                                fontFamily = draft.fontFamily,
+                                fontSize = draft.fontSize,
+                                lineHeight = draft.lineHeight,
+                                textAlignment = draft.textAlignment,
+                                sideMargins = draft.sideMargins,
+                                bgMode = draft.bgMode,
+                                bgUri = draft.bgUri,
+                                bgOpacity = draft.bgOpacity,
+                                blurIntensity = draft.blurIntensity,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+
+                        // Right Pane: 4-Pillar Tabs & Inspector Panel
+                        LazyColumn(
+                            modifier = Modifier
+                                .weight(1.2f)
+                                .fillMaxHeight(),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            item {
+                                ThemeCategorySelector(
+                                    selectedCategory = selectedCategory,
+                                    onSelectCategory = { selectedCategory = it }
+                                )
+                            }
+
+                            item {
+                                ActiveInspectorContent(
+                                    selectedCategory = selectedCategory,
+                                    draft = draft,
+                                    originalTheme = originalTheme,
+                                    resolvedColors = resolvedColors,
+                                    onDraftChange = { draft = it },
+                                    onSelectTarget = { activeColorPickerTarget = it },
+                                    onPickImage = { bgImagePicker.launch("image/*") },
+                                    onCropImage = {
+                                        val uriToCrop = draft.bgOriginalUri ?: draft.bgUri
+                                        if (uriToCrop != null) {
+                                            pendingCropUri = uriToCrop
+                                            showCropScreen = true
+                                        }
+                                    },
+                                    onOpenAccessibilityDiagnostics = { showAccessibilityDiagnostics = true }
+                                )
+                            }
+
+                            item {
+                                ThemeActionButtons(
+                                    isLuminancePending = isLuminancePending,
+                                    isBuiltIn = originalTheme.builtIn,
+                                    onSave = saveAction,
+                                    onExport = {
+                                        val currentThemeToExport = draft.toAppTheme(originalTheme)
+                                        exportThemeJson(context, currentThemeToExport)
+                                    }
                                 )
                             }
                         }
                     }
-                }
-
-                // ── 2. LIVE ANCHORED PREVIEW STAGE ────────────────────────────
-                item {
-                    ThemePreviewStage(
-                        colors = resolvedColors,
-                        themeName = draft.name,
-                        fontFamily = draft.fontFamily,
-                        fontSize = draft.fontSize,
-                        lineHeight = draft.lineHeight,
-                        textAlignment = draft.textAlignment,
-                        sideMargins = draft.sideMargins,
-                        bgMode = draft.bgMode,
-                        bgUri = draft.bgUri,
-                        bgOpacity = draft.bgOpacity,
-                        blurIntensity = draft.blurIntensity
-                    )
-                }
-
-                // ── 3. CATEGORY SELECTOR (Segmented Navigation) ───────────────
-                item {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
-                        shape = ScribeTheme.shapes.cardSmall,
-                        border = BorderStroke(1.dp, ScribeTheme.colors.borders.subtle),
-                        modifier = Modifier.fillMaxWidth()
+                } else {
+                    // Single Column Flow for Standard Handheld Devices
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        contentPadding = PaddingValues(vertical = 12.dp)
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            ThemeEditorCategory.entries.forEach { cat ->
-                                val isSelected = selectedCategory == cat
-                                Surface(
-                                    onClick = { selectedCategory = cat },
-                                    shape = ScribeTheme.shapes.navigationItem,
-                                    color = if (isSelected) MaterialTheme.colorScheme.surface else Color.Transparent,
-                                    border = if (isSelected) BorderStroke(1.dp, ScribeTheme.colors.borders.subtle) else null,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(38.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(
-                                            text = when (cat) {
-                                                ThemeEditorCategory.COLORS -> "Colors"
-                                                ThemeEditorCategory.TYPOGRAPHY -> "Type"
-                                                ThemeEditorCategory.LAYOUT -> "Layout"
-                                                ThemeEditorCategory.ATMOSPHERE -> "Atmosphere"
-                                            },
-                                            fontSize = 12.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (isSelected) ScribeTheme.colors.interaction.primary else ScribeTheme.colors.content.secondary,
-                                            maxLines = 1,
-                                            softWrap = false
+                        // 1. Theme Name & Emoji
+                        if (!originalTheme.builtIn) {
+                            item {
+                                ThemeIdentityCard(
+                                    emoji = draft.emoji,
+                                    name = draft.name,
+                                    onEmojiClick = { showEmojiDialog = true },
+                                    onNameChange = { draft = draft.copy(name = it) }
+                                )
+                            }
+                        }
+
+                        // 2. Collapsible Live Anchored Preview Stage
+                        item {
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = ScribeTheme.shapes.themeEditorSection,
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                border = BorderStroke(1.dp, ScribeTheme.colors.borders.subtle)
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(ScribeTheme.shapes.themeEditorControl)
+                                            .clickable { isExpandedPreview = !isExpandedPreview }
+                                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Text(
+                                                text = "Theme Preview",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp,
+                                                color = ScribeTheme.colors.content.primary
+                                            )
+                                            Surface(
+                                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                                                shape = ScribeTheme.shapes.extraSmall
+                                            ) {
+                                                Text(
+                                                    text = if (isExpandedPreview) "Expanded" else "Compact",
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        }
+                                        Icon(
+                                            if (isExpandedPreview) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                            contentDescription = if (isExpandedPreview) "Collapse preview" else "Expand preview",
+                                            tint = ScribeTheme.colors.content.secondary,
+                                            modifier = Modifier.size(20.dp)
                                         )
+                                    }
+
+                                    if (isExpandedPreview) {
+                                        Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                            ThemePreviewStage(
+                                                colors = resolvedColors,
+                                                themeName = draft.name,
+                                                fontFamily = draft.fontFamily,
+                                                fontSize = draft.fontSize,
+                                                lineHeight = draft.lineHeight,
+                                                textAlignment = draft.textAlignment,
+                                                sideMargins = draft.sideMargins,
+                                                bgMode = draft.bgMode,
+                                                bgUri = draft.bgUri,
+                                                bgOpacity = draft.bgOpacity,
+                                                blurIntensity = draft.blurIntensity
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                }
 
-                // ── 4. ACTIVE INSPECTOR PANEL ─────────────────────────────────
-                item {
-                    when (selectedCategory) {
-                        ThemeEditorCategory.COLORS -> {
-                            ThemeColorsPanel(
+                        // 3. 4-Pillar Category Selector
+                        item {
+                            ThemeCategorySelector(
+                                selectedCategory = selectedCategory,
+                                onSelectCategory = { selectedCategory = it }
+                            )
+                        }
+
+                        // 4. Active Inspector Panel
+                        item {
+                            ActiveInspectorContent(
+                                selectedCategory = selectedCategory,
                                 draft = draft,
+                                originalTheme = originalTheme,
                                 resolvedColors = resolvedColors,
-                                onSelectTarget = { target ->
-                                    activeColorPickerTarget = target
-                                },
-                                onResetOverride = { target ->
-                                    draft = draft.withClearedOverride(target)
-                                },
-                                onOpenAccessibilityDiagnostics = {
-                                    showAccessibilityDiagnostics = true
-                                }
-                            )
-                        }
-                        ThemeEditorCategory.TYPOGRAPHY -> {
-                            ThemeTypographyPanel(
-                                fontFamily = draft.fontFamily,
-                                fontSize = draft.fontSize,
-                                lineHeight = draft.lineHeight,
-                                paragraphSpacing = draft.paragraphSpacing,
-                                sideMargins = draft.sideMargins,
-                                onFontFamilyChange = { draft = draft.copy(fontFamily = it) },
-                                onFontSizeChange = { draft = draft.copy(fontSize = it) },
-                                onLineHeightChange = { draft = draft.copy(lineHeight = it) },
-                                onParagraphSpacingChange = { draft = draft.copy(paragraphSpacing = it) },
-                                onSideMarginsChange = { draft = draft.copy(sideMargins = it) }
-                            )
-                        }
-                        ThemeEditorCategory.LAYOUT -> {
-                            ThemeLayoutPanel(
-                                textAlignment = draft.textAlignment,
-                                themeScope = draft.themeScope,
-                                onTextAlignmentChange = { draft = draft.copy(textAlignment = it) },
-                                onThemeScopeChange = { draft = draft.copy(themeScope = it) }
-                            )
-                        }
-                        ThemeEditorCategory.ATMOSPHERE -> {
-                            ThemeAtmospherePanel(
-                                bgMode = draft.bgMode,
-                                bgUri = draft.bgUri,
-                                bgOriginalUri = draft.bgOriginalUri,
-                                bgOpacity = draft.bgOpacity,
-                                blurIntensity = draft.blurIntensity,
-                                frostedGlassEnabled = draft.frostedGlassEnabled,
-                                frostedTintEnabled = draft.frostedTintEnabled,
-                                frostedBlurRadius = draft.frostedBlurRadius,
+                                onDraftChange = { draft = it },
+                                onSelectTarget = { activeColorPickerTarget = it },
                                 onPickImage = { bgImagePicker.launch("image/*") },
                                 onCropImage = {
                                     val uriToCrop = draft.bgOriginalUri ?: draft.bgUri
@@ -329,71 +388,21 @@ fun ThemeEditScreen(
                                         showCropScreen = true
                                     }
                                 },
-                                onRemoveImage = {
-                                    draft = draft.copy(
-                                        bgUri = null,
-                                        bgOriginalUri = null,
-                                        bgMode = "color",
-                                        bgLuminance = -1f,
-                                        zonalLuminanceMatrix = emptyList(),
-                                        zonalVarianceMatrix = emptyList(),
-                                        bgDominantColor = null,
-                                        zonalColorsMatrix = emptyList(),
-                                        luminanceFieldMatrix = emptyList()
-                                    )
-                                },
-                                onBgModeChange = { draft = draft.copy(bgMode = it) },
-                                onBgOpacityChange = { draft = draft.copy(bgOpacity = it) },
-                                onBlurIntensityChange = { draft = draft.copy(blurIntensity = it) },
-                                onFrostedGlassEnabledChange = { draft = draft.copy(frostedGlassEnabled = it) },
-                                onFrostedTintEnabledChange = { draft = draft.copy(frostedTintEnabled = it) },
-                                onFrostedBlurRadiusChange = { draft = draft.copy(frostedBlurRadius = it) }
+                                onOpenAccessibilityDiagnostics = { showAccessibilityDiagnostics = true }
                             )
                         }
-                    }
-                }
 
-                // ── 5. SAVE & EXPORT ACTION BUTTONS ───────────────────────────
-                item {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Button(
-                        onClick = saveAction,
-                        enabled = !isLuminancePending,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp),
-                        shape = ScribeTheme.shapes.button,
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        if (isLuminancePending) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary
+                        // 5. Actions (Save / Export)
+                        item {
+                            ThemeActionButtons(
+                                isLuminancePending = isLuminancePending,
+                                isBuiltIn = originalTheme.builtIn,
+                                onSave = saveAction,
+                                onExport = {
+                                    val currentThemeToExport = draft.toAppTheme(originalTheme)
+                                    exportThemeJson(context, currentThemeToExport)
+                                }
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Analysing image…", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        } else {
-                            Icon(Icons.Default.Check, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Save Theme", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        }
-                    }
-                }
-
-                if (!originalTheme.builtIn) {
-                    item {
-                        OutlinedButton(
-                            onClick = {
-                                val currentThemeToExport = draft.toAppTheme(originalTheme)
-                                exportThemeJson(context, currentThemeToExport)
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = ScribeTheme.shapes.button
-                        ) {
-                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Export Theme JSON")
                         }
                     }
                 }
@@ -405,7 +414,7 @@ fun ThemeEditScreen(
             activeColorPickerTarget?.let { target ->
                 val title = when (target) {
                     ColorPickerTarget.BACKGROUND -> "Background Color"
-                    ColorPickerTarget.TEXT -> "Text Color"
+                    ColorPickerTarget.TEXT -> "Reading Text Color"
                     ColorPickerTarget.ACCENT -> "Primary Accent Color"
                     ColorPickerTarget.HEADING_TEXT -> "Heading Color"
                     ColorPickerTarget.DIALOGUE_TEXT -> "Dialogue Color"
@@ -414,6 +423,9 @@ fun ThemeEditScreen(
                     ColorPickerTarget.ANNOTATION -> "Annotation Color"
                     ColorPickerTarget.SECONDARY -> "Secondary Accent Color"
                     ColorPickerTarget.TERTIARY -> "Tertiary Accent Color"
+                    ColorPickerTarget.SUCCESS -> "Success Status Color"
+                    ColorPickerTarget.WARNING -> "Warning Status Color"
+                    ColorPickerTarget.ERROR -> "Error Status Color"
                     ColorPickerTarget.SURFACE -> "Surface Color"
                 }
 
@@ -428,6 +440,9 @@ fun ThemeEditScreen(
                     ColorPickerTarget.ANNOTATION -> if (resolvedColors.annotation.isNotBlank()) resolvedColors.annotation else resolvedColors.accent
                     ColorPickerTarget.SECONDARY -> resolvedColors.secondary
                     ColorPickerTarget.TERTIARY -> resolvedColors.tertiary
+                    ColorPickerTarget.SUCCESS -> resolvedColors.success
+                    ColorPickerTarget.WARNING -> resolvedColors.warning
+                    ColorPickerTarget.ERROR -> resolvedColors.error
                     ColorPickerTarget.SURFACE -> resolvedColors.surface
                 }
 
@@ -491,6 +506,33 @@ fun ThemeEditScreen(
                     }
                 )
             }
+
+            // Unsaved Changes Discard Dialog
+            if (showDiscardDialog) {
+                FrostedDialog(
+                    onDismissRequest = { showDiscardDialog = false },
+                    title = { Text("Discard Unsaved Changes?") },
+                    text = {
+                        Text("You have unsaved changes to this theme. If you leave now, any customizations made during this session will be lost.")
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showDiscardDialog = false
+                                onBack()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("Discard Changes")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDiscardDialog = false }) {
+                            Text("Keep Editing")
+                        }
+                    }
+                )
+            }
         }
 
         // ── Fullscreen Image Crop Screen Overlay ──────────────────────────────
@@ -527,6 +569,248 @@ fun ThemeEditScreen(
                         pendingCropUri = null
                     }
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Clean theme identity input card (Emoji button + Name field).
+ */
+@Composable
+private fun ThemeIdentityCard(
+    emoji: String,
+    name: String,
+    onEmojiClick: () -> Unit,
+    onNameChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = ScribeTheme.shapes.themeEditorSection,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, ScribeTheme.colors.borders.subtle)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Surface(
+                onClick = onEmojiClick,
+                shape = ScribeTheme.shapes.cardSmall,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                border = BorderStroke(1.dp, ScribeTheme.colors.borders.subtle),
+                modifier = Modifier.size(48.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(emoji, fontSize = 22.sp)
+                }
+            }
+
+            OutlinedTextField(
+                value = name,
+                onValueChange = onNameChange,
+                label = { Text("Theme Name") },
+                singleLine = true,
+                shape = ScribeTheme.shapes.field,
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+/**
+ * 4-Pillar Category Selector (Appearance, Writing, Atmosphere, More).
+ */
+@Composable
+private fun ThemeCategorySelector(
+    selectedCategory: ThemeEditorCategory,
+    onSelectCategory: (ThemeEditorCategory) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = ScribeTheme.shapes.cardSmall,
+        border = BorderStroke(1.dp, ScribeTheme.colors.borders.subtle),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            ThemeEditorCategory.entries.forEach { cat ->
+                val isSelected = selectedCategory == cat
+                Surface(
+                    onClick = { onSelectCategory(cat) },
+                    shape = ScribeTheme.shapes.navigationItem,
+                    color = if (isSelected) MaterialTheme.colorScheme.surface else Color.Transparent,
+                    border = if (isSelected) BorderStroke(1.dp, ScribeTheme.colors.borders.subtle) else null,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(38.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = cat.title,
+                            fontSize = 12.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) ScribeTheme.colors.interaction.primary else ScribeTheme.colors.content.secondary,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Delegator rendering the active pillar's inspector panel.
+ */
+@Composable
+private fun ActiveInspectorContent(
+    selectedCategory: ThemeEditorCategory,
+    draft: ThemeEditorDraft,
+    originalTheme: AppTheme,
+    resolvedColors: ThemeColors,
+    onDraftChange: (ThemeEditorDraft) -> Unit,
+    onSelectTarget: (ColorPickerTarget) -> Unit,
+    onPickImage: () -> Unit,
+    onCropImage: () -> Unit,
+    onOpenAccessibilityDiagnostics: () -> Unit
+) {
+    when (selectedCategory) {
+        ThemeEditorCategory.APPEARANCE -> {
+            ThemeAppearancePanel(
+                draft = draft,
+                resolvedColors = resolvedColors,
+                onSelectTarget = onSelectTarget,
+                onResetOverride = { target ->
+                    onDraftChange(draft.withClearedOverride(target))
+                }
+            )
+        }
+        ThemeEditorCategory.WRITING -> {
+            ThemeWritingPanel(
+                draft = draft,
+                resolvedColors = resolvedColors,
+                onSelectTarget = onSelectTarget,
+                onResetOverride = { target ->
+                    onDraftChange(draft.withClearedOverride(target))
+                },
+                onFontFamilyChange = { onDraftChange(draft.copy(fontFamily = it)) },
+                onFontSizeChange = { onDraftChange(draft.copy(fontSize = it)) },
+                onLineHeightChange = { onDraftChange(draft.copy(lineHeight = it)) },
+                onParagraphSpacingChange = { onDraftChange(draft.copy(paragraphSpacing = it)) }
+            )
+        }
+        ThemeEditorCategory.ATMOSPHERE -> {
+            ThemeAtmospherePanel(
+                bgMode = draft.bgMode,
+                bgUri = draft.bgUri,
+                bgOriginalUri = draft.bgOriginalUri,
+                bgOpacity = draft.bgOpacity,
+                blurIntensity = draft.blurIntensity,
+                frostedGlassEnabled = draft.frostedGlassEnabled,
+                frostedTintEnabled = draft.frostedTintEnabled,
+                frostedBlurRadius = draft.frostedBlurRadius,
+                onPickImage = onPickImage,
+                onCropImage = onCropImage,
+                onRemoveImage = {
+                    onDraftChange(
+                        draft.copy(
+                            bgUri = null,
+                            bgOriginalUri = null,
+                            bgMode = "color",
+                            bgLuminance = -1f,
+                            zonalLuminanceMatrix = emptyList(),
+                            zonalVarianceMatrix = emptyList(),
+                            bgDominantColor = null,
+                            zonalColorsMatrix = emptyList(),
+                            luminanceFieldMatrix = emptyList()
+                        )
+                    )
+                },
+                onBgModeChange = { onDraftChange(draft.copy(bgMode = it)) },
+                onBgOpacityChange = { onDraftChange(draft.copy(bgOpacity = it)) },
+                onBlurIntensityChange = { onDraftChange(draft.copy(blurIntensity = it)) },
+                onFrostedGlassEnabledChange = { onDraftChange(draft.copy(frostedGlassEnabled = it)) },
+                onFrostedTintEnabledChange = { onDraftChange(draft.copy(frostedTintEnabled = it)) },
+                onFrostedBlurRadiusChange = { onDraftChange(draft.copy(frostedBlurRadius = it)) }
+            )
+        }
+        ThemeEditorCategory.ADVANCED -> {
+            ThemeAdvancedPanel(
+                textAlignment = draft.textAlignment,
+                sideMargins = draft.sideMargins,
+                themeScope = draft.themeScope,
+                resolvedColors = resolvedColors,
+                hasCustomOverrides = draft.overrides != null && !draft.overrides.isEmpty(),
+                onTextAlignmentChange = { onDraftChange(draft.copy(textAlignment = it)) },
+                onSideMarginsChange = { onDraftChange(draft.copy(sideMargins = it)) },
+                onThemeScopeChange = { onDraftChange(draft.copy(themeScope = it)) },
+                onResetAllOverrides = { onDraftChange(draft.withResetAllOverrides()) },
+                onResetToOriginal = { onDraftChange(ThemeEditorDraft.fromAppTheme(originalTheme)) },
+                onOpenAccessibilityDiagnostics = onOpenAccessibilityDiagnostics
+            )
+        }
+    }
+}
+
+/**
+ * Save & Export action buttons.
+ */
+@Composable
+private fun ThemeActionButtons(
+    isLuminancePending: Boolean,
+    isBuiltIn: Boolean,
+    onSave: () -> Unit,
+    onExport: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Button(
+            onClick = onSave,
+            enabled = !isLuminancePending,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(50.dp),
+            shape = ScribeTheme.shapes.button,
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+        ) {
+            if (isLuminancePending) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Analysing image…", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            } else {
+                Icon(Icons.Default.Check, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Save Theme", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            }
+        }
+
+        if (!isBuiltIn) {
+            OutlinedButton(
+                onClick = onExport,
+                modifier = Modifier.fillMaxWidth(),
+                shape = ScribeTheme.shapes.button
+            ) {
+                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Export Theme JSON")
             }
         }
     }

@@ -16,12 +16,22 @@ import com.primaloptima.scribe.util.model.WritingCharacter
 
 /**
  * High-level category tabs for the decomposed Theme Editor.
+ * Re-architected in Phase 19 into 4 intuitive writing-first pillars.
  */
 enum class ThemeEditorCategory(val title: String) {
-    COLORS("Colors"),
-    TYPOGRAPHY("Typography"),
-    LAYOUT("Layout"),
-    ATMOSPHERE("Atmosphere")
+    APPEARANCE("Appearance"),
+    WRITING("Writing"),
+    ATMOSPHERE("Atmosphere"),
+    ADVANCED("More");
+
+    companion object {
+        @Deprecated("Use APPEARANCE", ReplaceWith("APPEARANCE"))
+        val COLORS = APPEARANCE
+        @Deprecated("Use WRITING", ReplaceWith("WRITING"))
+        val TYPOGRAPHY = WRITING
+        @Deprecated("Use ADVANCED", ReplaceWith("ADVANCED"))
+        val LAYOUT = ADVANCED
+    }
 }
 
 /**
@@ -43,6 +53,11 @@ enum class ColorPickerTarget {
     // Supporting Accent Overrides
     SECONDARY,
     TERTIARY,
+
+    // System Status Indicators Overrides
+    SUCCESS,
+    WARNING,
+    ERROR,
 
     // Surface Overrides
     SURFACE
@@ -147,6 +162,9 @@ data class ThemeEditorDraft(
             ColorPickerTarget.ANNOTATION -> overrides.annotation != null
             ColorPickerTarget.SECONDARY -> overrides.secondary != null
             ColorPickerTarget.TERTIARY -> overrides.tertiary != null
+            ColorPickerTarget.SUCCESS -> overrides.success != null
+            ColorPickerTarget.WARNING -> overrides.warning != null
+            ColorPickerTarget.ERROR -> overrides.error != null
             ColorPickerTarget.SURFACE -> overrides.surface != null
             else -> false
         }
@@ -165,6 +183,9 @@ data class ThemeEditorDraft(
             ColorPickerTarget.ANNOTATION -> current.copy(annotation = hex)
             ColorPickerTarget.SECONDARY -> current.copy(secondary = hex)
             ColorPickerTarget.TERTIARY -> current.copy(tertiary = hex)
+            ColorPickerTarget.SUCCESS -> current.copy(success = hex)
+            ColorPickerTarget.WARNING -> current.copy(warning = hex)
+            ColorPickerTarget.ERROR -> current.copy(error = hex)
             ColorPickerTarget.SURFACE -> current.copy(surface = hex)
             else -> current
         }
@@ -184,10 +205,45 @@ data class ThemeEditorDraft(
             ColorPickerTarget.ANNOTATION -> overrides.copy(annotation = null)
             ColorPickerTarget.SECONDARY -> overrides.copy(secondary = null)
             ColorPickerTarget.TERTIARY -> overrides.copy(tertiary = null)
+            ColorPickerTarget.SUCCESS -> overrides.copy(success = null)
+            ColorPickerTarget.WARNING -> overrides.copy(warning = null)
+            ColorPickerTarget.ERROR -> overrides.copy(error = null)
             ColorPickerTarget.SURFACE -> overrides.copy(surface = null)
             else -> overrides
         }
         return copy(overrides = if (updated.isEmpty()) null else updated)
+    }
+
+    /**
+     * Clears all explicit overrides, restoring the theme entirely to algorithmic OKLCH defaults.
+     */
+    fun withResetAllOverrides(): ThemeEditorDraft = copy(overrides = null)
+
+    /**
+     * Checks if the user has modified any aspect of the theme during the current editing session.
+     */
+    fun isDirty(original: AppTheme): Boolean {
+        if (name != original.name) return true
+        if (emoji != (original.emoji ?: "🖊️")) return true
+        if (bgHex != original.colors.background) return true
+        if (textHex != original.colors.text) return true
+        if (accentHex != original.colors.accent) return true
+        if (overrides != original.overrides) return true
+        if (fontFamily != original.fontFamily) return true
+        if (fontSize.toInt() != original.fontSize) return true
+        if (lineHeight != original.lineHeight) return true
+        if (paragraphSpacing.toInt() != original.paragraphSpacing) return true
+        if (sideMargins.toInt() != original.paddingHorizontal) return true
+        if (textAlignment != original.textAlignment) return true
+        if (themeScope != original.themeScope) return true
+        if (bgMode != original.bgMode) return true
+        if (bgUri != original.backgroundImageUri) return true
+        if (bgOpacity != (original.backgroundImageOpacity ?: 0.35f)) return true
+        if (blurIntensity != original.blurIntensity) return true
+        if (frostedGlassEnabled != original.frostedGlassEnabled) return true
+        if (frostedTintEnabled != original.frostedTintEnabled) return true
+        if (frostedBlurRadius != original.frostedBlurRadius) return true
+        return false
     }
 
     /**

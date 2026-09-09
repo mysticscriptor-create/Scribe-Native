@@ -42,6 +42,22 @@ fun ThemeAtmospherePanel(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Informational notice establishing clear mental boundary
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = ScribeTheme.shapes.cardSmall,
+            color = MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.7f),
+            border = androidx.compose.foundation.BorderStroke(1.dp, ScribeTheme.colors.borders.subtle)
+        ) {
+            Text(
+                text = "Atmosphere customizes background artwork and frosted glass translucency without altering your theme colors.",
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                fontSize = 12.sp,
+                color = ScribeTheme.colors.content.secondary,
+                lineHeight = 16.sp
+            )
+        }
+
         // Background Image Card
         Card(
             modifier = Modifier.fillMaxWidth(),

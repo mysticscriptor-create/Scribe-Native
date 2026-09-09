@@ -201,13 +201,13 @@ fun OverrideColorTile(
                 if (isOverridden) {
                     IconButton(
                         onClick = onReset,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(28.dp)
                     ) {
                         Icon(
                             Icons.Default.Refresh,
                             contentDescription = "Reset to auto",
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(13.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
