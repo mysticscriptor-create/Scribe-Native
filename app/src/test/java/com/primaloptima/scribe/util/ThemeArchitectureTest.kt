@@ -1707,4 +1707,101 @@ class ThemeArchitectureTest {
         assertEquals(initialSources, postSources)
         assertEquals(draft.resolveColors(), updatedDraft.resolveColors())
     }
+
+    // ── Phase 19: Theme Editor Redesign Tests ───────────────────────────────
+
+    @Test
+    fun testPhase19_categoryPillars_backwardCompatibility() {
+        val categories = com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorCategory.entries
+        assertEquals(4, categories.size)
+        assertTrue(categories.contains(com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorCategory.APPEARANCE))
+        assertTrue(categories.contains(com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorCategory.WRITING))
+        assertTrue(categories.contains(com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorCategory.ATMOSPHERE))
+        assertTrue(categories.contains(com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorCategory.ADVANCED))
+
+        // Check backward-compatibility aliases
+        assertEquals(com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorCategory.APPEARANCE, com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorCategory.COLORS)
+        assertEquals(com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorCategory.WRITING, com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorCategory.TYPOGRAPHY)
+        assertEquals(com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorCategory.ADVANCED, com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorCategory.LAYOUT)
+    }
+
+    @Test
+    fun testPhase19_colorPickerTarget_statusIndicatorsSupported() {
+        val baseTheme = DefaultThemes.all.first()
+        var draft = com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorDraft.fromAppTheme(baseTheme)
+
+        assertFalse(draft.isOverridden(com.primaloptima.scribe.ui.screens.themeeditor.ColorPickerTarget.SUCCESS))
+        assertFalse(draft.isOverridden(com.primaloptima.scribe.ui.screens.themeeditor.ColorPickerTarget.WARNING))
+        assertFalse(draft.isOverridden(com.primaloptima.scribe.ui.screens.themeeditor.ColorPickerTarget.ERROR))
+
+        // Set status overrides
+        draft = draft.withUpdatedOverride(com.primaloptima.scribe.ui.screens.themeeditor.ColorPickerTarget.SUCCESS, "#00FF7F")
+        draft = draft.withUpdatedOverride(com.primaloptima.scribe.ui.screens.themeeditor.ColorPickerTarget.WARNING, "#FFD700")
+        draft = draft.withUpdatedOverride(com.primaloptima.scribe.ui.screens.themeeditor.ColorPickerTarget.ERROR, "#FF1493")
+
+        assertTrue(draft.isOverridden(com.primaloptima.scribe.ui.screens.themeeditor.ColorPickerTarget.SUCCESS))
+        assertTrue(draft.isOverridden(com.primaloptima.scribe.ui.screens.themeeditor.ColorPickerTarget.WARNING))
+        assertTrue(draft.isOverridden(com.primaloptima.scribe.ui.screens.themeeditor.ColorPickerTarget.ERROR))
+
+        val colors = draft.resolveColors()
+        assertEquals("#00FF7F", colors.success)
+        assertEquals("#FFD700", colors.warning)
+        assertEquals("#FF1493", colors.error)
+
+        // Clear warning override
+        draft = draft.withClearedOverride(com.primaloptima.scribe.ui.screens.themeeditor.ColorPickerTarget.WARNING)
+        assertFalse(draft.isOverridden(com.primaloptima.scribe.ui.screens.themeeditor.ColorPickerTarget.WARNING))
+        assertTrue(draft.isOverridden(com.primaloptima.scribe.ui.screens.themeeditor.ColorPickerTarget.SUCCESS))
+    }
+
+    @Test
+    fun testPhase19_draft_isDirtyTracking() {
+        val baseTheme = DefaultThemes.all.first()
+        val draft = com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorDraft.fromAppTheme(baseTheme)
+
+        // Initially pristine
+        assertFalse(draft.isDirty(baseTheme))
+
+        // Mutating name triggers dirty
+        assertTrue(draft.copy(name = "Modified Name").isDirty(baseTheme))
+
+        // Mutating font size triggers dirty
+        assertTrue(draft.copy(fontSize = 24f).isDirty(baseTheme))
+
+        // Mutating accentHex triggers dirty
+        assertTrue(draft.copy(accentHex = "#123456").isDirty(baseTheme))
+
+        // Mutating overrides triggers dirty
+        val withOverride = draft.withUpdatedOverride(com.primaloptima.scribe.ui.screens.themeeditor.ColorPickerTarget.HEADING, "#ABCDEF")
+        assertTrue(withOverride.isDirty(baseTheme))
+    }
+
+    @Test
+    fun testPhase19_draft_withResetAllOverrides() {
+        val baseTheme = DefaultThemes.all.first()
+        var draft = com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorDraft.fromAppTheme(baseTheme)
+
+        draft = draft.withUpdatedOverride(com.primaloptima.scribe.ui.screens.themeeditor.ColorPickerTarget.DIALOGUE, "#00FFFF")
+        draft = draft.withUpdatedOverride(com.primaloptima.scribe.ui.screens.themeeditor.ColorPickerTarget.MONOLOGUE, "#FF00FF")
+        assertNotNull(draft.overrides)
+        assertTrue(draft.hasCustomOverrides)
+
+        val resetDraft = draft.withResetAllOverrides()
+        assertNull(resetDraft.overrides)
+        assertFalse(resetDraft.hasCustomOverrides)
+    }
+
+    @Test
+    fun testPhase19_editorialTokensResolution() {
+        val baseTheme = DefaultThemes.all.first()
+        val draft = com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorDraft.fromAppTheme(baseTheme)
+        val resolved = draft.resolveColors()
+
+        // Verify all 5 editorial styling tokens are resolved non-blank
+        assertTrue(resolved.headingText.isNotBlank())
+        assertTrue(resolved.dialogueText.isNotBlank())
+        assertTrue(resolved.monologueText.isNotBlank())
+        assertTrue(resolved.specialHighlight.isNotBlank())
+        assertTrue(resolved.annotation.isNotBlank())
+    }
 }
