@@ -8,11 +8,13 @@ import com.primaloptima.scribe.util.model.ThemeSourcePalette
 import com.primaloptima.scribe.util.model.ChromaticCharacter
 import com.primaloptima.scribe.util.model.DarkLightBias
 import com.primaloptima.scribe.util.model.ImageInfluence
+import com.primaloptima.scribe.util.model.ImagePaletteSource
 import com.primaloptima.scribe.util.model.ImageUnderstanding
 import com.primaloptima.scribe.util.model.PaletteDiversity
 import com.primaloptima.scribe.util.model.TemperatureBias
 import com.primaloptima.scribe.util.model.ThemeGenerationRecipe
 import com.primaloptima.scribe.util.model.TonalCharacter
+import com.primaloptima.scribe.util.model.VisualRole
 import com.primaloptima.scribe.util.model.WritingCharacter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -1803,5 +1805,167 @@ class ThemeArchitectureTest {
         assertTrue(resolved.monologueText.isNotBlank())
         assertTrue(resolved.specialHighlight.isNotBlank())
         assertTrue(resolved.annotation.isNotBlank())
+    }
+
+    // ── Phase 20: Intelligent Multi-Color Theme Engine Tests ──────────────────
+
+    @Test
+    fun testCircularHueMath_handlesWraparoundAndDistance() {
+        // Hue distance across zero
+        val dist1 = ThemeGenerationEngine.circularHueDistance(10.0, 350.0)
+        assertEquals(20.0, dist1, 0.001)
+
+        val dist2 = ThemeGenerationEngine.circularHueDistance(90.0, 270.0)
+        assertEquals(180.0, dist2, 0.001)
+
+        val dist3 = ThemeGenerationEngine.circularHueDistance(120.0, 150.0)
+        assertEquals(30.0, dist3, 0.001)
+
+        // Signed difference
+        val diff1 = ThemeGenerationEngine.circularHueDifference(350.0, 10.0)
+        assertEquals(20.0, diff1, 0.001)
+
+        val diff2 = ThemeGenerationEngine.circularHueDifference(10.0, 350.0)
+        assertEquals(-20.0, diff2, 0.001)
+    }
+
+    @Test
+    fun testHarmonizeHue_nudgesWithinThresholdAndLeavesDistantHues() {
+        // Close hues (difference = 40 deg <= 80 deg) get nudged towards target
+        val harmonizedClose = ThemeGenerationEngine.harmonizeHue(sourceHue = 200.0, targetHue = 240.0, fraction = 0.20)
+        assertEquals(208.0, harmonizedClose, 0.001)
+
+        // Distant hues (difference = 120 deg > 80 deg) remain unchanged to protect contrast identity
+        val harmonizedDistant = ThemeGenerationEngine.harmonizeHue(sourceHue = 60.0, targetHue = 240.0, fraction = 0.20)
+        assertEquals(60.0, harmonizedDistant, 0.001)
+    }
+
+    @Test
+    fun testExtractPaletteSources_assignsDistinctVisualRoles() {
+        // Synthesize a pixel array representing an artwork with sky, foliage, and sunset accent
+        val w = 32
+        val h = 32
+        val pixels = IntArray(w * h)
+        for (i in 0 until (w * h / 2)) {
+            pixels[i] = 0xFF1E293B.toInt() // Dark slate ambient environment
+        }
+        for (i in (w * h / 2) until (w * h * 3 / 4)) {
+            pixels[i] = 0xFF10B981.toInt() // Emerald secondary foliage
+        }
+        for (i in (w * h * 3 / 4) until (w * h)) {
+            pixels[i] = 0xFFF59E0B.toInt() // Vibrant amber sunset accent
+        }
+
+        val sources = ThemeGenerationEngine.extractPaletteSources(pixels, w, h)
+        assertTrue("Sources should not be empty", sources.isNotEmpty())
+
+        val roles = sources.map { it.visualRole }
+        assertTrue("Must identify primary accent", roles.contains(VisualRole.PRIMARY_ACCENT))
+        assertTrue("Must identify atmospheric environment", roles.contains(VisualRole.ATMOSPHERIC))
+
+        val primary = sources.first { it.visualRole == VisualRole.PRIMARY_ACCENT }
+        assertTrue("Primary accent should have vibrant chroma", primary.chroma >= 0.05)
+        assertTrue("Primary tone should be readable", primary.tone in 0.10..0.90)
+    }
+
+    @Test
+    fun testGenerateSourcePalette_populatesSecondaryTertiaryAndAtmospheric() {
+        val testSeed = 0xFF3B82F6.toInt() // Blue
+        val atmoSeed = 0xFF0F172A.toInt() // Deep Navy Slate
+        val secSeed = 0xFF10B981.toInt()  // Emerald
+        val tertSeed = 0xFFF59E0B.toInt() // Amber
+
+        val understanding = ImageUnderstanding(
+            rankedCandidates = listOf(testSeed, atmoSeed, secSeed, tertSeed),
+            dominantColors = listOf("#3B82F6", "#0F172A", "#10B981", "#F59E0B"),
+            averageLightness = 0.45f,
+            tonalCharacter = TonalCharacter.MID_KEY,
+            chromaticCharacter = ChromaticCharacter.BALANCED,
+            temperatureBias = TemperatureBias.COOL,
+            darkLightBias = DarkLightBias.BALANCED,
+            paletteDiversity = PaletteDiversity.DIVERSE,
+            imageFingerprint = "multi_source_fp",
+            paletteSources = listOf(
+                ImagePaletteSource("#3B82F6", testSeed, 240.0, 0.18, 0.60, visualRole = VisualRole.PRIMARY_ACCENT),
+                ImagePaletteSource("#0F172A", atmoSeed, 230.0, 0.03, 0.15, visualRole = VisualRole.ATMOSPHERIC),
+                ImagePaletteSource("#10B981", secSeed, 155.0, 0.16, 0.65, visualRole = VisualRole.SUPPORTING_ACCENT),
+                ImagePaletteSource("#F59E0B", tertSeed, 80.0, 0.16, 0.70, visualRole = VisualRole.TERTIARY_ACCENT)
+            )
+        )
+
+        val palette = ThemeGenerationEngine.generateSourcePalette(
+            understanding = understanding,
+            recipe = ThemeGenerationRecipe.BALANCED,
+            isDark = true
+        )
+
+        assertNotNull("Secondary accent must be populated", palette.secondaryAccent)
+        assertNotNull("Tertiary accent must be populated", palette.tertiaryAccent)
+        assertNotNull("Atmospheric color must be populated", palette.atmosphericColor)
+
+        assertTrue("Secondary accent should be valid hex", palette.secondaryAccent!!.startsWith("#"))
+        assertTrue("Tertiary accent should be valid hex", palette.tertiaryAccent!!.startsWith("#"))
+        assertTrue("Atmospheric color should be valid hex", palette.atmosphericColor!!.startsWith("#"))
+
+        // Secondary and accent should be perceptually distinct
+        assertNotEquals(palette.accent, palette.secondaryAccent)
+        assertNotEquals(palette.accent, palette.tertiaryAccent)
+    }
+
+    @Test
+    fun testGenerateThemeDefaults_integratesMultiSourceAccents() {
+        val sources = ThemeSourcePalette(
+            background = "#121214",
+            text = "#F4F4F6",
+            accent = "#3B82F6",
+            secondaryAccent = "#10B981",
+            tertiaryAccent = "#F59E0B",
+            atmosphericColor = "#0F172A"
+        )
+
+        val defaults = ThemeManager.generateThemeDefaults(sources, isDark = true)
+
+        assertEquals("#10B981", defaults.secondary)
+        assertEquals("#F59E0B", defaults.tertiary)
+        assertEquals("#3B82F6", defaults.accent)
+    }
+
+    @Test
+    fun testMultiSourceTheme_contrastComplianceAcrossRecipes() {
+        val testSeed = 0xFF8B5CF6.toInt() // Purple
+        val understanding = ThemeGenerationEngine.fallbackUnderstanding()
+
+        for (recipe in ThemeGenerationRecipe.values()) {
+            for (isDark in listOf(true, false)) {
+                val palette = ThemeGenerationEngine.generateSourcePalette(
+                    understanding = understanding,
+                    recipe = recipe,
+                    candidateColor = testSeed,
+                    isDark = isDark
+                )
+
+                val bg = androidx.compose.ui.graphics.Color(ThemeManager.parseColor(palette.background))
+                val text = androidx.compose.ui.graphics.Color(ThemeManager.parseColor(palette.text))
+                val accent = androidx.compose.ui.graphics.Color(ThemeManager.parseColor(palette.accent))
+                val sec = palette.secondaryAccent?.let { androidx.compose.ui.graphics.Color(ThemeManager.parseColor(it)) }
+                val tert = palette.tertiaryAccent?.let { androidx.compose.ui.graphics.Color(ThemeManager.parseColor(it)) }
+
+                val textRatio = ContrastResolver.calculateWcagContrastRatio(text, bg)
+                val accentRatio = ContrastResolver.calculateWcagContrastRatio(accent, bg)
+
+                assertTrue("Recipe $recipe isDark=$isDark: Text contrast must be >= 4.5 (got $textRatio)", textRatio >= 4.5)
+                assertTrue("Recipe $recipe isDark=$isDark: Accent contrast must be >= 2.8 (got $accentRatio)", accentRatio >= 2.8)
+
+                if (sec != null) {
+                    val secRatio = ContrastResolver.calculateWcagContrastRatio(sec, bg)
+                    assertTrue("Recipe $recipe isDark=$isDark: Secondary contrast must be >= 2.5 (got $secRatio)", secRatio >= 2.5)
+                }
+
+                if (tert != null) {
+                    val tertRatio = ContrastResolver.calculateWcagContrastRatio(tert, bg)
+                    assertTrue("Recipe $recipe isDark=$isDark: Tertiary contrast must be >= 2.5 (got $tertRatio)", tertRatio >= 2.5)
+                }
+            }
+        }
     }
 }

@@ -118,7 +118,12 @@ data class ThemeEditorDraft(
     val activeRecipe: ThemeGenerationRecipe = ThemeGenerationRecipe.BALANCED,
     val activeInfluence: ImageInfluence = ImageInfluence.BALANCED,
     val activeWritingCharacter: WritingCharacter = WritingCharacter.NEUTRAL,
-    val activeUnderstanding: ImageUnderstanding? = null
+    val activeUnderstanding: ImageUnderstanding? = null,
+
+    // Phase 20: Intelligent Multi-Color Palette Sources
+    val secondaryHex: String? = null,
+    val tertiaryHex: String? = null,
+    val atmosphericHex: String? = null
 ) {
     /**
      * Resolves the canonical active ThemeColors by layering overrides onto generated defaults.
@@ -128,7 +133,10 @@ data class ThemeEditorDraft(
             sources = ThemeSourcePalette(
                 background = bgHex,
                 text = textHex,
-                accent = accentHex
+                accent = accentHex,
+                secondaryAccent = secondaryHex,
+                tertiaryAccent = tertiaryHex,
+                atmosphericColor = atmosphericHex
             ),
             overrides = overrides,
             isDark = ThemeManager.isDarkColor(bgHex)
@@ -143,7 +151,10 @@ data class ThemeEditorDraft(
             sources = ThemeSourcePalette(
                 background = bgHex,
                 text = textHex,
-                accent = accentHex
+                accent = accentHex,
+                secondaryAccent = secondaryHex,
+                tertiaryAccent = tertiaryHex,
+                atmosphericColor = atmosphericHex
             ),
             isDark = ThemeManager.isDarkColor(bgHex)
         )
@@ -255,6 +266,9 @@ data class ThemeEditorDraft(
             bgHex = palette.background,
             textHex = palette.text,
             accentHex = palette.accent,
+            secondaryHex = palette.secondaryAccent,
+            tertiaryHex = palette.tertiaryAccent,
+            atmosphericHex = palette.atmosphericColor,
             overrides = if (resetOverrides) null else overrides
         )
     }
@@ -296,6 +310,9 @@ data class ThemeEditorDraft(
             bgHex = palette.background,
             textHex = palette.text,
             accentHex = palette.accent,
+            secondaryHex = palette.secondaryAccent,
+            tertiaryHex = palette.tertiaryAccent,
+            atmosphericHex = palette.atmosphericColor,
             overrides = if (resetOverrides) null else overrides,
             extractedCandidates = understanding.rankedCandidates,
             activeCandidate = chosenCandidate,
@@ -392,6 +409,9 @@ data class ThemeEditorDraft(
                 bgHex = palette.background,
                 textHex = palette.text,
                 accentHex = palette.accent,
+                secondaryHex = palette.secondaryAccent,
+                tertiaryHex = palette.tertiaryAccent,
+                atmosphericHex = palette.atmosphericColor,
                 overrides = if (resetOverrides) null else overrides
             )
         } else {
@@ -464,7 +484,19 @@ data class ThemeEditorDraft(
             savedZonalVariance = zonalVarianceMatrix,
             savedBgDominantColor = bgDominantColor,
             savedBgZonalColors = zonalColorsMatrix,
-            savedBgLuminanceField = luminanceFieldMatrix
+            savedBgLuminanceField = luminanceFieldMatrix,
+            generationMetadata = if (activeUnderstanding != null || secondaryHex != null || tertiaryHex != null || atmosphericHex != null) {
+                com.primaloptima.scribe.util.model.ThemeGenerationMetadata(
+                    recipe = activeRecipe,
+                    imageInfluence = activeInfluence,
+                    writingCharacter = activeWritingCharacter,
+                    originalAtmosphereHex = atmosphericHex,
+                    secondaryAccentHex = secondaryHex,
+                    tertiaryAccentHex = tertiaryHex
+                )
+            } else {
+                base.generationMetadata
+            }
         )
     }
 
@@ -500,7 +532,10 @@ data class ThemeEditorDraft(
                 zonalVarianceMatrix = theme.savedZonalVariance,
                 bgDominantColor = theme.savedBgDominantColor,
                 zonalColorsMatrix = theme.savedBgZonalColors,
-                luminanceFieldMatrix = theme.savedBgLuminanceField
+                luminanceFieldMatrix = theme.savedBgLuminanceField,
+                secondaryHex = theme.generationMetadata?.secondaryAccentHex,
+                tertiaryHex = theme.generationMetadata?.tertiaryAccentHex,
+                atmosphericHex = theme.generationMetadata?.originalAtmosphereHex
             )
         }
     }

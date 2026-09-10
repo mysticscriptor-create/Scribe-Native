@@ -27,7 +27,30 @@ data class ImageUnderstanding(
     val darkLightBias: DarkLightBias,
     val paletteDiversity: PaletteDiversity,
     val imageFingerprint: String? = null,
-    val focusRegion: String? = null
+    val focusRegion: String? = null,
+    val paletteSources: List<ImagePaletteSource> = emptyList()
+)
+
+@Serializable
+enum class VisualRole {
+    ATMOSPHERIC,
+    PRIMARY_ACCENT,
+    SUPPORTING_ACCENT,
+    TERTIARY_ACCENT,
+    NEUTRAL
+}
+
+@Immutable
+@Serializable
+data class ImagePaletteSource(
+    val colorHex: String,
+    val colorArgb: Int,
+    val hue: Double,
+    val chroma: Double,
+    val tone: Double,
+    val population: Int = 1,
+    val score: Double = 0.0,
+    val visualRole: VisualRole = VisualRole.NEUTRAL
 )
 
 @Serializable

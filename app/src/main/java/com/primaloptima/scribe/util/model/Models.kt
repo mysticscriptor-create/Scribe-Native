@@ -99,13 +99,35 @@ object ThemeSchema {
 /**
  * Phase 1 Foundation Sources:
  * Authoritative authoring inputs that drive default color generation.
+ * Supports intelligent multi-color palette interpretation with optional
+ * secondary/tertiary accents and atmospheric color.
  */
 @Immutable
 @Serializable
 data class ThemeSourcePalette(
     val background: String,
     val text: String,
-    val accent: String
+    val accent: String,
+    val secondaryAccent: String? = null,
+    val tertiaryAccent: String? = null,
+    val atmosphericColor: String? = null
+)
+
+/**
+ * Generation Provenance Metadata:
+ * Captures generation intent and source parameters so intelligent themes
+ * retain their generative character across session re-edits and persistence.
+ */
+@Immutable
+@Serializable
+data class ThemeGenerationMetadata(
+    val recipe: ThemeGenerationRecipe = ThemeGenerationRecipe.BALANCED,
+    val imageInfluence: ImageInfluence = ImageInfluence.BALANCED,
+    val writingCharacter: WritingCharacter = WritingCharacter.NEUTRAL,
+    val originalAtmosphereHex: String? = null,
+    val secondaryAccentHex: String? = null,
+    val tertiaryAccentHex: String? = null,
+    val generationVersion: Int = 2
 )
 
 /**
@@ -323,12 +345,17 @@ data class AppTheme(
     val savedBgZonalColors: List<String> = emptyList(),
     /** 8x8 precomputed box-averaged luminance field for subtle environmental edge-light modulation. */
     @SerialName("savedBgLuminanceField")
-    val savedBgLuminanceField: List<Float> = emptyList()
+    val savedBgLuminanceField: List<Float> = emptyList(),
+    /** Provenance metadata for image-generated themes. Null for handcrafted or legacy themes. */
+    val generationMetadata: ThemeGenerationMetadata? = null
 ) {
     fun sourcePalette(): ThemeSourcePalette = ThemeSourcePalette(
         background = colors.background,
         text = colors.text,
-        accent = colors.accent
+        accent = colors.accent,
+        secondaryAccent = generationMetadata?.secondaryAccentHex,
+        tertiaryAccent = generationMetadata?.tertiaryAccentHex,
+        atmosphericColor = generationMetadata?.originalAtmosphereHex
     )
 }
 

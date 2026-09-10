@@ -523,14 +523,23 @@ class ThemeManager(private val context: Context) {
          * Does not apply any user overrides.
          */
         fun generateThemeDefaults(sources: ThemeSourcePalette, isDark: Boolean): ThemeColors {
-            return generateThemeDefaults(sources.background, sources.text, sources.accent, isDark)
+            return generateThemeDefaults(
+                bgHex = sources.background,
+                textHex = sources.text,
+                accentHex = sources.accent,
+                isDark = isDark,
+                secondaryHex = sources.secondaryAccent,
+                tertiaryHex = sources.tertiaryAccent
+            )
         }
 
         fun generateThemeDefaults(
             bgHex: String,
             textHex: String,
             accentHex: String,
-            isDark: Boolean
+            isDark: Boolean,
+            secondaryHex: String? = null,
+            tertiaryHex: String? = null
         ): ThemeColors {
             val bgInt = parseColor(bgHex)
             var textInt = parseColor(textHex)
@@ -589,9 +598,9 @@ class ThemeManager(private val context: Context) {
                 val mutedText = oklchToHex(Oklch((textOklch.l - 0.28).coerceIn(0.35, 0.85), (textOklch.c * 0.70).coerceAtLeast(0.0), textOklch.h))
                 val subtleText = oklchToHex(Oklch((textOklch.l - 0.45).coerceIn(0.25, 0.70), (textOklch.c * 0.50).coerceAtLeast(0.0), textOklch.h))
 
-                // Interactive & Secondary Harmonics (derived in OKLCH space from accent)
-                val secondaryDefault = oklchToHex(Oklch((accentOklch.l - 0.04).coerceIn(0.30, 0.85), (accentOklch.c * 0.85).coerceAtLeast(0.0), (accentOklch.h + 20.0) % 360.0))
-                val tertiaryDefault = oklchToHex(Oklch((accentOklch.l + 0.06).coerceIn(0.40, 0.90), (accentOklch.c * 0.75).coerceAtLeast(0.0), (accentOklch.h - 30.0 + 360.0) % 360.0))
+                // Interactive & Secondary Harmonics (derived from multi-source palette or in OKLCH space from accent)
+                val secondaryDefault = secondaryHex ?: oklchToHex(Oklch((accentOklch.l - 0.04).coerceIn(0.30, 0.85), (accentOklch.c * 0.85).coerceAtLeast(0.0), (accentOklch.h + 20.0) % 360.0))
+                val tertiaryDefault = tertiaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.06).coerceIn(0.40, 0.90), (accentOklch.c * 0.75).coerceAtLeast(0.0), (accentOklch.h - 30.0 + 360.0) % 360.0))
 
                 // Perceptually tuned Semantic Feedback Roles (APCA readable on dark surfaces)
                 val successDefault = createOklchColor(0.76, 0.15, 142.0)
@@ -709,9 +718,9 @@ class ThemeManager(private val context: Context) {
                 val mutedText = oklchToHex(Oklch((textOklch.l + 0.28).coerceIn(0.20, 0.75), (textOklch.c * 0.65).coerceAtLeast(0.0), textOklch.h))
                 val subtleText = oklchToHex(Oklch((textOklch.l + 0.44).coerceIn(0.30, 0.85), (textOklch.c * 0.50).coerceAtLeast(0.0), textOklch.h))
 
-                // Interactive & Secondary Harmonics
-                val secondaryDefault = oklchToHex(Oklch((accentOklch.l + 0.08).coerceIn(0.20, 0.75), (accentOklch.c * 0.85).coerceAtLeast(0.0), (accentOklch.h + 15.0) % 360.0))
-                val tertiaryDefault = oklchToHex(Oklch((accentOklch.l + 0.14).coerceIn(0.25, 0.80), (accentOklch.c * 0.75).coerceAtLeast(0.0), (accentOklch.h - 25.0 + 360.0) % 360.0))
+                // Interactive & Secondary Harmonics (derived from multi-source palette or in OKLCH space from accent)
+                val secondaryDefault = secondaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.08).coerceIn(0.20, 0.75), (accentOklch.c * 0.85).coerceAtLeast(0.0), (accentOklch.h + 15.0) % 360.0))
+                val tertiaryDefault = tertiaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.14).coerceIn(0.25, 0.80), (accentOklch.c * 0.75).coerceAtLeast(0.0), (accentOklch.h - 25.0 + 360.0) % 360.0))
 
                 // Perceptually tuned Semantic Feedback Roles (APCA readable on light surfaces)
                 val successDefault = createOklchColor(0.48, 0.16, 142.0)
