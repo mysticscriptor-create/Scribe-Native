@@ -123,11 +123,11 @@ suspend fun computeImageUnderstanding(context: Context, imageUri: String): Image
             val bitmap = (ImageLoader(context).execute(request) as? SuccessResult)
                 ?.image
                 ?.let { (it as? BitmapImage)?.bitmap }
-                ?: return@withContext ThemeGenerationEngine.fallbackUnderstanding(null)
+                ?: return@withContext ThemeGenerationEngine.fallbackUnderstanding()
 
             ThemeGenerationEngine.analyzeImage(bitmap)
         } catch (_: Exception) {
-            ThemeGenerationEngine.fallbackUnderstanding(null)
+            ThemeGenerationEngine.fallbackUnderstanding()
         }
     }
 }

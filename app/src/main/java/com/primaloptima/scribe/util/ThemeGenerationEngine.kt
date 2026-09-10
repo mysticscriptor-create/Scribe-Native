@@ -411,9 +411,9 @@ object ThemeGenerationEngine {
      * Scales down to [ANALYSIS_SAMPLE_SIZE]x[ANALYSIS_SAMPLE_SIZE] max to guarantee determinism and fast execution.
      * Caches result in-memory by fingerprint for instant reuse across recipe selections.
      */
-    fun analyzeImage(bitmap: Bitmap, focusRegion: String? = null): ImageUnderstanding {
+    fun analyzeImage(bitmap: Bitmap): ImageUnderstanding {
         if (bitmap.config == Bitmap.Config.HARDWARE || bitmap.width == 0 || bitmap.height == 0) {
-            return fallbackUnderstanding(focusRegion)
+            return fallbackUnderstanding()
         }
 
         val sample = if (bitmap.width > ANALYSIS_SAMPLE_SIZE || bitmap.height > ANALYSIS_SAMPLE_SIZE) {
@@ -437,7 +437,7 @@ object ThemeGenerationEngine {
             sample.recycle()
         }
 
-        val understanding = analyzePixels(pixels, w, h, focusRegion)
+        val understanding = analyzePixels(pixels, w, h)
         understanding.imageFingerprint?.let { fp ->
             putCachedUnderstanding(fp, understanding)
         }
@@ -450,11 +450,10 @@ object ThemeGenerationEngine {
     fun analyzePixels(
         pixels: IntArray,
         width: Int,
-        height: Int,
-        focusRegion: String? = null
+        height: Int
     ): ImageUnderstanding {
         if (pixels.isEmpty() || width <= 0 || height <= 0) {
-            return fallbackUnderstanding(focusRegion)
+            return fallbackUnderstanding()
         }
 
         // 1. Ranked candidates via MCU QuantizerCelebi & Score
@@ -560,7 +559,6 @@ object ThemeGenerationEngine {
             darkLightBias = darkLightBias,
             paletteDiversity = paletteDiversity,
             imageFingerprint = fingerprint,
-            focusRegion = focusRegion,
             paletteSources = paletteSources,
             averageChroma = averageChroma,
             dominantHue = dominantHue,
@@ -925,7 +923,7 @@ object ThemeGenerationEngine {
         return getHueDescriptor(seedOklch.h, seedOklch.c)
     }
 
-    internal fun fallbackUnderstanding(focusRegion: String? = null): ImageUnderstanding {
+    internal fun fallbackUnderstanding(): ImageUnderstanding {
         val defaultSeed = 0xFF3B82F6.toInt()
         val defaultDominant = listOf("#3B82F6", "#1D4ED8", "#10B981", "#F59E0B")
         val defaultPaletteSources = listOf(
@@ -972,7 +970,6 @@ object ThemeGenerationEngine {
             darkLightBias = DarkLightBias.BALANCED,
             paletteDiversity = PaletteDiversity.MODERATE,
             imageFingerprint = "0000000000000000",
-            focusRegion = focusRegion,
             paletteSources = defaultPaletteSources,
             averageChroma = 0.12f,
             dominantHue = 240.0,

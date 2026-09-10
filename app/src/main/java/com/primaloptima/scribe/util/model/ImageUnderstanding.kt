@@ -27,7 +27,6 @@ data class ImageUnderstanding(
     val darkLightBias: DarkLightBias,
     val paletteDiversity: PaletteDiversity,
     val imageFingerprint: String? = null,
-    val focusRegion: String? = null,
     val paletteSources: List<ImagePaletteSource> = emptyList(),
     val averageChroma: Float = 0f,
     val dominantHue: Double = 0.0,
