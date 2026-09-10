@@ -32,7 +32,7 @@ data class ImageThemeGenerationSession(
     val activeRecipe: ThemeGenerationRecipe = ThemeGenerationRecipe.BALANCED,
     val activeInfluence: ImageInfluence = ImageInfluence.BALANCED,
     val activeWritingCharacter: WritingCharacter = WritingCharacter.NEUTRAL,
-    val isDark: Boolean = false,
+    val isDark: Boolean = understanding.defaultDarkPolarity,
     val relationshipMode: ThemeRelationshipMode = ThemeRelationshipMode.THEME_IMAGE,
     val customName: String? = null
 ) {

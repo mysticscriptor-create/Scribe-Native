@@ -1968,4 +1968,194 @@ class ThemeArchitectureTest {
             }
         }
     }
+
+    @Test
+    fun testSession1_continuousMetricsAndDarkPolarityDeduction() {
+        val darkUnderstanding = ImageUnderstanding(
+            rankedCandidates = listOf(0xFF1E293B.toInt()),
+            dominantColors = listOf("#1E293B"),
+            averageLightness = 0.22f,
+            tonalCharacter = TonalCharacter.LOW_KEY,
+            chromaticCharacter = ChromaticCharacter.MUTED,
+            temperatureBias = TemperatureBias.COOL,
+            darkLightBias = DarkLightBias.DARK_BIASED,
+            paletteDiversity = PaletteDiversity.CONCENTRATED,
+            averageChroma = 0.02f,
+            dominantHue = 220.0,
+            isMonochromatic = true,
+            isExtremeDark = false,
+            isExtremeLight = false
+        )
+        assertTrue("Dark-biased image must default to dark polarity", darkUnderstanding.defaultDarkPolarity)
+
+        val lightUnderstanding = ImageUnderstanding(
+            rankedCandidates = listOf(0xFFF8FAFC.toInt()),
+            dominantColors = listOf("#F8FAFC"),
+            averageLightness = 0.88f,
+            tonalCharacter = TonalCharacter.HIGH_KEY,
+            chromaticCharacter = ChromaticCharacter.MUTED,
+            temperatureBias = TemperatureBias.NEUTRAL,
+            darkLightBias = DarkLightBias.LIGHT_BIASED,
+            paletteDiversity = PaletteDiversity.CONCENTRATED,
+            averageChroma = 0.01f,
+            dominantHue = 210.0,
+            isMonochromatic = true,
+            isExtremeDark = false,
+            isExtremeLight = true
+        )
+        assertFalse("Light-biased image must default to light polarity", lightUnderstanding.defaultDarkPolarity)
+    }
+
+    @Test
+    fun testSession1_specialCase45_monochromeArtworkProducesRestrainedPalette() {
+        // Create grayscale/monochrome pixel array
+        val grayPixels = IntArray(64 * 64) { idx ->
+            val shade = (40 + (idx % 180)).coerceIn(0, 255)
+            (0xFF shl 24) or (shade shl 16) or (shade shl 8) or shade
+        }
+        val understanding = ThemeGenerationEngine.analyzePixels(grayPixels, 64, 64)
+        assertTrue("Grayscale image must be recognized as monochromatic", understanding.isMonochromatic)
+
+        val palette = ThemeGenerationEngine.generateSourcePalette(
+            understanding = understanding,
+            recipe = ThemeGenerationRecipe.BALANCED,
+            isDark = true
+        )
+
+        val accentOklch = ContrastResolver.colorToOklch(ThemeManager.parseColor(palette.accent))
+        assertTrue(
+            "Monochrome image accent chroma must remain restrained (< 0.10) (got ${accentOklch.c})",
+            accentOklch.c < 0.10
+        )
+    }
+
+    @Test
+    fun testSession1_specialCase46_colorfulArtworkPreventsRainbowClutter() {
+        // Pixel array containing multiple vibrant colors
+        val colors = intArrayOf(
+            0xFFEF4444.toInt(), // Red
+            0xFFF59E0B.toInt(), // Amber
+            0xFF10B981.toInt(), // Emerald
+            0xFF3B82F6.toInt(), // Blue
+            0xFF8B5CF6.toInt()  // Purple
+        )
+        val colorfulPixels = IntArray(100 * 100) { idx -> colors[idx % colors.size] }
+        val sources = ThemeGenerationEngine.extractPaletteSources(colorfulPixels, 100, 100)
+
+        // Verify roles are strictly controlled: exactly 1 primary accent and at most 1 of each supporting role
+        val primaryRoles = sources.filter { it.visualRole == VisualRole.PRIMARY_ACCENT }
+        val atmoRoles = sources.filter { it.visualRole == VisualRole.ATMOSPHERIC }
+        val secRoles = sources.filter { it.visualRole == VisualRole.SUPPORTING_ACCENT }
+        val tertRoles = sources.filter { it.visualRole == VisualRole.TERTIARY_ACCENT }
+
+        assertEquals(1, primaryRoles.size)
+        assertTrue(atmoRoles.size <= 1)
+        assertTrue(secRoles.size <= 1)
+        assertTrue(tertRoles.size <= 1)
+
+        // When supporting accent is present, it must maintain distinct hue separation (>= 25 degrees) from primary
+        if (secRoles.isNotEmpty()) {
+            val dist = ThemeGenerationEngine.circularHueDistance(primaryRoles.first().hue, secRoles.first().hue)
+            assertTrue("Supporting accent must maintain hue separation from primary (got $dist)", dist >= 25.0)
+        }
+    }
+
+    @Test
+    fun testSession1_specialCase47_extremeDarkPreservesSurfaceElevationHeadroom() {
+        // Deep near-black pixel array
+        val deepDarkPixels = IntArray(64 * 64) { 0xFF05070A.toInt() }
+        val understanding = ThemeGenerationEngine.analyzePixels(deepDarkPixels, 64, 64)
+        assertTrue("Deep near-black pixels must be recognized as extreme dark", understanding.isExtremeDark)
+
+        val palette = ThemeGenerationEngine.generateSourcePalette(
+            understanding = understanding,
+            recipe = ThemeGenerationRecipe.BALANCED,
+            isDark = true
+        )
+
+        val bgOklch = ContrastResolver.colorToOklch(ThemeManager.parseColor(palette.background))
+        assertTrue(
+            "Deep dark background lightness must maintain headroom for elevation (L >= 0.075) (got ${bgOklch.l})",
+            bgOklch.l >= 0.075
+        )
+    }
+
+    @Test
+    fun testSession1_specialCase48_extremeBrightPreservesOffWhiteReadability() {
+        // High-key near-pure-white pixel array
+        val brightPixels = IntArray(64 * 64) { 0xFFFCFDFF.toInt() }
+        val understanding = ThemeGenerationEngine.analyzePixels(brightPixels, 64, 64)
+        assertTrue("High-key pixels must be recognized as extreme light", understanding.isExtremeLight)
+
+        val palette = ThemeGenerationEngine.generateSourcePalette(
+            understanding = understanding,
+            recipe = ThemeGenerationRecipe.BALANCED,
+            isDark = false
+        )
+
+        val bgOklch = ContrastResolver.colorToOklch(ThemeManager.parseColor(palette.background))
+        assertTrue(
+            "High-key background lightness must be controlled off-white (L <= 0.985) (got ${bgOklch.l})",
+            bgOklch.l <= 0.985
+        )
+    }
+
+    @Test
+    fun testSession1_circularHueMathAndHarmonization() {
+        // Distance wrapping around 0/360 degrees
+        val dist1 = ThemeGenerationEngine.circularHueDistance(10.0, 350.0)
+        assertEquals(20.0, dist1, 0.001)
+
+        val dist2 = ThemeGenerationEngine.circularHueDistance(180.0, 0.0)
+        assertEquals(180.0, dist2, 0.001)
+
+        // Signed difference
+        val diff1 = ThemeGenerationEngine.circularHueDifference(350.0, 10.0)
+        assertEquals(20.0, diff1, 0.001)
+
+        val diff2 = ThemeGenerationEngine.circularHueDifference(10.0, 350.0)
+        assertEquals(-20.0, diff2, 0.001)
+
+        // Harmonization within 80 deg threshold
+        val harmonized = ThemeGenerationEngine.harmonizeHue(10.0, 30.0, fraction = 0.20)
+        assertEquals(14.0, harmonized, 0.001)
+
+        // Harmonization beyond 80 deg threshold (remains unshifted to protect identity)
+        val unshifted = ThemeGenerationEngine.harmonizeHue(10.0, 120.0, fraction = 0.20)
+        assertEquals(10.0, unshifted, 0.001)
+    }
+
+    @Test
+    fun testSession1_recipeIntentProfilesProduceDistinctAesthetics() {
+        val testSeed = 0xFF0284C7.toInt() // Sky blue
+        val understanding = ThemeGenerationEngine.fallbackUnderstanding()
+
+        val balanced = ThemeGenerationEngine.generateSourcePalette(understanding, ThemeGenerationRecipe.BALANCED, testSeed, isDark = true)
+        val atmospheric = ThemeGenerationEngine.generateSourcePalette(understanding, ThemeGenerationRecipe.ATMOSPHERIC, testSeed, isDark = true)
+        val ink = ThemeGenerationEngine.generateSourcePalette(understanding, ThemeGenerationRecipe.INK, testSeed, isDark = true)
+        val expressive = ThemeGenerationEngine.generateSourcePalette(understanding, ThemeGenerationRecipe.EXPRESSIVE, testSeed, isDark = true)
+
+        val balancedBgOklch = ContrastResolver.colorToOklch(ThemeManager.parseColor(balanced.background))
+        val atmoBgOklch = ContrastResolver.colorToOklch(ThemeManager.parseColor(atmospheric.background))
+        val inkBgOklch = ContrastResolver.colorToOklch(ThemeManager.parseColor(ink.background))
+        val expAccentOklch = ContrastResolver.colorToOklch(ThemeManager.parseColor(expressive.accent))
+        val balancedAccentOklch = ContrastResolver.colorToOklch(ThemeManager.parseColor(balanced.accent))
+
+        // INK must have minimal canvas chroma
+        assertTrue("INK background chroma must be <= 0.008 (got ${inkBgOklch.c})", inkBgOklch.c <= 0.008)
+
+        // ATMOSPHERIC must have higher canvas chroma tint than BALANCED
+        assertTrue("ATMOSPHERIC background chroma must exceed BALANCED (got ${atmoBgOklch.c} vs ${balancedBgOklch.c})", atmoBgOklch.c > balancedBgOklch.c)
+
+        // EXPRESSIVE accent chroma should be greater than or equal to BALANCED
+        assertTrue("EXPRESSIVE accent chroma must be high (got ${expAccentOklch.c} vs ${balancedAccentOklch.c})", expAccentOklch.c >= balancedAccentOklch.c)
+
+        // Determinism: Repeated generation produces identical result
+        val balancedAgain = ThemeGenerationEngine.generateSourcePalette(understanding, ThemeGenerationRecipe.BALANCED, testSeed, isDark = true)
+        assertEquals(balanced.background, balancedAgain.background)
+        assertEquals(balanced.text, balancedAgain.text)
+        assertEquals(balanced.accent, balancedAgain.accent)
+        assertEquals(balanced.secondaryAccent, balancedAgain.secondaryAccent)
+        assertEquals(balanced.tertiaryAccent, balancedAgain.tertiaryAccent)
+    }
 }

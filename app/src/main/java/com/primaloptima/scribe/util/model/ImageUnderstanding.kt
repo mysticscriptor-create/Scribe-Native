@@ -28,8 +28,21 @@ data class ImageUnderstanding(
     val paletteDiversity: PaletteDiversity,
     val imageFingerprint: String? = null,
     val focusRegion: String? = null,
-    val paletteSources: List<ImagePaletteSource> = emptyList()
-)
+    val paletteSources: List<ImagePaletteSource> = emptyList(),
+    val averageChroma: Float = 0f,
+    val dominantHue: Double = 0.0,
+    val isMonochromatic: Boolean = false,
+    val isExtremeDark: Boolean = false,
+    val isExtremeLight: Boolean = false
+) {
+    /**
+     * Phase 20/Session 1: Intelligently inferred initial light/dark polarity.
+     * DARK_BIASED or low-key images default to Dark mode.
+     * LIGHT_BIASED or high-key images default to Light mode.
+     */
+    val defaultDarkPolarity: Boolean
+        get() = darkLightBias == DarkLightBias.DARK_BIASED || averageLightness < 0.48f
+}
 
 @Serializable
 enum class VisualRole {

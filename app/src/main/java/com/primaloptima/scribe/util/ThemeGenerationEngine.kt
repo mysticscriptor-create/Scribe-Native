@@ -143,40 +143,61 @@ object ThemeGenerationEngine {
 
         // Filter out extreme near-black noise (L < 0.04) or pure white specular glare (L > 0.985)
         val valid = rawCandidates.filter { it.tone in 0.04..0.985 }
-        if (valid.isEmpty()) return emptyList()
+        if (valid.isEmpty()) {
+            return fallbackUnderstanding().paletteSources
+        }
+
+        val isOverallMonochrome = valid.all { it.chroma < 0.045 }
 
         // 1. PRIMARY ACCENT
         // Candidate with highest MCU score and sufficient chroma (>= 0.06), usable lightness
-        val primaryCandidate = valid.filter { it.chroma >= 0.06 && it.tone in 0.15..0.85 }
-            .maxByOrNull { it.score * 1.5 + it.chroma * 2.0 }
-            ?: valid.maxByOrNull { it.chroma }
-            ?: valid.first()
+        val primaryCandidate = if (isOverallMonochrome) {
+            // Special Case 45: Image without high chroma / monochrome / B&W
+            // Pick candidate with best tone balance (mid-tone) and highest score or subtle undertone
+            valid.maxByOrNull { it.score * 1.5 + (0.5 - abs(it.tone - 0.5)) }
+                ?: valid.first()
+        } else {
+            valid.filter { it.chroma >= 0.06 && it.tone in 0.15..0.85 }
+                .maxByOrNull { it.score * 1.5 + it.chroma * 2.0 }
+                ?: valid.maxByOrNull { it.chroma }
+                ?: valid.first()
+        }
 
         // 2. ATMOSPHERIC
         // Candidate with high population representing the ambient canvas/environment
         val atmosphericCandidate = valid.filter { it.colorArgb != primaryCandidate.colorArgb }
             .filter { it.chroma in 0.005..0.15 && it.tone in 0.08..0.92 }
             .maxByOrNull { it.population.toDouble() / totalPixels }
-            ?: valid.maxByOrNull { it.population }
+            ?: valid.filter { it.colorArgb != primaryCandidate.colorArgb }.maxByOrNull { it.population }
             ?: primaryCandidate
 
         // 3. SUPPORTING ACCENT
         // Distinct hue separation (>= 28 degrees) from primary accent, healthy chroma
-        val supportingCandidate = valid.filter { it.colorArgb != primaryCandidate.colorArgb && it.colorArgb != atmosphericCandidate.colorArgb }
-            .filter { circularHueDistance(it.hue, primaryCandidate.hue) >= 28.0 && it.chroma >= 0.045 && it.tone in 0.12..0.88 }
-            .maxByOrNull { it.score + it.chroma * 2.0 }
+        val supportingCandidate = if (isOverallMonochrome) {
+            // In monochrome: pick a candidate with distinct lightness separation (|delta L| >= 0.12)
+            valid.filter { it.colorArgb != primaryCandidate.colorArgb && it.colorArgb != atmosphericCandidate.colorArgb }
+                .maxByOrNull { abs(it.tone - primaryCandidate.tone) }
+        } else {
+            valid.filter { it.colorArgb != primaryCandidate.colorArgb && it.colorArgb != atmosphericCandidate.colorArgb }
+                .filter { circularHueDistance(it.hue, primaryCandidate.hue) >= 28.0 && it.chroma >= 0.045 && it.tone in 0.12..0.88 }
+                .maxByOrNull { it.score + it.chroma * 2.0 }
+        }
 
         // 4. TERTIARY ACCENT
         // Distinct hue separation from both primary and supporting (if supporting exists)
-        val tertiaryCandidate = valid.filter {
-            it.colorArgb != primaryCandidate.colorArgb &&
-            it.colorArgb != atmosphericCandidate.colorArgb &&
-            (supportingCandidate == null || it.colorArgb != supportingCandidate.colorArgb)
-        }.filter {
-            val distP = circularHueDistance(it.hue, primaryCandidate.hue)
-            val distS = if (supportingCandidate != null) circularHueDistance(it.hue, supportingCandidate.hue) else 90.0
-            distP >= 24.0 && distS >= 24.0 && it.chroma >= 0.035
-        }.maxByOrNull { it.score + it.chroma }
+        val tertiaryCandidate = if (isOverallMonochrome) {
+            null // Special Case 45: Do not invent tertiary accent in monochromatic images
+        } else {
+            valid.filter {
+                it.colorArgb != primaryCandidate.colorArgb &&
+                it.colorArgb != atmosphericCandidate.colorArgb &&
+                (supportingCandidate == null || it.colorArgb != supportingCandidate.colorArgb)
+            }.filter {
+                val distP = circularHueDistance(it.hue, primaryCandidate.hue)
+                val distS = if (supportingCandidate != null) circularHueDistance(it.hue, supportingCandidate.hue) else 90.0
+                distP >= 32.0 && distS >= 28.0 && it.chroma >= 0.045
+            }.maxByOrNull { it.score + it.chroma }
+        }
 
         val result = mutableListOf<ImagePaletteSource>()
         result.add(primaryCandidate.copy(visualRole = VisualRole.PRIMARY_ACCENT))
@@ -522,6 +543,13 @@ object ThemeGenerationEngine {
         // 9. Structured multi-color palette sources
         val paletteSources = extractPaletteSources(pixels, width, height, MAX_QUANTIZER_COLORS)
 
+        // 10. Continuous metrics & Special Case boundaries (Parts 45-48)
+        val averageChroma = meanChroma.toFloat()
+        val dominantHue = candidateOklch.firstOrNull()?.h ?: 220.0
+        val isMonochromatic = meanChroma < 0.045 || (paletteDiversity == PaletteDiversity.CONCENTRATED && meanChroma < 0.065)
+        val isExtremeDark = averageLightness < 0.16f
+        val isExtremeLight = averageLightness > 0.84f
+
         return ImageUnderstanding(
             rankedCandidates = rankedCandidates,
             dominantColors = dominantColors,
@@ -533,7 +561,12 @@ object ThemeGenerationEngine {
             paletteDiversity = paletteDiversity,
             imageFingerprint = fingerprint,
             focusRegion = focusRegion,
-            paletteSources = paletteSources
+            paletteSources = paletteSources,
+            averageChroma = averageChroma,
+            dominantHue = dominantHue,
+            isMonochromatic = isMonochromatic,
+            isExtremeDark = isExtremeDark,
+            isExtremeLight = isExtremeLight
         )
     }
 
@@ -652,9 +685,10 @@ object ThemeGenerationEngine {
         val atmoChroma = atmosphericSource.chroma.coerceIn(0.005, 0.25)
         val primaryHue = primarySource.hue
         val primaryChroma = primarySource.chroma.coerceIn(0.01, 0.28)
+        val isMonochromeArtwork = understanding.isMonochromatic || primaryChroma < 0.045
 
-        // Compute Background targets per recipe
-        val (bgTargetL, bgTargetC, bgHue) = when (recipe) {
+        // Compute Background targets per recipe with bounded limits (Special Cases 47 & 48)
+        val (rawBgTargetL, rawBgTargetC, bgHue) = when (recipe) {
             ThemeGenerationRecipe.BALANCED -> {
                 if (isDark) {
                     Triple(0.12, (atmoChroma * 0.15 * influenceScale).coerceIn(0.005, 0.026), atmoHue)
@@ -671,9 +705,9 @@ object ThemeGenerationEngine {
             }
             ThemeGenerationRecipe.INK -> {
                 if (isDark) {
-                    Triple(0.08, (0.003 * influenceScale).coerceIn(0.001, 0.008), atmoHue)
+                    Triple(0.085, (0.003 * influenceScale).coerceIn(0.001, 0.008), atmoHue)
                 } else {
-                    Triple(0.985, (0.003 * influenceScale).coerceIn(0.001, 0.008), atmoHue)
+                    Triple(0.980, (0.003 * influenceScale).coerceIn(0.001, 0.008), atmoHue)
                 }
             }
             ThemeGenerationRecipe.EXPRESSIVE -> {
@@ -685,12 +719,20 @@ object ThemeGenerationEngine {
             }
         }
 
+        // Bounded limits: protect elevation ramp in deep dark (Part 47) and readability in bright light (Part 48)
+        val bgTargetL = if (isDark) {
+            rawBgTargetL.coerceIn(0.075, 0.145)
+        } else {
+            rawBgTargetL.coerceIn(0.955, 0.980)
+        }
+        val bgTargetC = rawBgTargetC
+
         val bgOklch = ContrastResolver.Oklch(l = bgTargetL, c = bgTargetC, h = bgHue)
         val bgInt = ContrastResolver.oklchToColorInt(bgOklch)
         val bgHex = String.format("#%06X", 0xFFFFFF and bgInt)
 
         // Primary Accent target per recipe, harmonized gently with ambient atmosphere
-        val harmonizedPrimaryHue = harmonizeHue(primaryHue, atmoHue, 0.12)
+        val harmonizedPrimaryHue = if (isMonochromeArtwork) primaryHue else harmonizeHue(primaryHue, atmoHue, 0.12)
         val (accentTargetL, accentBaseC) = when (recipe) {
             ThemeGenerationRecipe.BALANCED -> {
                 if (isDark) Pair(0.72, maxOf(primaryChroma, 0.13)) else Pair(0.45, maxOf(primaryChroma, 0.13))
@@ -706,7 +748,13 @@ object ThemeGenerationEngine {
             }
         }
 
-        val accentTargetC = (accentBaseC * accentScale).coerceIn(0.08, 0.25)
+        // Special Case 45: Restrained accent chroma for monochrome/neutral artwork
+        val accentTargetC = if (isMonochromeArtwork) {
+            (primaryChroma * 1.1).coerceIn(0.040, 0.085)
+        } else {
+            (accentBaseC * accentScale).coerceIn(0.08, 0.25)
+        }
+
         val accentOklch = ContrastResolver.Oklch(l = accentTargetL, c = accentTargetC, h = harmonizedPrimaryHue)
         val candidateAccentInt = ContrastResolver.oklchToColorInt(accentOklch)
         val resolvedAccent = ContrastResolver.resolveContrast(
@@ -725,7 +773,11 @@ object ThemeGenerationEngine {
             rawSecHue
         }
         val secBaseC = supportingSource?.chroma ?: (primaryChroma * 0.85)
-        val secTargetC = (secBaseC * accentScale * 0.90).coerceIn(0.06, 0.22)
+        val secTargetC = if (isMonochromeArtwork) {
+            (secBaseC * 1.0).coerceIn(0.035, 0.075)
+        } else {
+            (secBaseC * accentScale * 0.90).coerceIn(0.06, 0.22)
+        }
         val secOklch = ContrastResolver.Oklch(
             l = if (isDark) 0.74 else 0.44,
             c = secTargetC,
@@ -748,7 +800,11 @@ object ThemeGenerationEngine {
             rawTertHue
         }
         val tertBaseC = tertiarySource?.chroma ?: (primaryChroma * 0.75)
-        val tertTargetC = (tertBaseC * accentScale * 0.80).coerceIn(0.05, 0.20)
+        val tertTargetC = if (isMonochromeArtwork) {
+            (tertBaseC * 1.0).coerceIn(0.030, 0.070)
+        } else {
+            (tertBaseC * accentScale * 0.80).coerceIn(0.05, 0.20)
+        }
         val tertOklch = ContrastResolver.Oklch(
             l = if (isDark) 0.76 else 0.46,
             c = tertTargetC,
@@ -917,7 +973,12 @@ object ThemeGenerationEngine {
             paletteDiversity = PaletteDiversity.MODERATE,
             imageFingerprint = "0000000000000000",
             focusRegion = focusRegion,
-            paletteSources = defaultPaletteSources
+            paletteSources = defaultPaletteSources,
+            averageChroma = 0.12f,
+            dominantHue = 240.0,
+            isMonochromatic = false,
+            isExtremeDark = false,
+            isExtremeLight = false
         )
     }
 }
