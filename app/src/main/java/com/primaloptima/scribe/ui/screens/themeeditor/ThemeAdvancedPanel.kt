@@ -8,8 +8,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.FormatAlignLeft
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ChevronDown
-import androidx.compose.material.icons.filled.ChevronUp
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FormatAlignCenter
 import androidx.compose.material.icons.filled.FormatAlignJustify
 import androidx.compose.material.icons.filled.Refresh
@@ -295,7 +295,7 @@ fun ThemeAdvancedPanel(
                         )
                     }
                     Icon(
-                        if (showElevationDetails) Icons.Default.ChevronUp else Icons.Default.ChevronDown,
+                        if (showElevationDetails) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                         contentDescription = "Toggle elevation details",
                         tint = ScribeTheme.colors.content.secondary
                     )
