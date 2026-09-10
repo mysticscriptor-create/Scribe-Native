@@ -616,37 +616,49 @@ class ThemeManager(private val context: Context) {
                 // Boundaries & Focus (subtle divider vs standard component boundary vs focus)
                 val borderNormal = oklchToHex(Oklch((bgOklch.l + 0.14).coerceIn(0.01, 0.95), bgOklch.c * 0.70, bgOklch.h))
                 val borderSubtle = oklchToHex(Oklch((bgOklch.l + 0.08).coerceIn(0.01, 0.95), bgOklch.c * 0.75, bgOklch.h))
-                val borderProminent = accentHex
+                val borderProminent = oklchToHex(Oklch((bgOklch.l + 0.28).coerceIn(0.12, 0.85), (accentOklch.c * 0.40).coerceIn(0.02, 0.08), accentOklch.h))
+                val focusDefault = oklchToHex(Oklch(0.85, (accentOklch.c * 0.85).coerceIn(0.10, 0.22), accentOklch.h))
 
                 // Lexer & Writing Engine Syntactical Roles (Editorial)
                 val dialogueDefault = createOklchColor(0.90, 0.13, 86.0)
                 val monologueDefault = createOklchColor(0.80, 0.09, 255.0)
-                val headingDefault = accentHex
+                val headingDefault = oklchToHex(Oklch((textOklch.l + 0.04).coerceIn(0.92, 0.98), (accentOklch.c * 0.35).coerceIn(0.02, 0.08), accentOklch.h))
                 val annotationDefault = createOklchColor(0.78, 0.14, 300.0)
-                val linkDefault = accentHex
-                val focusDefault = borderProminent
+                val linkDefault = if (circularHueDistance(accentOklch.h, 235.0) < 30.0) {
+                    oklchToHex(Oklch(0.80, 0.15, (accentOklch.h + 35.0) % 360.0))
+                } else {
+                    createOklchColor(0.78, 0.15, 235.0)
+                }
 
                 // Analytics & Metrics Semantics (Independent derivation)
-                val analyticsPositiveDefault = successDefault
+                val analyticsPositiveDefault = createOklchColor(0.74, 0.16, 158.0)
                 val analyticsNeutralDefault = mutedText
-                val analyticsNegativeDefault = errorDefault
-                val analyticsSeries1Default = accentHex
+                val analyticsNegativeDefault = createOklchColor(0.74, 0.18, 12.0)
+                val analyticsSeries1Default = if (circularHueDistance(accentOklch.h, 235.0) < 30.0) {
+                    oklchToHex(Oklch(0.76, 0.17, (accentOklch.h + 40.0) % 360.0))
+                } else {
+                    oklchToHex(Oklch(0.76, 0.17, 235.0))
+                }
                 val analyticsSeries2Default = oklchToHex(Oklch(0.75, 0.16, 280.0))
                 val analyticsSeries3Default = oklchToHex(Oklch(0.78, 0.14, 195.0))
                 val analyticsTargetDefault = oklchToHex(Oklch(0.82, 0.16, 85.0))
-                val analyticsWarningDefault = warningDefault
+                val analyticsWarningDefault = createOklchColor(0.80, 0.16, 68.0)
 
                 // Worldbuilding Lore Entity Semantics (Independent derivation)
-                val worldCharacterDefault = accentHex
-                val worldLocationDefault = oklchToHex(Oklch(0.78, 0.15, 142.0))
+                val worldCharacterDefault = if (circularHueDistance(accentOklch.h, 350.0) < 25.0) {
+                    oklchToHex(Oklch(0.76, 0.17, (accentOklch.h + 35.0) % 360.0))
+                } else {
+                    oklchToHex(Oklch(0.76, 0.17, 350.0))
+                }
+                val worldLocationDefault = oklchToHex(Oklch(0.78, 0.15, 138.0))
                 val worldFactionDefault = oklchToHex(Oklch(0.72, 0.16, 250.0))
-                val worldItemDefault = oklchToHex(Oklch(0.82, 0.16, 80.0))
+                val worldItemDefault = oklchToHex(Oklch(0.82, 0.16, 78.0))
                 val worldLoreDefault = oklchToHex(Oklch(0.74, 0.15, 295.0))
-                val worldEventDefault = oklchToHex(Oklch(0.75, 0.17, 345.0))
-                val worldRelationshipDefault = oklchToHex(Oklch(0.78, 0.14, 175.0))
+                val worldEventDefault = oklchToHex(Oklch(0.75, 0.17, 325.0))
+                val worldRelationshipDefault = oklchToHex(Oklch(0.78, 0.14, 178.0))
 
                 // ── Stage 4: Structured Output Assembly ───────────────────────────────
-                ThemeColors(
+                val rawDarkColors = ThemeColors(
                     background = bgHex,
                     surfaceLowest = surfaceLowest,
                     surface = surface,
@@ -692,6 +704,7 @@ class ThemeManager(private val context: Context) {
                     toolbar = surface,
                     toolbarText = effectiveTextHex
                 )
+                resolveSemanticCollisions(rawDarkColors, isDark = true)
             } else {
                 // Light & Tinted Mode Elevation Ramp
                 val surfaceLowest: String
@@ -736,36 +749,48 @@ class ThemeManager(private val context: Context) {
                 // Boundaries & Focus (derived with adequate contrast against light background)
                 val borderNormal = oklchToHex(Oklch((bgOklch.l - 0.14).coerceIn(0.10, 0.98), bgOklch.c * 0.65, bgOklch.h))
                 val borderSubtle = oklchToHex(Oklch((bgOklch.l - 0.085).coerceIn(0.10, 0.98), bgOklch.c * 0.70, bgOklch.h))
-                val borderProminent = accentHex
+                val borderProminent = oklchToHex(Oklch((bgOklch.l - 0.28).coerceIn(0.12, 0.75), (accentOklch.c * 0.40).coerceIn(0.02, 0.08), accentOklch.h))
+                val focusDefault = oklchToHex(Oklch(0.32, (accentOklch.c * 0.85).coerceIn(0.12, 0.24), accentOklch.h))
 
                 // Lexer & Writing Engine Syntactical Roles
                 val dialogueDefault = createOklchColor(0.44, 0.16, 45.0)
                 val monologueDefault = createOklchColor(0.40, 0.12, 255.0)
-                val headingDefault = accentHex
+                val headingDefault = oklchToHex(Oklch((textOklch.l - 0.04).coerceIn(0.08, 0.20), (accentOklch.c * 0.35).coerceIn(0.02, 0.08), accentOklch.h))
                 val annotationDefault = createOklchColor(0.48, 0.16, 300.0)
-                val linkDefault = accentHex
-                val focusDefault = borderProminent
+                val linkDefault = if (circularHueDistance(accentOklch.h, 240.0) < 30.0) {
+                    oklchToHex(Oklch(0.40, 0.17, (accentOklch.h + 35.0) % 360.0))
+                } else {
+                    createOklchColor(0.42, 0.17, 240.0)
+                }
 
                 // Analytics & Metrics Semantics (Independent derivation)
-                val analyticsPositiveDefault = successDefault
+                val analyticsPositiveDefault = createOklchColor(0.46, 0.17, 158.0)
                 val analyticsNeutralDefault = mutedText
-                val analyticsNegativeDefault = errorDefault
-                val analyticsSeries1Default = accentHex
+                val analyticsNegativeDefault = createOklchColor(0.48, 0.20, 12.0)
+                val analyticsSeries1Default = if (circularHueDistance(accentOklch.h, 235.0) < 30.0) {
+                    oklchToHex(Oklch(0.48, 0.18, (accentOklch.h + 40.0) % 360.0))
+                } else {
+                    oklchToHex(Oklch(0.48, 0.18, 235.0))
+                }
                 val analyticsSeries2Default = oklchToHex(Oklch(0.48, 0.18, 280.0))
                 val analyticsSeries3Default = oklchToHex(Oklch(0.50, 0.15, 195.0))
                 val analyticsTargetDefault = oklchToHex(Oklch(0.55, 0.16, 80.0))
-                val analyticsWarningDefault = warningDefault
+                val analyticsWarningDefault = createOklchColor(0.53, 0.17, 68.0)
 
                 // Worldbuilding Lore Entity Semantics (Independent derivation)
-                val worldCharacterDefault = accentHex
-                val worldLocationDefault = oklchToHex(Oklch(0.48, 0.16, 142.0))
+                val worldCharacterDefault = if (circularHueDistance(accentOklch.h, 350.0) < 25.0) {
+                    oklchToHex(Oklch(0.50, 0.18, (accentOklch.h + 35.0) % 360.0))
+                } else {
+                    oklchToHex(Oklch(0.50, 0.18, 350.0))
+                }
+                val worldLocationDefault = oklchToHex(Oklch(0.48, 0.16, 138.0))
                 val worldFactionDefault = oklchToHex(Oklch(0.46, 0.17, 250.0))
-                val worldItemDefault = oklchToHex(Oklch(0.54, 0.17, 75.0))
+                val worldItemDefault = oklchToHex(Oklch(0.54, 0.17, 78.0))
                 val worldLoreDefault = oklchToHex(Oklch(0.48, 0.16, 295.0))
-                val worldEventDefault = oklchToHex(Oklch(0.50, 0.18, 345.0))
-                val worldRelationshipDefault = oklchToHex(Oklch(0.50, 0.14, 175.0))
+                val worldEventDefault = oklchToHex(Oklch(0.50, 0.18, 325.0))
+                val worldRelationshipDefault = oklchToHex(Oklch(0.50, 0.14, 178.0))
 
-                ThemeColors(
+                val rawLightColors = ThemeColors(
                     background = bgHex,
                     surfaceLowest = surfaceLowest,
                     surface = surface,
@@ -811,7 +836,193 @@ class ThemeManager(private val context: Context) {
                     toolbar = surface,
                     toolbarText = effectiveTextHex
                 )
+                resolveSemanticCollisions(rawLightColors, isDark = false)
             }
+        }
+
+        fun circularHueDistance(h1: Double, h2: Double): Double {
+            val d = kotlin.math.abs(h1 - h2) % 360.0
+            return if (d > 180.0) 360.0 - d else d
+        }
+
+        /**
+         * Part 23 Semantic Collision Detection & Resolution.
+         * Enforces strict priority order:
+         * PROSE / CORE READABILITY > PRIMARY INTERACTION > STATUS SEMANTICS > WRITING SEMANTICS > ANALYTICS / WORLD > DECORATIVE ROLES
+         */
+        fun resolveSemanticCollisions(colors: ThemeColors, isDark: Boolean): ThemeColors {
+            val textOklch = colorToOklch(parseColor(colors.text))
+            val accentOklch = colorToOklch(parseColor(colors.accent))
+
+            var successOklch = colorToOklch(parseColor(colors.success))
+            var warningOklch = colorToOklch(parseColor(colors.warning))
+            var errorOklch = colorToOklch(parseColor(colors.error))
+            var infoOklch = colorToOklch(parseColor(colors.info))
+            val highlightOklch = colorToOklch(parseColor(colors.specialHighlight))
+
+            var dialogueOklch = colorToOklch(parseColor(colors.dialogueText))
+            var monologueOklch = colorToOklch(parseColor(colors.monologueText))
+            var headingOklch = colorToOklch(parseColor(colors.headingText))
+
+            var s1Oklch = colorToOklch(parseColor(colors.analyticsSeries1))
+            var s2Oklch = colorToOklch(parseColor(colors.analyticsSeries2))
+            var s3Oklch = colorToOklch(parseColor(colors.analyticsSeries3))
+
+            var charOklch = colorToOklch(parseColor(colors.worldCharacter))
+            var locOklch = colorToOklch(parseColor(colors.worldLocation))
+            var factionOklch = colorToOklch(parseColor(colors.worldFaction))
+            var itemOklch = colorToOklch(parseColor(colors.worldItem))
+            var loreOklch = colorToOklch(parseColor(colors.worldLore))
+            var eventOklch = colorToOklch(parseColor(colors.worldEvent))
+            var relOklch = colorToOklch(parseColor(colors.worldRelationship))
+
+            // 1. Primary Interaction vs Status Semantics (Primary has priority over Status)
+            if (circularHueDistance(accentOklch.h, successOklch.h) < 32.0 && kotlin.math.abs(accentOklch.l - successOklch.l) < 0.20) {
+                // Adjust success: shift hue towards mint/emerald
+                successOklch = Oklch(successOklch.l, successOklch.c, (successOklch.h + 35.0) % 360.0)
+            }
+            if (circularHueDistance(accentOklch.h, warningOklch.h) < 32.0 && kotlin.math.abs(accentOklch.l - warningOklch.l) < 0.20) {
+                // Adjust warning: shift hue towards amber/tangerine
+                warningOklch = Oklch(warningOklch.l, warningOklch.c, (warningOklch.h - 32.0 + 360.0) % 360.0)
+            }
+            if (circularHueDistance(accentOklch.h, errorOklch.h) < 30.0 && kotlin.math.abs(accentOklch.l - errorOklch.l) < 0.20) {
+                // Adjust error: shift hue towards ruby/crimson
+                errorOklch = Oklch(errorOklch.l, errorOklch.c, (errorOklch.h - 30.0 + 360.0) % 360.0)
+            }
+            if (circularHueDistance(accentOklch.h, infoOklch.h) < 30.0) {
+                // Adjust info: shift hue towards cyan/sky
+                infoOklch = Oklch(infoOklch.l, infoOklch.c, (infoOklch.h - 30.0 + 360.0) % 360.0)
+            }
+
+            // 2. Writing Semantics vs Status / Prose
+            // Dialogue vs Highlight: Status has priority over writing
+            if (circularHueDistance(dialogueOklch.h, highlightOklch.h) < 24.0) {
+                dialogueOklch = if (isDark) {
+                    Oklch(0.92, 0.14, 98.0) // Citron
+                } else {
+                    Oklch(0.44, 0.16, 38.0) // Terracotta
+                }
+            }
+            // Dialogue vs Prose: Prose has priority
+            if (kotlin.math.abs(dialogueOklch.l - textOklch.l) < 0.08 && circularHueDistance(dialogueOklch.h, textOklch.h) < 25.0) {
+                dialogueOklch = Oklch(
+                    if (isDark) (textOklch.l - 0.08).coerceAtLeast(0.80) else (textOklch.l + 0.18).coerceAtMost(0.48),
+                    maxOf(dialogueOklch.c, 0.12),
+                    dialogueOklch.h
+                )
+            }
+            // Monologue vs Prose: Prose has priority
+            if (kotlin.math.abs(monologueOklch.l - textOklch.l) < 0.08 && monologueOklch.c < 0.06) {
+                monologueOklch = Oklch(
+                    if (isDark) (textOklch.l - 0.12).coerceAtLeast(0.72) else (textOklch.l + 0.22).coerceAtMost(0.42),
+                    0.09,
+                    255.0
+                )
+            }
+            // Heading vs Prose: Prose has priority
+            if (kotlin.math.abs(headingOklch.l - textOklch.l) < 0.04) {
+                headingOklch = Oklch(
+                    if (isDark) (textOklch.l + 0.05).coerceIn(0.92, 0.98) else (textOklch.l - 0.05).coerceIn(0.08, 0.22),
+                    headingOklch.c,
+                    headingOklch.h
+                )
+            }
+
+            // 3. Analytics Series Channels (Ensure distinct series hues)
+            if (circularHueDistance(s1Oklch.h, s2Oklch.h) < 35.0) {
+                s2Oklch = Oklch(s2Oklch.l, s2Oklch.c, (s2Oklch.h + 45.0) % 360.0)
+            }
+            if (circularHueDistance(s2Oklch.h, s3Oklch.h) < 35.0 || circularHueDistance(s1Oklch.h, s3Oklch.h) < 35.0) {
+                s3Oklch = Oklch(s3Oklch.l, s3Oklch.c, (s3Oklch.h - 45.0 + 360.0) % 360.0)
+            }
+
+            // 4. World Categories Pairwise Hue Separation (>= 22.0 deg)
+            val worldList = mutableListOf(locOklch, factionOklch, itemOklch, loreOklch, eventOklch, relOklch, charOklch)
+            for (i in 0 until worldList.size) {
+                for (j in (i + 1) until worldList.size) {
+                    if (circularHueDistance(worldList[i].h, worldList[j].h) < 22.0) {
+                        worldList[j] = Oklch(worldList[j].l, worldList[j].c, (worldList[j].h + 35.0) % 360.0)
+                    }
+                }
+            }
+            locOklch = worldList[0]
+            factionOklch = worldList[1]
+            itemOklch = worldList[2]
+            loreOklch = worldList[3]
+            eventOklch = worldList[4]
+            relOklch = worldList[5]
+            charOklch = worldList[6]
+
+            return colors.copy(
+                success = oklchToHex(successOklch),
+                warning = oklchToHex(warningOklch),
+                error = oklchToHex(errorOklch),
+                info = oklchToHex(infoOklch),
+                dialogueText = oklchToHex(dialogueOklch),
+                monologueText = oklchToHex(monologueOklch),
+                headingText = oklchToHex(headingOklch),
+                analyticsSeries1 = oklchToHex(s1Oklch),
+                analyticsSeries2 = oklchToHex(s2Oklch),
+                analyticsSeries3 = oklchToHex(s3Oklch),
+                worldCharacter = oklchToHex(charOklch),
+                worldLocation = oklchToHex(locOklch),
+                worldFaction = oklchToHex(factionOklch),
+                worldItem = oklchToHex(itemOklch),
+                worldLore = oklchToHex(loreOklch),
+                worldEvent = oklchToHex(eventOklch),
+                worldRelationship = oklchToHex(relOklch)
+            )
+        }
+
+        /**
+         * Merges handcrafted reference colors (e.g. from built-in themes) over generated defaults,
+         * ensuring handcrafted aesthetic decisions are preserved while any missing semantic roles are
+         * deterministically populated.
+         */
+        fun mergeHandcraftedOverDefaults(handcrafted: ThemeColors, defaults: ThemeColors): ThemeColors {
+            return handcrafted.copy(
+                surfaceLowest = handcrafted.surfaceLowest.takeIf { it.isNotBlank() && it != handcrafted.background } ?: defaults.surfaceLowest,
+                surface = handcrafted.surface.takeIf { it.isNotBlank() && it != handcrafted.background } ?: defaults.surface,
+                surfaceRaised = handcrafted.surfaceRaised.takeIf { it.isNotBlank() && it != handcrafted.surface } ?: defaults.surfaceRaised,
+                surfaceOverlay = handcrafted.surfaceOverlay.takeIf { it.isNotBlank() && it != handcrafted.surface } ?: defaults.surfaceOverlay,
+                mutedText = handcrafted.mutedText.takeIf { it.isNotBlank() && it != handcrafted.text } ?: defaults.mutedText,
+                subtleText = handcrafted.subtleText.takeIf { it.isNotBlank() && it != handcrafted.mutedText } ?: defaults.subtleText,
+                secondary = handcrafted.secondary.takeIf { it.isNotBlank() && it != handcrafted.accent } ?: defaults.secondary,
+                tertiary = handcrafted.tertiary.takeIf { it.isNotBlank() && it != handcrafted.accent } ?: defaults.tertiary,
+                accentMuted = handcrafted.accentMuted.takeIf { it.isNotBlank() } ?: defaults.accentMuted,
+                selection = handcrafted.selection.takeIf { it.isNotBlank() } ?: defaults.selection,
+                border = handcrafted.border.takeIf { it.isNotBlank() } ?: defaults.border,
+                borderSubtle = handcrafted.borderSubtle.takeIf { it.isNotBlank() } ?: defaults.borderSubtle,
+                borderProminent = handcrafted.borderProminent.takeIf { it.isNotBlank() } ?: defaults.borderProminent,
+                focus = handcrafted.focus.takeIf { it.isNotBlank() } ?: handcrafted.borderProminent.takeIf { it.isNotBlank() } ?: defaults.focus,
+                success = handcrafted.success.takeIf { it.isNotBlank() } ?: defaults.success,
+                warning = handcrafted.warning.takeIf { it.isNotBlank() } ?: defaults.warning,
+                error = handcrafted.error.takeIf { it.isNotBlank() } ?: defaults.error,
+                info = handcrafted.info.takeIf { it.isNotBlank() } ?: defaults.info,
+                specialHighlight = handcrafted.specialHighlight.takeIf { it.isNotBlank() } ?: defaults.specialHighlight,
+                dialogueText = handcrafted.dialogueText.takeIf { it.isNotBlank() } ?: defaults.dialogueText,
+                monologueText = handcrafted.monologueText.takeIf { it.isNotBlank() } ?: defaults.monologueText,
+                headingText = handcrafted.headingText.takeIf { it.isNotBlank() } ?: defaults.headingText,
+                annotation = handcrafted.annotation.takeIf { it.isNotBlank() } ?: defaults.annotation,
+                link = handcrafted.link.takeIf { it.isNotBlank() } ?: defaults.link,
+                analyticsPositive = handcrafted.analyticsPositive.takeIf { it.isNotBlank() } ?: defaults.analyticsPositive,
+                analyticsNeutral = handcrafted.analyticsNeutral.takeIf { it.isNotBlank() } ?: defaults.analyticsNeutral,
+                analyticsNegative = handcrafted.analyticsNegative.takeIf { it.isNotBlank() } ?: defaults.analyticsNegative,
+                analyticsSeries1 = handcrafted.analyticsSeries1.takeIf { it.isNotBlank() } ?: defaults.analyticsSeries1,
+                analyticsSeries2 = handcrafted.analyticsSeries2.takeIf { it.isNotBlank() } ?: defaults.analyticsSeries2,
+                analyticsSeries3 = handcrafted.analyticsSeries3.takeIf { it.isNotBlank() } ?: defaults.analyticsSeries3,
+                analyticsTarget = handcrafted.analyticsTarget.takeIf { it.isNotBlank() } ?: defaults.analyticsTarget,
+                analyticsWarning = handcrafted.analyticsWarning.takeIf { it.isNotBlank() } ?: defaults.analyticsWarning,
+                worldCharacter = handcrafted.worldCharacter.takeIf { it.isNotBlank() } ?: defaults.worldCharacter,
+                worldLocation = handcrafted.worldLocation.takeIf { it.isNotBlank() } ?: defaults.worldLocation,
+                worldFaction = handcrafted.worldFaction.takeIf { it.isNotBlank() } ?: defaults.worldFaction,
+                worldItem = handcrafted.worldItem.takeIf { it.isNotBlank() } ?: defaults.worldItem,
+                worldLore = handcrafted.worldLore.takeIf { it.isNotBlank() } ?: defaults.worldLore,
+                worldEvent = handcrafted.worldEvent.takeIf { it.isNotBlank() } ?: defaults.worldEvent,
+                worldRelationship = handcrafted.worldRelationship.takeIf { it.isNotBlank() } ?: defaults.worldRelationship,
+                toolbar = handcrafted.toolbar.takeIf { it.isNotBlank() } ?: defaults.toolbar,
+                toolbarText = handcrafted.toolbarText.takeIf { it.isNotBlank() } ?: defaults.toolbarText
+            )
         }
 
         /**
@@ -900,21 +1111,20 @@ class ThemeManager(private val context: Context) {
 
         /**
          * Resolves an entire AppTheme instance to its authoritative resolved colors.
-         * For built-in themes without overrides, preserves handcrafted reference colors.
-         * For built-in themes with overrides, layers explicit user overrides onto reference colors.
+         * For built-in themes, preserves handcrafted reference colors while populating any missing roles.
          * For custom themes, resolves deterministic OKLCH defaults from foundation sources and layers overrides.
          */
         fun resolveTheme(theme: AppTheme): AppTheme {
-            val resolvedColors = if (theme.builtIn && (theme.overrides == null || theme.overrides.isEmpty())) {
-                theme.colors
-            } else if (theme.builtIn && theme.overrides != null) {
-                applyOverrides(theme.colors, theme.overrides)
+            val defaults = generateThemeDefaults(theme.sourcePalette(), theme.isDark)
+            val baseColors = if (theme.builtIn) {
+                mergeHandcraftedOverDefaults(theme.colors, defaults)
             } else {
-                resolveThemeColors(
-                    sources = theme.sourcePalette(),
-                    overrides = theme.overrides,
-                    isDark = theme.isDark
-                )
+                defaults
+            }
+            val resolvedColors = if (theme.overrides != null && theme.overrides.isNotEmpty()) {
+                applyOverrides(baseColors, theme.overrides)
+            } else {
+                baseColors
             }
             return theme.copy(colors = resolvedColors)
         }
