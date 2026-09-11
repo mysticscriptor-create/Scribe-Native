@@ -92,12 +92,142 @@ fun DashboardTabContent(
     // currentStreak is a live StateFlow in DashboardViewModel that updates
     // automatically whenever writing_log changes. No manual load on screen entry.
 
+    DashboardContent(
+        ongoingBook = ongoingBook,
+        chapters = chapters,
+        totalProjectWords = totalProjectWords,
+        totalTarget = totalTarget,
+        currentStreak = currentStreak,
+        todayWords = todayWords,
+        dailyGoal = dailyGoal,
+        weekData = weekData,
+        accentColor = accentColor,
+        onContinueWriting = {
+            val latest = chapters.firstOrNull()
+            if (latest != null) onOpenNote(latest.id, latest.bookId)
+        },
+        onNewChapter = {
+            vm.createChapter { note -> onOpenNote(note.id, note.bookId) }
+        },
+        onOpenBook = { onOpenBook(ongoingBook ?: it) },
+        onSetProject = { showBookPicker = true },
+        onOpenNote = onOpenNote,
+        onGoToStats = onGoToStats,
+        onGoToBooks = onGoToBooks,
+        onOpenSheets = onOpenSheets,
+        onEditGoal = { showGoalDialog = true }
+    )
+
+    // ── Book picker bottom sheet ──────────────────────────────────────────────
+    if (showBookPicker) {
+        BookPickerSheet(
+            books            = allBooks,
+            currentOngoingId = ongoingBookId,
+            accentColor      = accentColor,
+            onSelect = { book ->
+                vm.setOngoingProject(book.id)
+                showBookPicker = false
+            },
+            onDismiss = { showBookPicker = false }
+        )
+    }
+
+    // ── Goal setting bottom sheet ─────────────────────────────────────────────
+    if (showGoalDialog) {
+        GoalSettingSheet(
+            bookId      = ongoingBookId,
+            currentGoal = bookGoal,
+            vm          = vm,
+            accentColor = accentColor,
+            onDismiss   = { showGoalDialog = false }
+        )
+    }
+}
+
+// ── Isolated Sample Data for Previews ─────────────────────────────────────────
+
+object DashboardPreviewData {
+    val sampleBook = Book(
+        id = "preview_book_obsidian",
+        title = "The Obsidian Gate",
+        summary = "A dark fantasy chronicle of ruin and resilience",
+        tags = "Fantasy,Epic",
+        createdAt = 1700000000000L
+    )
+
+    val sampleChapters = listOf(
+        Note(
+            id = "preview_note_1",
+            bookId = "preview_book_obsidian",
+            name = "Chapter VII: The Whispering Pass",
+            wordCount = 3420,
+            content = "The morning mist clung to the cobblestones of Aethelgard..."
+        ),
+        Note(
+            id = "preview_note_2",
+            bookId = "preview_book_obsidian",
+            name = "Chapter VI: Beneath the Ash Peak",
+            wordCount = 4150,
+            content = "Iron clanged against basalt..."
+        ),
+        Note(
+            id = "preview_note_3",
+            bookId = "preview_book_obsidian",
+            name = "Chapter V: Echoes of the Citadel",
+            wordCount = 2890,
+            content = "In the heart of the tower..."
+        )
+    )
+
+    val sampleWeekData: List<Triple<String, Int, Boolean>> = listOf(
+        Triple("M", 850, true),
+        Triple("T", 1200, true),
+        Triple("W", 650, true),
+        Triple("T", 920, true),
+        Triple("F", 1450, true),
+        Triple("S", 1100, true),
+        Triple("S", 780, true)
+    )
+}
+
+/**
+ * Canonical decoupled UI content for the Scribe Dashboard.
+ *
+ * Exposes pure state parameters without requiring a [DashboardViewModel], enabling
+ * direct reuse across both the production app [DashboardTabContent] and live preview
+ * systems ([ScribeThemeLivePreview]).
+ *
+ * Any changes made to Scribe's cards, layout, or typography in DashboardScreen are
+ * automatically mirrored in the theme preview without duplication.
+ */
+@Composable
+fun DashboardContent(
+    ongoingBook: Book? = DashboardPreviewData.sampleBook,
+    chapters: List<Note> = DashboardPreviewData.sampleChapters,
+    totalProjectWords: Int = 34_500,
+    totalTarget: Int = 80_000,
+    currentStreak: Int = 7,
+    todayWords: Int = 1_240,
+    dailyGoal: Int = 1_000,
+    weekData: List<Triple<String, Int, Boolean>> = DashboardPreviewData.sampleWeekData,
+    accentColor: Color = ScribeTheme.colors.interaction.primary,
+    onContinueWriting: () -> Unit = {},
+    onNewChapter: () -> Unit = {},
+    onOpenBook: (Book) -> Unit = {},
+    onSetProject: () -> Unit = {},
+    onOpenNote: (noteId: String, bookId: String) -> Unit = { _, _ -> },
+    onGoToStats: () -> Unit = {},
+    onGoToBooks: () -> Unit = {},
+    onOpenSheets: () -> Unit = {},
+    onEditGoal: () -> Unit = {},
+    contentPadding: PaddingValues = PaddingValues(bottom = 24.dp),
+    modifier: Modifier = Modifier
+) {
     CompositionLocalProvider(LocalOneShotBitmap provides LocalBarBlurBitmap.current) {
         LazyColumn(
-            modifier       = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 24.dp)
+            modifier       = modifier.fillMaxSize(),
+            contentPadding = contentPadding
         ) {
-
             // ── Greeting ──────────────────────────────────────────────────────
             item {
                 DashboardGreeting(streak = currentStreak, accentColor = accentColor)
@@ -109,7 +239,7 @@ fun DashboardTabContent(
                 if (ongoingBook == null) {
                     NoProjectCard(
                         accentColor  = accentColor,
-                        onSetProject = { showBookPicker = true }
+                        onSetProject = onSetProject
                     )
                 } else {
                     CurrentProjectCard(
@@ -118,14 +248,9 @@ fun DashboardTabContent(
                         totalWords        = totalProjectWords,
                         totalTarget       = totalTarget,
                         accentColor       = accentColor,
-                        onContinueWriting = {
-                            val latest = chapters.firstOrNull()
-                            if (latest != null) onOpenNote(latest.id, latest.bookId)
-                        },
-                        onNewChapter = {
-                            vm.createChapter { note -> onOpenNote(note.id, note.bookId) }
-                        },
-                        onOpenBook = { onOpenBook(ongoingBook) }
+                        onContinueWriting = onContinueWriting,
+                        onNewChapter      = onNewChapter,
+                        onOpenBook        = { onOpenBook(ongoingBook) }
                     )
                 }
             }
@@ -155,7 +280,7 @@ fun DashboardTabContent(
                     totalWords  = totalProjectWords,
                     totalTarget = totalTarget,
                     accentColor = accentColor,
-                    onGoToStats = { showGoalDialog = true }
+                    onGoToStats = onEditGoal
                 )
             }
 
@@ -173,31 +298,6 @@ fun DashboardTabContent(
                 }
             }
         }
-    }
-
-    // ── Book picker bottom sheet ──────────────────────────────────────────────
-    if (showBookPicker) {
-        BookPickerSheet(
-            books            = allBooks,
-            currentOngoingId = ongoingBookId,
-            accentColor      = accentColor,
-            onSelect = { book ->
-                vm.setOngoingProject(book.id)
-                showBookPicker = false
-            },
-            onDismiss = { showBookPicker = false }
-        )
-    }
-
-    // ── Goal setting bottom sheet ─────────────────────────────────────────────
-    if (showGoalDialog) {
-        GoalSettingSheet(
-            bookId      = ongoingBookId,
-            currentGoal = bookGoal,
-            vm          = vm,
-            accentColor = accentColor,
-            onDismiss   = { showGoalDialog = false }
-        )
     }
 }
 

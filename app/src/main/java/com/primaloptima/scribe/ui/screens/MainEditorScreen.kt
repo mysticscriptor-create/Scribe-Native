@@ -690,193 +690,43 @@ fun MainEditorScreen(
                             // Update Header inside ComposeView
                             layout.headerView.setContent {
                                 if (!zenMode && activeNote != null) {
-                                    val localPrimaryFocus = remember { FocusRequester() }
-                                    val localSecondaryFocus = remember { FocusRequester() }
-                                    var secondaryFocusTrigger by remember { mutableIntStateOf(0) }
-
-                                    val moveToSecondaryTitle: () -> Unit = {
-                                        showSecondaryTitle = true
-                                        secondaryFocusTrigger++
-                                    }
-
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(start = 28.dp, top = 56.dp, end = 28.dp, bottom = 12.dp)
-                                    ) {
-                                        // Primary Title / Kicker (e.g., CHAPTER I)
-                                        BasicTextField(
-                                            value = primaryTitleText,
-                                            onValueChange = { input ->
-                                                if (input.contains('\n')) {
-                                                    val sanitized = input.replace("\n", "").trimEnd()
-                                                    primaryTitleText = sanitized
-                                                    persistDualTitle(sanitized, secondaryTitleText)
-                                                    moveToSecondaryTitle()
-                                                } else {
-                                                    primaryTitleText = input
-                                                    persistDualTitle(input, secondaryTitleText)
-                                                }
-                                            },
-                                            singleLine = false,
-                                            maxLines = 4,
-                                            textStyle = MaterialTheme.typography.titleMedium.copy(
-                                                color = MaterialTheme.colorScheme.primary,
-                                                fontWeight = FontWeight.SemiBold,
-                                                textAlign = TextAlign.Center,
-                                                letterSpacing = 2.5.sp
-                                            ),
-                                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                            keyboardOptions = KeyboardOptions(
-                                                imeAction = ImeAction.Next,
-                                                capitalization = KeyboardCapitalization.Sentences
-                                            ),
-                                            keyboardActions = KeyboardActions(
-                                                onNext = {
-                                                    moveToSecondaryTitle()
-                                                }
-                                            ),
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .focusRequester(localPrimaryFocus)
-                                                .onPreviewKeyEvent { event ->
-                                                    if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
-                                                        moveToSecondaryTitle()
-                                                        true
-                                                    } else false
-                                                },
-                                            decorationBox = { innerTextField ->
-                                                Box(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    if (primaryTitleText.isEmpty()) {
-                                                        Text(
-                                                            text = "CHAPTER / TITLE",
-                                                            style = MaterialTheme.typography.titleMedium.copy(
-                                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                                                fontWeight = FontWeight.SemiBold,
-                                                                textAlign = TextAlign.Center,
-                                                                letterSpacing = 2.5.sp
-                                                            )
-                                                        )
-                                                    }
-                                                    innerTextField()
-                                                }
+                                    ManuscriptHeader(
+                                        primaryTitleText = primaryTitleText,
+                                        secondaryTitleText = secondaryTitleText,
+                                        selectedOrnamentId = selectedOrnamentId,
+                                        showSecondaryTitle = showSecondaryTitle,
+                                        onPrimaryTitleChange = { sanitized ->
+                                            primaryTitleText = sanitized
+                                            persistDualTitle(sanitized, secondaryTitleText)
+                                        },
+                                        onSecondaryTitleChange = { sanitized ->
+                                            secondaryTitleText = sanitized
+                                            persistDualTitle(primaryTitleText, sanitized)
+                                        },
+                                        onOrnamentClick = { showOrnamentPicker = true },
+                                        onMoveToSecondaryTitle = {
+                                            showSecondaryTitle = true
+                                        },
+                                        onDone = {
+                                            soraEditorRef?.let { ed ->
+                                                ed.setSelection(0, 0)
+                                                unifiedCanvasRef?.resetScroll()
+                                                ed.requestFocus()
                                             }
-                                        )
-
-                                        // Main Title (e.g., The Starlit Archive)
-                                        if (showSecondaryTitle || secondaryTitleText.isNotEmpty()) {
-                                            LaunchedEffect(secondaryFocusTrigger) {
-                                                if (secondaryFocusTrigger > 0) {
-                                                    withFrameNanos { }
-                                                    try {
-                                                        localSecondaryFocus.requestFocus()
-                                                    } catch (_: Exception) { }
-                                                }
+                                        },
+                                        onBackspaceEmptySecondary = {
+                                            showSecondaryTitle = false
+                                            persistDualTitle(primaryTitleText, "")
+                                        },
+                                        onEnterInSecondary = {
+                                            soraEditorRef?.let { ed ->
+                                                ed.setSelection(0, 0)
+                                                unifiedCanvasRef?.resetScroll()
+                                                ed.requestFocus()
                                             }
-                                            Spacer(Modifier.height(6.dp))
-                                            BasicTextField(
-                                                value = secondaryTitleText,
-                                                onValueChange = { input ->
-                                                    if (input.contains('\n')) {
-                                                        val sanitized = input.replace("\n", "").trimEnd()
-                                                        secondaryTitleText = sanitized
-                                                        persistDualTitle(primaryTitleText, sanitized)
-                                                        soraEditorRef?.let { ed ->
-                                                            ed.setSelection(0, 0)
-                                                            unifiedCanvasRef?.resetScroll()
-                                                            ed.requestFocus()
-                                                        }
-                                                    } else {
-                                                        secondaryTitleText = input
-                                                        persistDualTitle(primaryTitleText, input)
-                                                    }
-                                                },
-                                                singleLine = false,
-                                                maxLines = 4,
-                                                textStyle = MaterialTheme.typography.headlineMedium.copy(
-                                                    color = MaterialTheme.colorScheme.onBackground,
-                                                    fontWeight = FontWeight.Bold,
-                                                    textAlign = TextAlign.Center
-                                                ),
-                                                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                                keyboardOptions = KeyboardOptions(
-                                                    imeAction = ImeAction.Done,
-                                                    capitalization = KeyboardCapitalization.Sentences
-                                                ),
-                                                keyboardActions = KeyboardActions(
-                                                    onDone = {
-                                                        soraEditorRef?.let { ed ->
-                                                            ed.setSelection(0, 0)
-                                                            unifiedCanvasRef?.resetScroll()
-                                                            ed.requestFocus()
-                                                        }
-                                                    }
-                                                ),
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .focusRequester(localSecondaryFocus)
-                                                    .onPreviewKeyEvent { event ->
-                                                        if (event.key == Key.Backspace && secondaryTitleText.isEmpty() && event.type == KeyEventType.KeyUp) {
-                                                            showSecondaryTitle = false
-                                                            persistDualTitle(primaryTitleText, "")
-                                                            localPrimaryFocus.requestFocus()
-                                                            true
-                                                        } else if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
-                                                            soraEditorRef?.let { ed ->
-                                                                ed.setSelection(0, 0)
-                                                                unifiedCanvasRef?.resetScroll()
-                                                                ed.requestFocus()
-                                                            }
-                                                            true
-                                                        } else false
-                                                    },
-                                                decorationBox = { innerTextField ->
-                                                    Box(
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        if (secondaryTitleText.isEmpty()) {
-                                                            Text(
-                                                                text = "Manuscript Title (Optional)",
-                                                                style = MaterialTheme.typography.headlineMedium.copy(
-                                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                                                                    fontWeight = FontWeight.Bold,
-                                                                    textAlign = TextAlign.Center
-                                                                )
-                                                            )
-                                                        }
-                                                        innerTextField()
-                                                    }
-                                                }
-                                            )
-                                        }
-
-                                        // Extensible Vector Manuscript Ornament Divider
-                                        val currentOrnament = remember(selectedOrnamentId) {
-                                            OrnamentRegistry.getById(selectedOrnamentId)
-                                        }
-
-                                        Spacer(Modifier.height(10.dp))
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clip(ScribeTheme.shapes.button)
-                                                .clickable {
-                                                    showOrnamentPicker = true
-                                                }
-                                                .padding(vertical = 4.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            currentOrnament.Render(
-                                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                                                modifier = Modifier
-                                            )
-                                        }
-                                    }
+                                        },
+                                        isEditable = true
+                                    )
                                 }
                             }
                         },
@@ -1567,18 +1417,18 @@ private fun FindReplaceBar(
 
 // ── Extracted: Word-count pill ────────────────────────────────────────────────
 @Composable
-private fun WordCountPill(
-    modifier        : Modifier,
-    pillOffsetX     : Float,
-    pillOffsetY     : Float,
-    onOffsetChange  : (Float, Float) -> Unit,
-    pillMode        : Int,
-    onModeClick     : () -> Unit,
-    wordCount       : Int,
-    charCount       : Int,
-    deltaText       : String?,
-    isPositiveDelta : Boolean,
-    hazeState       : dev.chrisbanes.haze.HazeState?,
+fun WordCountPill(
+    modifier        : Modifier = Modifier,
+    pillOffsetX     : Float = 0f,
+    pillOffsetY     : Float = 0f,
+    onOffsetChange  : (Float, Float) -> Unit = { _, _ -> },
+    pillMode        : Int = 0,
+    onModeClick     : () -> Unit = {},
+    wordCount       : Int = 1420,
+    charCount       : Int = 7850,
+    deltaText       : String? = null,
+    isPositiveDelta : Boolean = true,
+    hazeState       : dev.chrisbanes.haze.HazeState? = LocalHazeState.current,
 ) {
     val registerBounds = LocalInteractiveBoundsRegistry.current
     DisposableEffect(Unit) {
@@ -1653,10 +1503,10 @@ private fun WordCountPill(
 
 
 @Composable
-private fun FormatButton(
+fun FormatButton(
     label      : String,
     isSelected : Boolean = false,
-    onClick    : () -> Unit
+    onClick    : () -> Unit = {}
 ) {
     Surface(
         onClick      = onClick,
@@ -1672,6 +1522,408 @@ private fun FormatButton(
             modifier         = Modifier.padding(horizontal = ScribeTheme.spacing.medium, vertical = ScribeTheme.spacing.micro)
         ) {
             Text(label, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+// ── Canonical Manuscript Header ───────────────────────────────────────────────
+
+@Composable
+fun ManuscriptHeader(
+    primaryTitleText: String,
+    secondaryTitleText: String,
+    selectedOrnamentId: String = "classic_flourish",
+    showSecondaryTitle: Boolean = secondaryTitleText.isNotEmpty(),
+    onPrimaryTitleChange: ((String) -> Unit)? = null,
+    onSecondaryTitleChange: ((String) -> Unit)? = null,
+    onOrnamentClick: (() -> Unit)? = null,
+    onMoveToSecondaryTitle: (() -> Unit)? = null,
+    onDone: (() -> Unit)? = null,
+    onBackspaceEmptySecondary: (() -> Unit)? = null,
+    onEnterInSecondary: (() -> Unit)? = null,
+    isEditable: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    if (isEditable) {
+        val localPrimaryFocus = remember { FocusRequester() }
+        val localSecondaryFocus = remember { FocusRequester() }
+        var secondaryFocusTrigger by remember { mutableIntStateOf(0) }
+
+        val moveToSecondary: () -> Unit = {
+            onMoveToSecondaryTitle?.invoke()
+            secondaryFocusTrigger++
+        }
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(start = 28.dp, top = 56.dp, end = 28.dp, bottom = 12.dp)
+        ) {
+            // Primary Title / Kicker (e.g., CHAPTER I)
+            BasicTextField(
+                value = primaryTitleText,
+                onValueChange = { input ->
+                    if (input.contains('\n')) {
+                        val sanitized = input.replace("\n", "").trimEnd()
+                        onPrimaryTitleChange?.invoke(sanitized)
+                        moveToSecondary()
+                    } else {
+                        onPrimaryTitleChange?.invoke(input)
+                    }
+                },
+                singleLine = false,
+                maxLines = 4,
+                textStyle = MaterialTheme.typography.titleMedium.copy(
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold,
+                    textAlign = TextAlign.Center,
+                    letterSpacing = 2.5.sp
+                ),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                keyboardOptions = KeyboardOptions(
+                    imeAction = ImeAction.Next,
+                    capitalization = KeyboardCapitalization.Sentences
+                ),
+                keyboardActions = KeyboardActions(
+                    onNext = { moveToSecondary() }
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(localPrimaryFocus)
+                    .onPreviewKeyEvent { event ->
+                        if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
+                            moveToSecondary()
+                            true
+                        } else false
+                    },
+                decorationBox = { innerTextField ->
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (primaryTitleText.isEmpty()) {
+                            Text(
+                                text = "CHAPTER / TITLE",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                    fontWeight = FontWeight.SemiBold,
+                                    textAlign = TextAlign.Center,
+                                    letterSpacing = 2.5.sp
+                                )
+                            )
+                        }
+                        innerTextField()
+                    }
+                }
+            )
+
+            // Main Title (e.g., The Starlit Archive)
+            if (showSecondaryTitle || secondaryTitleText.isNotEmpty()) {
+                LaunchedEffect(secondaryFocusTrigger) {
+                    if (secondaryFocusTrigger > 0) {
+                        withFrameNanos { }
+                        try {
+                            localSecondaryFocus.requestFocus()
+                        } catch (_: Exception) { }
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                BasicTextField(
+                    value = secondaryTitleText,
+                    onValueChange = { input ->
+                        if (input.contains('\n')) {
+                            val sanitized = input.replace("\n", "").trimEnd()
+                            onSecondaryTitleChange?.invoke(sanitized)
+                            onEnterInSecondary?.invoke()
+                        } else {
+                            onSecondaryTitleChange?.invoke(input)
+                        }
+                    },
+                    singleLine = false,
+                    maxLines = 4,
+                    textStyle = MaterialTheme.typography.headlineMedium.copy(
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions(
+                        imeAction = ImeAction.Done,
+                        capitalization = KeyboardCapitalization.Sentences
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = { onDone?.invoke() }
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(localSecondaryFocus)
+                        .onPreviewKeyEvent { event ->
+                            if (event.key == Key.Backspace && secondaryTitleText.isEmpty() && event.type == KeyEventType.KeyUp) {
+                                onBackspaceEmptySecondary?.invoke()
+                                localPrimaryFocus.requestFocus()
+                                true
+                            } else if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
+                                onEnterInSecondary?.invoke()
+                                true
+                            } else false
+                        },
+                    decorationBox = { innerTextField ->
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (secondaryTitleText.isEmpty()) {
+                                Text(
+                                    text = "Manuscript Title (Optional)",
+                                    style = MaterialTheme.typography.headlineMedium.copy(
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                                        fontWeight = FontWeight.Bold,
+                                        textAlign = TextAlign.Center
+                                    )
+                                )
+                            }
+                            innerTextField()
+                        }
+                    }
+                )
+            }
+
+            // Extensible Vector Manuscript Ornament Divider
+            val currentOrnament = remember(selectedOrnamentId) {
+                OrnamentRegistry.getById(selectedOrnamentId)
+            }
+
+            Spacer(Modifier.height(10.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(ScribeTheme.shapes.button)
+                    .clickable { onOrnamentClick?.invoke() }
+                    .padding(vertical = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                currentOrnament.Render(
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                    modifier = Modifier
+                )
+            }
+        }
+    } else {
+        // Pure display mode for live theme preview and non-editing views
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(start = 16.dp, top = 24.dp, end = 16.dp, bottom = 8.dp)
+        ) {
+            if (primaryTitleText.isNotEmpty()) {
+                Text(
+                    text = primaryTitleText,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                        letterSpacing = 2.sp
+                    ),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            if (secondaryTitleText.isNotEmpty()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = secondaryTitleText,
+                    style = MaterialTheme.typography.headlineMedium.copy(
+                        color = MaterialTheme.colorScheme.onBackground,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    ),
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            val currentOrnament = remember(selectedOrnamentId) {
+                OrnamentRegistry.getById(selectedOrnamentId)
+            }
+            Spacer(Modifier.height(8.dp))
+            currentOrnament.Render(
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                modifier = Modifier
+            )
+        }
+    }
+}
+
+// ── Shortcut Bar Composable ───────────────────────────────────────────────────
+
+@Composable
+fun EditorShortcutBar(
+    shortcuts: List<String> = listOf("B", "I", "H1", "H2", "“ ”", "—", "•"),
+    onShortcutClick: (String) -> Unit = {},
+    hazeState: dev.chrisbanes.haze.HazeState? = LocalHazeState.current,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .frostedBar(hazeState)
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment     = Alignment.CenterVertically
+    ) {
+        shortcuts.forEach { label ->
+            FormatButton(label = label) {
+                onShortcutClick(label)
+            }
+        }
+    }
+}
+
+// ── Canonical Prose Body Preview ──────────────────────────────────────────────
+
+@Composable
+fun EditorProsePreviewBody(
+    modifier: Modifier = Modifier
+) {
+    val proseStyle = ScribeTheme.typography.prose
+    val dialogueStyle = ScribeTheme.typography.dialogue
+    val monologueStyle = ScribeTheme.typography.monologue
+    val headingStyle = ScribeTheme.typography.heading
+    val colors = ScribeTheme.colors.writing
+
+    val align = when (ScribeTheme.typography.editor.textAlignment) {
+        "justified" -> TextAlign.Justify
+        "center" -> TextAlign.Center
+        else -> TextAlign.Left
+    }
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy((ScribeTheme.typography.editor.paragraphSpacing * 12).dp.coerceAtLeast(6.dp))
+    ) {
+        Text(
+            text = "The morning mist clung to the cobblestones of Aethelgard like silver breath. Far below, the obsidian gates creaked against the rising wind.",
+            style = proseStyle.copy(color = colors.prose, textAlign = align),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Text(
+            text = "“We must reach the high pass before the eclipse,” she murmured.",
+            style = dialogueStyle.copy(color = colors.dialogue, textAlign = align),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Text(
+            text = "If the garrison falls, neither iron nor prayer will hold the eastern breach.",
+            style = monologueStyle.copy(color = colors.monologue, textAlign = align),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Text(
+            text = "I. The Runes of the Archway",
+            style = headingStyle.copy(color = colors.heading, textAlign = align),
+            modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+        )
+
+        Text(
+            text = "A faint amber luminescence pulsed along the ancient lintel—a warning they could no longer afford to ignore.",
+            style = proseStyle.copy(color = colors.prose, textAlign = align),
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
+}
+
+// ── Canonical Editor Content for Live Previews & Modularity ───────────────────
+
+/**
+ * Decoupled content composable representing Scribe's canonical Editor UI.
+ *
+ * Renders the top bar, manuscript header with extensible ornaments, typography tokens
+ * (prose, dialogue, monologue, heading), floating word count pill, and shortcut bar.
+ *
+ * Decoupled from ViewModel or Room persistence, for direct use in live theme previews.
+ */
+@Composable
+fun EditorContent(
+    primaryTitle: String = "CHAPTER VII",
+    secondaryTitle: String = "The Obsidian Gate",
+    selectedOrnamentId: String = "classic_flourish",
+    wordCount: Int = 1420,
+    charCount: Int = 7850,
+    deltaText: String? = "+340 today",
+    isPositiveDelta: Boolean = true,
+    showTopBar: Boolean = true,
+    showWordCountPill: Boolean = true,
+    showShortcutBar: Boolean = true,
+    hazeState: dev.chrisbanes.haze.HazeState? = LocalHazeState.current,
+    modifier: Modifier = Modifier
+) {
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            if (showTopBar) {
+                ScribeEditorTopBar(
+                    title = secondaryTitle.ifEmpty { primaryTitle },
+                    navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
+                    onNavClick = {},
+                    actions = listOf(
+                        ScribeBarAction(Icons.Default.Search, "Search") {},
+                        ScribeBarAction(Icons.Default.BookmarkAdd, "Bookmark") {},
+                        ScribeBarAction(Icons.Default.MoreVert, "More") {}
+                    )
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    ManuscriptHeader(
+                        primaryTitleText = primaryTitle,
+                        secondaryTitleText = secondaryTitle,
+                        selectedOrnamentId = selectedOrnamentId,
+                        isEditable = false
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    EditorProsePreviewBody()
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
+
+                if (showWordCountPill) {
+                    WordCountPill(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(top = 8.dp, end = 8.dp),
+                        pillOffsetX = 0f,
+                        pillOffsetY = 0f,
+                        onOffsetChange = { _, _ -> },
+                        pillMode = 0,
+                        onModeClick = {},
+                        wordCount = wordCount,
+                        charCount = charCount,
+                        deltaText = deltaText,
+                        isPositiveDelta = isPositiveDelta,
+                        hazeState = hazeState
+                    )
+                }
+            }
+
+            if (showShortcutBar) {
+                EditorShortcutBar(hazeState = hazeState)
+            }
         }
     }
 }

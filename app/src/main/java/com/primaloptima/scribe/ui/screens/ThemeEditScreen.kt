@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.primaloptima.scribe.ui.components.ScribeBarAction
+import com.primaloptima.scribe.ui.components.ScribeThemeLivePreview
 import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.screens.themeeditor.*
 import com.primaloptima.scribe.ui.theme.FrostedDialog
@@ -209,7 +210,7 @@ fun ThemeEditScreen(
                                 )
                             }
 
-                            ThemePreviewStage(
+                            ScribeThemeLivePreview(
                                 colors = resolvedColors,
                                 themeName = draft.name,
                                 fontFamily = draft.fontFamily,
@@ -221,6 +222,10 @@ fun ThemeEditScreen(
                                 bgUri = draft.bgUri,
                                 bgOpacity = draft.bgOpacity,
                                 blurIntensity = draft.blurIntensity,
+                                frostedGlassEnabled = draft.frostedGlassEnabled,
+                                frostedTintEnabled = draft.frostedTintEnabled,
+                                frostedBlurRadius = draft.frostedBlurRadius,
+                                isDark = draft.isDark,
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -344,7 +349,7 @@ fun ThemeEditScreen(
 
                                     if (isExpandedPreview) {
                                         Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                            ThemePreviewStage(
+                                            ScribeThemeLivePreview(
                                                 colors = resolvedColors,
                                                 themeName = draft.name,
                                                 fontFamily = draft.fontFamily,
@@ -355,7 +360,12 @@ fun ThemeEditScreen(
                                                 bgMode = draft.bgMode,
                                                 bgUri = draft.bgUri,
                                                 bgOpacity = draft.bgOpacity,
-                                                blurIntensity = draft.blurIntensity
+                                                blurIntensity = draft.blurIntensity,
+                                                frostedGlassEnabled = draft.frostedGlassEnabled,
+                                                frostedTintEnabled = draft.frostedTintEnabled,
+                                                frostedBlurRadius = draft.frostedBlurRadius,
+                                                isDark = draft.isDark,
+                                                modifier = Modifier.height(350.dp)
                                             )
                                         }
                                     }

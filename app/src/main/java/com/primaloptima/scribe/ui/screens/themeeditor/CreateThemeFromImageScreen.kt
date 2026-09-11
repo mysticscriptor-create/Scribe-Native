@@ -19,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.primaloptima.scribe.ui.components.ScribeThemeLivePreview
 import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.util.DefaultThemes
 import com.primaloptima.scribe.util.model.AppTheme
@@ -251,7 +252,7 @@ fun CreateThemeFromImageScreen(
                             else -> currentSession.croppedUri ?: currentSession.imageUri
                         }
 
-                        ThemePreviewStage(
+                        ScribeThemeLivePreview(
                             colors = resolvedColors,
                             themeName = currentSession.effectiveThemeName,
                             fontFamily = baseTheme.fontFamily,
@@ -267,7 +268,8 @@ fun CreateThemeFromImageScreen(
                             bgUri = previewBgUri,
                             bgOpacity = baseTheme.backgroundImageOpacity ?: 0.35f,
                             blurIntensity = if (currentSession.relationshipMode == ThemeRelationshipMode.THEME_GLASS) 25f else baseTheme.blurIntensity,
-                            modifier = Modifier.height(240.dp)
+                            isDark = currentSession.isDark,
+                            modifier = Modifier.height(350.dp)
                         )
                     }
                 }
