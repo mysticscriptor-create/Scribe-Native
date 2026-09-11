@@ -269,7 +269,7 @@ fun CreateThemeFromImageScreen(
                             bgOpacity = baseTheme.backgroundImageOpacity ?: 0.35f,
                             blurIntensity = if (currentSession.relationshipMode == ThemeRelationshipMode.THEME_GLASS) 25f else baseTheme.blurIntensity,
                             isDark = currentSession.isDark,
-                            modifier = Modifier.height(350.dp)
+                            modifier = Modifier.height(390.dp)
                         )
                     }
                 }

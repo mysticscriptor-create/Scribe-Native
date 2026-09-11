@@ -40,6 +40,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -47,13 +48,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImage
 import com.primaloptima.scribe.ui.screens.DashboardContent
 import com.primaloptima.scribe.ui.screens.DashboardPreviewData
 import com.primaloptima.scribe.ui.screens.EditorContent
@@ -68,9 +73,9 @@ import dev.chrisbanes.haze.HazeState
  * Preview pane presentation mode selector.
  */
 enum class PreviewPaneMode(val label: String) {
-    SPLIT("Side-by-Side"),
+    EDITOR("Editor"),
     DASHBOARD("Dashboard"),
-    EDITOR("Editor")
+    SPLIT("Split")
 }
 
 /**
@@ -133,7 +138,26 @@ fun ScribeThemeLivePreview(
         }
     }
 
-    var selectedPaneMode by remember { mutableStateOf(PreviewPaneMode.SPLIT) }
+    val configuration = LocalConfiguration.current
+    val isCompact = configuration.screenWidthDp < 600
+
+    val availableModes = remember(isCompact) {
+        if (isCompact) {
+            listOf(PreviewPaneMode.EDITOR, PreviewPaneMode.DASHBOARD)
+        } else {
+            listOf(PreviewPaneMode.EDITOR, PreviewPaneMode.DASHBOARD, PreviewPaneMode.SPLIT)
+        }
+    }
+
+    var selectedPaneMode by remember(isCompact) {
+        mutableStateOf(if (isCompact) PreviewPaneMode.EDITOR else PreviewPaneMode.SPLIT)
+    }
+
+    LaunchedEffect(availableModes) {
+        if (selectedPaneMode !in availableModes) {
+            selectedPaneMode = availableModes.first()
+        }
+    }
 
     Column(
         modifier = modifier
@@ -161,17 +185,19 @@ fun ScribeThemeLivePreview(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(8.dp)
+                        .size(6.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primary)
                 )
                 Text(
-                    text = "LIVE THEME PREVIEW",
+                    text = "PREVIEW",
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.5.sp,
+                        letterSpacing = 1.2.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    ),
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
 
@@ -179,23 +205,24 @@ fun ScribeThemeLivePreview(
             Row(
                 modifier = Modifier
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.7f))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
                     .border(
                         width = 1.dp,
                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
                         shape = CircleShape
                     )
                     .padding(2.dp),
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                PreviewPaneMode.entries.forEach { mode ->
+                availableModes.forEach { mode ->
                     val isSelected = selectedPaneMode == mode
                     val pillBg by animateColorAsState(
                         targetValue = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
                         label = "pill_bg"
                     )
                     val pillTextColor by animateColorAsState(
-                        targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        targetValue = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
                         label = "pill_text"
                     )
 
@@ -211,7 +238,9 @@ fun ScribeThemeLivePreview(
                             text = mode.label,
                             fontSize = 11.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                            color = pillTextColor
+                            color = pillTextColor,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -244,10 +273,12 @@ fun ScribeThemeLivePreview(
                                             .fillMaxHeight()
                                     ) {
                                         DeviceMockupFrame(
-                                            title = "Dashboard",
-                                            hazeState = previewHazeState
+                                            title = "Editor",
+                                            hazeState = previewHazeState,
+                                            bgUri = bgUri,
+                                            bgOpacity = bgOpacity
                                         ) {
-                                            DashboardPreviewScreen()
+                                            EditorPreviewScreen(selectedOrnamentId = selectedOrnamentId)
                                         }
                                     }
 
@@ -257,10 +288,12 @@ fun ScribeThemeLivePreview(
                                             .fillMaxHeight()
                                     ) {
                                         DeviceMockupFrame(
-                                            title = "Editor",
-                                            hazeState = previewHazeState
+                                            title = "Dashboard",
+                                            hazeState = previewHazeState,
+                                            bgUri = bgUri,
+                                            bgOpacity = bgOpacity
                                         ) {
-                                            EditorPreviewScreen(selectedOrnamentId = selectedOrnamentId)
+                                            DashboardPreviewScreen()
                                         }
                                     }
                                 }
@@ -274,12 +307,14 @@ fun ScribeThemeLivePreview(
                                     Box(
                                         modifier = Modifier
                                             .fillMaxHeight()
-                                            .widthIn(max = 440.dp)
+                                            .widthIn(max = 420.dp)
                                             .fillMaxWidth()
                                     ) {
                                         DeviceMockupFrame(
                                             title = "Dashboard",
-                                            hazeState = previewHazeState
+                                            hazeState = previewHazeState,
+                                            bgUri = bgUri,
+                                            bgOpacity = bgOpacity
                                         ) {
                                             DashboardPreviewScreen()
                                         }
@@ -295,12 +330,14 @@ fun ScribeThemeLivePreview(
                                     Box(
                                         modifier = Modifier
                                             .fillMaxHeight()
-                                            .widthIn(max = 440.dp)
+                                            .widthIn(max = 420.dp)
                                             .fillMaxWidth()
                                     ) {
                                         DeviceMockupFrame(
                                             title = "Editor",
-                                            hazeState = previewHazeState
+                                            hazeState = previewHazeState,
+                                            bgUri = bgUri,
+                                            bgOpacity = bgOpacity
                                         ) {
                                             EditorPreviewScreen(selectedOrnamentId = selectedOrnamentId)
                                         }
@@ -322,12 +359,14 @@ fun ScribeThemeLivePreview(
 private fun DeviceMockupFrame(
     title: String,
     hazeState: HazeState,
+    bgUri: String? = null,
+    bgOpacity: Float = 0.35f,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
     val frameShape = RoundedCornerShape(14.dp)
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .clip(frameShape)
@@ -338,58 +377,71 @@ private fun DeviceMockupFrame(
                 shape = frameShape
             )
     ) {
-        // Status Bar Simulator
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(18.dp)
-                .background(ScribeTheme.colors.surfaces.surfaceRaised.copy(alpha = 0.5f))
-                .padding(horizontal = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "9:41",
-                fontSize = 9.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = ScribeTheme.colors.content.tertiary
-            )
-
-            // Center notch indicator
-            Box(
+        if (!bgUri.isNullOrEmpty()) {
+            AsyncImage(
+                model = bgUri,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
                 modifier = Modifier
-                    .width(36.dp)
-                    .height(3.dp)
-                    .clip(CircleShape)
-                    .background(ScribeTheme.colors.borders.subtle)
+                    .fillMaxSize()
+                    .alpha(bgOpacity)
             )
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Wifi,
-                    contentDescription = null,
-                    tint = ScribeTheme.colors.content.tertiary,
-                    modifier = Modifier.size(10.dp)
-                )
-                Icon(
-                    imageVector = Icons.Default.BatteryFull,
-                    contentDescription = null,
-                    tint = ScribeTheme.colors.content.tertiary,
-                    modifier = Modifier.size(10.dp)
-                )
-            }
         }
 
-        // Screen Body
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            content()
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Status Bar Simulator
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(18.dp)
+                    .background(ScribeTheme.colors.surfaces.surfaceRaised.copy(alpha = 0.5f))
+                    .padding(horizontal = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "9:41",
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = ScribeTheme.colors.content.tertiary
+                )
+
+                // Center notch indicator
+                Box(
+                    modifier = Modifier
+                        .width(36.dp)
+                        .height(3.dp)
+                        .clip(CircleShape)
+                        .background(ScribeTheme.colors.borders.subtle)
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Wifi,
+                        contentDescription = null,
+                        tint = ScribeTheme.colors.content.tertiary,
+                        modifier = Modifier.size(10.dp)
+                    )
+                    Icon(
+                        imageVector = Icons.Default.BatteryFull,
+                        contentDescription = null,
+                        tint = ScribeTheme.colors.content.tertiary,
+                        modifier = Modifier.size(10.dp)
+                    )
+                }
+            }
+
+            // Screen Body
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                content()
+            }
         }
     }
 }

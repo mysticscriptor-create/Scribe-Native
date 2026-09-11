@@ -365,7 +365,7 @@ fun ThemeEditScreen(
                                                 frostedTintEnabled = draft.frostedTintEnabled,
                                                 frostedBlurRadius = draft.frostedBlurRadius,
                                                 isDark = draft.isDark,
-                                                modifier = Modifier.height(350.dp)
+                                                modifier = Modifier.height(390.dp)
                                             )
                                         }
                                     }
