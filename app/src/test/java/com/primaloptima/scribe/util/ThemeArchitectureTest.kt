@@ -1,6 +1,9 @@
 package com.primaloptima.scribe.util
 
 import com.primaloptima.scribe.ui.theme.ContrastResolver
+import com.primaloptima.scribe.ui.theme.ContrastMatrix
+import com.primaloptima.scribe.ui.theme.ValidationStatus
+import com.primaloptima.scribe.ui.theme.Oklch
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.ThemeColorOverrides
 import com.primaloptima.scribe.util.model.ThemeColors
@@ -2267,5 +2270,118 @@ class ThemeArchitectureTest {
             "World categories must be separated from each other after iterative relaxation (got $distWorld)",
             distWorld >= 20.0
         )
+    }
+
+    // ── Session 3: Contrast Matrix, Gamut & Accessibility Engine ──────────────
+
+    @Test
+    fun testSession3_safeGamutMappingPreservesHueAndLightness() {
+        // Construct high-chroma coordinates that would exceed sRGB gamut
+        val outOfGamut = Oklch(l = 0.70, c = 0.35, h = 142.0)
+        assertFalse("High chroma 0.35 in OKLCH should be out of sRGB gamut", ContrastResolver.isInSrgbGamut(outOfGamut))
+
+        val mapped = ContrastResolver.mapToSrgbGamut(outOfGamut)
+        assertTrue("Mapped color must now be strictly within sRGB gamut", ContrastResolver.isInSrgbGamut(mapped))
+        assertEquals("Lightness must be strictly preserved", 0.70, mapped.l, 0.0001)
+        assertEquals("Hue must be strictly preserved without drift", 142.0, mapped.h, 0.0001)
+        assertTrue("Chroma must be positive and reduced to fit gamut", mapped.c in 0.0..0.35)
+
+        // Conversion to color int must not crash or clamp with distortion
+        val colorInt = ContrastResolver.oklchToColorInt(outOfGamut)
+        assertNotEquals(0, colorInt)
+    }
+
+    @Test
+    fun testSession3_deltaEOkUniformityAndRepairMagnitude() {
+        val darkBg = androidx.compose.ui.graphics.Color(0xFF18181B)
+        val lowContrastFg = androidx.compose.ui.graphics.Color(0xFF27272A) // Almost identical to darkBg
+
+        val resolved = ContrastResolver.resolveContrast(
+            background = darkBg,
+            preferredForeground = lowContrastFg,
+            minRatio = 4.5
+        )
+
+        assertTrue("Resolved color must satisfy 4.5:1", resolved.actualRatio >= 4.5)
+        assertTrue("Repair magnitude must be greater than zero for repaired color", resolved.repairMagnitude > 0.0)
+        assertNotEquals(ContrastResolver.ResolutionMethod.DIRECT_PASS, resolved.method)
+
+        // For a color already passing, repairMagnitude must be 0.0
+        val highContrastFg = androidx.compose.ui.graphics.Color(0xFFFFFFFF)
+        val directPass = ContrastResolver.resolveContrast(
+            background = darkBg,
+            preferredForeground = highContrastFg,
+            minRatio = 4.5
+        )
+        assertEquals(ContrastResolver.ResolutionMethod.DIRECT_PASS, directPass.method)
+        assertEquals(0.0, directPass.repairMagnitude, 0.0001)
+    }
+
+    @Test
+    fun testSession3_contrastMatrixEvaluationAcrossAllDefaultThemes() {
+        for (theme in DefaultThemes.all) {
+            val scribeColors = ThemeManager.resolveToScribeColors(theme)
+            val report = ContrastMatrix.validate(scribeColors, theme.id)
+
+            assertNotNull(report)
+            assertEquals(theme.id, report.themeId)
+            assertEquals(theme.isDark, report.isDark)
+            assertTrue("Should evaluate all required matrix rules (found ${report.totalChecks})", report.totalChecks >= 35)
+            assertTrue("Overall pass rate should be calculated", report.overallPassRate in 0.0f..1.0f)
+            assertEquals(report.totalChecks, report.passedChecks + report.failedChecks + report.repairedChecks)
+
+            // Validate structure of entries
+            for (entry in report.entries) {
+                assertTrue("Token must be non-empty", entry.token.isNotBlank())
+                assertTrue("Target surface must be non-empty", entry.targetSurface.isNotBlank())
+                assertTrue("Foreground hex must be valid", entry.foregroundHex.startsWith("#"))
+                assertTrue("Background hex must be valid", entry.backgroundHex.startsWith("#"))
+                assertTrue("WCAG ratio must be positive", entry.wcagRatio > 0.0)
+            }
+        }
+    }
+
+    @Test
+    fun testSession3_machineReadableReportJsonSerialization() {
+        val paperTheme = DefaultThemes.all.first { it.id == "paper" }
+        val scribeColors = ThemeManager.resolveToScribeColors(paperTheme)
+        val report = ContrastMatrix.validate(scribeColors, paperTheme.id)
+
+        val json = report.toJson()
+        assertTrue(json.contains("\"themeId\":\"paper\""))
+        assertTrue(json.contains("\"isDark\":false"))
+        assertTrue(json.contains("\"overallPassRate\":"))
+        assertTrue(json.contains("\"totalChecks\":"))
+        assertTrue(json.contains("\"entries\":["))
+
+        val summary = report.toFormattedSummary()
+        assertTrue(summary.contains("Theme Accessibility Validation Report"))
+        assertTrue(summary.contains("WCAG 2.2"))
+        assertTrue(summary.contains("APCA"))
+    }
+
+    @Test
+    fun testSession3_autoRepairResolvesSubThresholdTokens() {
+        val baseColors = ThemeManager.resolveToScribeColors(DefaultThemes.all.first { it.id == "obsidian" })
+
+        // Intentionally create poor contrast on dialogue
+        val degradedColors = baseColors.copy(
+            writing = baseColors.writing.copy(
+                dialogue = baseColors.surfaces.background // 1.0:1 contrast!
+            )
+        )
+
+        val unvalidatedReport = ContrastMatrix.validate(degradedColors, "test_degraded")
+        val failingDialogue = unvalidatedReport.entries.first { it.token == "writing.dialogue" }
+        assertEquals(ValidationStatus.FAIL, failingDialogue.status)
+
+        // Now run validateAndRepair
+        val (repairedColors, repairedReport) = ContrastMatrix.validateAndRepair(degradedColors, "test_repaired")
+        val repairedDialogue = repairedReport.entries.first { it.token == "writing.dialogue" }
+
+        assertEquals(ValidationStatus.REPAIRED, repairedDialogue.status)
+        assertTrue("Repaired dialogue must satisfy WCAG 4.0:1", repairedDialogue.wcagRatio >= 4.0)
+        assertTrue("Repair magnitude must be recorded", repairedDialogue.repairMagnitude > 0.0)
+        assertNotEquals(degradedColors.writing.dialogue, repairedColors.writing.dialogue)
     }
 }

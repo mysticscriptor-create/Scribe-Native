@@ -1412,5 +1412,21 @@ class ThemeManager(private val context: Context) {
             val scribeColors = resolveToScribeColors(derived, isDark)
             return com.primaloptima.scribe.ui.theme.validateThemeSemanticContrast(scribeColors)
         }
+
+        /**
+         * Validates the theme against the centralized [ContrastMatrix] and returns a machine-readable [AccessibilityReport].
+         */
+        fun generateAccessibilityReport(theme: AppTheme): com.primaloptima.scribe.ui.theme.AccessibilityReport {
+            val scribeColors = resolveToScribeColors(theme)
+            return com.primaloptima.scribe.ui.theme.ContrastMatrix.validate(scribeColors, theme.id)
+        }
+
+        /**
+         * Validates and repairs any semantic contrast deficiencies using the centralized [ContrastMatrix].
+         */
+        fun validateAndRepairTheme(theme: AppTheme): Pair<com.primaloptima.scribe.ui.theme.ScribeColors, com.primaloptima.scribe.ui.theme.AccessibilityReport> {
+            val scribeColors = resolveToScribeColors(theme)
+            return com.primaloptima.scribe.ui.theme.ContrastMatrix.validateAndRepair(scribeColors, theme.id)
+        }
     }
 }

@@ -30,6 +30,12 @@ object ContrastResolver {
 
     /**
      * Semantic role context specifying standard WCAG 2.2 contrast thresholds and APCA Lc targets.
+     *
+     * Note on Accessibility Standards:
+     * - WCAG 2.2 (SC 1.4.3 / 1.4.11) is the normative accessibility baseline used for official conformance.
+     * - APCA (Accessible Perceptual Contrast Algorithm - W3C Silver / WCAG 3 research draft) is used strictly
+     *   as an experimental perceptual diagnostic tool to assess reading comfort and polarity effects.
+     *   APCA values MUST NOT be represented or interpreted as finalized WCAG 3 conformance.
      */
     enum class ContrastRole(val defaultMinRatio: Double, val defaultMinApca: Double = 45.0) {
         /** Normal body text, prose, dialogue, monologue, captions (<18pt or <14pt bold) - WCAG 2.2 SC 1.4.3 (4.5:1) & APCA Lc 75 */
@@ -37,6 +43,9 @@ object ContrastResolver {
 
         /** Large text (>=18pt or >=14pt bold), headings, hero titles - WCAG 2.2 SC 1.4.3 (3.0:1) & APCA Lc 60 */
         LARGE_TEXT(3.0, 60.0),
+
+        /** Secondary/subtle text, metadata, word counts - WCAG 2.2 (3.5:1 / 4.5:1) & APCA Lc 60 */
+        SECONDARY_TEXT(3.5, 60.0),
 
         /** Interactive controls, buttons, FABs, focus rings, status indicators - WCAG 2.2 SC 1.4.11 (3.0:1) & APCA Lc 45 */
         UI_CONTROL(3.0, 45.0),
@@ -82,7 +91,8 @@ object ContrastResolver {
         val actualRatio: Double,
         val passesRequired: Boolean,
         val method: ResolutionMethod,
-        val apcaLc: Double = 0.0
+        val apcaLc: Double = 0.0,
+        val repairMagnitude: Double = 0.0
     )
 
     /**
@@ -208,7 +218,7 @@ object ContrastResolver {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // OKLCH Perceptual Transformations
+    // OKLCH Perceptual Transformations & Gamut Mapping
     // ─────────────────────────────────────────────────────────────────────────
 
     fun colorToOklch(colorInt: Int): Oklch {
@@ -231,7 +241,10 @@ object ContrastResolver {
         return Oklch(L.coerceIn(0.0, 1.0), C.coerceAtLeast(0.0), h)
     }
 
-    fun oklchToColorInt(oklch: Oklch): Int {
+    /**
+     * Unclamped conversion from OKLCH to linear sRGB components.
+     */
+    fun oklchToLinearSrgb(oklch: Oklch): Triple<Double, Double, Double> {
         val hRad = Math.toRadians(oklch.h)
         val a = oklch.c * cos(hRad)
         val bVal = oklch.c * sin(hRad)
@@ -247,6 +260,71 @@ object ContrastResolver {
         val rLin = +4.0767439362 * l - 3.3077115913 * m + 0.2309699292 * s
         val gLin = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
         val bLin = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+
+        return Triple(rLin, gLin, bLin)
+    }
+
+    /**
+     * Tests if an OKLCH coordinate resides strictly within the displayable sRGB gamut.
+     */
+    fun isInSrgbGamut(oklch: Oklch, epsilon: Double = 0.0001): Boolean {
+        val (rLin, gLin, bLin) = oklchToLinearSrgb(oklch)
+        return rLin in -epsilon..(1.0 + epsilon) &&
+               gLin in -epsilon..(1.0 + epsilon) &&
+               bLin in -epsilon..(1.0 + epsilon)
+    }
+
+    /**
+     * Finds maximum in-gamut chroma for a given lightness and hue in OKLCH space.
+     * Uses binary search along constant lightness L and hue H to prevent hue shifts.
+     */
+    fun findMaxChromaInSrgb(l: Double, h: Double, iterations: Int = 12): Double {
+        if (l <= 0.0001 || l >= 0.9999) return 0.0
+        var low = 0.0
+        var high = 0.40
+        for (i in 0 until iterations) {
+            val mid = (low + high) / 2.0
+            if (isInSrgbGamut(Oklch(l, mid, h))) {
+                low = mid
+            } else {
+                high = mid
+            }
+        }
+        return low
+    }
+
+    /**
+     * Maps an OKLCH color safely into sRGB by clamping chroma to the gamut boundary
+     * along constant lightness and hue, eliminating clipping artifacts and hue distortion.
+     */
+    fun mapToSrgbGamut(oklch: Oklch): Oklch {
+        if (isInSrgbGamut(oklch)) return oklch
+        val maxC = findMaxChromaInSrgb(oklch.l, oklch.h)
+        return Oklch(oklch.l, min(oklch.c, maxC), oklch.h)
+    }
+
+    /**
+     * Calculates the perceptual distance Delta E in OKLCH / Oklab space.
+     * Provides a uniform metric for evaluating repair magnitude.
+     */
+    fun deltaEOk(a: Oklch, b: Oklch): Double {
+        val hRadA = Math.toRadians(a.h)
+        val aA = a.c * cos(hRadA)
+        val bA = a.c * sin(hRadA)
+
+        val hRadB = Math.toRadians(b.h)
+        val aB = b.c * cos(hRadB)
+        val bB = b.c * sin(hRadB)
+
+        val dL = a.l - b.l
+        val da = aA - aB
+        val db = bA - bB
+        return sqrt(dL * dL + da * da + db * db)
+    }
+
+    fun oklchToColorInt(oklch: Oklch): Int {
+        val mapped = mapToSrgbGamut(oklch)
+        val (rLin, gLin, bLin) = oklchToLinearSrgb(mapped)
 
         val r = (linearToSRgb(rLin) * 255.0).roundToInt().coerceIn(0, 255)
         val g = (linearToSRgb(gLin) * 255.0).roundToInt().coerceIn(0, 255)
@@ -269,8 +347,9 @@ object ContrastResolver {
      * 1. If [preferredForeground] meets [minRatio], it is returned unmodified (DIRECT_PASS).
      * 2. Otherwise, evaluates contrast headroom (lighter vs darker).
      * 3. Performs a binary search along OKLCH perceptual lightness while preserving exact hue and chroma.
-     * 4. If full chroma cannot achieve [minRatio] due to sRGB gamut boundaries, adapts chroma smoothly.
+     * 4. Maps candidates cleanly into the sRGB gamut along constant lightness and hue to prevent distortion.
      * 5. Falls back to high-contrast tinted neutral or polarity endpoint if needed.
+     * 6. Records repair magnitude in Delta-E OKLCH.
      */
     fun resolveContrast(
         background: Color,
@@ -292,7 +371,8 @@ object ContrastResolver {
                 actualRatio = initialRatio,
                 passesRequired = true,
                 method = ResolutionMethod.DIRECT_PASS,
-                apcaLc = initialApca
+                apcaLc = initialApca,
+                repairMagnitude = 0.0
             )
         }
 
@@ -358,12 +438,14 @@ object ContrastResolver {
                     } else {
                         ResolutionMethod.CHROMA_ADAPTED
                     }
+                    val magnitude = deltaEOk(oklch, colorToOklch(bestColorInt))
                     return ResolvedContrast(
                         color = Color(bestColorInt),
                         actualRatio = bestRatio,
                         passesRequired = true,
                         method = method,
-                        apcaLc = bestApca
+                        apcaLc = bestApca,
+                        repairMagnitude = magnitude
                     )
                 }
             }
@@ -377,12 +459,14 @@ object ContrastResolver {
                 val tintedInt = oklchToColorInt(Oklch(targetL, 0.03, h))
                 val tintedRatio = calculateWcagContrastRatio(tintedInt, bgInt)
                 if (tintedRatio >= minRatio) {
+                    val magnitude = deltaEOk(oklch, colorToOklch(tintedInt))
                     return ResolvedContrast(
                         color = Color(tintedInt),
                         actualRatio = tintedRatio,
                         passesRequired = true,
                         method = ResolutionMethod.TINTED_FALLBACK,
-                        apcaLc = calculateApcaContrast(tintedInt, bgInt)
+                        apcaLc = calculateApcaContrast(tintedInt, bgInt),
+                        repairMagnitude = magnitude
                     )
                 }
             }
@@ -393,13 +477,15 @@ object ContrastResolver {
         val fallbackColor = if (useWhite) Color.White else Color.Black
         val fallbackRatio = if (useWhite) maxLightRatio else maxDarkRatio
         val fallbackInt = fallbackColor.toArgb()
+        val polarityMagnitude = deltaEOk(oklch, colorToOklch(fallbackInt))
 
         return ResolvedContrast(
             color = fallbackColor,
             actualRatio = fallbackRatio,
             passesRequired = fallbackRatio >= minRatio,
             method = ResolutionMethod.POLARITY_FALLBACK,
-            apcaLc = calculateApcaContrast(fallbackInt, bgInt)
+            apcaLc = calculateApcaContrast(fallbackInt, bgInt),
+            repairMagnitude = polarityMagnitude
         )
     }
 
