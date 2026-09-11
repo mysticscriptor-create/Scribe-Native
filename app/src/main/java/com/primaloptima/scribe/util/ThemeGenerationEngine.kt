@@ -19,7 +19,6 @@ import com.primaloptima.scribe.util.model.ThemeGenerationRecipe
 import com.primaloptima.scribe.util.model.ThemeRelationshipMode
 import com.primaloptima.scribe.util.model.ThemeSchema
 import com.primaloptima.scribe.util.model.ThemeSourcePalette
-import com.primaloptima.scribe.util.model.ThemeSourceType
 import com.primaloptima.scribe.util.model.TonalCharacter
 import com.primaloptima.scribe.util.model.VisualRole
 import com.primaloptima.scribe.util.model.WritingCharacter
@@ -1034,9 +1033,8 @@ object ThemeGenerationEngine {
         isDark: Boolean,
         influence: ImageInfluence = ImageInfluence.BALANCED,
         writingCharacter: WritingCharacter = WritingCharacter.NEUTRAL,
-        relationshipMode: ThemeRelationshipMode = ThemeRelationshipMode.HARMONIC_SURFACE,
-        imageUri: String? = null,
-        userSeedHex: String? = null
+        relationshipMode: ThemeRelationshipMode = ThemeRelationshipMode.THEME_IMAGE,
+        imageUri: String? = null
     ): AppTheme {
         val seedColor = candidateColor ?: understanding.rankedCandidates.firstOrNull() ?: 0xFF3B82F6.toInt()
         val seedHex = String.format("#%06X", 0xFFFFFF and seedColor)
@@ -1050,16 +1048,16 @@ object ThemeGenerationEngine {
         )
 
         val metadata = ThemeGenerationMetadata(
-            sourceType = ThemeSourceType.IMAGE_DYNAMIC,
             recipe = recipe,
             imageInfluence = influence,
             writingCharacter = writingCharacter,
             relationshipMode = relationshipMode,
-            sourceFingerprint = understanding.imageFingerprint,
-            selectedCandidateHex = seedHex,
-            userSeedHex = userSeedHex,
             originalAtmosphereHex = sourcePalette.atmosphericColor,
-            generatedAtEpochMs = System.currentTimeMillis()
+            selectedCandidateHex = seedHex,
+            secondaryAccentHex = sourcePalette.secondaryAccent,
+            tertiaryAccentHex = sourcePalette.tertiaryAccent,
+            sourceImageFingerprint = understanding.imageFingerprint,
+            generationVersion = 2
         )
 
         val defaults = ThemeManager.generateThemeDefaults(

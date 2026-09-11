@@ -9,7 +9,6 @@ import com.primaloptima.scribe.util.model.ThemeGenerationRecipe
 import com.primaloptima.scribe.util.model.ThemeRelationshipMode
 import com.primaloptima.scribe.util.model.ThemeSchema
 import com.primaloptima.scribe.util.model.ThemeSourcePalette
-import com.primaloptima.scribe.util.model.ThemeSourceType
 import com.primaloptima.scribe.util.model.WritingCharacter
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -327,11 +326,10 @@ class ThemeSchemaMigrationTest {
     @Test
     fun testV1ToV2MigrationWithMetadataPreservation() {
         val metadata = ThemeGenerationMetadata(
-            sourceType = ThemeSourceType.IMAGE_DYNAMIC,
             recipe = ThemeGenerationRecipe.ATMOSPHERIC,
             imageInfluence = ImageInfluence.STRONG,
             writingCharacter = WritingCharacter.WARM,
-            relationshipMode = ThemeRelationshipMode.HARMONIC_SURFACE,
+            relationshipMode = ThemeRelationshipMode.THEME_IMAGE,
             originalAtmosphereHex = "#1E293B"
         )
         val v1Theme = AppTheme(
@@ -354,7 +352,7 @@ class ThemeSchemaMigrationTest {
         assertEquals(ThemeGenerationRecipe.ATMOSPHERIC, migrated.generationMetadata?.recipe)
         assertEquals(ImageInfluence.STRONG, migrated.generationMetadata?.imageInfluence)
         assertEquals(WritingCharacter.WARM, migrated.generationMetadata?.writingCharacter)
-        assertEquals(ThemeRelationshipMode.HARMONIC_SURFACE, migrated.generationMetadata?.relationshipMode)
+        assertEquals(ThemeRelationshipMode.THEME_IMAGE, migrated.generationMetadata?.relationshipMode)
         assertEquals("#1E293B", migrated.generationMetadata?.originalAtmosphereHex)
     }
 
@@ -381,25 +379,25 @@ class ThemeSchemaMigrationTest {
         assertEquals(ThemeSchema.VERSION_2, migrated.schemaVersion)
         val meta = migrated.generationMetadata
         assertNotNull(meta)
-        assertEquals(ThemeRelationshipMode.HARMONIC_SURFACE, meta?.relationshipMode)
+        assertEquals(ThemeRelationshipMode.THEME_GLASS, meta?.relationshipMode)
         assertEquals("#0F172A", meta?.originalAtmosphereHex)
-        assertEquals(ThemeSourceType.IMAGE_DYNAMIC, meta?.sourceType)
+        assertEquals(true, meta?.isImageDerived)
     }
 
     // ── 13. Serialization Roundtrip with ThemeGenerationMetadata ──────────────
     @Test
     fun testSerializationRoundtripWithThemeGenerationMetadata() {
         val meta = ThemeGenerationMetadata(
-            sourceType = ThemeSourceType.IMAGE_DYNAMIC,
             recipe = ThemeGenerationRecipe.EXPRESSIVE,
             imageInfluence = ImageInfluence.BALANCED,
             writingCharacter = WritingCharacter.DRAMATIC,
-            relationshipMode = ThemeRelationshipMode.CONTRAST_PANEL,
-            sourceFingerprint = "abcd1234efgh5678",
+            relationshipMode = ThemeRelationshipMode.THEME_IMAGE,
+            sourceImageFingerprint = "abcd1234efgh5678",
             selectedCandidateHex = "#EC4899",
-            userSeedHex = "#F43F5E",
+            secondaryAccentHex = "#F43F5E",
+            tertiaryAccentHex = "#831843",
             originalAtmosphereHex = "#831843",
-            generatedAtEpochMs = 1726000000000L
+            generationVersion = 2
         )
         val theme = AppTheme(
             id = "theme_with_full_provenance",
@@ -421,16 +419,16 @@ class ThemeSchemaMigrationTest {
         assertEquals(ThemeSchema.VERSION_2, decoded.schemaVersion)
         val decodedMeta = decoded.generationMetadata
         assertNotNull(decodedMeta)
-        assertEquals(meta.sourceType, decodedMeta?.sourceType)
         assertEquals(meta.recipe, decodedMeta?.recipe)
         assertEquals(meta.imageInfluence, decodedMeta?.imageInfluence)
         assertEquals(meta.writingCharacter, decodedMeta?.writingCharacter)
         assertEquals(meta.relationshipMode, decodedMeta?.relationshipMode)
-        assertEquals(meta.sourceFingerprint, decodedMeta?.sourceFingerprint)
+        assertEquals(meta.sourceImageFingerprint, decodedMeta?.sourceImageFingerprint)
         assertEquals(meta.selectedCandidateHex, decodedMeta?.selectedCandidateHex)
-        assertEquals(meta.userSeedHex, decodedMeta?.userSeedHex)
+        assertEquals(meta.secondaryAccentHex, decodedMeta?.secondaryAccentHex)
+        assertEquals(meta.tertiaryAccentHex, decodedMeta?.tertiaryAccentHex)
         assertEquals(meta.originalAtmosphereHex, decodedMeta?.originalAtmosphereHex)
-        assertEquals(meta.generatedAtEpochMs, decodedMeta?.generatedAtEpochMs)
+        assertEquals(meta.generationVersion, decodedMeta?.generationVersion)
     }
 
     // ── 14. Foundation Color Editing Preserves Manual Semantic Overrides ───────
