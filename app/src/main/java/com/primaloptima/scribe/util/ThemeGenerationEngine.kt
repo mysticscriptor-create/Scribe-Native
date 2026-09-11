@@ -96,6 +96,25 @@ object ThemeGenerationEngine {
     }
 
     /**
+     * Smooth continuous hue harmonization using a cosine-squared window.
+     * Prevents abrupt threshold cliffs while smoothly attenuating shift to zero at [maxAngle].
+     */
+    fun harmonizeHueSmooth(
+        sourceHue: Double,
+        targetHue: Double,
+        maxAngle: Double = 90.0,
+        fraction: Double = 0.15
+    ): Double {
+        val diff = circularHueDifference(sourceHue, targetHue)
+        val absDiff = abs(diff)
+        if (absDiff >= maxAngle) return sourceHue
+        val angleRatio = absDiff / maxAngle
+        val falloff = kotlin.math.cos(angleRatio * Math.PI / 2.0).let { it * it }
+        val effectiveShift = diff * fraction * falloff
+        return (sourceHue + effectiveShift + 360.0) % 360.0
+    }
+
+    /**
      * Extracts a list of ranked dominant ARGB color integers from an integer pixel array.
      * Uses QuantizerCelebi and Score.score from Material Color Utilities.
      */
@@ -123,6 +142,19 @@ object ThemeGenerationEngine {
         val quantizerResult = QuantizerCelebi.quantize(pixels, maxColors)
         val scored = Score.score(quantizerResult)
         val totalPixels = pixels.size.toDouble().coerceAtLeast(1.0)
+        return extractPaletteSources(quantizerResult, scored, totalPixels)
+    }
+
+    /**
+     * Overload for single-pass analysis: processes precomputed quantization and ranking results
+     * to eliminate redundant double quantization passes.
+     */
+    fun extractPaletteSources(
+        quantizerResult: Map<Int, Int>,
+        scored: List<Int>,
+        totalPixels: Double
+    ): List<ImagePaletteSource> {
+        if (quantizerResult.isEmpty()) return emptyList()
 
         val rawCandidates = quantizerResult.map { (colorInt, population) ->
             val oklch = ContrastResolver.colorToOklch(colorInt)
@@ -150,7 +182,7 @@ object ThemeGenerationEngine {
         val isOverallMonochrome = valid.all { it.chroma < 0.045 }
 
         // 1. PRIMARY ACCENT
-        // Candidate with highest MCU score and sufficient chroma (>= 0.06), usable lightness
+        // Balanced combination of MCU ranking and OKLCH chroma
         val primaryCandidate = if (isOverallMonochrome) {
             // Special Case 45: Image without high chroma / monochrome / B&W
             // Pick candidate with best tone balance (mid-tone) and highest score or subtle undertone
@@ -158,7 +190,11 @@ object ThemeGenerationEngine {
                 ?: valid.first()
         } else {
             valid.filter { it.chroma >= 0.06 && it.tone in 0.15..0.85 }
-                .maxByOrNull { it.score * 1.5 + it.chroma * 2.0 }
+                .maxByOrNull {
+                    val normScore = if (scored.isNotEmpty()) it.score / scored.size else 0.5
+                    val normChroma = (it.chroma / 0.25).coerceIn(0.0, 1.0)
+                    normScore * 0.6 + normChroma * 0.4
+                }
                 ?: valid.maxByOrNull { it.chroma }
                 ?: valid.first()
         }
@@ -456,8 +492,10 @@ object ThemeGenerationEngine {
             return fallbackUnderstanding()
         }
 
-        // 1. Ranked candidates via MCU QuantizerCelebi & Score
-        val extracted = extractRankedColors(pixels, MAX_QUANTIZER_COLORS)
+        // 1. Ranked candidates via MCU QuantizerCelebi & Score (computed once)
+        val quantizerResult = QuantizerCelebi.quantize(pixels, MAX_QUANTIZER_COLORS)
+        val scored = Score.score(quantizerResult)
+        val extracted = scored.ifEmpty { quantizerResult.keys.toList() }
         val rankedCandidates = if (extracted.isNotEmpty()) {
             extracted
         } else {
@@ -539,8 +577,8 @@ object ThemeGenerationEngine {
         // 8. Deterministic content fingerprint (64-bit luminance hash)
         val fingerprint = computeFingerprint(pixels, width, height)
 
-        // 9. Structured multi-color palette sources
-        val paletteSources = extractPaletteSources(pixels, width, height, MAX_QUANTIZER_COLORS)
+        // 9. Structured multi-color palette sources (reusing single-pass quantization and scoring)
+        val paletteSources = extractPaletteSources(quantizerResult, scored, pixels.size.toDouble().coerceAtLeast(1.0))
 
         // 10. Continuous metrics & Special Case boundaries (Parts 45-48)
         val averageChroma = meanChroma.toFloat()
@@ -588,16 +626,16 @@ object ThemeGenerationEngine {
                 for (y in startY until minOf(startY + blockH, height)) {
                     for (x in startX until minOf(startX + blockW, width)) {
                         val p = pixels[y * width + x]
-                        val r = (p shr 16) and 0xFF
-                        val g = (p shr 8) and 0xFF
-                        val b = p and 0xFF
-                        // Rec. 709 relative luminance
+                        val r = ContrastResolver.sRgbToLinear(((p shr 16) and 0xFF) / 255.0)
+                        val g = ContrastResolver.sRgbToLinear(((p shr 8) and 0xFF) / 255.0)
+                        val b = ContrastResolver.sRgbToLinear((p and 0xFF) / 255.0)
+                        // Linear Rec. 709 relative luminance
                         val lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
                         blockSum += lum
                         blockCount++
                     }
                 }
-                val avgLum = if (blockCount > 0) blockSum / blockCount else 128.0
+                val avgLum = if (blockCount > 0) blockSum / blockCount else 0.5
                 val idx = gy * grid + gx
                 blockLums[idx] = avgLum
                 overallSum += avgLum

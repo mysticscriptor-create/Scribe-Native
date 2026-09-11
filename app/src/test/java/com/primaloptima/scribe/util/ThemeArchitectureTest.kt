@@ -2158,4 +2158,114 @@ class ThemeArchitectureTest {
         assertEquals(balanced.secondaryAccent, balancedAgain.secondaryAccent)
         assertEquals(balanced.tertiaryAccent, balancedAgain.tertiaryAccent)
     }
+
+    @Test
+    fun testSession2_apcaEvaluationAndProseReadability() {
+        val black = 0xFF000000.toInt()
+        val white = 0xFFFFFFFF.toInt()
+
+        // APCA dark mode: white text on black background
+        val apcaDark = ContrastResolver.calculateApcaContrast(white, black)
+        assertTrue("White on black APCA contrast must exceed 100 Lc (got $apcaDark)", apcaDark >= 100.0)
+
+        // APCA light mode: black text on white background
+        val apcaLight = ContrastResolver.calculateApcaContrast(black, white)
+        assertTrue("Black on white APCA contrast must have absolute value >= 100 Lc (got $apcaLight)", kotlin.math.abs(apcaLight) >= 100.0)
+
+        // Prose text resolution on dark background
+        val darkBg = 0xFF141418.toInt()
+        val darkFgCandidate = 0xFF707070.toInt() // Low-contrast gray
+        val resolvedDark = ContrastResolver.resolveContrast(
+            foreground = darkFgCandidate,
+            background = darkBg,
+            role = com.primaloptima.scribe.ui.theme.ContrastRole.BODY_TEXT
+        )
+        assertTrue(
+            "Resolved body text on dark canvas must achieve APCA Lc >= 75 (got ${resolvedDark.apcaLc})",
+            resolvedDark.apcaLc >= 75.0
+        )
+        assertTrue(
+            "Resolved body text on dark canvas must achieve WCAG >= 7.0 (got ${resolvedDark.actualContrastRatio})",
+            resolvedDark.actualContrastRatio >= 7.0
+        )
+
+        // Prose text resolution on light background
+        val lightBg = 0xFFFBFBFC.toInt()
+        val lightFgCandidate = 0xFFA0A0A0.toInt()
+        val resolvedLight = ContrastResolver.resolveContrast(
+            foreground = lightFgCandidate,
+            background = lightBg,
+            role = com.primaloptima.scribe.ui.theme.ContrastRole.BODY_TEXT
+        )
+        assertTrue(
+            "Resolved body text on light canvas must achieve APCA |Lc| >= 75 (got ${kotlin.math.abs(resolvedLight.apcaLc)})",
+            kotlin.math.abs(resolvedLight.apcaLc) >= 75.0
+        )
+    }
+
+    @Test
+    fun testSession2_smoothHueHarmonizationContinuousWindow() {
+        val source = 10.0
+        val target = 40.0
+        val shifted = ThemeGenerationEngine.harmonizeHueSmooth(source, target, maxAngle = 90.0, fraction = 0.20)
+        assertTrue("Shifted hue must move towards target (got $shifted)", shifted > source && shifted < target)
+
+        // Exact boundary at maxAngle (90.0 deg diff) must smoothly yield no shift
+        val atBoundary = ThemeGenerationEngine.harmonizeHueSmooth(10.0, 100.0, maxAngle = 90.0, fraction = 0.20)
+        assertEquals(10.0, atBoundary, 0.001)
+
+        // Far beyond boundary must remain untouched
+        val farBeyond = ThemeGenerationEngine.harmonizeHueSmooth(10.0, 190.0, maxAngle = 90.0, fraction = 0.20)
+        assertEquals(10.0, farBeyond, 0.001)
+    }
+
+    @Test
+    fun testSession2_singlePassQuantizationEfficiencyAndConsistency() {
+        val colors = intArrayOf(
+            0xFF2D3748.toInt(),
+            0xFF4A5568.toInt(),
+            0xFFE2E8F0.toInt(),
+            0xFF3182CE.toInt(),
+            0xFF38A169.toInt()
+        )
+        val pixels = IntArray(64 * 64) { idx -> colors[idx % colors.size] }
+
+        val sourcesFromPixels = ThemeGenerationEngine.extractPaletteSources(pixels, 64, 64)
+        assertFalse(sourcesFromPixels.isEmpty())
+        assertTrue("Must extract primary accent", sourcesFromPixels.any { it.visualRole == VisualRole.PRIMARY_ACCENT })
+
+        val understanding = ThemeGenerationEngine.analyzePixels(pixels, 64, 64)
+        assertEquals(sourcesFromPixels.size, understanding.paletteSources.size)
+        assertEquals(sourcesFromPixels.first().colorArgb, understanding.paletteSources.first().colorArgb)
+    }
+
+    @Test
+    fun testSession2_iterativeSemanticCollisionRelaxation() {
+        // Deliberately construct colors with colliding status and analytics
+        val baseTheme = ThemeManager.generateThemeDefaults("#18181B", "#F4F4F5", "#3B82F6", isDark = true)
+        val collidingColors = baseTheme.copy(
+            success = "#3B82F6", // Exact collision with accent
+            warning = "#4A90E2", // Close to accent
+            worldCharacter = "#3B82F6",
+            worldLocation = "#3B82F6"
+        )
+
+        val resolved = ThemeManager.resolveSemanticCollisions(collidingColors, isDark = true)
+
+        val accentOklch = ContrastResolver.colorToOklch(ThemeManager.parseColor(resolved.accent))
+        val successOklch = ContrastResolver.colorToOklch(ThemeManager.parseColor(resolved.success))
+        val distSuccess = ThemeManager.circularHueDistance(accentOklch.h, successOklch.h)
+        assertTrue(
+            "Success hue must be separated from accent after collision resolution (got $distSuccess)",
+            distSuccess >= 25.0
+        )
+
+        val charOklch = ContrastResolver.colorToOklch(ThemeManager.parseColor(resolved.worldCharacter))
+        val locOklch = ContrastResolver.colorToOklch(ThemeManager.parseColor(resolved.worldLocation))
+        val distWorld = ThemeManager.circularHueDistance(charOklch.h, locOklch.h)
+        assertTrue(
+            "World categories must be separated from each other after iterative relaxation (got $distWorld)",
+            distWorld >= 20.0
+        )
+    }
 }

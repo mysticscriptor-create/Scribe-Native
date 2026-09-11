@@ -847,7 +847,7 @@ class ThemeManager(private val context: Context) {
 
         /**
          * Part 23 Semantic Collision Detection & Resolution.
-         * Enforces strict priority order:
+         * Enforces strict priority order using iterative relaxation:
          * PROSE / CORE READABILITY > PRIMARY INTERACTION > STATUS SEMANTICS > WRITING SEMANTICS > ANALYTICS / WORLD > DECORATIVE ROLES
          */
         fun resolveSemanticCollisions(colors: ThemeColors, isDark: Boolean): ThemeColors {
@@ -867,6 +867,8 @@ class ThemeManager(private val context: Context) {
             var s1Oklch = colorToOklch(parseColor(colors.analyticsSeries1))
             var s2Oklch = colorToOklch(parseColor(colors.analyticsSeries2))
             var s3Oklch = colorToOklch(parseColor(colors.analyticsSeries3))
+            var targetOklch = colorToOklch(parseColor(colors.analyticsTarget))
+            var analyticsWarnOklch = colorToOklch(parseColor(colors.analyticsWarning))
 
             var charOklch = colorToOklch(parseColor(colors.worldCharacter))
             var locOklch = colorToOklch(parseColor(colors.worldLocation))
@@ -894,7 +896,7 @@ class ThemeManager(private val context: Context) {
                 infoOklch = Oklch(infoOklch.l, infoOklch.c, (infoOklch.h - 30.0 + 360.0) % 360.0)
             }
 
-            // 2. Writing Semantics vs Status / Prose
+            // 2. Writing Semantics vs Status / Prose / Interaction
             // Dialogue vs Highlight: Status has priority over writing
             if (circularHueDistance(dialogueOklch.h, highlightOklch.h) < 24.0) {
                 dialogueOklch = if (isDark) {
@@ -902,6 +904,9 @@ class ThemeManager(private val context: Context) {
                 } else {
                     Oklch(0.44, 0.16, 38.0) // Terracotta
                 }
+            }
+            if (circularHueDistance(dialogueOklch.h, infoOklch.h) < 22.0) {
+                dialogueOklch = Oklch(dialogueOklch.l, dialogueOklch.c, (dialogueOklch.h + 35.0) % 360.0)
             }
             // Dialogue vs Prose: Prose has priority
             if (kotlin.math.abs(dialogueOklch.l - textOklch.l) < 0.08 && circularHueDistance(dialogueOklch.h, textOklch.h) < 25.0) {
@@ -928,20 +933,36 @@ class ThemeManager(private val context: Context) {
                 )
             }
 
-            // 3. Analytics Series Channels (Ensure distinct series hues)
-            if (circularHueDistance(s1Oklch.h, s2Oklch.h) < 35.0) {
-                s2Oklch = Oklch(s2Oklch.l, s2Oklch.c, (s2Oklch.h + 45.0) % 360.0)
+            // 3. Analytics Series Channels (Pairwise distinct hues via iterative relaxation)
+            val analyticsList = mutableListOf(s1Oklch, s2Oklch, s3Oklch)
+            for (pass in 0 until 3) {
+                for (i in 0 until analyticsList.size) {
+                    for (j in (i + 1) until analyticsList.size) {
+                        if (circularHueDistance(analyticsList[i].h, analyticsList[j].h) < 32.0) {
+                            analyticsList[j] = Oklch(analyticsList[j].l, analyticsList[j].c, (analyticsList[j].h + 38.0) % 360.0)
+                        }
+                    }
+                }
             }
-            if (circularHueDistance(s2Oklch.h, s3Oklch.h) < 35.0 || circularHueDistance(s1Oklch.h, s3Oklch.h) < 35.0) {
-                s3Oklch = Oklch(s3Oklch.l, s3Oklch.c, (s3Oklch.h - 45.0 + 360.0) % 360.0)
+            s1Oklch = analyticsList[0]
+            s2Oklch = analyticsList[1]
+            s3Oklch = analyticsList[2]
+
+            if (circularHueDistance(targetOklch.h, analyticsWarnOklch.h) < 22.0) {
+                analyticsWarnOklch = Oklch(analyticsWarnOklch.l, analyticsWarnOklch.c, (analyticsWarnOklch.h - 28.0 + 360.0) % 360.0)
             }
 
-            // 4. World Categories Pairwise Hue Separation (>= 22.0 deg)
+            // 4. World Categories Pairwise Hue Separation (>= 22.0 deg via iterative relaxation)
             val worldList = mutableListOf(locOklch, factionOklch, itemOklch, loreOklch, eventOklch, relOklch, charOklch)
-            for (i in 0 until worldList.size) {
-                for (j in (i + 1) until worldList.size) {
-                    if (circularHueDistance(worldList[i].h, worldList[j].h) < 22.0) {
-                        worldList[j] = Oklch(worldList[j].l, worldList[j].c, (worldList[j].h + 35.0) % 360.0)
+            for (pass in 0 until 3) {
+                for (i in 0 until worldList.size) {
+                    if (circularHueDistance(accentOklch.h, worldList[i].h) < 20.0) {
+                        worldList[i] = Oklch(worldList[i].l, worldList[i].c, (worldList[i].h + 26.0) % 360.0)
+                    }
+                    for (j in (i + 1) until worldList.size) {
+                        if (circularHueDistance(worldList[i].h, worldList[j].h) < 22.0) {
+                            worldList[j] = Oklch(worldList[j].l, worldList[j].c, (worldList[j].h + 30.0) % 360.0)
+                        }
                     }
                 }
             }
@@ -964,6 +985,7 @@ class ThemeManager(private val context: Context) {
                 analyticsSeries1 = oklchToHex(s1Oklch),
                 analyticsSeries2 = oklchToHex(s2Oklch),
                 analyticsSeries3 = oklchToHex(s3Oklch),
+                analyticsWarning = oklchToHex(analyticsWarnOklch),
                 worldCharacter = oklchToHex(charOklch),
                 worldLocation = oklchToHex(locOklch),
                 worldFaction = oklchToHex(factionOklch),

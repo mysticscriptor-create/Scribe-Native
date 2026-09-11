@@ -29,29 +29,29 @@ import kotlin.math.sqrt
 object ContrastResolver {
 
     /**
-     * Semantic role context specifying standard WCAG 2.2 contrast thresholds.
+     * Semantic role context specifying standard WCAG 2.2 contrast thresholds and APCA Lc targets.
      */
-    enum class ContrastRole(val defaultMinRatio: Double) {
-        /** Normal body text, prose, dialogue, monologue, captions (<18pt or <14pt bold) - WCAG 2.2 SC 1.4.3 (4.5:1) */
-        NORMAL_TEXT(4.5),
+    enum class ContrastRole(val defaultMinRatio: Double, val defaultMinApca: Double = 45.0) {
+        /** Normal body text, prose, dialogue, monologue, captions (<18pt or <14pt bold) - WCAG 2.2 SC 1.4.3 (4.5:1) & APCA Lc 75 */
+        NORMAL_TEXT(4.5, 75.0),
 
-        /** Large text (>=18pt or >=14pt bold), headings, hero titles - WCAG 2.2 SC 1.4.3 (3.0:1) */
-        LARGE_TEXT(3.0),
+        /** Large text (>=18pt or >=14pt bold), headings, hero titles - WCAG 2.2 SC 1.4.3 (3.0:1) & APCA Lc 60 */
+        LARGE_TEXT(3.0, 60.0),
 
-        /** Interactive controls, buttons, FABs, focus rings, status indicators - WCAG 2.2 SC 1.4.11 (3.0:1) */
-        UI_CONTROL(3.0),
+        /** Interactive controls, buttons, FABs, focus rings, status indicators - WCAG 2.2 SC 1.4.11 (3.0:1) & APCA Lc 45 */
+        UI_CONTROL(3.0, 45.0),
 
-        /** Badges and status pills with text content (4.5:1 for standard legibility) */
-        STATUS_BADGE(4.5),
+        /** Badges and status pills with text content (4.5:1 for standard legibility & APCA Lc 60) */
+        STATUS_BADGE(4.5, 60.0),
 
-        /** Text rendered inside high-emphasis container surfaces (4.5:1) */
-        CONTAINER_TEXT(4.5),
+        /** Text rendered inside high-emphasis container surfaces (4.5:1 & APCA Lc 65) */
+        CONTAINER_TEXT(4.5, 65.0),
 
-        /** Functional borders with state or boundary information - WCAG 2.2 SC 1.4.11 (3.0:1) */
-        BORDER(3.0),
+        /** Functional borders with state or boundary information - WCAG 2.2 SC 1.4.11 (3.0:1) & APCA Lc 30 */
+        BORDER(3.0, 30.0),
 
         /** Secondary/decorative dividers not required to identify control boundaries */
-        DECORATIVE(1.5)
+        DECORATIVE(1.5, 15.0)
     }
 
     /**
@@ -81,7 +81,8 @@ object ContrastResolver {
         val color: Color,
         val actualRatio: Double,
         val passesRequired: Boolean,
-        val method: ResolutionMethod
+        val method: ResolutionMethod,
+        val apcaLc: Double = 0.0
     )
 
     /**
@@ -145,6 +146,65 @@ object ContrastResolver {
         val lighter = max(l1, l2)
         val darker = min(l1, l2)
         return (lighter + 0.05) / (darker + 0.05)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // APCA (Accessible Perceptual Contrast Algorithm - W3C 0.98G)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Computes APCA spectral screen luminance (Ys) using sRGB/Rec.709 primaries.
+     */
+    fun colorToScreenLuminanceY(colorInt: Int): Double {
+        val r = sRgbToLinear(((colorInt shr 16) and 0xFF) / 255.0)
+        val g = sRgbToLinear(((colorInt shr 8) and 0xFF) / 255.0)
+        val b = sRgbToLinear((colorInt and 0xFF) / 255.0)
+        return 0.2126729 * r + 0.7151522 * g + 0.0721750 * b
+    }
+
+    /**
+     * Computes polarity-aware APCA Lightness Contrast (Lc).
+     * Positive values indicate dark text on light background (BoW).
+     * Negative values indicate light text on dark background (WoB).
+     */
+    fun calculateApcaContrast(textColor: Color, backgroundColor: Color): Double {
+        val yTxt = colorToScreenLuminanceY(textColor.toArgb())
+        val yBg = colorToScreenLuminanceY(backgroundColor.toArgb())
+        return calculateApcaContrastY(yTxt, yBg)
+    }
+
+    fun calculateApcaContrast(fgInt: Int, bgInt: Int): Double {
+        val yTxt = colorToScreenLuminanceY(fgInt)
+        val yBg = colorToScreenLuminanceY(bgInt)
+        return calculateApcaContrastY(yTxt, yBg)
+    }
+
+    /**
+     * Low-level APCA calculation using precomputed relative screen luminances.
+     */
+    fun calculateApcaContrastY(yTxt: Double, yBg: Double): Double {
+        val blkThrs = 0.022
+        val blkClmp = 1.414
+        val scaleBoW = 1.14
+        val scaleWoB = 1.14
+        val loBoWoffset = 0.027
+        val loWoBoffset = 0.027
+
+        val normBg = if (yBg > blkThrs) Math.pow(yBg, 0.56) else Math.pow(yBg + Math.pow(blkThrs - yBg, blkClmp), 0.56)
+        val normTxt = if (yTxt > blkThrs) Math.pow(yTxt, 0.62) else Math.pow(yTxt + Math.pow(blkThrs - yTxt, blkClmp), 0.62)
+
+        val cDiff = abs(normBg - normTxt)
+        if (cDiff < 0.0005) return 0.0
+
+        return if (normBg >= normTxt) {
+            val sapc = (normBg - normTxt) * scaleBoW
+            if (sapc < loBoWoffset) 0.0 else (sapc - loBoWoffset) * 100.0
+        } else {
+            val normBgDark = if (yBg > blkThrs) Math.pow(yBg, 0.65) else Math.pow(yBg + Math.pow(blkThrs - yBg, blkClmp), 0.65)
+            val normTxtLight = if (yTxt > blkThrs) Math.pow(yTxt, 0.55) else Math.pow(yTxt + Math.pow(blkThrs - yTxt, blkClmp), 0.55)
+            val sapc = (normBgDark - normTxtLight) * scaleWoB
+            if (abs(sapc) < loWoBoffset) 0.0 else (sapc + loWoBoffset) * 100.0
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -224,13 +284,15 @@ object ContrastResolver {
         val bgLum = calculateWcagRelativeLuminance(bgInt)
         val fgLum = calculateWcagRelativeLuminance(fgInt)
         val initialRatio = calculateWcagContrastRatio(fgInt, bgInt)
+        val initialApca = calculateApcaContrast(fgInt, bgInt)
 
         if (initialRatio >= minRatio) {
             return ResolvedContrast(
                 color = preferredForeground,
                 actualRatio = initialRatio,
                 passesRequired = true,
-                method = ResolutionMethod.DIRECT_PASS
+                method = ResolutionMethod.DIRECT_PASS,
+                apcaLc = initialApca
             )
         }
 
@@ -263,16 +325,19 @@ object ContrastResolver {
 
                 var bestColorInt = -1
                 var bestRatio = 0.0
+                var bestApca = 0.0
 
                 // 16 iterations gives ~0.000015 precision in OKLCH lightness
                 for (iter in 0 until 16) {
                     val mid = (low + high) / 2.0
                     val candInt = oklchToColorInt(Oklch(mid, cTarget, h))
                     val candRatio = calculateWcagContrastRatio(candInt, bgInt)
+                    val candApca = calculateApcaContrast(candInt, bgInt)
 
                     if (candRatio >= minRatio) {
                         bestColorInt = candInt
                         bestRatio = candRatio
+                        bestApca = candApca
                         if (goLight) {
                             high = mid // Seek minimal adjustment towards original
                         } else {
@@ -297,7 +362,8 @@ object ContrastResolver {
                         color = Color(bestColorInt),
                         actualRatio = bestRatio,
                         passesRequired = true,
-                        method = method
+                        method = method,
+                        apcaLc = bestApca
                     )
                 }
             }
@@ -315,7 +381,8 @@ object ContrastResolver {
                         color = Color(tintedInt),
                         actualRatio = tintedRatio,
                         passesRequired = true,
-                        method = ResolutionMethod.TINTED_FALLBACK
+                        method = ResolutionMethod.TINTED_FALLBACK,
+                        apcaLc = calculateApcaContrast(tintedInt, bgInt)
                     )
                 }
             }
@@ -325,12 +392,14 @@ object ContrastResolver {
         val useWhite = maxLightRatio >= maxDarkRatio
         val fallbackColor = if (useWhite) Color.White else Color.Black
         val fallbackRatio = if (useWhite) maxLightRatio else maxDarkRatio
+        val fallbackInt = fallbackColor.toArgb()
 
         return ResolvedContrast(
             color = fallbackColor,
             actualRatio = fallbackRatio,
             passesRequired = fallbackRatio >= minRatio,
-            method = ResolutionMethod.POLARITY_FALLBACK
+            method = ResolutionMethod.POLARITY_FALLBACK,
+            apcaLc = calculateApcaContrast(fallbackInt, bgInt)
         )
     }
 
