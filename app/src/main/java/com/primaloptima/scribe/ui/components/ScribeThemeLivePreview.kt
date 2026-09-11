@@ -188,7 +188,7 @@ fun ScribeThemeLivePreview(
                     .padding(2.dp),
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                PreviewPaneMode.values().forEach { mode ->
+                PreviewPaneMode.entries.forEach { mode ->
                     val isSelected = selectedPaneMode == mode
                     val pillBg by animateColorAsState(
                         targetValue = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
@@ -343,7 +343,7 @@ private fun DeviceMockupFrame(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(18.dp)
-                .background(ScribeTheme.colors.surfaces.surfaceElevated.copy(alpha = 0.5f))
+                .background(ScribeTheme.colors.surfaces.surfaceRaised.copy(alpha = 0.5f))
                 .padding(horizontal = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
