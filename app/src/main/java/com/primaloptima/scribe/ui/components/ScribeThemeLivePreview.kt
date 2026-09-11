@@ -58,7 +58,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import com.primaloptima.scribe.ui.screens.DashboardContent
 import com.primaloptima.scribe.ui.screens.DashboardPreviewData
 import com.primaloptima.scribe.ui.screens.EditorContent
