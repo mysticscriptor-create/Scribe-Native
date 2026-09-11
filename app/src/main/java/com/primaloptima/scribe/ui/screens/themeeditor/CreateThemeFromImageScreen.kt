@@ -168,12 +168,23 @@ fun CreateThemeFromImageScreen(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text(
-                            text = "Artwork Character Analysis",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = ScribeTheme.colors.content.primary
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Writing Atmosphere",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = ScribeTheme.colors.content.primary
+                            )
+                            Text(
+                                text = "What feels right for this image?",
+                                fontSize = 11.sp,
+                                color = ScribeTheme.colors.content.secondary
+                            )
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -248,11 +259,15 @@ fun CreateThemeFromImageScreen(
                             lineHeight = baseTheme.lineHeight,
                             textAlignment = baseTheme.textAlignment,
                             sideMargins = baseTheme.paddingHorizontal.toFloat(),
-                            bgMode = if (currentSession.relationshipMode == ThemeRelationshipMode.THEME_ONLY) "color" else "image",
+                            bgMode = when (currentSession.relationshipMode) {
+                                ThemeRelationshipMode.THEME_ONLY -> "color"
+                                ThemeRelationshipMode.THEME_IMAGE -> "image"
+                                ThemeRelationshipMode.THEME_GLASS -> "blurred"
+                            },
                             bgUri = previewBgUri,
                             bgOpacity = baseTheme.backgroundImageOpacity ?: 0.35f,
-                            blurIntensity = baseTheme.blurIntensity,
-                            modifier = Modifier.height(210.dp)
+                            blurIntensity = if (currentSession.relationshipMode == ThemeRelationshipMode.THEME_GLASS) 25f else baseTheme.blurIntensity,
+                            modifier = Modifier.height(240.dp)
                         )
                     }
                 }

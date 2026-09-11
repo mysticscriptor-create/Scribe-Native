@@ -75,6 +75,17 @@ fun ThemePreviewStage(
     val annotationColor = if (colors.annotation.isNotBlank()) parseComposeColor(colors.annotation, textColor) else accentColor
     val borderSubtleColor = parseComposeColor(colors.borderSubtle, MaterialTheme.colorScheme.outlineVariant)
     val accentMutedColor = parseComposeColor(colors.accentMuted, surfaceColor)
+
+    // Semantic Status, Analytics, and Worldbuilding Preview Colors
+    val successColor = if (colors.success.isNotBlank()) parseComposeColor(colors.success, Color(0xFF10B981)) else Color(0xFF10B981)
+    val warningColor = if (colors.warning.isNotBlank()) parseComposeColor(colors.warning, Color(0xFFF59E0B)) else Color(0xFFF59E0B)
+    val errorColor = if (colors.error.isNotBlank()) parseComposeColor(colors.error, Color(0xFFEF4444)) else Color(0xFFEF4444)
+    val analyticsPosColor = if (colors.analyticsPositive.isNotBlank()) parseComposeColor(colors.analyticsPositive, successColor) else successColor
+    val analyticsNeutralColor = if (colors.analyticsNeutral.isNotBlank()) parseComposeColor(colors.analyticsNeutral, mutedTextColor) else mutedTextColor
+    val analyticsSeries1Color = if (colors.analyticsSeries1.isNotBlank()) parseComposeColor(colors.analyticsSeries1, accentColor) else accentColor
+    val worldLoreColor = if (colors.worldLore.isNotBlank()) parseComposeColor(colors.worldLore, accentColor) else accentColor
+    val worldCharacterColor = if (colors.worldCharacter.isNotBlank()) parseComposeColor(colors.worldCharacter, dialogueColor) else dialogueColor
+
     val font = FontHelper.getFontFamily(fontFamily)
 
     val textAlign = when (textAlignment) {
@@ -247,54 +258,120 @@ fun ThemePreviewStage(
                         )
                     }
 
-                    // Floating Workbench Card Snippet (L3 SurfaceRaised)
-                    Row(
+                    // Floating Workbench Card Snippet (L3 SurfaceRaised) showcasing status, analytics, worldbuilding, and interactive controls
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(ScribeTheme.shapes.cardNested)
-                            .background(surfaceRaisedColor.copy(alpha = 0.95f))
+                            .background(
+                                if (bgMode == "blurred") surfaceRaisedColor.copy(alpha = 0.82f)
+                                else surfaceRaisedColor.copy(alpha = 0.96f)
+                            )
                             .specularRimBorder(
                                 shape = ScribeTheme.shapes.cardNested,
                                 isDark = ThemeManager.isDarkColor(colors.background),
                                 strokeWidth = 1.dp
                             )
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(
-                            text = "Character Arc & Scene Tone",
-                            color = textColor,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium
-                        )
                         Row(
+                            modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(ScribeTheme.shapes.extraSmall)
-                                    .background(annotationColor.copy(alpha = 0.15f))
-                                    .padding(horizontal = 5.dp, vertical = 2.dp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
                             ) {
+                                // Worldbuilding Category Chip
+                                Box(
+                                    modifier = Modifier
+                                        .clip(ScribeTheme.shapes.extraSmall)
+                                        .background(worldLoreColor.copy(alpha = 0.16f))
+                                        .border(0.5.dp, worldLoreColor.copy(alpha = 0.4f), ScribeTheme.shapes.extraSmall)
+                                        .padding(horizontal = 5.dp, vertical = 1.5.dp)
+                                ) {
+                                    Text(
+                                        text = "Lore: Archives",
+                                        color = worldLoreColor,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+
+                                // World Character Tag
+                                Box(
+                                    modifier = Modifier
+                                        .clip(ScribeTheme.shapes.extraSmall)
+                                        .background(worldCharacterColor.copy(alpha = 0.14f))
+                                        .padding(horizontal = 4.dp, vertical = 1.5.dp)
+                                ) {
+                                    Text(
+                                        text = "Lyra",
+                                        color = worldCharacterColor,
+                                        fontSize = 8.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                }
+                            }
+
+                            // Status Indicator
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(successColor)
+                                )
                                 Text(
-                                    text = "Note",
-                                    color = annotationColor,
+                                    text = "Synced",
+                                    color = successColor,
                                     fontSize = 8.sp,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.Bold
                                 )
                             }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            // Analytics Visualization Mini-Bar
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                modifier = Modifier
+                                    .clip(ScribeTheme.shapes.extraSmall)
+                                    .background(surfaceColor.copy(alpha = 0.6f))
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "Daily Pace",
+                                    color = mutedTextColor,
+                                    fontSize = 8.sp
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Box(modifier = Modifier.size(width = 14.dp, height = 4.dp).clip(CircleShape).background(analyticsPosColor))
+                                Box(modifier = Modifier.size(width = 10.dp, height = 4.dp).clip(CircleShape).background(analyticsSeries1Color))
+                                Box(modifier = Modifier.size(width = 8.dp, height = 4.dp).clip(CircleShape).background(analyticsNeutralColor))
+                            }
+
+                            // Interactive Primary Button Snippet
                             Box(
                                 modifier = Modifier
                                     .clip(ScribeTheme.shapes.extraSmall)
-                                    .background(accentMutedColor)
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    .background(accentColor)
+                                    .padding(horizontal = 7.dp, vertical = 2.dp)
                             ) {
                                 Text(
-                                    text = "Active",
-                                    color = accentColor,
-                                    fontSize = 9.sp,
+                                    text = "Insert Beat",
+                                    color = parseComposeColor(colors.background, Color.White),
+                                    fontSize = 8.5.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }

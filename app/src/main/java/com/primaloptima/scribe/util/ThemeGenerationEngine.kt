@@ -496,11 +496,23 @@ object ThemeGenerationEngine {
             return fallbackUnderstanding()
         }
 
+        // Check for fully transparent images
+        val hasOpaquePixels = pixels.any { ((it ushr 24) and 0xFF) > 15 }
+        if (!hasOpaquePixels) {
+            return fallbackUnderstanding()
+        }
+
         // 1. Ranked candidates via MCU QuantizerCelebi & Score (computed once)
         val quantizerResult = QuantizerCelebi.quantize(pixels, MAX_QUANTIZER_COLORS)
         val scored = Score.score(quantizerResult)
         val extracted = scored.ifEmpty { quantizerResult.keys.toList() }
-        val rankedCandidates = if (extracted.isNotEmpty()) {
+        val accessibleCandidates = extracted.filter {
+            val oklch = ContrastResolver.colorToOklch(it)
+            oklch.l in 0.04..0.985
+        }
+        val rankedCandidates = if (accessibleCandidates.isNotEmpty()) {
+            accessibleCandidates
+        } else if (extracted.isNotEmpty()) {
             extracted
         } else {
             listOf(0xFF3B82F6.toInt(), 0xFF1D4ED8.toInt(), 0xFF10B981.toInt(), 0xFFF59E0B.toInt())
