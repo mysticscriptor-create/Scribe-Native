@@ -187,6 +187,7 @@ enum class WritingCharacter(
  * Relationship mode governing how the source artwork participates in the visual presentation.
  * Decoupled from semantic color calculation.
  */
+@Serializable
 enum class ThemeRelationshipMode(
     val label: String,
     val description: String

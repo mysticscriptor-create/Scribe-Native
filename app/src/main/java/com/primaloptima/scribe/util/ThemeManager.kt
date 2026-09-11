@@ -13,6 +13,9 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.core.content.res.ResourcesCompat
 import androidx.core.view.WindowCompat
@@ -23,6 +26,11 @@ import com.primaloptima.scribe.R
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.ThemeColors
 import com.primaloptima.scribe.util.model.ThemeColorOverrides
+import com.primaloptima.scribe.util.model.ThemeGenerationMetadata
+import com.primaloptima.scribe.util.model.ThemeGenerationRecipe
+import com.primaloptima.scribe.util.model.ImageInfluence
+import com.primaloptima.scribe.util.model.WritingCharacter
+import com.primaloptima.scribe.util.model.ThemeRelationshipMode
 import com.primaloptima.scribe.util.model.ThemeSchema
 import com.primaloptima.scribe.util.model.ThemeSourcePalette
 import kotlinx.serialization.encodeToString
@@ -187,10 +195,10 @@ class ThemeManager(private val context: Context) {
                     current = migrateV0ToV1(current)
                 }
 
-                // Step 2: Future version migrations chain here:
-                // if (current.schemaVersion < ThemeSchema.VERSION_2) {
-                //     current = migrateV1ToV2(current)
-                // }
+                // Step 2: Version 1 -> Version 2 (Session 4 generation provenance)
+                if (current.schemaVersion < ThemeSchema.VERSION_2) {
+                    current = migrateV1ToV2(current)
+                }
 
                 // Step 3: Sanitize and enforce schema invariants
                 sanitizeTheme(current)
@@ -203,6 +211,38 @@ class ThemeManager(private val context: Context) {
                     DefaultThemes.paper
                 }
             }
+        }
+
+        /**
+         * Migrates a Version 1 theme to Version 2:
+         * - Ensures generation provenance metadata is properly preserved or synthesized.
+         * - Preserves user overrides, explicit color tokens, and layout/typography without mutation.
+         * - Updates schemaVersion to VERSION_2.
+         */
+        fun migrateV1ToV2(v1: AppTheme): AppTheme {
+            val existingMeta = v1.generationMetadata
+            val updatedMeta = if (existingMeta != null) {
+                existingMeta.copy(generationVersion = 2)
+            } else if (v1.backgroundImageUri != null) {
+                ThemeGenerationMetadata(
+                    recipe = ThemeGenerationRecipe.BALANCED,
+                    imageInfluence = ImageInfluence.BALANCED,
+                    writingCharacter = WritingCharacter.NEUTRAL,
+                    relationshipMode = if (v1.bgMode == "blurred" || v1.frostedGlassEnabled) {
+                        ThemeRelationshipMode.THEME_GLASS
+                    } else {
+                        ThemeRelationshipMode.THEME_IMAGE
+                    },
+                    selectedCandidateHex = v1.colors.accent,
+                    originalAtmosphereHex = v1.savedBgDominantColor,
+                    generationVersion = 2
+                )
+            } else null
+
+            return v1.copy(
+                schemaVersion = ThemeSchema.VERSION_2,
+                generationMetadata = updatedMeta
+            )
         }
 
         /**
@@ -522,14 +562,22 @@ class ThemeManager(private val context: Context) {
          * Generates the deterministic default semantic tokens from Foundation Sources (background, text, accent).
          * Does not apply any user overrides.
          */
-        fun generateThemeDefaults(sources: ThemeSourcePalette, isDark: Boolean): ThemeColors {
+        fun generateThemeDefaults(
+            sources: ThemeSourcePalette,
+            isDark: Boolean,
+            metadata: ThemeGenerationMetadata? = null
+        ): ThemeColors {
+            val effectiveMeta = metadata ?: (sources.atmosphericColor?.let {
+                ThemeGenerationMetadata(originalAtmosphereHex = it)
+            })
             return generateThemeDefaults(
                 bgHex = sources.background,
                 textHex = sources.text,
                 accentHex = sources.accent,
                 isDark = isDark,
                 secondaryHex = sources.secondaryAccent,
-                tertiaryHex = sources.tertiaryAccent
+                tertiaryHex = sources.tertiaryAccent,
+                metadata = effectiveMeta
             )
         }
 
@@ -541,6 +589,26 @@ class ThemeManager(private val context: Context) {
             secondaryHex: String? = null,
             tertiaryHex: String? = null
         ): ThemeColors {
+            return generateThemeDefaults(
+                bgHex = bgHex,
+                textHex = textHex,
+                accentHex = accentHex,
+                isDark = isDark,
+                secondaryHex = secondaryHex,
+                tertiaryHex = tertiaryHex,
+                metadata = null
+            )
+        }
+
+        fun generateThemeDefaults(
+            bgHex: String,
+            textHex: String,
+            accentHex: String,
+            isDark: Boolean,
+            secondaryHex: String? = null,
+            tertiaryHex: String? = null,
+            metadata: ThemeGenerationMetadata? = null
+        ): ThemeColors {
             val bgInt = parseColor(bgHex)
             var textInt = parseColor(textHex)
             val accentInt = parseColor(accentHex)
@@ -548,6 +616,18 @@ class ThemeManager(private val context: Context) {
             val bgOklch = colorToOklch(bgInt)
             var textOklch = colorToOklch(textInt)
             val accentOklch = colorToOklch(accentInt)
+
+            val recipe = metadata?.recipe ?: ThemeGenerationRecipe.BALANCED
+            val influence = metadata?.imageInfluence ?: ImageInfluence.BALANCED
+            val writingChar = metadata?.writingCharacter ?: WritingCharacter.NEUTRAL
+            val atmoHex = metadata?.originalAtmosphereHex
+            val atmoOklch = atmoHex?.let { colorToOklch(parseColor(it)) }
+
+            val influenceFactor = when (influence) {
+                ImageInfluence.SUBTLE -> 0.50
+                ImageInfluence.BALANCED -> 1.00
+                ImageInfluence.STRONG -> 1.55
+            }
 
             // Polarity Auto-Adjustment: Ensure text color has strong perceptual contrast relative to background
             // ΔL between background and text must be sufficient for high APCA readability
@@ -589,18 +669,49 @@ class ThemeManager(private val context: Context) {
 
             return if (isDark) {
                 // Dark Mode Elevation Ramp (preserving subtle hue and saturation with progressive lightness lift)
-                val surfaceLowest = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.01, 0.95), bgOklch.c * 0.95, bgOklch.h))
-                val surface = oklchToHex(Oklch((bgOklch.l + 0.055).coerceIn(0.01, 0.95), bgOklch.c * 0.90, bgOklch.h))
-                val surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.095).coerceIn(0.01, 0.95), bgOklch.c * 0.85, bgOklch.h))
-                val surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.145).coerceIn(0.01, 0.95), bgOklch.c * 0.80, bgOklch.h))
+                val surfaceLowest: String
+                val surface: String
+                val surfaceRaised: String
+                val surfaceOverlay: String
+
+                when (recipe) {
+                    ThemeGenerationRecipe.ATMOSPHERIC -> {
+                        val tintHue = atmoOklch?.h ?: bgOklch.h
+                        val tintChroma = ((bgOklch.c + (atmoOklch?.c ?: 0.0) * 0.20) * influenceFactor).coerceIn(0.012, 0.055)
+                        surfaceLowest = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.01, 0.95), tintChroma * 0.95, tintHue))
+                        surface = oklchToHex(Oklch((bgOklch.l + 0.055).coerceIn(0.01, 0.95), tintChroma * 0.90, tintHue))
+                        surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.095).coerceIn(0.01, 0.95), tintChroma * 0.85, tintHue))
+                        surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.145).coerceIn(0.01, 0.95), tintChroma * 0.80, tintHue))
+                    }
+                    ThemeGenerationRecipe.INK -> {
+                        val inkChroma = (bgOklch.c * 0.15).coerceAtMost(0.005)
+                        surfaceLowest = oklchToHex(Oklch((bgOklch.l + 0.028).coerceIn(0.01, 0.95), inkChroma, bgOklch.h))
+                        surface = oklchToHex(Oklch((bgOklch.l + 0.060).coerceIn(0.01, 0.95), inkChroma, bgOklch.h))
+                        surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.100).coerceIn(0.01, 0.95), inkChroma, bgOklch.h))
+                        surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.150).coerceIn(0.01, 0.95), inkChroma, bgOklch.h))
+                    }
+                    ThemeGenerationRecipe.EXPRESSIVE -> {
+                        val exprChroma = (bgOklch.c * 1.15 * influenceFactor).coerceIn(0.015, 0.065)
+                        surfaceLowest = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.01, 0.95), exprChroma * 0.95, bgOklch.h))
+                        surface = oklchToHex(Oklch((bgOklch.l + 0.055).coerceIn(0.01, 0.95), exprChroma * 0.90, bgOklch.h))
+                        surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.095).coerceIn(0.01, 0.95), exprChroma * 0.85, bgOklch.h))
+                        surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.145).coerceIn(0.01, 0.95), exprChroma * 0.80, bgOklch.h))
+                    }
+                    ThemeGenerationRecipe.BALANCED -> {
+                        surfaceLowest = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.01, 0.95), bgOklch.c * 0.95, bgOklch.h))
+                        surface = oklchToHex(Oklch((bgOklch.l + 0.055).coerceIn(0.01, 0.95), bgOklch.c * 0.90, bgOklch.h))
+                        surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.095).coerceIn(0.01, 0.95), bgOklch.c * 0.85, bgOklch.h))
+                        surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.145).coerceIn(0.01, 0.95), bgOklch.c * 0.80, bgOklch.h))
+                    }
+                }
 
                 // Content & Typography Hierarchy (calculated relative to text luminance)
                 val mutedText = oklchToHex(Oklch((textOklch.l - 0.28).coerceIn(0.35, 0.85), (textOklch.c * 0.70).coerceAtLeast(0.0), textOklch.h))
                 val subtleText = oklchToHex(Oklch((textOklch.l - 0.45).coerceIn(0.25, 0.70), (textOklch.c * 0.50).coerceAtLeast(0.0), textOklch.h))
 
                 // Interactive & Secondary Harmonics (derived from multi-source palette or in OKLCH space from accent)
-                val secondaryDefault = secondaryHex ?: oklchToHex(Oklch((accentOklch.l - 0.04).coerceIn(0.30, 0.85), (accentOklch.c * 0.85).coerceAtLeast(0.0), (accentOklch.h + 20.0) % 360.0))
-                val tertiaryDefault = tertiaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.06).coerceIn(0.40, 0.90), (accentOklch.c * 0.75).coerceAtLeast(0.0), (accentOklch.h - 30.0 + 360.0) % 360.0))
+                val secondaryDefault = secondaryHex ?: oklchToHex(Oklch((accentOklch.l - 0.04).coerceIn(0.30, 0.85), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.15 else 0.85)).coerceAtLeast(0.0), (accentOklch.h + 20.0) % 360.0))
+                val tertiaryDefault = tertiaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.06).coerceIn(0.40, 0.90), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.05 else 0.75)).coerceAtLeast(0.0), (accentOklch.h - 30.0 + 360.0) % 360.0))
 
                 // Perceptually tuned Semantic Feedback Roles (APCA readable on dark surfaces)
                 val successDefault = createOklchColor(0.76, 0.15, 142.0)
@@ -620,9 +731,22 @@ class ThemeManager(private val context: Context) {
                 val focusDefault = oklchToHex(Oklch(0.85, (accentOklch.c * 0.85).coerceIn(0.10, 0.22), accentOklch.h))
 
                 // Lexer & Writing Engine Syntactical Roles (Editorial)
-                val dialogueDefault = createOklchColor(0.90, 0.13, 86.0)
-                val monologueDefault = createOklchColor(0.80, 0.09, 255.0)
-                val headingDefault = oklchToHex(Oklch((textOklch.l + 0.04).coerceIn(0.92, 0.98), (accentOklch.c * 0.35).coerceIn(0.02, 0.08), accentOklch.h))
+                val dialogueDefault = when (writingChar) {
+                    WritingCharacter.WARM -> createOklchColor(0.90, 0.14, 75.0)
+                    WritingCharacter.COOL -> createOklchColor(0.88, 0.13, 175.0)
+                    WritingCharacter.DRAMATIC -> createOklchColor(0.96, 0.15, 86.0)
+                    WritingCharacter.NEUTRAL -> createOklchColor(0.90, 0.13, 86.0)
+                }
+                val monologueDefault = when (writingChar) {
+                    WritingCharacter.WARM -> createOklchColor(0.82, 0.08, 65.0)
+                    WritingCharacter.COOL -> createOklchColor(0.80, 0.10, 275.0)
+                    WritingCharacter.DRAMATIC -> createOklchColor(0.88, 0.10, 255.0)
+                    WritingCharacter.NEUTRAL -> createOklchColor(0.80, 0.09, 255.0)
+                }
+                val headingDefault = when (writingChar) {
+                    WritingCharacter.DRAMATIC -> oklchToHex(Oklch((textOklch.l + 0.06).coerceIn(0.94, 0.99), (accentOklch.c * 0.45).coerceIn(0.04, 0.10), accentOklch.h))
+                    else -> oklchToHex(Oklch((textOklch.l + 0.04).coerceIn(0.92, 0.98), (accentOklch.c * 0.35).coerceIn(0.02, 0.08), accentOklch.h))
+                }
                 val annotationDefault = createOklchColor(0.78, 0.14, 300.0)
                 val linkDefault = if (circularHueDistance(accentOklch.h, 235.0) < 30.0) {
                     oklchToHex(Oklch(0.80, 0.15, (accentOklch.h + 35.0) % 360.0))
@@ -712,19 +836,64 @@ class ThemeManager(private val context: Context) {
                 val surfaceRaised: String
                 val surfaceOverlay: String
 
-                if (bgOklch.l >= 0.90) {
-                    // High-key light themes (Paper, Typewriter, near-white canvases)
-                    // Headroom towards 1.0 is minimal; ground the frame slightly and reserve pure tones for raised and overlay
-                    surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.050).coerceIn(0.05, 0.98), bgOklch.c * 1.05, bgOklch.h))
-                    surface = oklchToHex(Oklch((bgOklch.l - 0.024).coerceIn(0.05, 0.98), bgOklch.c * 0.95, bgOklch.h))
-                    surfaceRaised = oklchToHex(Oklch((bgOklch.l + (1.0 - bgOklch.l) * 0.45).coerceIn(0.05, 0.992), bgOklch.c * 0.70, bgOklch.h))
-                    surfaceOverlay = oklchToHex(Oklch(1.0, 0.0, bgOklch.h))
-                } else {
-                    // Tinted / mid-light themes (Sepia, parchment, pastel)
-                    surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.045).coerceIn(0.05, 0.98), bgOklch.c * 1.05, bgOklch.h))
-                    surface = oklchToHex(Oklch((bgOklch.l - 0.025).coerceIn(0.05, 0.98), bgOklch.c * 0.95, bgOklch.h))
-                    surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.05, 0.99), bgOklch.c * 0.80, bgOklch.h))
-                    surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.050).coerceIn(0.05, 1.0), bgOklch.c * 0.65, bgOklch.h))
+                val isHighKey = bgOklch.l >= 0.90
+                when (recipe) {
+                    ThemeGenerationRecipe.ATMOSPHERIC -> {
+                        val tintHue = atmoOklch?.h ?: bgOklch.h
+                        val tintChroma = ((bgOklch.c + (atmoOklch?.c ?: 0.0) * 0.18) * influenceFactor).coerceIn(0.010, 0.045)
+                        if (isHighKey) {
+                            surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.050).coerceIn(0.05, 0.98), tintChroma * 1.05, tintHue))
+                            surface = oklchToHex(Oklch((bgOklch.l - 0.024).coerceIn(0.05, 0.98), tintChroma * 0.95, tintHue))
+                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + (1.0 - bgOklch.l) * 0.45).coerceIn(0.05, 0.992), tintChroma * 0.70, tintHue))
+                            surfaceOverlay = oklchToHex(Oklch(1.0, 0.0, tintHue))
+                        } else {
+                            surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.045).coerceIn(0.05, 0.98), tintChroma * 1.05, tintHue))
+                            surface = oklchToHex(Oklch((bgOklch.l - 0.025).coerceIn(0.05, 0.98), tintChroma * 0.95, tintHue))
+                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.05, 0.99), tintChroma * 0.80, tintHue))
+                            surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.050).coerceIn(0.05, 1.0), tintChroma * 0.65, tintHue))
+                        }
+                    }
+                    ThemeGenerationRecipe.INK -> {
+                        val inkChroma = (bgOklch.c * 0.15).coerceAtMost(0.005)
+                        if (isHighKey) {
+                            surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.050).coerceIn(0.05, 0.98), inkChroma, bgOklch.h))
+                            surface = oklchToHex(Oklch((bgOklch.l - 0.024).coerceIn(0.05, 0.98), inkChroma, bgOklch.h))
+                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + (1.0 - bgOklch.l) * 0.45).coerceIn(0.05, 0.992), inkChroma, bgOklch.h))
+                            surfaceOverlay = oklchToHex(Oklch(1.0, 0.0, bgOklch.h))
+                        } else {
+                            surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.045).coerceIn(0.05, 0.98), inkChroma, bgOklch.h))
+                            surface = oklchToHex(Oklch((bgOklch.l - 0.025).coerceIn(0.05, 0.98), inkChroma, bgOklch.h))
+                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.05, 0.99), inkChroma, bgOklch.h))
+                            surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.050).coerceIn(0.05, 1.0), inkChroma, bgOklch.h))
+                        }
+                    }
+                    ThemeGenerationRecipe.EXPRESSIVE -> {
+                        val exprChroma = (bgOklch.c * 1.15 * influenceFactor).coerceIn(0.012, 0.055)
+                        if (isHighKey) {
+                            surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.050).coerceIn(0.05, 0.98), exprChroma * 1.05, bgOklch.h))
+                            surface = oklchToHex(Oklch((bgOklch.l - 0.024).coerceIn(0.05, 0.98), exprChroma * 0.95, bgOklch.h))
+                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + (1.0 - bgOklch.l) * 0.45).coerceIn(0.05, 0.992), exprChroma * 0.70, bgOklch.h))
+                            surfaceOverlay = oklchToHex(Oklch(1.0, 0.0, bgOklch.h))
+                        } else {
+                            surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.045).coerceIn(0.05, 0.98), exprChroma * 1.05, bgOklch.h))
+                            surface = oklchToHex(Oklch((bgOklch.l - 0.025).coerceIn(0.05, 0.98), exprChroma * 0.95, bgOklch.h))
+                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.05, 0.99), exprChroma * 0.80, bgOklch.h))
+                            surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.050).coerceIn(0.05, 1.0), exprChroma * 0.65, bgOklch.h))
+                        }
+                    }
+                    ThemeGenerationRecipe.BALANCED -> {
+                        if (isHighKey) {
+                            surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.050).coerceIn(0.05, 0.98), bgOklch.c * 1.05, bgOklch.h))
+                            surface = oklchToHex(Oklch((bgOklch.l - 0.024).coerceIn(0.05, 0.98), bgOklch.c * 0.95, bgOklch.h))
+                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + (1.0 - bgOklch.l) * 0.45).coerceIn(0.05, 0.992), bgOklch.c * 0.70, bgOklch.h))
+                            surfaceOverlay = oklchToHex(Oklch(1.0, 0.0, bgOklch.h))
+                        } else {
+                            surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.045).coerceIn(0.05, 0.98), bgOklch.c * 1.05, bgOklch.h))
+                            surface = oklchToHex(Oklch((bgOklch.l - 0.025).coerceIn(0.05, 0.98), bgOklch.c * 0.95, bgOklch.h))
+                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.05, 0.99), bgOklch.c * 0.80, bgOklch.h))
+                            surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.050).coerceIn(0.05, 1.0), bgOklch.c * 0.65, bgOklch.h))
+                        }
+                    }
                 }
 
                 // Content & Typography Hierarchy (increasing lightness in OKLCH with reduced chroma)
@@ -732,8 +901,8 @@ class ThemeManager(private val context: Context) {
                 val subtleText = oklchToHex(Oklch((textOklch.l + 0.44).coerceIn(0.30, 0.85), (textOklch.c * 0.50).coerceAtLeast(0.0), textOklch.h))
 
                 // Interactive & Secondary Harmonics (derived from multi-source palette or in OKLCH space from accent)
-                val secondaryDefault = secondaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.08).coerceIn(0.20, 0.75), (accentOklch.c * 0.85).coerceAtLeast(0.0), (accentOklch.h + 15.0) % 360.0))
-                val tertiaryDefault = tertiaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.14).coerceIn(0.25, 0.80), (accentOklch.c * 0.75).coerceAtLeast(0.0), (accentOklch.h - 25.0 + 360.0) % 360.0))
+                val secondaryDefault = secondaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.08).coerceIn(0.20, 0.75), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.15 else 0.85)).coerceAtLeast(0.0), (accentOklch.h + 15.0) % 360.0))
+                val tertiaryDefault = tertiaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.14).coerceIn(0.25, 0.80), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.05 else 0.75)).coerceAtLeast(0.0), (accentOklch.h - 25.0 + 360.0) % 360.0))
 
                 // Perceptually tuned Semantic Feedback Roles (APCA readable on light surfaces)
                 val successDefault = createOklchColor(0.48, 0.16, 142.0)
@@ -753,9 +922,22 @@ class ThemeManager(private val context: Context) {
                 val focusDefault = oklchToHex(Oklch(0.32, (accentOklch.c * 0.85).coerceIn(0.12, 0.24), accentOklch.h))
 
                 // Lexer & Writing Engine Syntactical Roles
-                val dialogueDefault = createOklchColor(0.44, 0.16, 45.0)
-                val monologueDefault = createOklchColor(0.40, 0.12, 255.0)
-                val headingDefault = oklchToHex(Oklch((textOklch.l - 0.04).coerceIn(0.08, 0.20), (accentOklch.c * 0.35).coerceIn(0.02, 0.08), accentOklch.h))
+                val dialogueDefault = when (writingChar) {
+                    WritingCharacter.WARM -> createOklchColor(0.44, 0.16, 40.0)
+                    WritingCharacter.COOL -> createOklchColor(0.42, 0.16, 205.0)
+                    WritingCharacter.DRAMATIC -> createOklchColor(0.32, 0.18, 45.0)
+                    WritingCharacter.NEUTRAL -> createOklchColor(0.44, 0.16, 45.0)
+                }
+                val monologueDefault = when (writingChar) {
+                    WritingCharacter.WARM -> createOklchColor(0.40, 0.10, 55.0)
+                    WritingCharacter.COOL -> createOklchColor(0.38, 0.12, 275.0)
+                    WritingCharacter.DRAMATIC -> createOklchColor(0.28, 0.14, 255.0)
+                    WritingCharacter.NEUTRAL -> createOklchColor(0.40, 0.12, 255.0)
+                }
+                val headingDefault = when (writingChar) {
+                    WritingCharacter.DRAMATIC -> oklchToHex(Oklch((textOklch.l - 0.07).coerceIn(0.05, 0.15), (accentOklch.c * 0.45).coerceIn(0.04, 0.10), accentOklch.h))
+                    else -> oklchToHex(Oklch((textOklch.l - 0.04).coerceIn(0.08, 0.20), (accentOklch.c * 0.35).coerceIn(0.02, 0.08), accentOklch.h))
+                }
                 val annotationDefault = createOklchColor(0.48, 0.16, 300.0)
                 val linkDefault = if (circularHueDistance(accentOklch.h, 240.0) < 30.0) {
                     oklchToHex(Oklch(0.40, 0.17, (accentOklch.h + 35.0) % 360.0))
@@ -1137,7 +1319,7 @@ class ThemeManager(private val context: Context) {
          * For custom themes, resolves deterministic OKLCH defaults from foundation sources and layers overrides.
          */
         fun resolveTheme(theme: AppTheme): AppTheme {
-            val defaults = generateThemeDefaults(theme.sourcePalette(), theme.isDark)
+            val defaults = generateThemeDefaults(theme.sourcePalette(), theme.isDark, theme.generationMetadata)
             val baseColors = if (theme.builtIn) {
                 mergeHandcraftedOverDefaults(theme.colors, defaults)
             } else {
@@ -1149,6 +1331,265 @@ class ThemeManager(private val context: Context) {
                 baseColors
             }
             return theme.copy(colors = resolvedColors)
+        }
+
+        /**
+         * Part 28 Distinction: Editing foundation colors.
+         * Foundation edits update the root sources and re-run deterministic generation
+         * while strictly preserving existing manual semantic overrides!
+         */
+        fun updateFoundationColors(
+            theme: AppTheme,
+            newBg: String? = null,
+            newText: String? = null,
+            newAccent: String? = null
+        ): AppTheme {
+            val currentSources = theme.sourcePalette()
+            val updatedSources = currentSources.copy(
+                background = newBg ?: currentSources.background,
+                text = newText ?: currentSources.text,
+                accent = newAccent ?: currentSources.accent
+            )
+            val newIsDark = isDarkColor(updatedSources.background)
+            val newDefaults = generateThemeDefaults(updatedSources, newIsDark, theme.generationMetadata)
+            val resolvedColors = if (theme.overrides != null && theme.overrides.isNotEmpty()) {
+                applyOverrides(newDefaults, theme.overrides)
+            } else {
+                newDefaults
+            }
+            return theme.copy(
+                isDark = newIsDark,
+                colors = resolvedColors
+            )
+        }
+
+        /**
+         * Part 28 Distinction: Editing semantic override.
+         * Manual semantic overrides remain authoritative over generated defaults.
+         */
+        fun updateSemanticOverride(
+            theme: AppTheme,
+            role: String,
+            hexColor: String?
+        ): AppTheme {
+            val cleanHex = hexColor?.let { sanitizeHexColor(it, "") }?.takeIf { it.isNotBlank() }
+            val currentOverrides = theme.overrides ?: ThemeColorOverrides()
+            val updatedOverrides = when (role) {
+                "surfaceLowest" -> currentOverrides.copy(surfaceLowest = cleanHex)
+                "surface" -> currentOverrides.copy(surface = cleanHex)
+                "surfaceRaised" -> currentOverrides.copy(surfaceRaised = cleanHex)
+                "surfaceOverlay" -> currentOverrides.copy(surfaceOverlay = cleanHex)
+                "mutedText" -> currentOverrides.copy(mutedText = cleanHex)
+                "subtleText" -> currentOverrides.copy(subtleText = cleanHex)
+                "headingText" -> currentOverrides.copy(headingText = cleanHex)
+                "dialogueText" -> currentOverrides.copy(dialogueText = cleanHex)
+                "monologueText" -> currentOverrides.copy(monologueText = cleanHex)
+                "specialHighlight" -> currentOverrides.copy(specialHighlight = cleanHex)
+                "annotation" -> currentOverrides.copy(annotation = cleanHex)
+                "link" -> currentOverrides.copy(link = cleanHex)
+                "secondary" -> currentOverrides.copy(secondary = cleanHex)
+                "tertiary" -> currentOverrides.copy(tertiary = cleanHex)
+                "success" -> currentOverrides.copy(success = cleanHex)
+                "warning" -> currentOverrides.copy(warning = cleanHex)
+                "error" -> currentOverrides.copy(error = cleanHex)
+                "info" -> currentOverrides.copy(info = cleanHex)
+                "border" -> currentOverrides.copy(border = cleanHex)
+                "borderSubtle" -> currentOverrides.copy(borderSubtle = cleanHex)
+                "borderProminent" -> currentOverrides.copy(borderProminent = cleanHex)
+                "focus" -> currentOverrides.copy(focus = cleanHex)
+                else -> currentOverrides
+            }
+            val effectiveOverrides = if (updatedOverrides.isEmpty()) null else updatedOverrides
+            return resolveTheme(theme.copy(overrides = effectiveOverrides))
+        }
+
+        /**
+         * Part 28 Distinction: Changing background image.
+         * Attaches or updates wallpaper without silently mutating theme colors or recipe identity.
+         */
+        fun updateBackgroundImage(
+            theme: AppTheme,
+            imageUri: String?,
+            imageOriginalUri: String? = null,
+            bgLuminance: Float = -1f,
+            zonalLuminance: List<Float> = emptyList(),
+            zonalVariance: List<Float> = emptyList(),
+            dominantColor: String? = null,
+            zonalColors: List<String> = emptyList(),
+            luminanceField: List<Float> = emptyList()
+        ): AppTheme {
+            return theme.copy(
+                backgroundImageUri = imageUri,
+                backgroundImageOriginalUri = imageOriginalUri ?: theme.backgroundImageOriginalUri,
+                savedBgLuminance = bgLuminance,
+                savedZonalLuminance = zonalLuminance,
+                savedZonalVariance = zonalVariance,
+                savedBgDominantColor = dominantColor,
+                savedBgZonalColors = zonalColors,
+                savedBgLuminanceField = luminanceField,
+                bgMode = if (imageUri != null && theme.bgMode == "color") "image" else theme.bgMode
+            )
+        }
+
+        /**
+         * Part 28 & 29: Explicit Regeneration.
+         * Re-runs the generation pipeline with new sources or updated recipe/metadata,
+         * while optionally preserving user manual overrides.
+         */
+        fun regenerateTheme(
+            theme: AppTheme,
+            newSources: ThemeSourcePalette? = null,
+            newMetadata: ThemeGenerationMetadata? = null,
+            preserveOverrides: Boolean = true
+        ): AppTheme {
+            val effectiveSources = newSources ?: theme.sourcePalette()
+            val effectiveMetadata = newMetadata ?: theme.generationMetadata ?: ThemeGenerationMetadata()
+            val isDark = isDarkColor(effectiveSources.background)
+            val newDefaults = generateThemeDefaults(effectiveSources, isDark, effectiveMetadata)
+            val effectiveOverrides = if (preserveOverrides) theme.overrides else null
+            val finalColors = if (effectiveOverrides != null && effectiveOverrides.isNotEmpty()) {
+                applyOverrides(newDefaults, effectiveOverrides)
+            } else {
+                newDefaults
+            }
+            return theme.copy(
+                isDark = isDark,
+                colors = finalColors,
+                overrides = effectiveOverrides,
+                generationMetadata = effectiveMetadata
+            )
+        }
+
+        /**
+         * Part 42: Material 3 ColorScheme Bridge.
+         * Pure, authoritative mapping from AppTheme semantic roles into Material 3 ColorScheme.
+         * Does not force domain-specific writing or analytics tokens into standard component roles.
+         */
+        fun toMaterialColorScheme(theme: AppTheme): ColorScheme {
+            val resolved = resolveTheme(theme)
+            val c = resolved.colors
+            val isDark = resolved.isDark
+
+            val primary = ComposeColor(parseColor(c.accent))
+            val onPrimary = ComposeColor(if (isDarkColor(c.accent)) 0xFFFFFFFF.toInt() else 0xFF000000.toInt())
+            val primaryContainer = ComposeColor(parseColor(c.accentMuted))
+            val onPrimaryContainer = ComposeColor(parseColor(c.text))
+
+            val secondary = ComposeColor(parseColor(c.secondary))
+            val onSecondary = ComposeColor(if (isDarkColor(c.secondary)) 0xFFFFFFFF.toInt() else 0xFF000000.toInt())
+            val secondaryContainer = ComposeColor(parseColor(c.surfaceRaised))
+            val onSecondaryContainer = ComposeColor(parseColor(c.text))
+
+            val tertiary = ComposeColor(parseColor(c.tertiary))
+            val onTertiary = ComposeColor(if (isDarkColor(c.tertiary)) 0xFFFFFFFF.toInt() else 0xFF000000.toInt())
+            val tertiaryContainer = ComposeColor(parseColor(c.surfaceOverlay))
+            val onTertiaryContainer = ComposeColor(parseColor(c.text))
+
+            val background = ComposeColor(parseColor(c.background))
+            val onBackground = ComposeColor(parseColor(c.text))
+
+            val surface = ComposeColor(parseColor(c.surface))
+            val onSurface = ComposeColor(parseColor(c.text))
+
+            val surfaceVariant = ComposeColor(parseColor(c.surfaceLowest))
+            val onSurfaceVariant = ComposeColor(parseColor(c.mutedText))
+
+            val surfaceContainerLowest = ComposeColor(parseColor(c.surfaceLowest))
+            val surfaceContainerLow = ComposeColor(parseColor(c.background))
+            val surfaceContainer = ComposeColor(parseColor(c.surface))
+            val surfaceContainerHigh = ComposeColor(parseColor(c.surfaceRaised))
+            val surfaceContainerHighest = ComposeColor(parseColor(c.surfaceOverlay))
+
+            val outline = ComposeColor(parseColor(c.border))
+            val outlineVariant = ComposeColor(parseColor(c.borderSubtle))
+
+            val error = ComposeColor(parseColor(c.error))
+            val onError = ComposeColor(if (isDarkColor(c.error)) 0xFFFFFFFF.toInt() else 0xFF000000.toInt())
+            val errorContainer = ComposeColor(parseColor(c.error)).copy(alpha = 0.20f)
+            val onErrorContainer = ComposeColor(parseColor(c.text))
+
+            val inverseSurface = ComposeColor(parseColor(c.text))
+            val inverseOnSurface = ComposeColor(parseColor(c.background))
+            val inversePrimary = primary
+
+            val scrim = ComposeColor.Black.copy(alpha = 0.32f)
+            val surfaceTint = primary
+
+            return if (isDark) {
+                darkColorScheme(
+                    primary = primary,
+                    onPrimary = onPrimary,
+                    primaryContainer = primaryContainer,
+                    onPrimaryContainer = onPrimaryContainer,
+                    inversePrimary = inversePrimary,
+                    secondary = secondary,
+                    onSecondary = onSecondary,
+                    secondaryContainer = secondaryContainer,
+                    onSecondaryContainer = onSecondaryContainer,
+                    tertiary = tertiary,
+                    onTertiary = onTertiary,
+                    tertiaryContainer = tertiaryContainer,
+                    onTertiaryContainer = onTertiaryContainer,
+                    background = background,
+                    onBackground = onBackground,
+                    surface = surface,
+                    onSurface = onSurface,
+                    surfaceVariant = surfaceVariant,
+                    onSurfaceVariant = onSurfaceVariant,
+                    surfaceTint = surfaceTint,
+                    inverseSurface = inverseSurface,
+                    inverseOnSurface = inverseOnSurface,
+                    error = error,
+                    onError = onError,
+                    errorContainer = errorContainer,
+                    onErrorContainer = onErrorContainer,
+                    outline = outline,
+                    outlineVariant = outlineVariant,
+                    scrim = scrim,
+                    surfaceContainerLowest = surfaceContainerLowest,
+                    surfaceContainerLow = surfaceContainerLow,
+                    surfaceContainer = surfaceContainer,
+                    surfaceContainerHigh = surfaceContainerHigh,
+                    surfaceContainerHighest = surfaceContainerHighest
+                )
+            } else {
+                lightColorScheme(
+                    primary = primary,
+                    onPrimary = onPrimary,
+                    primaryContainer = primaryContainer,
+                    onPrimaryContainer = onPrimaryContainer,
+                    inversePrimary = inversePrimary,
+                    secondary = secondary,
+                    onSecondary = onSecondary,
+                    secondaryContainer = secondaryContainer,
+                    onSecondaryContainer = onSecondaryContainer,
+                    tertiary = tertiary,
+                    onTertiary = onTertiary,
+                    tertiaryContainer = tertiaryContainer,
+                    onTertiaryContainer = onTertiaryContainer,
+                    background = background,
+                    onBackground = onBackground,
+                    surface = surface,
+                    onSurface = onSurface,
+                    surfaceVariant = surfaceVariant,
+                    onSurfaceVariant = onSurfaceVariant,
+                    surfaceTint = surfaceTint,
+                    inverseSurface = inverseSurface,
+                    inverseOnSurface = inverseOnSurface,
+                    error = error,
+                    onError = onError,
+                    errorContainer = errorContainer,
+                    onErrorContainer = onErrorContainer,
+                    outline = outline,
+                    outlineVariant = outlineVariant,
+                    scrim = scrim,
+                    surfaceContainerLowest = surfaceContainerLowest,
+                    surfaceContainerLow = surfaceContainerLow,
+                    surfaceContainer = surfaceContainer,
+                    surfaceContainerHigh = surfaceContainerHigh,
+                    surfaceContainerHighest = surfaceContainerHighest
+                )
+            }
         }
 
         /**

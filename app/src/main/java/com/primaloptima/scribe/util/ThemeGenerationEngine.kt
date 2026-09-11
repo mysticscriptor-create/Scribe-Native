@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.toArgb
 import com.google.android.material.color.utilities.QuantizerCelebi
 import com.google.android.material.color.utilities.Score
 import com.primaloptima.scribe.ui.theme.ContrastResolver
+import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.ChromaticCharacter
 import com.primaloptima.scribe.util.model.DarkLightBias
 import com.primaloptima.scribe.util.model.ImageInfluence
@@ -13,8 +14,12 @@ import com.primaloptima.scribe.util.model.ImagePaletteSource
 import com.primaloptima.scribe.util.model.ImageUnderstanding
 import com.primaloptima.scribe.util.model.PaletteDiversity
 import com.primaloptima.scribe.util.model.TemperatureBias
+import com.primaloptima.scribe.util.model.ThemeGenerationMetadata
 import com.primaloptima.scribe.util.model.ThemeGenerationRecipe
+import com.primaloptima.scribe.util.model.ThemeRelationshipMode
+import com.primaloptima.scribe.util.model.ThemeSchema
 import com.primaloptima.scribe.util.model.ThemeSourcePalette
+import com.primaloptima.scribe.util.model.ThemeSourceType
 import com.primaloptima.scribe.util.model.TonalCharacter
 import com.primaloptima.scribe.util.model.VisualRole
 import com.primaloptima.scribe.util.model.WritingCharacter
@@ -1014,6 +1019,68 @@ object ThemeGenerationEngine {
             isMonochromatic = false,
             isExtremeDark = false,
             isExtremeLight = false
+        )
+    }
+
+    /**
+     * Complete theme generation pipeline with provenance tracking:
+     * ImageUnderstanding + Recipe + Options -> ThemeSourcePalette -> ThemeDefaults -> AppTheme with ThemeGenerationMetadata
+     */
+    fun createGeneratedTheme(
+        name: String? = null,
+        understanding: ImageUnderstanding,
+        recipe: ThemeGenerationRecipe = ThemeGenerationRecipe.BALANCED,
+        candidateColor: Int? = null,
+        isDark: Boolean,
+        influence: ImageInfluence = ImageInfluence.BALANCED,
+        writingCharacter: WritingCharacter = WritingCharacter.NEUTRAL,
+        relationshipMode: ThemeRelationshipMode = ThemeRelationshipMode.HARMONIC_SURFACE,
+        imageUri: String? = null,
+        userSeedHex: String? = null
+    ): AppTheme {
+        val seedColor = candidateColor ?: understanding.rankedCandidates.firstOrNull() ?: 0xFF3B82F6.toInt()
+        val seedHex = String.format("#%06X", 0xFFFFFF and seedColor)
+        val sourcePalette = generateSourcePalette(
+            understanding = understanding,
+            recipe = recipe,
+            candidateColor = seedColor,
+            isDark = isDark,
+            influence = influence,
+            writingCharacter = writingCharacter
+        )
+
+        val metadata = ThemeGenerationMetadata(
+            sourceType = ThemeSourceType.IMAGE_DYNAMIC,
+            recipe = recipe,
+            imageInfluence = influence,
+            writingCharacter = writingCharacter,
+            relationshipMode = relationshipMode,
+            sourceFingerprint = understanding.imageFingerprint,
+            selectedCandidateHex = seedHex,
+            userSeedHex = userSeedHex,
+            originalAtmosphereHex = sourcePalette.atmosphericColor,
+            generatedAtEpochMs = System.currentTimeMillis()
+        )
+
+        val defaults = ThemeManager.generateThemeDefaults(
+            sources = sourcePalette,
+            isDark = isDark,
+            metadata = metadata
+        )
+
+        val themeName = name ?: generateThemeName(understanding, recipe, seedColor, isDark)
+
+        return AppTheme(
+            id = "custom_generated_${System.currentTimeMillis()}",
+            name = themeName,
+            isDark = isDark,
+            builtIn = false,
+            schemaVersion = ThemeSchema.CURRENT_VERSION,
+            generationMetadata = metadata,
+            colors = defaults,
+            backgroundImageUri = imageUri,
+            bgMode = if (imageUri != null) "image" else "color",
+            savedBgDominantColor = sourcePalette.atmosphericColor ?: understanding.dominantColors.firstOrNull()
         )
     }
 }

@@ -92,8 +92,18 @@ object ThemeSchema {
      */
     const val VERSION_1 = 1
 
+    /**
+     * Schema Version 2 (Session 4):
+     * - Complete generation provenance metadata (recipe, image influence, writing character, relationship mode, seed candidate).
+     * - Regeneration continuity preserving recipe intent across foundation edits.
+     * - Authoritative user override protection during regeneration.
+     * - Material 3 component bridge decoupling domain semantics.
+     * - Gamut-mapped accessibility and contrast reporting persistence.
+     */
+    const val VERSION_2 = 2
+
     /** The current active schema version emitted by the application. */
-    const val CURRENT_VERSION = VERSION_1
+    const val CURRENT_VERSION = VERSION_2
 }
 
 /**
@@ -124,11 +134,18 @@ data class ThemeGenerationMetadata(
     val recipe: ThemeGenerationRecipe = ThemeGenerationRecipe.BALANCED,
     val imageInfluence: ImageInfluence = ImageInfluence.BALANCED,
     val writingCharacter: WritingCharacter = WritingCharacter.NEUTRAL,
+    val relationshipMode: ThemeRelationshipMode = ThemeRelationshipMode.THEME_IMAGE,
     val originalAtmosphereHex: String? = null,
+    val selectedCandidateHex: String? = null,
     val secondaryAccentHex: String? = null,
     val tertiaryAccentHex: String? = null,
+    val sourceImageFingerprint: String? = null,
     val generationVersion: Int = 2
-)
+) {
+    /** True if this theme was generated with an image understanding session */
+    val isImageDerived: Boolean
+        get() = originalAtmosphereHex != null || selectedCandidateHex != null || sourceImageFingerprint != null
+}
 
 /**
  * Phase 1 Explicit User Overrides:
@@ -353,8 +370,8 @@ data class AppTheme(
         background = colors.background,
         text = colors.text,
         accent = colors.accent,
-        secondaryAccent = generationMetadata?.secondaryAccentHex,
-        tertiaryAccent = generationMetadata?.tertiaryAccentHex,
+        secondaryAccent = generationMetadata?.secondaryAccentHex ?: colors.secondary.takeIf { it != colors.accent && it.isNotBlank() },
+        tertiaryAccent = generationMetadata?.tertiaryAccentHex ?: colors.tertiary.takeIf { it != colors.accent && it.isNotBlank() },
         atmosphericColor = generationMetadata?.originalAtmosphereHex
     )
 }
