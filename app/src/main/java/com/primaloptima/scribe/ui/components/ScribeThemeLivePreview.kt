@@ -141,16 +141,12 @@ fun ScribeThemeLivePreview(
     val configuration = LocalConfiguration.current
     val isCompact = configuration.screenWidthDp < 600
 
-    val availableModes = remember(isCompact) {
-        if (isCompact) {
-            listOf(PreviewPaneMode.EDITOR, PreviewPaneMode.DASHBOARD)
-        } else {
-            listOf(PreviewPaneMode.EDITOR, PreviewPaneMode.DASHBOARD, PreviewPaneMode.SPLIT)
-        }
+    val availableModes = remember {
+        listOf(PreviewPaneMode.SPLIT, PreviewPaneMode.DASHBOARD, PreviewPaneMode.EDITOR)
     }
 
-    var selectedPaneMode by remember(isCompact) {
-        mutableStateOf(if (isCompact) PreviewPaneMode.EDITOR else PreviewPaneMode.SPLIT)
+    var selectedPaneMode by remember {
+        mutableStateOf(PreviewPaneMode.SPLIT)
     }
 
     LaunchedEffect(availableModes) {
@@ -273,12 +269,12 @@ fun ScribeThemeLivePreview(
                                             .fillMaxHeight()
                                     ) {
                                         DeviceMockupFrame(
-                                            title = "Editor",
+                                            title = "Dashboard",
                                             hazeState = previewHazeState,
                                             bgUri = bgUri,
                                             bgOpacity = bgOpacity
                                         ) {
-                                            EditorPreviewScreen(selectedOrnamentId = selectedOrnamentId)
+                                            DashboardPreviewScreen()
                                         }
                                     }
 
@@ -288,12 +284,12 @@ fun ScribeThemeLivePreview(
                                             .fillMaxHeight()
                                     ) {
                                         DeviceMockupFrame(
-                                            title = "Dashboard",
+                                            title = "Editor",
                                             hazeState = previewHazeState,
                                             bgUri = bgUri,
                                             bgOpacity = bgOpacity
                                         ) {
-                                            DashboardPreviewScreen()
+                                            EditorPreviewScreen(selectedOrnamentId = selectedOrnamentId)
                                         }
                                     }
                                 }
@@ -512,8 +508,8 @@ private fun EditorPreviewScreen(
         charCount = 7850,
         deltaText = "+340 today",
         isPositiveDelta = true,
-        showTopBar = true,
+        showTopBar = false,
         showWordCountPill = true,
-        showShortcutBar = true
+        showShortcutBar = false
     )
 }

@@ -1858,9 +1858,9 @@ fun EditorContent(
     charCount: Int = 7850,
     deltaText: String? = "+340 today",
     isPositiveDelta: Boolean = true,
-    showTopBar: Boolean = true,
+    showTopBar: Boolean = false,
     showWordCountPill: Boolean = true,
-    showShortcutBar: Boolean = true,
+    showShortcutBar: Boolean = false,
     hazeState: dev.chrisbanes.haze.HazeState? = LocalHazeState.current,
     modifier: Modifier = Modifier
 ) {
@@ -1888,7 +1888,7 @@ fun EditorContent(
                     modifier = Modifier
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
                 ) {
                     ManuscriptHeader(
                         primaryTitleText = primaryTitle,
@@ -1908,7 +1908,7 @@ fun EditorContent(
                     WordCountPill(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(top = 8.dp, end = 8.dp),
+                            .padding(top = 10.dp, end = 12.dp),
                         pillOffsetX = 0f,
                         pillOffsetY = 0f,
                         onOffsetChange = { _, _ -> },
