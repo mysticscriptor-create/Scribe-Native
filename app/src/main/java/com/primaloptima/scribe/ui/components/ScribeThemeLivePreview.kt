@@ -5,12 +5,15 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -21,19 +24,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
-import androidx.compose.material.icons.filled.BatteryFull
-import androidx.compose.material.icons.filled.Book
-import androidx.compose.material.icons.filled.Dashboard
-import androidx.compose.material.icons.filled.EditNote
-import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.StickyNote2
-import androidx.compose.material.icons.filled.ViewColumn
-import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -42,7 +41,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,24 +48,32 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
+import com.primaloptima.scribe.data.Book
+import com.primaloptima.scribe.ui.components.ornaments.OrnamentRegistry
 import com.primaloptima.scribe.ui.screens.DashboardContent
-import com.primaloptima.scribe.ui.screens.DashboardPreviewData
-import com.primaloptima.scribe.ui.screens.EditorContent
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.ScribeComposeTheme
 import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.ThemeColors
 import dev.chrisbanes.haze.HazeState
+import kotlin.math.roundToInt
 
 /**
  * Preview pane presentation mode selector.
@@ -349,7 +355,60 @@ fun ScribeThemeLivePreview(
 }
 
 /**
- * Simulated Android phone frame with status bar, screen content, and theme border.
+ * Proportionally scales any full-scale mobile composable (virtual 360dp mobile canvas)
+ * down to fit within compact preview frames.
+ *
+ * This turns cramped, overflowing screens into authentic, miniature mobile screens where
+ * typography, margins, icons, cards, and decorations maintain correct visual proportions.
+ */
+@Composable
+fun MiniaturePhoneScreen(
+    virtualWidth: Dp = 360.dp,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxSize()
+            .clipToBounds()
+    ) {
+        val density = LocalDensity.current
+        val containerWidthPx = constraints.maxWidth
+        val containerHeightPx = constraints.maxHeight
+
+        if (containerWidthPx <= 0 || containerHeightPx <= 0) {
+            Box(modifier = Modifier.fillMaxSize())
+            return@BoxWithConstraints
+        }
+
+        val virtualWidthPx = with(density) { virtualWidth.roundToPx() }.coerceAtLeast(1)
+        val scale = (containerWidthPx.toFloat() / virtualWidthPx.toFloat()).coerceAtLeast(0.01f)
+        val virtualHeightPx = (containerHeightPx / scale).roundToInt().coerceAtLeast(1)
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    transformOrigin = TransformOrigin(0f, 0f)
+                }
+                .layout { measurable, _ ->
+                    val placeable = measurable.measure(
+                        Constraints.fixed(virtualWidthPx, virtualHeightPx)
+                    )
+                    layout(containerWidthPx, containerHeightPx) {
+                        placeable.place(0, 0)
+                    }
+                }
+        ) {
+            content()
+        }
+    }
+}
+
+/**
+ * Clean simulated Android phone frame with border, rounded corners, and miniature scaling.
  */
 @Composable
 private fun DeviceMockupFrame(
@@ -384,132 +443,252 @@ private fun DeviceMockupFrame(
             )
         }
 
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Status Bar Simulator
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(18.dp)
-                    .background(ScribeTheme.colors.surfaces.surfaceRaised.copy(alpha = 0.5f))
-                    .padding(horizontal = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "9:41",
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = ScribeTheme.colors.content.tertiary
-                )
-
-                // Center notch indicator
-                Box(
-                    modifier = Modifier
-                        .width(36.dp)
-                        .height(3.dp)
-                        .clip(CircleShape)
-                        .background(ScribeTheme.colors.borders.subtle)
-                )
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Wifi,
-                        contentDescription = null,
-                        tint = ScribeTheme.colors.content.tertiary,
-                        modifier = Modifier.size(10.dp)
-                    )
-                    Icon(
-                        imageVector = Icons.Default.BatteryFull,
-                        contentDescription = null,
-                        tint = ScribeTheme.colors.content.tertiary,
-                        modifier = Modifier.size(10.dp)
-                    )
-                }
-            }
-
-            // Screen Body
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-            ) {
-                content()
-            }
+        // Screen Body with miniature proportional scaling
+        MiniaturePhoneScreen(
+            virtualWidth = 360.dp,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            content()
         }
     }
 }
 
 /**
- * Real Scribe Dashboard preview composition.
- * Reuses ScribeTopBar, DashboardContent, and ScribeNavBar.
+ * Real Scribe Dashboard preview composition matching the goal miniature screen.
+ * Directly renders DashboardContent with the sample ongoing book, quick actions, and progress.
  */
 @Composable
 private fun DashboardPreviewScreen() {
-    var selectedNavTab by remember { mutableIntStateOf(0) }
-
-    Column(modifier = Modifier.fillMaxSize()) {
-        ScribeTopBar(
-            title = "Scribe",
-            navigationIcon = Icons.Default.Menu,
-            onNavigationClick = {},
-            actions = listOf(
-                com.primaloptima.scribe.ui.components.ScribeBarAction(Icons.Default.Search, "Search") {}
-            )
-        )
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            DashboardContent(
-                ongoingBook = DashboardPreviewData.sampleBook,
-                chapters = DashboardPreviewData.sampleChapters,
-                totalProjectWords = 34_500,
-                totalTarget = 80_000,
-                currentStreak = 7,
-                todayWords = 1_240,
-                dailyGoal = 1_000,
-                weekData = DashboardPreviewData.sampleWeekData,
-                accentColor = ScribeTheme.colors.interaction.primary
-            )
-        }
-
-        ScribeNavBar(
-            items = listOf(
-                ScribeNavItem(Icons.Default.Dashboard, "Dashboard"),
-                ScribeNavItem(Icons.Default.Book, "Books"),
-                ScribeNavItem(Icons.Default.StickyNote2, "Notes"),
-                ScribeNavItem(Icons.Default.BarChart, "Stats")
-            ),
-            selectedIndex = selectedNavTab,
-            onTabSelected = { selectedNavTab = it }
-        )
-    }
+    DashboardContent(
+        ongoingBook = Book(
+            id = "preview_book_notes",
+            title = "My Notes",
+            summary = "Great stories begin with one more sentence.",
+            tags = "Fantasy,Adventure,Romance",
+            createdAt = 1700000000000L
+        ),
+        chapters = emptyList(),
+        totalProjectWords = 2_000,
+        totalTarget = 120_000,
+        currentStreak = 1,
+        todayWords = 2_000,
+        dailyGoal = 500,
+        weekData = listOf(
+            Triple("M", 200, false),
+            Triple("T", 450, false),
+            Triple("W", 300, false),
+            Triple("T", 600, false),
+            Triple("F", 2000, true),
+            Triple("S", 1200, true),
+            Triple("S", 800, false)
+        ),
+        accentColor = ScribeTheme.colors.interaction.primary,
+        contentPadding = PaddingValues(bottom = 24.dp)
+    )
 }
 
 /**
- * Real Scribe Editor preview composition.
- * Reuses EditorContent (ScribeEditorTopBar, ManuscriptHeader, EditorProsePreviewBody,
- * WordCountPill, and EditorShortcutBar).
+ * Real Scribe Editor preview composition matching the goal miniature screen.
+ * Renders the top search/note/word count bar, extensible ornament flourish divider,
+ * and the rich manuscript prose with styled dialogue and monologue typography tokens.
  */
 @Composable
 private fun EditorPreviewScreen(
     selectedOrnamentId: String
 ) {
-    EditorContent(
-        primaryTitle = "CHAPTER VII",
-        secondaryTitle = "The Obsidian Gate",
-        selectedOrnamentId = selectedOrnamentId,
-        wordCount = 1420,
-        charCount = 7850,
-        deltaText = "+340 today",
-        isPositiveDelta = true,
-        showTopBar = false,
-        showWordCountPill = true,
-        showShortcutBar = false
-    )
+    val proseStyle = ScribeTheme.typography.prose
+    val dialogueStyle = ScribeTheme.typography.dialogue
+    val monologueStyle = ScribeTheme.typography.monologue
+    val colors = ScribeTheme.colors.writing
+
+    val align = when (ScribeTheme.typography.editor.textAlignment) {
+        "justified" -> TextAlign.Justify
+        "center" -> TextAlign.Center
+        else -> TextAlign.Left
+    }
+
+    val paddingHorizontal = ScribeTheme.typography.editor.paddingHorizontal.dp.coerceIn(12.dp, 32.dp)
+    val paragraphSpacing = (ScribeTheme.typography.editor.paragraphSpacing * 12).dp.coerceAtLeast(6.dp)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+    ) {
+        // ── Top Bar: Search, Title + Word Count Pill, Bookmark & More Actions ───
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Search circular button
+            Surface(
+                shape = CircleShape,
+                color = ScribeTheme.colors.surfaces.surfaceRaised.copy(alpha = 0.65f),
+                modifier = Modifier.size(36.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search",
+                        tint = ScribeTheme.colors.content.secondary,
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+            }
+
+            // Note title + word count pill
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Note 3",
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = ScribeTheme.colors.interaction.primary
+                )
+                Surface(
+                    shape = CircleShape,
+                    color = ScribeTheme.colors.surfaces.surfaceRaised.copy(alpha = 0.85f),
+                    border = BorderStroke(1.dp, ScribeTheme.colors.borders.subtle)
+                ) {
+                    Text(
+                        text = "464 words",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = ScribeTheme.colors.content.secondary,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                    )
+                }
+            }
+
+            // Bookmark and More actions
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = ScribeTheme.colors.surfaces.surfaceRaised.copy(alpha = 0.65f),
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.BookmarkBorder,
+                            contentDescription = "Bookmark",
+                            tint = ScribeTheme.colors.content.secondary,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+                }
+                Surface(
+                    shape = CircleShape,
+                    color = ScribeTheme.colors.surfaces.surfaceRaised.copy(alpha = 0.65f),
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "More",
+                            tint = ScribeTheme.colors.content.secondary,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── Extensible Ornament Divider ───────────────────────────────────────
+        val currentOrnament = remember(selectedOrnamentId) {
+            OrnamentRegistry.getById(selectedOrnamentId)
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            currentOrnament.Render(
+                tint = ScribeTheme.colors.interaction.primary.copy(alpha = 0.65f),
+                modifier = Modifier
+            )
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // ── Manuscript Prose Body with Dialogue & Monologue Styles ───────────
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = paddingHorizontal),
+            verticalArrangement = Arrangement.spacedBy(paragraphSpacing)
+        ) {
+            Text(
+                text = "Dust settled over the ruined concourse. Shadows stretched long across the cracked concrete, swallowed by the cold silence of the hollowed-out building.",
+                style = proseStyle.copy(color = colors.prose, textAlign = align),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text(
+                text = "Ren leaned against a shattered pillar. Every breath dragged like glass through his lungs. His ribs screamed from the impact, but he kept his fingers pressed against the wound on his side to slow the slick heat spilling out.",
+                style = proseStyle.copy(color = colors.prose, textAlign = align),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text(
+                text = "He's faster than the reports said.",
+                style = monologueStyle.copy(
+                    color = colors.monologue,
+                    fontStyle = FontStyle.Italic,
+                    textAlign = align
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text(
+                text = "Ren pulled his hand back. Crimson covered his skin.",
+                style = proseStyle.copy(color = colors.prose, textAlign = align),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text(
+                text = "If I try to outrun him, I die in thirty seconds.",
+                style = monologueStyle.copy(
+                    color = colors.monologue,
+                    fontStyle = FontStyle.Italic,
+                    textAlign = align
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text(
+                text = "Heavy footsteps echoed from the far corridor. Slow. Deliberate. The sharp click of steel boots against stone cut through the quiet.",
+                style = proseStyle.copy(color = colors.prose, textAlign = align),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text(
+                text = "“You can stop hiding, kid.”",
+                style = dialogueStyle.copy(color = colors.dialogue, textAlign = align),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text(
+                text = "The voice was rough, scraping against the high walls.",
+                style = proseStyle.copy(color = colors.prose, textAlign = align),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Text(
+                text = "“Makes no difference. We both know how this ends.”",
+                style = dialogueStyle.copy(color = colors.dialogue, textAlign = align),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(28.dp))
+        }
+    }
 }
