@@ -326,6 +326,12 @@ fun CreateThemeFromImageScreen(
                                 session = currentSession.withRecipe(recipe)
                             }
                         )
+
+                        HorizontalDivider(color = ScribeTheme.colors.borders.subtle)
+
+                        VisualPaletteDistributionDisplay(
+                            visualPalette = currentSession.sourcePalette.visualPalette
+                        )
                     }
                 }
 

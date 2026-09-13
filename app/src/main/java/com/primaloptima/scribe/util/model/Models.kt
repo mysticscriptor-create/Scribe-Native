@@ -120,7 +120,8 @@ data class ThemeSourcePalette(
     val accent: String,
     val secondaryAccent: String? = null,
     val tertiaryAccent: String? = null,
-    val atmosphericColor: String? = null
+    val atmosphericColor: String? = null,
+    val visualPalette: VisualThemePalette? = null
 )
 
 /**
@@ -139,12 +140,14 @@ data class ThemeGenerationMetadata(
     val selectedCandidateHex: String? = null,
     val secondaryAccentHex: String? = null,
     val tertiaryAccentHex: String? = null,
+    val highlightHex: String? = null,
+    val visualPalette: VisualThemePalette? = null,
     val sourceImageFingerprint: String? = null,
-    val generationVersion: Int = 2
+    val generationVersion: Int = 3
 ) {
     /** True if this theme was generated with an image understanding session */
     val isImageDerived: Boolean
-        get() = originalAtmosphereHex != null || selectedCandidateHex != null || sourceImageFingerprint != null
+        get() = originalAtmosphereHex != null || selectedCandidateHex != null || sourceImageFingerprint != null || visualPalette != null
 }
 
 /**
@@ -372,7 +375,8 @@ data class AppTheme(
         accent = colors.accent,
         secondaryAccent = generationMetadata?.secondaryAccentHex ?: colors.secondary.takeIf { it != colors.accent && it.isNotBlank() },
         tertiaryAccent = generationMetadata?.tertiaryAccentHex ?: colors.tertiary.takeIf { it != colors.accent && it.isNotBlank() },
-        atmosphericColor = generationMetadata?.originalAtmosphereHex
+        atmosphericColor = generationMetadata?.originalAtmosphereHex,
+        visualPalette = generationMetadata?.visualPalette
     )
 }
 

@@ -18,6 +18,7 @@ import com.primaloptima.scribe.util.model.TemperatureBias
 import com.primaloptima.scribe.util.model.ThemeGenerationRecipe
 import com.primaloptima.scribe.util.model.TonalCharacter
 import com.primaloptima.scribe.util.model.VisualRole
+import com.primaloptima.scribe.util.model.VisualThemePalette
 import com.primaloptima.scribe.util.model.WritingCharacter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -2383,5 +2384,108 @@ class ThemeArchitectureTest {
         assertTrue("Repaired dialogue must satisfy WCAG 4.0:1", repairedDialogue.wcagRatio >= 4.0)
         assertTrue("Repair magnitude must be recorded", repairedDialogue.repairMagnitude > 0.0)
         assertNotEquals(degradedColors.writing.dialogue, repairedColors.writing.dialogue)
+    }
+
+    // ── Phase 20.1: Visual Palette Distribution Layer Tests ───────────────────
+    @Test
+    fun testPhase20_1_visualPalette_distributionPopulatesAllTenRoles() {
+        val sampleCandidates = listOf("#1E3A8A", "#D97706", "#059669", "#DC2626", "#4B5563", "#7C3AED", "#DB2777", "#F59E0B")
+        val understanding = ThemeGenerationEngine.analyzeArtworkPalette(sampleCandidates)
+
+        val generated = ThemeGenerationEngine.createGeneratedTheme(
+            understanding = understanding,
+            recipe = ThemeGenerationRecipe.CHROMATIC_RICH,
+            candidateColor = "#1E3A8A",
+            isDark = true
+        )
+
+        assertNotNull("Theme metadata must not be null", generated.metadata)
+        val vp = generated.metadata?.visualPalette
+        assertNotNull("Visual palette must be populated in metadata", vp)
+        assertTrue("Canvas must be valid hex", vp!!.visualCanvas.startsWith("#"))
+        assertTrue("Editor surface must be valid hex", vp.visualEditorSurface.startsWith("#"))
+        assertTrue("Chrome must be valid hex", vp.visualChrome.startsWith("#"))
+        assertTrue("Secondary chrome must be valid hex", vp.visualSecondaryChrome.startsWith("#"))
+        assertTrue("Elevated surface must be valid hex", vp.visualElevatedSurface.startsWith("#"))
+        assertTrue("Primary accent must be valid hex", vp.visualPrimaryAccent.startsWith("#"))
+        assertTrue("Secondary accent must be valid hex", vp.visualSecondaryAccent.startsWith("#"))
+        assertTrue("Tertiary accent must be valid hex", vp.visualTertiaryAccent.startsWith("#"))
+        assertTrue("Highlight must be valid hex", vp.visualHighlight.startsWith("#"))
+        assertTrue("Neutral must be valid hex", vp.visualNeutral.startsWith("#"))
+    }
+
+    @Test
+    fun testPhase20_1_tokensDirectlyConsumeVisualPaletteRoles() {
+        val customVp = VisualThemePalette(
+            visualCanvas = "#101216",
+            visualEditorSurface = "#181A20",
+            visualChrome = "#20242C",
+            visualSecondaryChrome = "#282C36",
+            visualElevatedSurface = "#303642",
+            visualPrimaryAccent = "#3B82F6",
+            visualSecondaryAccent = "#10B981",
+            visualTertiaryAccent = "#F59E0B",
+            visualHighlight = "#EC4899",
+            visualNeutral = "#64748B"
+        )
+
+        val sources = ThemeSourcePalette(
+            background = customVp.visualCanvas,
+            text = "#F8FAFC",
+            accent = customVp.visualPrimaryAccent,
+            secondaryAccent = customVp.visualSecondaryAccent,
+            tertiaryAccent = customVp.visualTertiaryAccent,
+            visualPalette = customVp
+        )
+
+        val defaults = ThemeManager.generateThemeDefaults(sources, isDark = true)
+
+        assertEquals("surfaceLowest must map to visualEditorSurface", customVp.visualEditorSurface, defaults.surfaceLowest)
+        assertEquals("surface must map to visualChrome", customVp.visualChrome, defaults.surface)
+        assertEquals("surfaceRaised must map to visualElevatedSurface", customVp.visualElevatedSurface, defaults.surfaceRaised)
+        assertEquals("secondary must map to visualSecondaryAccent", customVp.visualSecondaryAccent, defaults.secondary)
+        assertEquals("tertiary must map to visualTertiaryAccent", customVp.visualTertiaryAccent, defaults.tertiary)
+        assertEquals("highlight must map to visualHighlight", customVp.visualHighlight, defaults.highlight)
+    }
+
+    @Test
+    fun testPhase20_1_backwardCompatibility_fallbackWhenVisualPaletteNull() {
+        val sourcesWithoutVp = ThemeSourcePalette(
+            background = "#121212",
+            text = "#E0E0E0",
+            accent = "#4A90E2",
+            visualPalette = null
+        )
+
+        val defaults = ThemeManager.generateThemeDefaults(sourcesWithoutVp, isDark = true)
+        assertNotNull("Defaults must be generated without error", defaults)
+        assertTrue("Surface must be derived", defaults.surface.startsWith("#"))
+        assertTrue("SurfaceLowest must be derived", defaults.surfaceLowest.startsWith("#"))
+    }
+
+    @Test
+    fun testPhase20_1_recipeDistributionDistinction() {
+        val sampleCandidates = listOf("#2E1065", "#7C3AED", "#C084FC", "#047857", "#F59E0B", "#B91C1C", "#1E293B", "#F8FAFC")
+        val understanding = ThemeGenerationEngine.analyzeArtworkPalette(sampleCandidates)
+
+        val chromaticPalette = ThemeGenerationEngine.generateSourcePalette(
+            understanding = understanding,
+            recipe = ThemeGenerationRecipe.CHROMATIC_RICH,
+            candidateColor = "#7C3AED",
+            isDark = true
+        )
+
+        val editorialPalette = ThemeGenerationEngine.generateSourcePalette(
+            understanding = understanding,
+            recipe = ThemeGenerationRecipe.EDITORIAL_SERENE,
+            candidateColor = "#7C3AED",
+            isDark = true
+        )
+
+        assertNotNull("Chromatic visual palette must exist", chromaticPalette.visualPalette)
+        assertNotNull("Editorial visual palette must exist", editorialPalette.visualPalette)
+
+        // The recipes must not produce identical palettes
+        assertNotEquals("Recipes must produce distinct visual distributions", chromaticPalette.visualPalette, editorialPalette.visualPalette)
     }
 }

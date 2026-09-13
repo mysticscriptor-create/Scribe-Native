@@ -30,6 +30,7 @@ import com.primaloptima.scribe.util.model.ImageInfluence
 import com.primaloptima.scribe.util.model.ImageUnderstanding
 import com.primaloptima.scribe.util.model.ThemeGenerationRecipe
 import com.primaloptima.scribe.util.model.ThemeRelationshipMode
+import com.primaloptima.scribe.util.model.VisualThemePalette
 import com.primaloptima.scribe.util.model.WritingCharacter
 
 /**
@@ -224,27 +225,66 @@ fun RecipeComparisonCards(
                         lineHeight = 16.sp
                     )
 
-                    // 3-swatch miniature preview
+                    // Visual Palette Distribution Preview
                     if (palette != null) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            MiniPaletteTile(
-                                label = "Base",
-                                hex = palette.background,
-                                modifier = Modifier.weight(1f)
-                            )
-                            MiniPaletteTile(
-                                label = "Prose",
-                                hex = palette.text,
-                                modifier = Modifier.weight(1f)
-                            )
-                            MiniPaletteTile(
-                                label = "Accent",
-                                hex = palette.accent,
-                                modifier = Modifier.weight(1f)
-                            )
+                        val vp = palette.visualPalette
+                        if (vp != null) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                MiniPaletteTile(
+                                    label = "Canvas",
+                                    hex = vp.visualCanvas,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                MiniPaletteTile(
+                                    label = "Editor",
+                                    hex = vp.visualEditorSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                MiniPaletteTile(
+                                    label = "Chrome",
+                                    hex = vp.visualChrome,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                MiniPaletteTile(
+                                    label = "Accent",
+                                    hex = vp.visualPrimaryAccent,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                MiniPaletteTile(
+                                    label = "Sec",
+                                    hex = vp.visualSecondaryAccent,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                MiniPaletteTile(
+                                    label = "High",
+                                    hex = vp.visualHighlight,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                MiniPaletteTile(
+                                    label = "Base",
+                                    hex = palette.background,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                MiniPaletteTile(
+                                    label = "Prose",
+                                    hex = palette.text,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                MiniPaletteTile(
+                                    label = "Accent",
+                                    hex = palette.accent,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                     }
                 }
@@ -465,5 +505,121 @@ fun RelationshipModeSelector(
                 }
             }
         }
+    }
+}
+
+/**
+ * Visual Palette Distribution Display
+ * Renders the 10-role distribution of colors across Canvas, Editor Surface, Chrome,
+ * Accents, Highlight, and Neutral.
+ */
+@Composable
+fun VisualPaletteDistributionDisplay(
+    visualPalette: VisualThemePalette?,
+    modifier: Modifier = Modifier
+) {
+    if (visualPalette == null) return
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "Visual Palette Distribution",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = ScribeTheme.colors.content.primary
+            )
+            Text(
+                text = "10 Architectural Roles",
+                fontSize = 11.sp,
+                color = ScribeTheme.colors.content.secondary
+            )
+        }
+
+        // Structural Surfaces
+        Text(
+            text = "SURFACES & CHROME",
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp,
+            color = ScribeTheme.colors.content.secondary
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            VisualRoleTile("Canvas", visualPalette.visualCanvas, Modifier.weight(1f))
+            VisualRoleTile("Editor", visualPalette.visualEditorSurface, Modifier.weight(1f))
+            VisualRoleTile("Chrome", visualPalette.visualChrome, Modifier.weight(1f))
+            VisualRoleTile("Sec Chrome", visualPalette.visualSecondaryChrome, Modifier.weight(1f))
+            VisualRoleTile("Elevated", visualPalette.visualElevatedSurface, Modifier.weight(1f))
+        }
+
+        // Accents, Highlights & Neutrals
+        Text(
+            text = "ACCENTS & HARMONICS",
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp,
+            color = ScribeTheme.colors.content.secondary
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            VisualRoleTile("Primary", visualPalette.visualPrimaryAccent, Modifier.weight(1f))
+            VisualRoleTile("Secondary", visualPalette.visualSecondaryAccent, Modifier.weight(1f))
+            VisualRoleTile("Tertiary", visualPalette.visualTertiaryAccent, Modifier.weight(1f))
+            VisualRoleTile("Highlight", visualPalette.visualHighlight, Modifier.weight(1f))
+            VisualRoleTile("Neutral", visualPalette.visualNeutral, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun VisualRoleTile(
+    label: String,
+    hex: String,
+    modifier: Modifier = Modifier
+) {
+    val color = parseComposeColor(hex, Color.Gray)
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Surface(
+            shape = ScribeTheme.shapes.themeEditorControl,
+            color = color,
+            border = BorderStroke(1.dp, ScribeTheme.colors.borders.subtle),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(30.dp)
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = hex.takeLast(6),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = autoTextColor(color)
+                )
+            }
+        }
+        Text(
+            text = label,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
+            color = ScribeTheme.colors.content.secondary,
+            maxLines = 1
+        )
     }
 }

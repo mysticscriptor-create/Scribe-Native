@@ -567,7 +567,15 @@ class ThemeManager(private val context: Context) {
             isDark: Boolean,
             metadata: ThemeGenerationMetadata? = null
         ): ThemeColors {
-            val effectiveMeta = metadata ?: (sources.atmosphericColor?.let {
+            val effectiveMeta = metadata ?: (sources.visualPalette?.let {
+                ThemeGenerationMetadata(
+                    originalAtmosphereHex = sources.atmosphericColor,
+                    secondaryAccentHex = sources.secondaryAccent,
+                    tertiaryAccentHex = sources.tertiaryAccent,
+                    highlightHex = it.visualHighlight,
+                    visualPalette = it
+                )
+            } ?: sources.atmosphericColor?.let {
                 ThemeGenerationMetadata(originalAtmosphereHex = it)
             })
             return generateThemeDefaults(
@@ -622,6 +630,7 @@ class ThemeManager(private val context: Context) {
             val writingChar = metadata?.writingCharacter ?: WritingCharacter.NEUTRAL
             val atmoHex = metadata?.originalAtmosphereHex
             val atmoOklch = atmoHex?.let { colorToOklch(parseColor(it)) }
+            val visualPalette = metadata?.visualPalette
 
             val influenceFactor = when (influence) {
                 ImageInfluence.SUBTLE -> 0.50
@@ -674,34 +683,42 @@ class ThemeManager(private val context: Context) {
                 val surfaceRaised: String
                 val surfaceOverlay: String
 
-                when (recipe) {
-                    ThemeGenerationRecipe.ATMOSPHERIC -> {
-                        val tintHue = atmoOklch?.h ?: bgOklch.h
-                        val tintChroma = ((bgOklch.c + (atmoOklch?.c ?: 0.0) * 0.20) * influenceFactor).coerceIn(0.012, 0.055)
-                        surfaceLowest = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.01, 0.95), tintChroma * 0.95, tintHue))
-                        surface = oklchToHex(Oklch((bgOklch.l + 0.055).coerceIn(0.01, 0.95), tintChroma * 0.90, tintHue))
-                        surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.095).coerceIn(0.01, 0.95), tintChroma * 0.85, tintHue))
-                        surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.145).coerceIn(0.01, 0.95), tintChroma * 0.80, tintHue))
-                    }
-                    ThemeGenerationRecipe.INK -> {
-                        val inkChroma = (bgOklch.c * 0.15).coerceAtMost(0.005)
-                        surfaceLowest = oklchToHex(Oklch((bgOklch.l + 0.028).coerceIn(0.01, 0.95), inkChroma, bgOklch.h))
-                        surface = oklchToHex(Oklch((bgOklch.l + 0.060).coerceIn(0.01, 0.95), inkChroma, bgOklch.h))
-                        surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.100).coerceIn(0.01, 0.95), inkChroma, bgOklch.h))
-                        surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.150).coerceIn(0.01, 0.95), inkChroma, bgOklch.h))
-                    }
-                    ThemeGenerationRecipe.EXPRESSIVE -> {
-                        val exprChroma = (bgOklch.c * 1.15 * influenceFactor).coerceIn(0.015, 0.065)
-                        surfaceLowest = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.01, 0.95), exprChroma * 0.95, bgOklch.h))
-                        surface = oklchToHex(Oklch((bgOklch.l + 0.055).coerceIn(0.01, 0.95), exprChroma * 0.90, bgOklch.h))
-                        surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.095).coerceIn(0.01, 0.95), exprChroma * 0.85, bgOklch.h))
-                        surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.145).coerceIn(0.01, 0.95), exprChroma * 0.80, bgOklch.h))
-                    }
-                    ThemeGenerationRecipe.BALANCED -> {
-                        surfaceLowest = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.01, 0.95), bgOklch.c * 0.95, bgOklch.h))
-                        surface = oklchToHex(Oklch((bgOklch.l + 0.055).coerceIn(0.01, 0.95), bgOklch.c * 0.90, bgOklch.h))
-                        surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.095).coerceIn(0.01, 0.95), bgOklch.c * 0.85, bgOklch.h))
-                        surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.145).coerceIn(0.01, 0.95), bgOklch.c * 0.80, bgOklch.h))
+                if (visualPalette != null) {
+                    surfaceLowest = visualPalette.visualEditorSurface
+                    surface = visualPalette.visualChrome
+                    surfaceRaised = visualPalette.visualElevatedSurface
+                    val raisedOklch = colorToOklch(parseColor(surfaceRaised))
+                    surfaceOverlay = oklchToHex(Oklch((raisedOklch.l + 0.050).coerceIn(0.01, 0.95), (raisedOklch.c * 0.85).coerceAtLeast(0.0), raisedOklch.h))
+                } else {
+                    when (recipe) {
+                        ThemeGenerationRecipe.ATMOSPHERIC -> {
+                            val tintHue = atmoOklch?.h ?: bgOklch.h
+                            val tintChroma = ((bgOklch.c + (atmoOklch?.c ?: 0.0) * 0.20) * influenceFactor).coerceIn(0.012, 0.055)
+                            surfaceLowest = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.01, 0.95), tintChroma * 0.95, tintHue))
+                            surface = oklchToHex(Oklch((bgOklch.l + 0.055).coerceIn(0.01, 0.95), tintChroma * 0.90, tintHue))
+                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.095).coerceIn(0.01, 0.95), tintChroma * 0.85, tintHue))
+                            surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.145).coerceIn(0.01, 0.95), tintChroma * 0.80, tintHue))
+                        }
+                        ThemeGenerationRecipe.INK -> {
+                            val inkChroma = (bgOklch.c * 0.15).coerceAtMost(0.005)
+                            surfaceLowest = oklchToHex(Oklch((bgOklch.l + 0.028).coerceIn(0.01, 0.95), inkChroma, bgOklch.h))
+                            surface = oklchToHex(Oklch((bgOklch.l + 0.060).coerceIn(0.01, 0.95), inkChroma, bgOklch.h))
+                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.100).coerceIn(0.01, 0.95), inkChroma, bgOklch.h))
+                            surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.150).coerceIn(0.01, 0.95), inkChroma, bgOklch.h))
+                        }
+                        ThemeGenerationRecipe.EXPRESSIVE -> {
+                            val exprChroma = (bgOklch.c * 1.15 * influenceFactor).coerceIn(0.015, 0.065)
+                            surfaceLowest = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.01, 0.95), exprChroma * 0.95, bgOklch.h))
+                            surface = oklchToHex(Oklch((bgOklch.l + 0.055).coerceIn(0.01, 0.95), exprChroma * 0.90, bgOklch.h))
+                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.095).coerceIn(0.01, 0.95), exprChroma * 0.85, bgOklch.h))
+                            surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.145).coerceIn(0.01, 0.95), exprChroma * 0.80, bgOklch.h))
+                        }
+                        ThemeGenerationRecipe.BALANCED -> {
+                            surfaceLowest = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.01, 0.95), bgOklch.c * 0.95, bgOklch.h))
+                            surface = oklchToHex(Oklch((bgOklch.l + 0.055).coerceIn(0.01, 0.95), bgOklch.c * 0.90, bgOklch.h))
+                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.095).coerceIn(0.01, 0.95), bgOklch.c * 0.85, bgOklch.h))
+                            surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.145).coerceIn(0.01, 0.95), bgOklch.c * 0.80, bgOklch.h))
+                        }
                     }
                 }
 
@@ -710,22 +727,22 @@ class ThemeManager(private val context: Context) {
                 val subtleText = oklchToHex(Oklch((textOklch.l - 0.45).coerceIn(0.25, 0.70), (textOklch.c * 0.50).coerceAtLeast(0.0), textOklch.h))
 
                 // Interactive & Secondary Harmonics (derived from multi-source palette or in OKLCH space from accent)
-                val secondaryDefault = secondaryHex ?: oklchToHex(Oklch((accentOklch.l - 0.04).coerceIn(0.30, 0.85), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.15 else 0.85)).coerceAtLeast(0.0), (accentOklch.h + 20.0) % 360.0))
-                val tertiaryDefault = tertiaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.06).coerceIn(0.40, 0.90), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.05 else 0.75)).coerceAtLeast(0.0), (accentOklch.h - 30.0 + 360.0) % 360.0))
+                val secondaryDefault = visualPalette?.visualSecondaryAccent ?: secondaryHex ?: oklchToHex(Oklch((accentOklch.l - 0.04).coerceIn(0.30, 0.85), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.15 else 0.85)).coerceAtLeast(0.0), (accentOklch.h + 20.0) % 360.0))
+                val tertiaryDefault = visualPalette?.visualTertiaryAccent ?: tertiaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.06).coerceIn(0.40, 0.90), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.05 else 0.75)).coerceAtLeast(0.0), (accentOklch.h - 30.0 + 360.0) % 360.0))
 
                 // Perceptually tuned Semantic Feedback Roles (APCA readable on dark surfaces)
                 val successDefault = createOklchColor(0.76, 0.15, 142.0)
                 val warningDefault = createOklchColor(0.82, 0.16, 85.0)
                 val errorDefault = createOklchColor(0.72, 0.18, 25.0)
                 val infoDefault = createOklchColor(0.75, 0.14, 230.0)
-                val specialHighlightDefault = createOklchColor(0.78, 0.16, 60.0)
+                val specialHighlightDefault = visualPalette?.visualHighlight ?: (metadata?.highlightHex ?: createOklchColor(0.78, 0.16, 60.0))
 
                 // Containers & Selection
                 val accentMuted = blend(accentInt, bgInt, 0.80f)
                 val selection = blend(accentInt, bgInt, 0.65f)
 
                 // Boundaries & Focus (subtle divider vs standard component boundary vs focus)
-                val borderNormal = oklchToHex(Oklch((bgOklch.l + 0.14).coerceIn(0.01, 0.95), bgOklch.c * 0.70, bgOklch.h))
+                val borderNormal = visualPalette?.visualNeutral ?: oklchToHex(Oklch((bgOklch.l + 0.14).coerceIn(0.01, 0.95), bgOklch.c * 0.70, bgOklch.h))
                 val borderSubtle = oklchToHex(Oklch((bgOklch.l + 0.08).coerceIn(0.01, 0.95), bgOklch.c * 0.75, bgOklch.h))
                 val borderProminent = oklchToHex(Oklch((bgOklch.l + 0.28).coerceIn(0.12, 0.85), (accentOklch.c * 0.40).coerceIn(0.02, 0.08), accentOklch.h))
                 val focusDefault = oklchToHex(Oklch(0.85, (accentOklch.c * 0.85).coerceIn(0.10, 0.22), accentOklch.h))
@@ -837,61 +854,69 @@ class ThemeManager(private val context: Context) {
                 val surfaceOverlay: String
 
                 val isHighKey = bgOklch.l >= 0.90
-                when (recipe) {
-                    ThemeGenerationRecipe.ATMOSPHERIC -> {
-                        val tintHue = atmoOklch?.h ?: bgOklch.h
-                        val tintChroma = ((bgOklch.c + (atmoOklch?.c ?: 0.0) * 0.18) * influenceFactor).coerceIn(0.010, 0.045)
-                        if (isHighKey) {
-                            surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.050).coerceIn(0.05, 0.98), tintChroma * 1.05, tintHue))
-                            surface = oklchToHex(Oklch((bgOklch.l - 0.024).coerceIn(0.05, 0.98), tintChroma * 0.95, tintHue))
-                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + (1.0 - bgOklch.l) * 0.45).coerceIn(0.05, 0.992), tintChroma * 0.70, tintHue))
-                            surfaceOverlay = oklchToHex(Oklch(1.0, 0.0, tintHue))
-                        } else {
-                            surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.045).coerceIn(0.05, 0.98), tintChroma * 1.05, tintHue))
-                            surface = oklchToHex(Oklch((bgOklch.l - 0.025).coerceIn(0.05, 0.98), tintChroma * 0.95, tintHue))
-                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.05, 0.99), tintChroma * 0.80, tintHue))
-                            surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.050).coerceIn(0.05, 1.0), tintChroma * 0.65, tintHue))
+                if (visualPalette != null) {
+                    surfaceLowest = visualPalette.visualEditorSurface
+                    surface = visualPalette.visualChrome
+                    surfaceRaised = visualPalette.visualElevatedSurface
+                    val raisedOklch = colorToOklch(parseColor(surfaceRaised))
+                    surfaceOverlay = if (raisedOklch.l >= 0.96) "#FFFFFF" else oklchToHex(Oklch((raisedOklch.l + 0.025).coerceIn(0.05, 1.0), (raisedOklch.c * 0.70).coerceAtLeast(0.0), raisedOklch.h))
+                } else {
+                    when (recipe) {
+                        ThemeGenerationRecipe.ATMOSPHERIC -> {
+                            val tintHue = atmoOklch?.h ?: bgOklch.h
+                            val tintChroma = ((bgOklch.c + (atmoOklch?.c ?: 0.0) * 0.18) * influenceFactor).coerceIn(0.010, 0.045)
+                            if (isHighKey) {
+                                surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.050).coerceIn(0.05, 0.98), tintChroma * 1.05, tintHue))
+                                surface = oklchToHex(Oklch((bgOklch.l - 0.024).coerceIn(0.05, 0.98), tintChroma * 0.95, tintHue))
+                                surfaceRaised = oklchToHex(Oklch((bgOklch.l + (1.0 - bgOklch.l) * 0.45).coerceIn(0.05, 0.992), tintChroma * 0.70, tintHue))
+                                surfaceOverlay = oklchToHex(Oklch(1.0, 0.0, tintHue))
+                            } else {
+                                surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.045).coerceIn(0.05, 0.98), tintChroma * 1.05, tintHue))
+                                surface = oklchToHex(Oklch((bgOklch.l - 0.025).coerceIn(0.05, 0.98), tintChroma * 0.95, tintHue))
+                                surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.05, 0.99), tintChroma * 0.80, tintHue))
+                                surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.050).coerceIn(0.05, 1.0), tintChroma * 0.65, tintHue))
+                            }
                         }
-                    }
-                    ThemeGenerationRecipe.INK -> {
-                        val inkChroma = (bgOklch.c * 0.15).coerceAtMost(0.005)
-                        if (isHighKey) {
-                            surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.050).coerceIn(0.05, 0.98), inkChroma, bgOklch.h))
-                            surface = oklchToHex(Oklch((bgOklch.l - 0.024).coerceIn(0.05, 0.98), inkChroma, bgOklch.h))
-                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + (1.0 - bgOklch.l) * 0.45).coerceIn(0.05, 0.992), inkChroma, bgOklch.h))
-                            surfaceOverlay = oklchToHex(Oklch(1.0, 0.0, bgOklch.h))
-                        } else {
-                            surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.045).coerceIn(0.05, 0.98), inkChroma, bgOklch.h))
-                            surface = oklchToHex(Oklch((bgOklch.l - 0.025).coerceIn(0.05, 0.98), inkChroma, bgOklch.h))
-                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.05, 0.99), inkChroma, bgOklch.h))
-                            surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.050).coerceIn(0.05, 1.0), inkChroma, bgOklch.h))
+                        ThemeGenerationRecipe.INK -> {
+                            val inkChroma = (bgOklch.c * 0.15).coerceAtMost(0.005)
+                            if (isHighKey) {
+                                surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.050).coerceIn(0.05, 0.98), inkChroma, bgOklch.h))
+                                surface = oklchToHex(Oklch((bgOklch.l - 0.024).coerceIn(0.05, 0.98), inkChroma, bgOklch.h))
+                                surfaceRaised = oklchToHex(Oklch((bgOklch.l + (1.0 - bgOklch.l) * 0.45).coerceIn(0.05, 0.992), inkChroma, bgOklch.h))
+                                surfaceOverlay = oklchToHex(Oklch(1.0, 0.0, bgOklch.h))
+                            } else {
+                                surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.045).coerceIn(0.05, 0.98), inkChroma, bgOklch.h))
+                                surface = oklchToHex(Oklch((bgOklch.l - 0.025).coerceIn(0.05, 0.98), inkChroma, bgOklch.h))
+                                surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.05, 0.99), inkChroma, bgOklch.h))
+                                surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.050).coerceIn(0.05, 1.0), inkChroma, bgOklch.h))
+                            }
                         }
-                    }
-                    ThemeGenerationRecipe.EXPRESSIVE -> {
-                        val exprChroma = (bgOklch.c * 1.15 * influenceFactor).coerceIn(0.012, 0.055)
-                        if (isHighKey) {
-                            surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.050).coerceIn(0.05, 0.98), exprChroma * 1.05, bgOklch.h))
-                            surface = oklchToHex(Oklch((bgOklch.l - 0.024).coerceIn(0.05, 0.98), exprChroma * 0.95, bgOklch.h))
-                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + (1.0 - bgOklch.l) * 0.45).coerceIn(0.05, 0.992), exprChroma * 0.70, bgOklch.h))
-                            surfaceOverlay = oklchToHex(Oklch(1.0, 0.0, bgOklch.h))
-                        } else {
-                            surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.045).coerceIn(0.05, 0.98), exprChroma * 1.05, bgOklch.h))
-                            surface = oklchToHex(Oklch((bgOklch.l - 0.025).coerceIn(0.05, 0.98), exprChroma * 0.95, bgOklch.h))
-                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.05, 0.99), exprChroma * 0.80, bgOklch.h))
-                            surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.050).coerceIn(0.05, 1.0), exprChroma * 0.65, bgOklch.h))
+                        ThemeGenerationRecipe.EXPRESSIVE -> {
+                            val exprChroma = (bgOklch.c * 1.15 * influenceFactor).coerceIn(0.012, 0.055)
+                            if (isHighKey) {
+                                surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.050).coerceIn(0.05, 0.98), exprChroma * 1.05, bgOklch.h))
+                                surface = oklchToHex(Oklch((bgOklch.l - 0.024).coerceIn(0.05, 0.98), exprChroma * 0.95, bgOklch.h))
+                                surfaceRaised = oklchToHex(Oklch((bgOklch.l + (1.0 - bgOklch.l) * 0.45).coerceIn(0.05, 0.992), exprChroma * 0.70, bgOklch.h))
+                                surfaceOverlay = oklchToHex(Oklch(1.0, 0.0, bgOklch.h))
+                            } else {
+                                surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.045).coerceIn(0.05, 0.98), exprChroma * 1.05, bgOklch.h))
+                                surface = oklchToHex(Oklch((bgOklch.l - 0.025).coerceIn(0.05, 0.98), exprChroma * 0.95, bgOklch.h))
+                                surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.05, 0.99), exprChroma * 0.80, bgOklch.h))
+                                surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.050).coerceIn(0.05, 1.0), exprChroma * 0.65, bgOklch.h))
+                            }
                         }
-                    }
-                    ThemeGenerationRecipe.BALANCED -> {
-                        if (isHighKey) {
-                            surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.050).coerceIn(0.05, 0.98), bgOklch.c * 1.05, bgOklch.h))
-                            surface = oklchToHex(Oklch((bgOklch.l - 0.024).coerceIn(0.05, 0.98), bgOklch.c * 0.95, bgOklch.h))
-                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + (1.0 - bgOklch.l) * 0.45).coerceIn(0.05, 0.992), bgOklch.c * 0.70, bgOklch.h))
-                            surfaceOverlay = oklchToHex(Oklch(1.0, 0.0, bgOklch.h))
-                        } else {
-                            surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.045).coerceIn(0.05, 0.98), bgOklch.c * 1.05, bgOklch.h))
-                            surface = oklchToHex(Oklch((bgOklch.l - 0.025).coerceIn(0.05, 0.98), bgOklch.c * 0.95, bgOklch.h))
-                            surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.05, 0.99), bgOklch.c * 0.80, bgOklch.h))
-                            surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.050).coerceIn(0.05, 1.0), bgOklch.c * 0.65, bgOklch.h))
+                        ThemeGenerationRecipe.BALANCED -> {
+                            if (isHighKey) {
+                                surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.050).coerceIn(0.05, 0.98), bgOklch.c * 1.05, bgOklch.h))
+                                surface = oklchToHex(Oklch((bgOklch.l - 0.024).coerceIn(0.05, 0.98), bgOklch.c * 0.95, bgOklch.h))
+                                surfaceRaised = oklchToHex(Oklch((bgOklch.l + (1.0 - bgOklch.l) * 0.45).coerceIn(0.05, 0.992), bgOklch.c * 0.70, bgOklch.h))
+                                surfaceOverlay = oklchToHex(Oklch(1.0, 0.0, bgOklch.h))
+                            } else {
+                                surfaceLowest = oklchToHex(Oklch((bgOklch.l - 0.045).coerceIn(0.05, 0.98), bgOklch.c * 1.05, bgOklch.h))
+                                surface = oklchToHex(Oklch((bgOklch.l - 0.025).coerceIn(0.05, 0.98), bgOklch.c * 0.95, bgOklch.h))
+                                surfaceRaised = oklchToHex(Oklch((bgOklch.l + 0.025).coerceIn(0.05, 0.99), bgOklch.c * 0.80, bgOklch.h))
+                                surfaceOverlay = oklchToHex(Oklch((bgOklch.l + 0.050).coerceIn(0.05, 1.0), bgOklch.c * 0.65, bgOklch.h))
+                            }
                         }
                     }
                 }
@@ -901,22 +926,22 @@ class ThemeManager(private val context: Context) {
                 val subtleText = oklchToHex(Oklch((textOklch.l + 0.44).coerceIn(0.30, 0.85), (textOklch.c * 0.50).coerceAtLeast(0.0), textOklch.h))
 
                 // Interactive & Secondary Harmonics (derived from multi-source palette or in OKLCH space from accent)
-                val secondaryDefault = secondaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.08).coerceIn(0.20, 0.75), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.15 else 0.85)).coerceAtLeast(0.0), (accentOklch.h + 15.0) % 360.0))
-                val tertiaryDefault = tertiaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.14).coerceIn(0.25, 0.80), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.05 else 0.75)).coerceAtLeast(0.0), (accentOklch.h - 25.0 + 360.0) % 360.0))
+                val secondaryDefault = visualPalette?.visualSecondaryAccent ?: secondaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.08).coerceIn(0.20, 0.75), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.15 else 0.85)).coerceAtLeast(0.0), (accentOklch.h + 15.0) % 360.0))
+                val tertiaryDefault = visualPalette?.visualTertiaryAccent ?: tertiaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.14).coerceIn(0.25, 0.80), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.05 else 0.75)).coerceAtLeast(0.0), (accentOklch.h - 25.0 + 360.0) % 360.0))
 
                 // Perceptually tuned Semantic Feedback Roles (APCA readable on light surfaces)
                 val successDefault = createOklchColor(0.48, 0.16, 142.0)
                 val warningDefault = createOklchColor(0.55, 0.16, 80.0)
                 val errorDefault = createOklchColor(0.50, 0.20, 25.0)
                 val infoDefault = createOklchColor(0.52, 0.15, 230.0)
-                val specialHighlightDefault = createOklchColor(0.60, 0.16, 85.0)
+                val specialHighlightDefault = visualPalette?.visualHighlight ?: (metadata?.highlightHex ?: createOklchColor(0.60, 0.16, 85.0))
 
                 // Containers & Selection
                 val accentMuted = blend(accentInt, bgInt, 0.88f)
                 val selection = blend(accentInt, bgInt, 0.78f)
 
                 // Boundaries & Focus (derived with adequate contrast against light background)
-                val borderNormal = oklchToHex(Oklch((bgOklch.l - 0.14).coerceIn(0.10, 0.98), bgOklch.c * 0.65, bgOklch.h))
+                val borderNormal = visualPalette?.visualNeutral ?: oklchToHex(Oklch((bgOklch.l - 0.14).coerceIn(0.10, 0.98), bgOklch.c * 0.65, bgOklch.h))
                 val borderSubtle = oklchToHex(Oklch((bgOklch.l - 0.085).coerceIn(0.10, 0.98), bgOklch.c * 0.70, bgOklch.h))
                 val borderProminent = oklchToHex(Oklch((bgOklch.l - 0.28).coerceIn(0.12, 0.75), (accentOklch.c * 0.40).coerceIn(0.02, 0.08), accentOklch.h))
                 val focusDefault = oklchToHex(Oklch(0.32, (accentOklch.c * 0.85).coerceIn(0.12, 0.24), accentOklch.h))
@@ -1290,9 +1315,10 @@ class ThemeManager(private val context: Context) {
         fun resolveThemeColors(
             sources: ThemeSourcePalette,
             overrides: ThemeColorOverrides? = null,
-            isDark: Boolean
+            isDark: Boolean,
+            metadata: ThemeGenerationMetadata? = null
         ): ThemeColors {
-            val defaults = generateThemeDefaults(sources, isDark)
+            val defaults = generateThemeDefaults(sources, isDark, metadata)
             if (overrides == null || overrides.isEmpty()) {
                 return defaults
             }

@@ -122,6 +122,22 @@ data class ImageThemeGenerationSession(
             ThemeRelationshipMode.THEME_GLASS -> Triple("image", effectiveImage, true)
         }
 
+        val effectiveSeedHex = String.format("#%06X", 0xFFFFFF and effectiveCandidate)
+        val metadata = com.primaloptima.scribe.util.model.ThemeGenerationMetadata(
+            recipe = activeRecipe,
+            imageInfluence = activeInfluence,
+            writingCharacter = activeWritingCharacter,
+            relationshipMode = relationshipMode,
+            originalAtmosphereHex = palette.atmosphericColor,
+            selectedCandidateHex = effectiveSeedHex,
+            secondaryAccentHex = palette.secondaryAccent,
+            tertiaryAccentHex = palette.tertiaryAccent,
+            highlightHex = palette.visualPalette?.visualHighlight,
+            visualPalette = palette.visualPalette,
+            sourceImageFingerprint = understanding.imageFingerprint,
+            generationVersion = 3
+        )
+
         return baseTheme.copy(
             id = id,
             name = effectiveThemeName,
@@ -130,6 +146,7 @@ data class ImageThemeGenerationSession(
             emoji = "🎨",
             colors = colors,
             overrides = null,
+            generationMetadata = metadata,
             bgMode = bgMode,
             backgroundImageUri = bgUri,
             backgroundImageOriginalUri = if (relationshipMode == ThemeRelationshipMode.THEME_ONLY) null else imageUri,
