@@ -544,7 +544,7 @@ data class ThemeEditorDraft(
                 secondaryHex = theme.generationMetadata?.secondaryAccentHex,
                 tertiaryHex = theme.generationMetadata?.tertiaryAccentHex,
                 atmosphericHex = theme.generationMetadata?.originalAtmosphereHex,
-                visualPalette = theme.generationMetadata?.visualPalette ?: theme.toFoundationPalette().visualPalette
+                visualPalette = theme.generationMetadata?.visualPalette ?: theme.sourcePalette().visualPalette
             )
         }
     }

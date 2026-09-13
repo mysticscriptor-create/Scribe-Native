@@ -378,6 +378,8 @@ data class AppTheme(
         atmosphericColor = generationMetadata?.originalAtmosphereHex,
         visualPalette = generationMetadata?.visualPalette
     )
+
+    fun toFoundationPalette(): ThemeSourcePalette = sourcePalette()
 }
 
 // ── SAF scan result ───────────────────────────────────────────────────────────
