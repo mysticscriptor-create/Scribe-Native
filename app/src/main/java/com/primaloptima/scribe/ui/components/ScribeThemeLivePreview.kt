@@ -65,8 +65,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.primaloptima.scribe.data.Book
-import com.primaloptima.scribe.ui.components.ornaments.OrnamentRegistry
+import com.primaloptima.scribe.ui.ornaments.ManuscriptOrnament
+import com.primaloptima.scribe.ui.ornaments.OrnamentRegistry
 import com.primaloptima.scribe.ui.screens.DashboardContent
+import com.primaloptima.scribe.ui.theme.LocalAppTheme
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.ScribeComposeTheme
 import com.primaloptima.scribe.ui.theme.ScribeTheme
@@ -507,8 +509,8 @@ private fun EditorPreviewScreen(
         else -> TextAlign.Left
     }
 
-    val paddingHorizontal = ScribeTheme.typography.editor.paddingHorizontal.dp.coerceIn(12.dp, 32.dp)
-    val paragraphSpacing = (ScribeTheme.typography.editor.paragraphSpacing * 12).dp.coerceAtLeast(6.dp)
+    val paddingHorizontal = (LocalAppTheme.current?.paddingHorizontal ?: 16).dp.coerceIn(12.dp, 32.dp)
+    val paragraphSpacing = ScribeTheme.typography.editor.paragraphSpacing.dp.coerceIn(6.dp, 24.dp)
 
     Column(
         modifier = Modifier
@@ -602,7 +604,7 @@ private fun EditorPreviewScreen(
         }
 
         // ── Extensible Ornament Divider ───────────────────────────────────────
-        val currentOrnament = remember(selectedOrnamentId) {
+        val currentOrnament: ManuscriptOrnament = remember(selectedOrnamentId) {
             OrnamentRegistry.getById(selectedOrnamentId)
         }
         Box(
