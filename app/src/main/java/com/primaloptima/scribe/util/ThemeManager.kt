@@ -33,6 +33,7 @@ import com.primaloptima.scribe.util.model.WritingCharacter
 import com.primaloptima.scribe.util.model.ThemeRelationshipMode
 import com.primaloptima.scribe.util.model.ThemeSchema
 import com.primaloptima.scribe.util.model.ThemeSourcePalette
+import com.primaloptima.scribe.util.model.VisualThemePalette
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlin.math.roundToInt

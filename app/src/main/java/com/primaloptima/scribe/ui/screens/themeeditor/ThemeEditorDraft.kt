@@ -12,6 +12,7 @@ import com.primaloptima.scribe.util.model.ThemeGenerationRecipe
 import com.primaloptima.scribe.util.model.ThemeRelationshipMode
 import com.primaloptima.scribe.util.model.ThemeSchema
 import com.primaloptima.scribe.util.model.ThemeSourcePalette
+import com.primaloptima.scribe.util.model.VisualThemePalette
 import com.primaloptima.scribe.util.model.WritingCharacter
 
 /**
@@ -123,7 +124,8 @@ data class ThemeEditorDraft(
     // Phase 20: Intelligent Multi-Color Palette Sources
     val secondaryHex: String? = null,
     val tertiaryHex: String? = null,
-    val atmosphericHex: String? = null
+    val atmosphericHex: String? = null,
+    val visualPalette: VisualThemePalette? = null
 ) {
     /**
      * Resolves the canonical active ThemeColors by layering overrides onto generated defaults.
@@ -136,7 +138,8 @@ data class ThemeEditorDraft(
                 accent = accentHex,
                 secondaryAccent = secondaryHex,
                 tertiaryAccent = tertiaryHex,
-                atmosphericColor = atmosphericHex
+                atmosphericColor = atmosphericHex,
+                visualPalette = visualPalette
             ),
             overrides = overrides,
             isDark = ThemeManager.isDarkColor(bgHex)
@@ -154,7 +157,8 @@ data class ThemeEditorDraft(
                 accent = accentHex,
                 secondaryAccent = secondaryHex,
                 tertiaryAccent = tertiaryHex,
-                atmosphericColor = atmosphericHex
+                atmosphericColor = atmosphericHex,
+                visualPalette = visualPalette
             ),
             isDark = ThemeManager.isDarkColor(bgHex)
         )
@@ -269,6 +273,7 @@ data class ThemeEditorDraft(
             secondaryHex = palette.secondaryAccent,
             tertiaryHex = palette.tertiaryAccent,
             atmosphericHex = palette.atmosphericColor,
+            visualPalette = palette.visualPalette,
             overrides = if (resetOverrides) null else overrides
         )
     }
@@ -313,6 +318,7 @@ data class ThemeEditorDraft(
             secondaryHex = palette.secondaryAccent,
             tertiaryHex = palette.tertiaryAccent,
             atmosphericHex = palette.atmosphericColor,
+            visualPalette = palette.visualPalette,
             overrides = if (resetOverrides) null else overrides,
             extractedCandidates = understanding.rankedCandidates,
             activeCandidate = chosenCandidate,
@@ -412,6 +418,7 @@ data class ThemeEditorDraft(
                 secondaryHex = palette.secondaryAccent,
                 tertiaryHex = palette.tertiaryAccent,
                 atmosphericHex = palette.atmosphericColor,
+                visualPalette = palette.visualPalette,
                 overrides = if (resetOverrides) null else overrides
             )
         } else {
@@ -485,14 +492,15 @@ data class ThemeEditorDraft(
             savedBgDominantColor = bgDominantColor,
             savedBgZonalColors = zonalColorsMatrix,
             savedBgLuminanceField = luminanceFieldMatrix,
-            generationMetadata = if (activeUnderstanding != null || secondaryHex != null || tertiaryHex != null || atmosphericHex != null) {
+            generationMetadata = if (activeUnderstanding != null || secondaryHex != null || tertiaryHex != null || atmosphericHex != null || visualPalette != null) {
                 com.primaloptima.scribe.util.model.ThemeGenerationMetadata(
                     recipe = activeRecipe,
                     imageInfluence = activeInfluence,
                     writingCharacter = activeWritingCharacter,
                     originalAtmosphereHex = atmosphericHex,
                     secondaryAccentHex = secondaryHex,
-                    tertiaryAccentHex = tertiaryHex
+                    tertiaryAccentHex = tertiaryHex,
+                    visualPalette = visualPalette
                 )
             } else {
                 base.generationMetadata
@@ -535,7 +543,8 @@ data class ThemeEditorDraft(
                 luminanceFieldMatrix = theme.savedBgLuminanceField,
                 secondaryHex = theme.generationMetadata?.secondaryAccentHex,
                 tertiaryHex = theme.generationMetadata?.tertiaryAccentHex,
-                atmosphericHex = theme.generationMetadata?.originalAtmosphereHex
+                atmosphericHex = theme.generationMetadata?.originalAtmosphereHex,
+                visualPalette = theme.generationMetadata?.visualPalette ?: theme.toFoundationPalette().visualPalette
             )
         }
     }

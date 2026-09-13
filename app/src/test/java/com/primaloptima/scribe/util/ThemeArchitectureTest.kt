@@ -19,6 +19,8 @@ import com.primaloptima.scribe.util.model.ThemeGenerationRecipe
 import com.primaloptima.scribe.util.model.TonalCharacter
 import com.primaloptima.scribe.util.model.VisualRole
 import com.primaloptima.scribe.util.model.VisualThemePalette
+import com.primaloptima.scribe.util.model.VisualPaletteReport
+import com.primaloptima.scribe.ui.screens.themeeditor.ThemeEditorDraft
 import com.primaloptima.scribe.util.model.WritingCharacter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -2487,5 +2489,61 @@ class ThemeArchitectureTest {
 
         // The recipes must not produce identical palettes
         assertNotEquals("Recipes must produce distinct visual distributions", chromaticPalette.visualPalette, editorialPalette.visualPalette)
+    }
+
+    @Test
+    fun testPhase20_1_visualPaletteReport_containsAllRolesAndTokens() {
+        val sampleCandidates = listOf("#1E3A8A", "#D97706", "#059669", "#DC2626")
+        val understanding = ThemeGenerationEngine.analyzeArtworkPalette(sampleCandidates)
+
+        val report = ThemeGenerationEngine.generateVisualPaletteReport(
+            understanding = understanding,
+            recipe = ThemeGenerationRecipe.ATMOSPHERIC,
+            candidateColor = "#1E3A8A",
+            isDark = true
+        )
+
+        assertNotNull("Report must be generated", report)
+        assertNotNull("Report visual palette must exist", report.visualPalette)
+        assertTrue("Token distribution must contain surface lowest", report.tokenDistribution.containsKey("surfaces.surfaceLowest"))
+        assertTrue("Token distribution must contain primary interaction", report.tokenDistribution.containsKey("interaction.primary"))
+
+        val formatted = report.toFormattedString()
+        assertTrue("Formatted report must have section header", formatted.contains("VISUAL PALETTE DISTRIBUTION REPORT"))
+        assertTrue("Formatted report must list VISUAL CANVAS", formatted.contains("VISUAL CANVAS"))
+    }
+
+    @Test
+    fun testPhase20_1_themeEditorDraft_roundtripPreservesVisualPalette() {
+        val customVp = VisualThemePalette(
+            visualCanvas = "#0F172A",
+            visualEditorSurface = "#1E293B",
+            visualChrome = "#334155",
+            visualSecondaryChrome = "#475569",
+            visualElevatedSurface = "#64748B",
+            visualPrimaryAccent = "#38BDF8",
+            visualSecondaryAccent = "#34D399",
+            visualTertiaryAccent = "#F472B6",
+            visualHighlight = "#FBBF24",
+            visualNeutral = "#94A3B8"
+        )
+
+        val sources = ThemeSourcePalette(
+            background = customVp.visualCanvas,
+            text = "#F8FAFC",
+            accent = customVp.visualPrimaryAccent,
+            visualPalette = customVp
+        )
+
+        val baseTheme = DefaultThemes.all.first()
+        val draft = ThemeEditorDraft.fromAppTheme(baseTheme).withFoundationPalette(sources)
+
+        assertEquals("Draft must hold custom visualPalette", customVp, draft.visualPalette)
+
+        val savedTheme = draft.toAppTheme(baseTheme)
+        assertEquals("AppTheme generationMetadata must persist visualPalette", customVp, savedTheme.generationMetadata?.visualPalette)
+
+        val reloadedDraft = ThemeEditorDraft.fromAppTheme(savedTheme)
+        assertEquals("Reloaded draft must restore visualPalette", customVp, reloadedDraft.visualPalette)
     }
 }
