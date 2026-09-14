@@ -184,6 +184,31 @@ enum class WritingCharacter(
 }
 
 /**
+ * Canvas polarity and chromatic mode for theme generation.
+ * - DARK: Deep night-friendly background with artwork tones.
+ * - LIGHT: Clean daylight paper background with artwork tones.
+ * - IMAGE_NATIVE: Painted directly in the artwork's authentic colors everywhere without forcing dark/light.
+ */
+@Serializable
+enum class ThemeCanvasMode(
+    val label: String,
+    val description: String
+) {
+    DARK(
+        label = "Dark",
+        description = "Deep night-friendly background with artwork tones"
+    ),
+    LIGHT(
+        label = "Light",
+        description = "Clean daylight paper background with artwork tones"
+    ),
+    IMAGE_NATIVE(
+        label = "Image Native",
+        description = "Painted in the artwork's authentic colors everywhere"
+    )
+}
+
+/**
  * Relationship mode governing how the source artwork participates in the visual presentation.
  * Decoupled from semantic color calculation.
  */

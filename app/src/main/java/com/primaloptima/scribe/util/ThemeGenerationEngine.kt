@@ -700,7 +700,8 @@ object ThemeGenerationEngine {
         understanding: ImageUnderstanding,
         recipe: ThemeGenerationRecipe,
         candidateColor: Int? = null,
-        isDark: Boolean,
+        isDark: Boolean = true,
+        canvasMode: ThemeCanvasMode = if (isDark) ThemeCanvasMode.DARK else ThemeCanvasMode.LIGHT,
         influence: ImageInfluence = ImageInfluence.BALANCED,
         writingCharacter: WritingCharacter = WritingCharacter.NEUTRAL
     ): VisualThemePalette {
@@ -793,16 +794,16 @@ object ThemeGenerationEngine {
 
         val isMonochromeArtwork = understanding.isMonochromatic || primarySource.chroma < 0.045
 
-        // Influence scaling factors
+        // Influence scaling factors: subtle is restrained, balanced is distinct multi-color, strong is bold
         val influenceScale = when (influence) {
-            ImageInfluence.SUBTLE -> 0.45
+            ImageInfluence.SUBTLE -> 0.35
             ImageInfluence.BALANCED -> 1.00
-            ImageInfluence.STRONG -> 1.55
+            ImageInfluence.STRONG -> 1.70
         }
         val accentScale = when (influence) {
-            ImageInfluence.SUBTLE -> 0.85
+            ImageInfluence.SUBTLE -> 0.75
             ImageInfluence.BALANCED -> 1.00
-            ImageInfluence.STRONG -> 1.25
+            ImageInfluence.STRONG -> 1.35
         }
 
         val atmoHue = atmosphericSource.hue
@@ -814,96 +815,133 @@ object ThemeGenerationEngine {
         val tertiaryHue = tertiarySource.hue
         val tertiaryChroma = tertiarySource.chroma.coerceIn(0.01, 0.22)
         val highlightHue = highlightSource.hue
-        val highlightChroma = highlightSource.chroma.coerceIn(0.04, 0.25)
 
-        // Candidate selection influences atmospheric and chrome harmony
-        val candidateHarmonizedAtmoHue = when (recipe) {
-            ThemeGenerationRecipe.ATMOSPHERIC -> if (isMonochromeArtwork) atmoHue else harmonizeHue(atmoHue, primaryHue, 0.40)
-            ThemeGenerationRecipe.BALANCED -> if (isMonochromeArtwork) atmoHue else harmonizeHue(atmoHue, primaryHue, 0.15)
-            ThemeGenerationRecipe.INK -> atmoHue
-            ThemeGenerationRecipe.EXPRESSIVE -> atmoHue
+        val isNative = canvasMode == ThemeCanvasMode.IMAGE_NATIVE
+        val effectiveIsDark = when (canvasMode) {
+            ThemeCanvasMode.DARK -> true
+            ThemeCanvasMode.LIGHT -> false
+            ThemeCanvasMode.IMAGE_NATIVE -> atmosphericSource.tone < 0.52
         }
 
-        // 1. VISUAL CANVAS (L0)
-        val canvasOklch = when (recipe) {
-            ThemeGenerationRecipe.BALANCED -> {
-                if (isDark) {
-                    ContrastResolver.Oklch(0.115, (atmoChroma * 0.16 * influenceScale).coerceIn(0.006, 0.026), candidateHarmonizedAtmoHue)
-                } else {
-                    ContrastResolver.Oklch(0.972, (atmoChroma * 0.13 * influenceScale).coerceIn(0.004, 0.022), candidateHarmonizedAtmoHue)
+        // 1. VISUAL CANVAS (L0) - App Background
+        val canvasOklch = when (canvasMode) {
+            ThemeCanvasMode.IMAGE_NATIVE -> {
+                val nativeTone = atmosphericSource.tone
+                when (recipe) {
+                    ThemeGenerationRecipe.BALANCED -> {
+                        ContrastResolver.Oklch(
+                            l = nativeTone.coerceIn(0.20, 0.80),
+                            c = (atmoChroma * 0.85 * influenceScale).coerceIn(0.035, 0.20),
+                            h = atmoHue
+                        )
+                    }
+                    ThemeGenerationRecipe.ATMOSPHERIC -> {
+                        ContrastResolver.Oklch(
+                            l = nativeTone.coerceIn(0.16, 0.84),
+                            c = (atmoChroma * 1.15 * influenceScale).coerceIn(0.050, 0.26),
+                            h = atmoHue
+                        )
+                    }
+                    ThemeGenerationRecipe.INK -> {
+                        if (nativeTone < 0.50) {
+                            ContrastResolver.Oklch(
+                                l = (nativeTone * 0.75).coerceIn(0.12, 0.35),
+                                c = (atmoChroma * 0.25 * influenceScale).coerceIn(0.005, 0.04),
+                                h = atmoHue
+                            )
+                        } else {
+                            ContrastResolver.Oklch(
+                                l = (0.85 + nativeTone * 0.10).coerceIn(0.85, 0.95),
+                                c = (atmoChroma * 0.25 * influenceScale).coerceIn(0.005, 0.04),
+                                h = atmoHue
+                            )
+                        }
+                    }
+                    ThemeGenerationRecipe.EXPRESSIVE -> {
+                        ContrastResolver.Oklch(
+                            l = nativeTone.coerceIn(0.22, 0.78),
+                            c = (atmoChroma * 1.05 * influenceScale).coerceIn(0.055, 0.24),
+                            h = atmoHue
+                        )
+                    }
                 }
             }
-            ThemeGenerationRecipe.ATMOSPHERIC -> {
-                if (isDark) {
-                    ContrastResolver.Oklch(0.098, (atmoChroma * 0.35 * influenceScale).coerceIn(0.014, 0.048), candidateHarmonizedAtmoHue)
-                } else {
-                    ContrastResolver.Oklch(0.952, (atmoChroma * 0.28 * influenceScale).coerceIn(0.010, 0.038), candidateHarmonizedAtmoHue)
+            ThemeCanvasMode.DARK -> {
+                when (recipe) {
+                    ThemeGenerationRecipe.BALANCED -> {
+                        ContrastResolver.Oklch(0.115, (atmoChroma * 0.25 * influenceScale).coerceIn(0.012, 0.045), atmoHue)
+                    }
+                    ThemeGenerationRecipe.ATMOSPHERIC -> {
+                        ContrastResolver.Oklch(0.095, (atmoChroma * 0.60 * influenceScale).coerceIn(0.030, 0.095), atmoHue)
+                    }
+                    ThemeGenerationRecipe.INK -> {
+                        ContrastResolver.Oklch(0.078, (0.005 * influenceScale).coerceIn(0.002, 0.010), atmoHue)
+                    }
+                    ThemeGenerationRecipe.EXPRESSIVE -> {
+                        ContrastResolver.Oklch(0.125, (atmoChroma * 0.45 * influenceScale).coerceIn(0.025, 0.075), atmoHue)
+                    }
                 }
             }
-            ThemeGenerationRecipe.INK -> {
-                if (isDark) {
-                    ContrastResolver.Oklch(0.082, (0.004 * influenceScale).coerceIn(0.001, 0.008), atmoHue)
-                } else {
-                    ContrastResolver.Oklch(0.982, (0.004 * influenceScale).coerceIn(0.001, 0.007), atmoHue)
-                }
-            }
-            ThemeGenerationRecipe.EXPRESSIVE -> {
-                if (isDark) {
-                    ContrastResolver.Oklch(0.128, (atmoChroma * 0.28 * influenceScale).coerceIn(0.012, 0.042), atmoHue)
-                } else {
-                    ContrastResolver.Oklch(0.962, (atmoChroma * 0.22 * influenceScale).coerceIn(0.008, 0.036), atmoHue)
+            ThemeCanvasMode.LIGHT -> {
+                when (recipe) {
+                    ThemeGenerationRecipe.BALANCED -> {
+                        ContrastResolver.Oklch(0.968, (atmoChroma * 0.22 * influenceScale).coerceIn(0.010, 0.040), atmoHue)
+                    }
+                    ThemeGenerationRecipe.ATMOSPHERIC -> {
+                        ContrastResolver.Oklch(0.938, (atmoChroma * 0.50 * influenceScale).coerceIn(0.025, 0.085), atmoHue)
+                    }
+                    ThemeGenerationRecipe.INK -> {
+                        ContrastResolver.Oklch(0.986, (0.004 * influenceScale).coerceIn(0.002, 0.008), atmoHue)
+                    }
+                    ThemeGenerationRecipe.EXPRESSIVE -> {
+                        ContrastResolver.Oklch(0.952, (atmoChroma * 0.38 * influenceScale).coerceIn(0.020, 0.068), atmoHue)
+                    }
                 }
             }
         }
         val canvasInt = ContrastResolver.oklchToColorInt(canvasOklch)
         val canvasHex = String.format("#%06X", 0xFFFFFF and canvasInt)
 
-        // 2. VISUAL EDITOR SURFACE (L1) - Neutralized reading canvas
-        val (baseEditorL, baseEditorC, baseEditorH) = when (recipe) {
-            ThemeGenerationRecipe.BALANCED -> {
-                if (isDark) {
-                    Triple(0.096, (atmoChroma * 0.06 * influenceScale).coerceIn(0.003, 0.010), candidateHarmonizedAtmoHue)
-                } else {
-                    Triple(0.985, (atmoChroma * 0.05 * influenceScale).coerceIn(0.002, 0.008), candidateHarmonizedAtmoHue)
-                }
+        // 2. VISUAL EDITOR SURFACE (L1) - Reading and Prose writing surface
+        val (baseEditorL, baseEditorC, baseEditorH) = if (isNative) {
+            val step = if (effectiveIsDark) 0.05 else -0.05
+            val nativeL = (canvasOklch.l + step).coerceIn(0.15, 0.90)
+            val nativeC = (canvasOklch.c * 0.60).coerceAtLeast(0.015)
+            Triple(nativeL, nativeC, canvasOklch.h)
+        } else if (effectiveIsDark) {
+            when (recipe) {
+                ThemeGenerationRecipe.BALANCED -> Triple(0.098, (atmoChroma * 0.12 * influenceScale).coerceIn(0.006, 0.022), atmoHue)
+                ThemeGenerationRecipe.ATMOSPHERIC -> Triple(0.086, (atmoChroma * 0.35 * influenceScale).coerceIn(0.018, 0.050), atmoHue)
+                ThemeGenerationRecipe.INK -> Triple(0.062, (0.002 * influenceScale).coerceAtMost(0.003), atmoHue)
+                ThemeGenerationRecipe.EXPRESSIVE -> Triple(0.106, (atmoChroma * 0.18 * influenceScale).coerceIn(0.010, 0.035), atmoHue)
             }
-            ThemeGenerationRecipe.ATMOSPHERIC -> {
-                if (isDark) {
-                    Triple(0.086, (atmoChroma * 0.18 * influenceScale).coerceIn(0.008, 0.024), candidateHarmonizedAtmoHue)
-                } else {
-                    Triple(0.966, (atmoChroma * 0.14 * influenceScale).coerceIn(0.006, 0.020), candidateHarmonizedAtmoHue)
-                }
-            }
-            ThemeGenerationRecipe.INK -> {
-                if (isDark) {
-                    Triple(0.062, (0.002 * influenceScale).coerceAtMost(0.004), atmoHue)
-                } else {
-                    Triple(0.992, (0.002 * influenceScale).coerceAtMost(0.003), atmoHue)
-                }
-            }
-            ThemeGenerationRecipe.EXPRESSIVE -> {
-                if (isDark) {
-                    Triple(0.104, (atmoChroma * 0.10 * influenceScale).coerceIn(0.006, 0.016), atmoHue)
-                } else {
-                    Triple(0.978, (atmoChroma * 0.08 * influenceScale).coerceIn(0.004, 0.014), atmoHue)
-                }
+        } else {
+            when (recipe) {
+                ThemeGenerationRecipe.BALANCED -> Triple(0.984, (atmoChroma * 0.10 * influenceScale).coerceIn(0.005, 0.018), atmoHue)
+                ThemeGenerationRecipe.ATMOSPHERIC -> Triple(0.958, (atmoChroma * 0.28 * influenceScale).coerceIn(0.015, 0.045), atmoHue)
+                ThemeGenerationRecipe.INK -> Triple(0.992, (0.002 * influenceScale).coerceAtMost(0.003), atmoHue)
+                ThemeGenerationRecipe.EXPRESSIVE -> Triple(0.976, (atmoChroma * 0.14 * influenceScale).coerceIn(0.008, 0.028), atmoHue)
             }
         }
 
-        // Modulate Editor Surface by WritingCharacter
+        // Modulate Editor Surface noticeably by WritingCharacter
         val (finalEditorL, finalEditorC, finalEditorH) = when (writingCharacter) {
             WritingCharacter.NEUTRAL -> Triple(baseEditorL, baseEditorC, baseEditorH)
             WritingCharacter.WARM -> {
-                val warmH = harmonizeHue(baseEditorH, 65.0, 0.18)
-                Triple(if (isDark) baseEditorL else (baseEditorL - 0.003), baseEditorC + 0.003, warmH)
+                val warmH = harmonizeHue(baseEditorH, 65.0, 0.75)
+                val warmC = baseEditorC + (if (effectiveIsDark) 0.014 else 0.020)
+                val warmL = if (effectiveIsDark) (baseEditorL + 0.007).coerceAtMost(0.12) else 0.975
+                Triple(warmL, warmC, warmH)
             }
             WritingCharacter.COOL -> {
-                val coolH = harmonizeHue(baseEditorH, 225.0, 0.18)
-                Triple(if (isDark) baseEditorL else (baseEditorL - 0.003), baseEditorC + 0.003, coolH)
+                val coolH = harmonizeHue(baseEditorH, 225.0, 0.75)
+                val coolC = baseEditorC + (if (effectiveIsDark) 0.014 else 0.020)
+                val coolL = if (effectiveIsDark) (baseEditorL - 0.004).coerceAtLeast(0.08) else 0.978
+                Triple(coolL, coolC, coolH)
             }
             WritingCharacter.DRAMATIC -> {
-                val dramL = if (isDark) (baseEditorL - 0.020).coerceAtLeast(0.045) else (baseEditorL + 0.008).coerceAtMost(0.996)
-                Triple(dramL, (baseEditorC * 0.7).coerceAtLeast(0.001), baseEditorH)
+                val dramL = if (effectiveIsDark) 0.055 else 0.996
+                Triple(dramL, (baseEditorC * 0.3).coerceAtLeast(0.001), baseEditorH)
             }
         }
         val editorOklch = ContrastResolver.Oklch(finalEditorL, finalEditorC, finalEditorH)
@@ -911,37 +949,70 @@ object ThemeGenerationEngine {
         val editorHex = String.format("#%06X", 0xFFFFFF and editorInt)
 
         // 3. VISUAL CHROME (L2) - Top App Bar, Bottom Bar, Primary Drawers
-        val chromeOklch = when (recipe) {
-            ThemeGenerationRecipe.BALANCED -> {
-                val blendHue = harmonizeHue(candidateHarmonizedAtmoHue, supportingHue, 0.35)
-                val chromeC = if (influence == ImageInfluence.SUBTLE) {
-                    0.006
-                } else {
-                    (supportingChroma * 0.18 * influenceScale).coerceIn(0.008, 0.035)
+        val chromeOklch = if (isNative) {
+            when (recipe) {
+                ThemeGenerationRecipe.BALANCED -> {
+                    ContrastResolver.Oklch(
+                        l = (supportingSource.tone).coerceIn(0.18, 0.82),
+                        c = (supportingChroma * 0.85 * influenceScale).coerceIn(0.04, 0.22),
+                        h = supportingHue
+                    )
                 }
-                ContrastResolver.Oklch(if (isDark) 0.145 else 0.940, chromeC, blendHue)
-            }
-            ThemeGenerationRecipe.ATMOSPHERIC -> {
-                val chromeC = (atmoChroma * 0.36 * influenceScale).coerceIn(0.018, 0.052)
-                ContrastResolver.Oklch(if (isDark) 0.130 else 0.925, chromeC, candidateHarmonizedAtmoHue)
-            }
-            ThemeGenerationRecipe.INK -> {
-                val chromeC = (0.008 * influenceScale).coerceIn(0.002, 0.014)
-                ContrastResolver.Oklch(if (isDark) 0.110 else 0.955, chromeC, primaryHue)
-            }
-            ThemeGenerationRecipe.EXPRESSIVE -> {
-                // Expressive uses SECONDARY image color family for chrome
-                val chromeH = if (isMonochromeArtwork || influence == ImageInfluence.SUBTLE) {
-                    atmoHue
-                } else {
-                    supportingHue
+                ThemeGenerationRecipe.ATMOSPHERIC -> {
+                    ContrastResolver.Oklch(
+                        l = (atmosphericSource.tone * 0.90).coerceIn(0.15, 0.85),
+                        c = (atmoChroma * 1.05 * influenceScale).coerceIn(0.05, 0.24),
+                        h = atmoHue
+                    )
                 }
-                val chromeC = if (influence == ImageInfluence.SUBTLE) {
-                    0.008
-                } else {
-                    (supportingChroma * 0.34 * influenceScale).coerceIn(0.016, 0.055)
+                ThemeGenerationRecipe.INK -> {
+                    ContrastResolver.Oklch(
+                        l = if (effectiveIsDark) 0.135 else 0.935,
+                        c = (0.012 * influenceScale).coerceIn(0.003, 0.022),
+                        h = atmoHue
+                    )
                 }
-                ContrastResolver.Oklch(if (isDark) 0.155 else 0.930, chromeC, chromeH)
+                ThemeGenerationRecipe.EXPRESSIVE -> {
+                    ContrastResolver.Oklch(
+                        l = (supportingSource.tone).coerceIn(0.18, 0.82),
+                        c = (supportingChroma * 1.05 * influenceScale).coerceIn(0.06, 0.26),
+                        h = supportingHue
+                    )
+                }
+            }
+        } else if (effectiveIsDark) {
+            when (recipe) {
+                ThemeGenerationRecipe.BALANCED -> {
+                    // Balanced chrome noticeably uses the secondary image color family
+                    ContrastResolver.Oklch(0.155, (supportingChroma * 0.38 * influenceScale).coerceIn(0.025, 0.075), supportingHue)
+                }
+                ThemeGenerationRecipe.ATMOSPHERIC -> {
+                    // Atmospheric chrome immerses deeply in the atmospheric hue
+                    ContrastResolver.Oklch(0.135, (atmoChroma * 0.55 * influenceScale).coerceIn(0.032, 0.095), atmoHue)
+                }
+                ThemeGenerationRecipe.INK -> {
+                    // Ink chrome is deep, restrained slate/charcoal
+                    ContrastResolver.Oklch(0.108, (0.010 * influenceScale).coerceIn(0.003, 0.016), primaryHue)
+                }
+                ThemeGenerationRecipe.EXPRESSIVE -> {
+                    // Expressive chrome boldly uses the vibrant secondary color family
+                    ContrastResolver.Oklch(0.165, (supportingChroma * 0.60 * influenceScale).coerceIn(0.045, 0.130), supportingHue)
+                }
+            }
+        } else {
+            when (recipe) {
+                ThemeGenerationRecipe.BALANCED -> {
+                    ContrastResolver.Oklch(0.932, (supportingChroma * 0.30 * influenceScale).coerceIn(0.020, 0.065), supportingHue)
+                }
+                ThemeGenerationRecipe.ATMOSPHERIC -> {
+                    ContrastResolver.Oklch(0.915, (atmoChroma * 0.45 * influenceScale).coerceIn(0.025, 0.085), atmoHue)
+                }
+                ThemeGenerationRecipe.INK -> {
+                    ContrastResolver.Oklch(0.950, (0.008 * influenceScale).coerceIn(0.002, 0.015), primaryHue)
+                }
+                ThemeGenerationRecipe.EXPRESSIVE -> {
+                    ContrastResolver.Oklch(0.910, (supportingChroma * 0.50 * influenceScale).coerceIn(0.038, 0.115), supportingHue)
+                }
             }
         }
         val chromeInt = ContrastResolver.oklchToColorInt(chromeOklch)
@@ -955,24 +1026,65 @@ object ThemeGenerationEngine {
         val secChromeHex = String.format("#%06X", 0xFFFFFF and secChromeInt)
 
         // 5. VISUAL ELEVATED SURFACE (L3) - Cards, Floating Workbenches
-        val cardOklch = when (recipe) {
-            ThemeGenerationRecipe.BALANCED -> {
-                val cardC = if (influence == ImageInfluence.SUBTLE) 0.005 else (supportingChroma * 0.14 * influenceScale).coerceIn(0.006, 0.028)
-                ContrastResolver.Oklch(if (isDark) 0.170 else 0.988, cardC, supportingHue)
+        val cardOklch = if (isNative) {
+            when (recipe) {
+                ThemeGenerationRecipe.BALANCED -> {
+                    ContrastResolver.Oklch(
+                        l = (tertiarySource.tone).coerceIn(0.20, 0.85),
+                        c = (tertiaryChroma * 0.75 * influenceScale).coerceIn(0.035, 0.18),
+                        h = tertiaryHue
+                    )
+                }
+                ThemeGenerationRecipe.ATMOSPHERIC -> {
+                    val step = if (effectiveIsDark) 0.07 else -0.07
+                    ContrastResolver.Oklch(
+                        l = (canvasOklch.l + step).coerceIn(0.12, 0.90),
+                        c = (atmoChroma * 0.90 * influenceScale).coerceIn(0.04, 0.20),
+                        h = atmoHue
+                    )
+                }
+                ThemeGenerationRecipe.INK -> {
+                    ContrastResolver.Oklch(if (effectiveIsDark) 0.125 else 0.990, 0.005, atmoHue)
+                }
+                ThemeGenerationRecipe.EXPRESSIVE -> {
+                    ContrastResolver.Oklch(
+                        l = (tertiarySource.tone).coerceIn(0.20, 0.85),
+                        c = (tertiaryChroma * 0.95 * influenceScale).coerceIn(0.05, 0.22),
+                        h = tertiaryHue
+                    )
+                }
             }
-            ThemeGenerationRecipe.ATMOSPHERIC -> {
-                val cardC = (atmoChroma * 0.28 * influenceScale).coerceIn(0.014, 0.042)
-                ContrastResolver.Oklch(if (isDark) 0.160 else 0.970, cardC, candidateHarmonizedAtmoHue)
+        } else if (effectiveIsDark) {
+            when (recipe) {
+                ThemeGenerationRecipe.BALANCED -> {
+                    // Balanced cards pull distinctly from supporting/tertiary color family
+                    ContrastResolver.Oklch(0.185, (tertiaryChroma * 0.30 * influenceScale).coerceIn(0.018, 0.055), tertiaryHue)
+                }
+                ThemeGenerationRecipe.ATMOSPHERIC -> {
+                    ContrastResolver.Oklch(0.165, (atmoChroma * 0.45 * influenceScale).coerceIn(0.025, 0.080), atmoHue)
+                }
+                ThemeGenerationRecipe.INK -> {
+                    ContrastResolver.Oklch(0.130, (0.006 * influenceScale).coerceIn(0.002, 0.012), atmoHue)
+                }
+                ThemeGenerationRecipe.EXPRESSIVE -> {
+                    // Expressive cards boldly pull from tertiary image color family
+                    ContrastResolver.Oklch(0.190, (tertiaryChroma * 0.52 * influenceScale).coerceIn(0.035, 0.110), tertiaryHue)
+                }
             }
-            ThemeGenerationRecipe.INK -> {
-                val cardC = (0.005 * influenceScale).coerceIn(0.002, 0.010)
-                ContrastResolver.Oklch(if (isDark) 0.135 else 0.995, cardC, atmoHue)
-            }
-            ThemeGenerationRecipe.EXPRESSIVE -> {
-                // Expressive uses SUPPORTING / TERTIARY image color family for cards
-                val cardH = if (isMonochromeArtwork || influence == ImageInfluence.SUBTLE) atmoHue else tertiaryHue
-                val cardC = if (influence == ImageInfluence.SUBTLE) 0.006 else (tertiaryChroma * 0.26 * influenceScale).coerceIn(0.012, 0.045)
-                ContrastResolver.Oklch(if (isDark) 0.180 else 0.980, cardC, cardH)
+        } else {
+            when (recipe) {
+                ThemeGenerationRecipe.BALANCED -> {
+                    ContrastResolver.Oklch(0.985, (tertiaryChroma * 0.24 * influenceScale).coerceIn(0.014, 0.048), tertiaryHue)
+                }
+                ThemeGenerationRecipe.ATMOSPHERIC -> {
+                    ContrastResolver.Oklch(0.965, (atmoChroma * 0.38 * influenceScale).coerceIn(0.020, 0.070), atmoHue)
+                }
+                ThemeGenerationRecipe.INK -> {
+                    ContrastResolver.Oklch(0.995, (0.004 * influenceScale).coerceIn(0.001, 0.008), atmoHue)
+                }
+                ThemeGenerationRecipe.EXPRESSIVE -> {
+                    ContrastResolver.Oklch(0.975, (tertiaryChroma * 0.42 * influenceScale).coerceIn(0.028, 0.095), tertiaryHue)
+                }
             }
         }
         val cardInt = ContrastResolver.oklchToColorInt(cardOklch)
@@ -980,10 +1092,10 @@ object ThemeGenerationEngine {
 
         // 6. VISUAL PRIMARY ACCENT - Primary action / FAB / active triggers
         val (accentL, accentC) = when (recipe) {
-            ThemeGenerationRecipe.BALANCED -> Pair(if (isDark) 0.72 else 0.45, (primaryChroma * accentScale).coerceIn(0.08, 0.22))
-            ThemeGenerationRecipe.ATMOSPHERIC -> Pair(if (isDark) 0.74 else 0.43, (primaryChroma * 1.10 * accentScale).coerceIn(0.09, 0.24))
-            ThemeGenerationRecipe.INK -> Pair(if (isDark) 0.70 else 0.46, (primaryChroma * 0.95 * accentScale).coerceIn(0.07, 0.20))
-            ThemeGenerationRecipe.EXPRESSIVE -> Pair(if (isDark) 0.76 else 0.42, (primaryChroma * 1.30 * accentScale).coerceIn(0.12, 0.26))
+            ThemeGenerationRecipe.BALANCED -> Pair(if (effectiveIsDark) 0.72 else 0.45, (primaryChroma * accentScale).coerceIn(0.09, 0.23))
+            ThemeGenerationRecipe.ATMOSPHERIC -> Pair(if (effectiveIsDark) 0.74 else 0.43, (primaryChroma * 1.15 * accentScale).coerceIn(0.10, 0.25))
+            ThemeGenerationRecipe.INK -> Pair(if (effectiveIsDark) 0.70 else 0.46, (primaryChroma * 0.90 * accentScale).coerceIn(0.07, 0.20))
+            ThemeGenerationRecipe.EXPRESSIVE -> Pair(if (effectiveIsDark) 0.76 else 0.42, (primaryChroma * 1.35 * accentScale).coerceIn(0.14, 0.28))
         }
         val resolvedPrimaryAccent = ContrastResolver.resolveContrast(
             background = Color(canvasInt),
@@ -1006,7 +1118,7 @@ object ThemeGenerationEngine {
         }
         val resolvedSecondaryAccent = ContrastResolver.resolveContrast(
             background = Color(canvasInt),
-            preferredForeground = Color(ContrastResolver.oklchToColorInt(ContrastResolver.Oklch(if (isDark) 0.74 else 0.44, secAccentC, secAccentHue))),
+            preferredForeground = Color(ContrastResolver.oklchToColorInt(ContrastResolver.Oklch(if (effectiveIsDark) 0.74 else 0.44, secAccentC, secAccentHue))),
             minRatio = 3.0,
             role = ContrastResolver.ContrastRole.UI_CONTROL
         )
@@ -1025,7 +1137,7 @@ object ThemeGenerationEngine {
         }
         val resolvedTertiaryAccent = ContrastResolver.resolveContrast(
             background = Color(canvasInt),
-            preferredForeground = Color(ContrastResolver.oklchToColorInt(ContrastResolver.Oklch(if (isDark) 0.76 else 0.46, tertAccentC, tertAccentHue))),
+            preferredForeground = Color(ContrastResolver.oklchToColorInt(ContrastResolver.Oklch(if (effectiveIsDark) 0.76 else 0.46, tertAccentC, tertAccentHue))),
             minRatio = 3.0,
             role = ContrastResolver.ContrastRole.UI_CONTROL
         )
@@ -1040,14 +1152,14 @@ object ThemeGenerationEngine {
         } * accentScale
         val resolvedHighlight = ContrastResolver.resolveContrast(
             background = Color(editorInt),
-            preferredForeground = Color(ContrastResolver.oklchToColorInt(ContrastResolver.Oklch(if (isDark) 0.80 else 0.52, highlightC.coerceIn(0.08, 0.22), highlightHue))),
+            preferredForeground = Color(ContrastResolver.oklchToColorInt(ContrastResolver.Oklch(if (effectiveIsDark) 0.80 else 0.52, highlightC.coerceIn(0.08, 0.22), highlightHue))),
             minRatio = 3.0,
             role = ContrastResolver.ContrastRole.UI_CONTROL
         )
         val highlightHex = String.format("#%06X", 0xFFFFFF and resolvedHighlight.color.toArgb())
 
         // 10. VISUAL NEUTRAL - Structural borders, dividers
-        val neutralL = if (isDark) (canvasOklch.l + 0.12).coerceAtMost(0.40) else (canvasOklch.l - 0.12).coerceAtLeast(0.80)
+        val neutralL = if (effectiveIsDark) (canvasOklch.l + 0.12).coerceAtMost(0.40) else (canvasOklch.l - 0.12).coerceAtLeast(0.80)
         val neutralC = (canvasOklch.c * 0.60).coerceIn(0.003, 0.015)
         val neutralOklch = ContrastResolver.Oklch(neutralL, neutralC, canvasOklch.h)
         val neutralInt = ContrastResolver.oklchToColorInt(neutralOklch)
@@ -1075,7 +1187,8 @@ object ThemeGenerationEngine {
         understanding: ImageUnderstanding,
         recipe: ThemeGenerationRecipe,
         candidateColor: Int? = null,
-        isDark: Boolean,
+        isDark: Boolean = true,
+        canvasMode: ThemeCanvasMode = if (isDark) ThemeCanvasMode.DARK else ThemeCanvasMode.LIGHT,
         influence: ImageInfluence = ImageInfluence.BALANCED,
         writingCharacter: WritingCharacter = WritingCharacter.NEUTRAL
     ): VisualPaletteReport {
@@ -1084,6 +1197,7 @@ object ThemeGenerationEngine {
             recipe = recipe,
             candidateColor = candidateColor,
             isDark = isDark,
+            canvasMode = canvasMode,
             influence = influence,
             writingCharacter = writingCharacter
         )
@@ -1116,7 +1230,8 @@ object ThemeGenerationEngine {
         understanding: ImageUnderstanding,
         recipe: ThemeGenerationRecipe,
         candidateColor: Int? = null,
-        isDark: Boolean,
+        isDark: Boolean = true,
+        canvasMode: ThemeCanvasMode = if (isDark) ThemeCanvasMode.DARK else ThemeCanvasMode.LIGHT,
         influence: ImageInfluence = ImageInfluence.BALANCED,
         writingCharacter: WritingCharacter = WritingCharacter.NEUTRAL
     ): ThemeSourcePalette {
@@ -1125,6 +1240,7 @@ object ThemeGenerationEngine {
             recipe = recipe,
             candidateColor = candidateColor,
             isDark = isDark,
+            canvasMode = canvasMode,
             influence = influence,
             writingCharacter = writingCharacter
         )
@@ -1136,22 +1252,25 @@ object ThemeGenerationEngine {
         val primaryAccentInt = parseHexToArgb(visualPalette.visualPrimaryAccent)
         val primaryAccentOklch = ContrastResolver.colorToOklch(primaryAccentInt)
 
+        val editorOklch = ContrastResolver.colorToOklch(editorInt)
+        val effectiveIsDark = editorOklch.l < 0.52
+
         // Text target modulated by WritingCharacter and recipe
         val (textL, textC, textH) = when (writingCharacter) {
             WritingCharacter.NEUTRAL -> {
-                val l = if (isDark) 0.94 else 0.14
+                val l = if (effectiveIsDark) 0.94 else 0.14
                 Triple(l, 0.003, primaryAccentOklch.h)
             }
             WritingCharacter.WARM -> {
-                val l = if (isDark) 0.93 else 0.15
+                val l = if (effectiveIsDark) 0.93 else 0.15
                 Triple(l, 0.010, 65.0) // Gentle amber undertone
             }
             WritingCharacter.COOL -> {
-                val l = if (isDark) 0.93 else 0.15
+                val l = if (effectiveIsDark) 0.93 else 0.15
                 Triple(l, 0.010, 225.0) // Gentle slate undertone
             }
             WritingCharacter.DRAMATIC -> {
-                val l = if (isDark) 0.97 else 0.10 // Maximum stark contrast
+                val l = if (effectiveIsDark) 0.97 else 0.10 // Maximum stark contrast
                 Triple(l, 0.002, primaryAccentOklch.h)
             }
         }

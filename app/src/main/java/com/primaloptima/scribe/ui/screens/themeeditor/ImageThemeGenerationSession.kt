@@ -5,6 +5,7 @@ import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.ImageInfluence
 import com.primaloptima.scribe.util.model.ImageUnderstanding
+import com.primaloptima.scribe.util.model.ThemeCanvasMode
 import com.primaloptima.scribe.util.model.ThemeColors
 import com.primaloptima.scribe.util.model.ThemeGenerationRecipe
 import com.primaloptima.scribe.util.model.ThemeRelationshipMode
@@ -32,8 +33,9 @@ data class ImageThemeGenerationSession(
     val activeRecipe: ThemeGenerationRecipe = ThemeGenerationRecipe.BALANCED,
     val activeInfluence: ImageInfluence = ImageInfluence.BALANCED,
     val activeWritingCharacter: WritingCharacter = WritingCharacter.NEUTRAL,
-    val isDark: Boolean = understanding.defaultDarkPolarity,
-    val relationshipMode: ThemeRelationshipMode = ThemeRelationshipMode.THEME_IMAGE,
+    val canvasMode: ThemeCanvasMode = if (understanding.defaultDarkPolarity) ThemeCanvasMode.DARK else ThemeCanvasMode.LIGHT,
+    val isDark: Boolean = canvasMode != ThemeCanvasMode.LIGHT,
+    val relationshipMode: ThemeRelationshipMode = ThemeRelationshipMode.THEME_ONLY,
     val customName: String? = null
 ) {
     /**
@@ -53,6 +55,7 @@ data class ImageThemeGenerationSession(
             recipe = activeRecipe,
             candidateColor = effectiveCandidate,
             isDark = isDark,
+            canvasMode = canvasMode,
             influence = activeInfluence,
             writingCharacter = activeWritingCharacter
         )
@@ -91,8 +94,11 @@ data class ImageThemeGenerationSession(
     fun withWritingCharacter(character: WritingCharacter): ImageThemeGenerationSession =
         copy(activeWritingCharacter = character)
 
+    fun withCanvasMode(mode: ThemeCanvasMode): ImageThemeGenerationSession =
+        copy(canvasMode = mode, isDark = mode != ThemeCanvasMode.LIGHT)
+
     fun withPolarity(isDark: Boolean): ImageThemeGenerationSession =
-        copy(isDark = isDark)
+        copy(isDark = isDark, canvasMode = if (isDark) ThemeCanvasMode.DARK else ThemeCanvasMode.LIGHT)
 
     fun withRelationshipMode(mode: ThemeRelationshipMode): ImageThemeGenerationSession =
         copy(relationshipMode = mode)
@@ -108,26 +114,21 @@ data class ImageThemeGenerationSession(
      *
      * Once created:
      * - The generated colors become the theme's ordinary persisted semantic colors.
-     * - Presentation settings (background image, glass) become standard theme properties.
+     * - From now on, image to theme only uses generated colors. If user wants to use
+     *   an image they'd be able to add it later in theme edit screen normally.
      * - The generation session is completely terminated and garbage collected.
      */
     fun toAppTheme(id: String, baseTheme: AppTheme): AppTheme {
         val palette = sourcePalette
         val colors = resolvedColors
-        val effectiveImage = croppedUri ?: imageUri
-
-        val (bgMode, bgUri, frosted) = when (relationshipMode) {
-            ThemeRelationshipMode.THEME_ONLY -> Triple("color", null, false)
-            ThemeRelationshipMode.THEME_IMAGE -> Triple("image", effectiveImage, false)
-            ThemeRelationshipMode.THEME_GLASS -> Triple("image", effectiveImage, true)
-        }
+        val effectiveIsDark = ThemeManager.isDarkColor(palette.background)
 
         val effectiveSeedHex = String.format("#%06X", 0xFFFFFF and effectiveCandidate)
         val metadata = com.primaloptima.scribe.util.model.ThemeGenerationMetadata(
             recipe = activeRecipe,
             imageInfluence = activeInfluence,
             writingCharacter = activeWritingCharacter,
-            relationshipMode = relationshipMode,
+            relationshipMode = ThemeRelationshipMode.THEME_ONLY,
             originalAtmosphereHex = palette.atmosphericColor,
             selectedCandidateHex = effectiveSeedHex,
             secondaryAccentHex = palette.secondaryAccent,
@@ -141,18 +142,18 @@ data class ImageThemeGenerationSession(
         return baseTheme.copy(
             id = id,
             name = effectiveThemeName,
-            isDark = isDark,
+            isDark = effectiveIsDark,
             builtIn = false,
             emoji = "🎨",
             colors = colors,
             overrides = null,
             generationMetadata = metadata,
-            bgMode = bgMode,
-            backgroundImageUri = bgUri,
-            backgroundImageOriginalUri = if (relationshipMode == ThemeRelationshipMode.THEME_ONLY) null else imageUri,
-            frostedGlassEnabled = frosted,
-            savedBgDominantColor = if (relationshipMode == ThemeRelationshipMode.THEME_ONLY) null else understanding.dominantColors.firstOrNull(),
-            savedBgLuminance = if (relationshipMode == ThemeRelationshipMode.THEME_ONLY) -1f else understanding.averageLightness
+            bgMode = "color",
+            backgroundImageUri = null,
+            backgroundImageOriginalUri = null,
+            frostedGlassEnabled = false,
+            savedBgDominantColor = null,
+            savedBgLuminance = -1f
         )
     }
 }

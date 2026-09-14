@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -22,8 +23,9 @@ import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.ui.components.ScribeThemeLivePreview
 import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.util.DefaultThemes
+import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.util.model.AppTheme
-import com.primaloptima.scribe.util.model.ThemeRelationshipMode
+import com.primaloptima.scribe.util.model.ThemeCanvasMode
 import java.util.UUID
 
 /**
@@ -221,35 +223,39 @@ fun CreateThemeFromImageScreen(
                                 color = ScribeTheme.colors.content.primary
                             )
 
-                            // Polarity Toggle
+                            // Canvas Mode Toggle (Dark / Light / Image Native)
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 FilterChip(
-                                    selected = currentSession.isDark,
-                                    onClick = { session = currentSession.withPolarity(isDark = true) },
+                                    selected = currentSession.canvasMode == ThemeCanvasMode.DARK,
+                                    onClick = { session = currentSession.withCanvasMode(ThemeCanvasMode.DARK) },
                                     leadingIcon = {
-                                        Icon(Icons.Default.DarkMode, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Icon(Icons.Default.DarkMode, contentDescription = null, modifier = Modifier.size(13.dp))
                                     },
                                     label = { Text("Dark", fontSize = 11.sp) },
                                     shape = ScribeTheme.shapes.themeEditorControl
                                 )
                                 FilterChip(
-                                    selected = !currentSession.isDark,
-                                    onClick = { session = currentSession.withPolarity(isDark = false) },
+                                    selected = currentSession.canvasMode == ThemeCanvasMode.LIGHT,
+                                    onClick = { session = currentSession.withCanvasMode(ThemeCanvasMode.LIGHT) },
                                     leadingIcon = {
-                                        Icon(Icons.Default.LightMode, contentDescription = null, modifier = Modifier.size(14.dp))
+                                        Icon(Icons.Default.LightMode, contentDescription = null, modifier = Modifier.size(13.dp))
                                     },
                                     label = { Text("Light", fontSize = 11.sp) },
                                     shape = ScribeTheme.shapes.themeEditorControl
                                 )
+                                FilterChip(
+                                    selected = currentSession.canvasMode == ThemeCanvasMode.IMAGE_NATIVE,
+                                    onClick = { session = currentSession.withCanvasMode(ThemeCanvasMode.IMAGE_NATIVE) },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Palette, contentDescription = null, modifier = Modifier.size(13.dp))
+                                    },
+                                    label = { Text("Image Native", fontSize = 11.sp) },
+                                    shape = ScribeTheme.shapes.themeEditorControl
+                                )
                             }
-                        }
-
-                        val previewBgUri = when (currentSession.relationshipMode) {
-                            ThemeRelationshipMode.THEME_ONLY -> null
-                            else -> currentSession.croppedUri ?: currentSession.imageUri
                         }
 
                         ScribeThemeLivePreview(
@@ -260,15 +266,11 @@ fun CreateThemeFromImageScreen(
                             lineHeight = baseTheme.lineHeight,
                             textAlignment = baseTheme.textAlignment,
                             sideMargins = baseTheme.paddingHorizontal.toFloat(),
-                            bgMode = when (currentSession.relationshipMode) {
-                                ThemeRelationshipMode.THEME_ONLY -> "color"
-                                ThemeRelationshipMode.THEME_IMAGE -> "image"
-                                ThemeRelationshipMode.THEME_GLASS -> "blurred"
-                            },
-                            bgUri = previewBgUri,
-                            bgOpacity = baseTheme.backgroundImageOpacity ?: 0.35f,
-                            blurIntensity = if (currentSession.relationshipMode == ThemeRelationshipMode.THEME_GLASS) 25f else baseTheme.blurIntensity,
-                            isDark = currentSession.isDark,
+                            bgMode = "color",
+                            bgUri = null,
+                            bgOpacity = 1f,
+                            blurIntensity = 0f,
+                            isDark = ThemeManager.isDarkColor(currentSession.sourcePalette.background),
                             modifier = Modifier.height(390.dp)
                         )
                     }
@@ -292,7 +294,7 @@ fun CreateThemeFromImageScreen(
                     }
                 }
 
-                // ── 2. Recipe Selection Comparison ────────────────────────────
+                // ── 2. Collapsible Recipe Selection ───────────────────────────
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = ScribeTheme.shapes.themeEditorSection,
@@ -303,23 +305,12 @@ fun CreateThemeFromImageScreen(
                         modifier = Modifier.padding(14.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = "Theme Interpretation Recipes",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = ScribeTheme.colors.content.primary
-                        )
-                        Text(
-                            text = "Compare four distinct stylistic balance strategies derived deterministically from the artwork.",
-                            fontSize = 12.sp,
-                            color = ScribeTheme.colors.content.secondary
-                        )
-
-                        RecipeComparisonCards(
+                        CollapsibleRecipeSelector(
                             activeRecipe = currentSession.activeRecipe,
                             understanding = understanding,
                             candidateColor = currentSession.selectedCandidate,
                             isDark = currentSession.isDark,
+                            canvasMode = currentSession.canvasMode,
                             influence = currentSession.activeInfluence,
                             writingCharacter = currentSession.activeWritingCharacter,
                             onSelectRecipe = { recipe ->
@@ -364,24 +355,7 @@ fun CreateThemeFromImageScreen(
                     }
                 }
 
-                // ── 4. Presentation Relationship Mode ─────────────────────────
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = ScribeTheme.shapes.themeEditorSection,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, ScribeTheme.colors.borders.subtle)
-                ) {
-                    Box(modifier = Modifier.padding(14.dp)) {
-                        RelationshipModeSelector(
-                            activeMode = currentSession.relationshipMode,
-                            onSelectMode = { mode ->
-                                session = currentSession.withRelationshipMode(mode)
-                            }
-                        )
-                    }
-                }
-
-                // ── 5. Theme Name & Metadata ──────────────────────────────────
+                // ── 4. Theme Name & Metadata ──────────────────────────────────
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = ScribeTheme.shapes.themeEditorSection,

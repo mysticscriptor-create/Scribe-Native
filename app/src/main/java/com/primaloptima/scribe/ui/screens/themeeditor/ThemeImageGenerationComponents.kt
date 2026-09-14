@@ -12,8 +12,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -28,6 +34,7 @@ import com.primaloptima.scribe.ui.theme.parseComposeColor
 import com.primaloptima.scribe.util.ThemeGenerationEngine
 import com.primaloptima.scribe.util.model.ImageInfluence
 import com.primaloptima.scribe.util.model.ImageUnderstanding
+import com.primaloptima.scribe.util.model.ThemeCanvasMode
 import com.primaloptima.scribe.util.model.ThemeGenerationRecipe
 import com.primaloptima.scribe.util.model.ThemeRelationshipMode
 import com.primaloptima.scribe.util.model.VisualThemePalette
@@ -126,6 +133,105 @@ fun CandidateSwatchStrip(
 }
 
 /**
+ * Collapsible menu for recipe selection.
+ * Shows only the currently selected recipe by default. Clicking it expands the full recipe list.
+ * Selecting a recipe collapses the menu again.
+ */
+@Composable
+fun CollapsibleRecipeSelector(
+    activeRecipe: ThemeGenerationRecipe,
+    understanding: ImageUnderstanding?,
+    candidateColor: Int?,
+    isDark: Boolean,
+    canvasMode: ThemeCanvasMode = if (isDark) ThemeCanvasMode.DARK else ThemeCanvasMode.LIGHT,
+    influence: ImageInfluence = ImageInfluence.BALANCED,
+    writingCharacter: WritingCharacter = WritingCharacter.NEUTRAL,
+    onSelectRecipe: (ThemeGenerationRecipe) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isExpanded by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(ScribeTheme.shapes.themeEditorControl)
+                .clickable { isExpanded = !isExpanded }
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "Interpretation Recipe",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = ScribeTheme.colors.content.primary
+                )
+                Text(
+                    text = if (isExpanded) "Tap recipe to select & collapse" else "Tap card or icon to expand options",
+                    fontSize = 11.sp,
+                    color = ScribeTheme.colors.content.secondary
+                )
+            }
+
+            IconButton(
+                onClick = { isExpanded = !isExpanded },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (isExpanded) "Collapse recipes" else "Expand recipes",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+        }
+
+        if (!isExpanded) {
+            // Collapsed view: Only shows currently active recipe
+            RecipeCardItem(
+                recipe = activeRecipe,
+                isSelected = true,
+                understanding = understanding,
+                candidateColor = candidateColor,
+                isDark = isDark,
+                canvasMode = canvasMode,
+                influence = influence,
+                writingCharacter = writingCharacter,
+                onClick = { isExpanded = true }
+            )
+        } else {
+            // Expanded view: Shows all 4 recipes
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ThemeGenerationRecipe.values().forEach { recipe ->
+                    RecipeCardItem(
+                        recipe = recipe,
+                        isSelected = activeRecipe == recipe,
+                        understanding = understanding,
+                        candidateColor = candidateColor,
+                        isDark = isDark,
+                        canvasMode = canvasMode,
+                        influence = influence,
+                        writingCharacter = writingCharacter,
+                        onClick = {
+                            onSelectRecipe(recipe)
+                            isExpanded = false
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
  * 4-Recipe comparison cards presenting BALANCED, ATMOSPHERIC, INK, and EXPRESSIVE interpretations.
  */
 @Composable
@@ -134,6 +240,7 @@ fun RecipeComparisonCards(
     understanding: ImageUnderstanding?,
     candidateColor: Int?,
     isDark: Boolean,
+    canvasMode: ThemeCanvasMode = if (isDark) ThemeCanvasMode.DARK else ThemeCanvasMode.LIGHT,
     influence: ImageInfluence = ImageInfluence.BALANCED,
     writingCharacter: WritingCharacter = WritingCharacter.NEUTRAL,
     onSelectRecipe: (ThemeGenerationRecipe) -> Unit,
@@ -144,148 +251,173 @@ fun RecipeComparisonCards(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         ThemeGenerationRecipe.values().forEach { recipe ->
-            val isSelected = activeRecipe == recipe
+            RecipeCardItem(
+                recipe = recipe,
+                isSelected = activeRecipe == recipe,
+                understanding = understanding,
+                candidateColor = candidateColor,
+                isDark = isDark,
+                canvasMode = canvasMode,
+                influence = influence,
+                writingCharacter = writingCharacter,
+                onClick = { onSelectRecipe(recipe) }
+            )
+        }
+    }
+}
 
-            val palette = if (understanding != null) {
-                ThemeGenerationEngine.generateSourcePalette(
-                    understanding = understanding,
-                    recipe = recipe,
-                    candidateColor = candidateColor,
-                    isDark = isDark,
-                    influence = influence,
-                    writingCharacter = writingCharacter
-                )
-            } else null
+@Composable
+fun RecipeCardItem(
+    recipe: ThemeGenerationRecipe,
+    isSelected: Boolean,
+    understanding: ImageUnderstanding?,
+    candidateColor: Int?,
+    isDark: Boolean,
+    canvasMode: ThemeCanvasMode = if (isDark) ThemeCanvasMode.DARK else ThemeCanvasMode.LIGHT,
+    influence: ImageInfluence = ImageInfluence.BALANCED,
+    writingCharacter: WritingCharacter = WritingCharacter.NEUTRAL,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val palette = if (understanding != null) {
+        ThemeGenerationEngine.generateSourcePalette(
+            understanding = understanding,
+            recipe = recipe,
+            candidateColor = candidateColor,
+            isDark = isDark,
+            canvasMode = canvasMode,
+            influence = influence,
+            writingCharacter = writingCharacter
+        )
+    } else null
 
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onSelectRecipe(recipe) },
-                shape = ScribeTheme.shapes.cardSmall,
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isSelected) {
-                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
-                    } else {
-                        MaterialTheme.colorScheme.surface
-                    }
-                ),
-                border = if (isSelected) {
-                    BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
-                } else {
-                    BorderStroke(1.dp, ScribeTheme.colors.borders.subtle)
-                }
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = ScribeTheme.shapes.cardSmall,
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+            } else {
+                MaterialTheme.colorScheme.surface
+            }
+        ),
+        border = if (isSelected) {
+            BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+        } else {
+            BorderStroke(1.dp, ScribeTheme.colors.borders.subtle)
+        }
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(
-                    modifier = Modifier.padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Text(
+                        text = recipe.label,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else ScribeTheme.colors.content.primary
+                    )
+                    Surface(
+                        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
+                        shape = ScribeTheme.shapes.themeEditorControl
+                    ) {
+                        Text(
+                            text = getRecipeBadge(recipe),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else ScribeTheme.colors.content.secondary,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+
+                if (isSelected) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Selected",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            Text(
+                text = recipe.description,
+                fontSize = 12.sp,
+                color = ScribeTheme.colors.content.secondary,
+                lineHeight = 16.sp
+            )
+
+            // Visual Palette Distribution Preview
+            if (palette != null) {
+                val vp = palette.visualPalette
+                if (vp != null) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = recipe.label,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else ScribeTheme.colors.content.primary
-                            )
-                            Surface(
-                                color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
-                                shape = ScribeTheme.shapes.themeEditorControl
-                            ) {
-                                Text(
-                                    text = getRecipeBadge(recipe),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (isSelected) MaterialTheme.colorScheme.primary else ScribeTheme.colors.content.secondary,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
-
-                        if (isSelected) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = "Selected",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
+                        MiniPaletteTile(
+                            label = "Canvas",
+                            hex = vp.visualCanvas,
+                            modifier = Modifier.weight(1f)
+                        )
+                        MiniPaletteTile(
+                            label = "Editor",
+                            hex = vp.visualEditorSurface,
+                            modifier = Modifier.weight(1f)
+                        )
+                        MiniPaletteTile(
+                            label = "Chrome",
+                            hex = vp.visualChrome,
+                            modifier = Modifier.weight(1f)
+                        )
+                        MiniPaletteTile(
+                            label = "Accent",
+                            hex = vp.visualPrimaryAccent,
+                            modifier = Modifier.weight(1f)
+                        )
+                        MiniPaletteTile(
+                            label = "Sec",
+                            hex = vp.visualSecondaryAccent,
+                            modifier = Modifier.weight(1f)
+                        )
+                        MiniPaletteTile(
+                            label = "High",
+                            hex = vp.visualHighlight,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
-
-                    Text(
-                        text = recipe.description,
-                        fontSize = 12.sp,
-                        color = ScribeTheme.colors.content.secondary,
-                        lineHeight = 16.sp
-                    )
-
-                    // Visual Palette Distribution Preview
-                    if (palette != null) {
-                        val vp = palette.visualPalette
-                        if (vp != null) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                MiniPaletteTile(
-                                    label = "Canvas",
-                                    hex = vp.visualCanvas,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                MiniPaletteTile(
-                                    label = "Editor",
-                                    hex = vp.visualEditorSurface,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                MiniPaletteTile(
-                                    label = "Chrome",
-                                    hex = vp.visualChrome,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                MiniPaletteTile(
-                                    label = "Accent",
-                                    hex = vp.visualPrimaryAccent,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                MiniPaletteTile(
-                                    label = "Sec",
-                                    hex = vp.visualSecondaryAccent,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                MiniPaletteTile(
-                                    label = "High",
-                                    hex = vp.visualHighlight,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        } else {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                MiniPaletteTile(
-                                    label = "Base",
-                                    hex = palette.background,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                MiniPaletteTile(
-                                    label = "Prose",
-                                    hex = palette.text,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                MiniPaletteTile(
-                                    label = "Accent",
-                                    hex = palette.accent,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        MiniPaletteTile(
+                            label = "Base",
+                            hex = palette.background,
+                            modifier = Modifier.weight(1f)
+                        )
+                        MiniPaletteTile(
+                            label = "Prose",
+                            hex = palette.text,
+                            modifier = Modifier.weight(1f)
+                        )
+                        MiniPaletteTile(
+                            label = "Accent",
+                            hex = palette.accent,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
             }
