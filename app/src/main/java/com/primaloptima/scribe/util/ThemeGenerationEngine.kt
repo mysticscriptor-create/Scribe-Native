@@ -14,6 +14,7 @@ import com.primaloptima.scribe.util.model.ImagePaletteSource
 import com.primaloptima.scribe.util.model.ImageUnderstanding
 import com.primaloptima.scribe.util.model.PaletteDiversity
 import com.primaloptima.scribe.util.model.TemperatureBias
+import com.primaloptima.scribe.util.model.ThemeCanvasMode
 import com.primaloptima.scribe.util.model.ThemeGenerationMetadata
 import com.primaloptima.scribe.util.model.ThemeGenerationRecipe
 import com.primaloptima.scribe.util.model.ThemeRelationshipMode
@@ -484,6 +485,16 @@ object ThemeGenerationEngine {
             putCachedUnderstanding(fp, understanding)
         }
         return understanding
+    }
+
+    /**
+     * Phase 20.1 — Analyzes a list of hex color candidate strings directly into an [ImageUnderstanding].
+     * Useful for programmatic palette testing and palette-based theme derivation.
+     */
+    fun analyzeArtworkPalette(hexCandidates: List<String>): ImageUnderstanding {
+        val argbList = hexCandidates.map { parseHexToArgb(it) }
+        val width = maxOf(1, argbList.size)
+        return analyzePixels(argbList.toIntArray(), width, 1)
     }
 
     /**
@@ -1226,6 +1237,42 @@ object ThemeGenerationEngine {
         )
     }
 
+    fun generateVisualPaletteReport(
+        understanding: ImageUnderstanding,
+        recipe: ThemeGenerationRecipe,
+        candidateColor: String,
+        isDark: Boolean = true,
+        canvasMode: ThemeCanvasMode = if (isDark) ThemeCanvasMode.DARK else ThemeCanvasMode.LIGHT,
+        influence: ImageInfluence = ImageInfluence.BALANCED,
+        writingCharacter: WritingCharacter = WritingCharacter.NEUTRAL
+    ): VisualPaletteReport = generateVisualPaletteReport(
+        understanding = understanding,
+        recipe = recipe,
+        candidateColor = parseHexToArgb(candidateColor),
+        isDark = isDark,
+        canvasMode = canvasMode,
+        influence = influence,
+        writingCharacter = writingCharacter
+    )
+
+    fun generateSourcePalette(
+        understanding: ImageUnderstanding,
+        recipe: ThemeGenerationRecipe,
+        candidateColor: String,
+        isDark: Boolean = true,
+        canvasMode: ThemeCanvasMode = if (isDark) ThemeCanvasMode.DARK else ThemeCanvasMode.LIGHT,
+        influence: ImageInfluence = ImageInfluence.BALANCED,
+        writingCharacter: WritingCharacter = WritingCharacter.NEUTRAL
+    ): ThemeSourcePalette = generateSourcePalette(
+        understanding = understanding,
+        recipe = recipe,
+        candidateColor = parseHexToArgb(candidateColor),
+        isDark = isDark,
+        canvasMode = canvasMode,
+        influence = influence,
+        writingCharacter = writingCharacter
+    )
+
     fun generateSourcePalette(
         understanding: ImageUnderstanding,
         recipe: ThemeGenerationRecipe,
@@ -1296,7 +1343,7 @@ object ThemeGenerationEngine {
         )
     }
 
-    private fun parseHexToArgb(hex: String): Int {
+    fun parseHexToArgb(hex: String): Int {
         val clean = hex.removePrefix("#").trim()
         val fullHex = if (clean.length == 6) "FF$clean" else clean
         return fullHex.toLong(16).toInt()
@@ -1483,5 +1530,27 @@ object ThemeGenerationEngine {
             savedBgDominantColor = sourcePalette.atmosphericColor ?: understanding.dominantColors.firstOrNull()
         )
     }
+
+    fun createGeneratedTheme(
+        understanding: ImageUnderstanding,
+        recipe: ThemeGenerationRecipe = ThemeGenerationRecipe.BALANCED,
+        candidateColor: String,
+        isDark: Boolean,
+        influence: ImageInfluence = ImageInfluence.BALANCED,
+        writingCharacter: WritingCharacter = WritingCharacter.NEUTRAL,
+        relationshipMode: ThemeRelationshipMode = ThemeRelationshipMode.THEME_IMAGE,
+        imageUri: String? = null,
+        name: String? = null
+    ): AppTheme = createGeneratedTheme(
+        name = name,
+        understanding = understanding,
+        recipe = recipe,
+        candidateColor = parseHexToArgb(candidateColor),
+        isDark = isDark,
+        influence = influence,
+        writingCharacter = writingCharacter,
+        relationshipMode = relationshipMode,
+        imageUri = imageUri
+    )
 }
 

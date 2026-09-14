@@ -131,7 +131,12 @@ enum class ThemeGenerationRecipe(
         label = "Expressive",
         description = "Stronger color and visual character with pronounced supporting relationships",
         aestheticRole = "Vibrant chromatic presence, bold editorial identity"
-    )
+    );
+
+    companion object {
+        val CHROMATIC_RICH: ThemeGenerationRecipe get() = EXPRESSIVE
+        val EDITORIAL_SERENE: ThemeGenerationRecipe get() = INK
+    }
 }
 
 /**

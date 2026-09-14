@@ -369,6 +369,9 @@ data class AppTheme(
     /** Provenance metadata for image-generated themes. Null for handcrafted or legacy themes. */
     val generationMetadata: ThemeGenerationMetadata? = null
 ) {
+    /** Alias for generationMetadata for test and caller convenience */
+    val metadata: ThemeGenerationMetadata? get() = generationMetadata
+
     fun sourcePalette(): ThemeSourcePalette = ThemeSourcePalette(
         background = colors.background,
         text = colors.text,

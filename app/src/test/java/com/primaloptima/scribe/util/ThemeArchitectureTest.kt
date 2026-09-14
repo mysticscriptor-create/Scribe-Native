@@ -2396,13 +2396,13 @@ class ThemeArchitectureTest {
 
         val generated = ThemeGenerationEngine.createGeneratedTheme(
             understanding = understanding,
-            recipe = ThemeGenerationRecipe.CHROMATIC_RICH,
+            recipe = ThemeGenerationRecipe.EXPRESSIVE,
             candidateColor = "#1E3A8A",
             isDark = true
         )
 
-        assertNotNull("Theme metadata must not be null", generated.metadata)
-        val vp = generated.metadata?.visualPalette
+        assertNotNull("Theme generationMetadata must not be null", generated.generationMetadata)
+        val vp = generated.generationMetadata?.visualPalette
         assertNotNull("Visual palette must be populated in metadata", vp)
         assertTrue("Canvas must be valid hex", vp!!.visualCanvas.startsWith("#"))
         assertTrue("Editor surface must be valid hex", vp.visualEditorSurface.startsWith("#"))
@@ -2472,14 +2472,14 @@ class ThemeArchitectureTest {
 
         val chromaticPalette = ThemeGenerationEngine.generateSourcePalette(
             understanding = understanding,
-            recipe = ThemeGenerationRecipe.CHROMATIC_RICH,
+            recipe = ThemeGenerationRecipe.EXPRESSIVE,
             candidateColor = "#7C3AED",
             isDark = true
         )
 
         val editorialPalette = ThemeGenerationEngine.generateSourcePalette(
             understanding = understanding,
-            recipe = ThemeGenerationRecipe.EDITORIAL_SERENE,
+            recipe = ThemeGenerationRecipe.INK,
             candidateColor = "#7C3AED",
             isDark = true
         )
