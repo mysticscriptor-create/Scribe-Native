@@ -818,6 +818,13 @@ object ThemeGenerationEngine {
             ImageInfluence.STRONG -> 1.35
         }
 
+        val isNative = canvasMode == ThemeCanvasMode.IMAGE_NATIVE
+        val effectiveIsDark = when (canvasMode) {
+            ThemeCanvasMode.DARK -> true
+            ThemeCanvasMode.LIGHT -> false
+            ThemeCanvasMode.IMAGE_NATIVE -> atmosphericSource.tone < 0.52
+        }
+
         // Palette sources for multi-role distribution
         val atmoHue = if (isMonochromeArtwork) {
             if (effectiveIsDark) 240.0 else 75.0
@@ -860,13 +867,6 @@ object ThemeGenerationEngine {
             it.colorArgb != tertiarySource.colorArgb
         } ?: highlightSource
 
-        val isNative = canvasMode == ThemeCanvasMode.IMAGE_NATIVE
-        val effectiveIsDark = when (canvasMode) {
-            ThemeCanvasMode.DARK -> true
-            ThemeCanvasMode.LIGHT -> false
-            ThemeCanvasMode.IMAGE_NATIVE -> atmosphericSource.tone < 0.52
-        }
-
         // 1. VISUAL CANVAS (L0) - App Background / Atmosphere
         // In IMAGE_NATIVE mode, natural tones (moss-green, terracotta) are fully preserved.
         // Mid-tone mush bifurcation gently anchors mid-range paintings away from low-contrast muddy zones.
@@ -874,7 +874,7 @@ object ThemeGenerationEngine {
             ThemeCanvasMode.IMAGE_NATIVE -> {
                 val rawNativeTone = atmosphericSource.tone
                 val nativeTone = if (rawNativeTone in 0.44..0.56 && recipe != ThemeGenerationRecipe.ATMOSPHERIC) {
-                    if (understanding.darkLightBias == DarkLightBias.LIGHT_DOMINANT) {
+                    if (understanding.darkLightBias == DarkLightBias.LIGHT_BIASED) {
                         (rawNativeTone + 0.16).coerceIn(0.68, 0.85)
                     } else {
                         (rawNativeTone - 0.16).coerceIn(0.22, 0.38)
