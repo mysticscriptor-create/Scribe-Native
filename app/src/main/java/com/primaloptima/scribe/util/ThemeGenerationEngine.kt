@@ -52,7 +52,7 @@ import kotlin.math.sqrt
  */
 object ThemeGenerationEngine {
 
-    const val ANALYSIS_SAMPLE_SIZE = 128
+    const val ANALYSIS_SAMPLE_SIZE = 256
     const val MAX_QUANTIZER_COLORS = 128
 
     // In-memory cache for deterministic session reuse of ImageUnderstanding (keyed by imageFingerprint or URI hash)
@@ -189,27 +189,36 @@ object ThemeGenerationEngine {
         val isOverallMonochrome = valid.all { it.chroma < 0.045 }
 
         // 1. PRIMARY ACCENT
-        // Balanced combination of MCU ranking and OKLCH chroma
+        // SOTA Chromatic Salience: Prioritizes vibrant focal points (e.g. glowing swords, neon trims, flowers)
+        // even when cropped into a low percentage of overall image pixels.
         val primaryCandidate = if (isOverallMonochrome) {
             // Special Case 45: Image without high chroma / monochrome / B&W
             // Pick candidate with best tone balance (mid-tone) and highest score or subtle undertone
             valid.maxByOrNull { it.score * 1.5 + (0.5 - abs(it.tone - 0.5)) }
                 ?: valid.first()
         } else {
-            valid.filter { it.chroma >= 0.06 && it.tone in 0.15..0.85 }
-                .maxByOrNull {
-                    val normScore = if (scored.isNotEmpty()) it.score / scored.size else 0.5
-                    val normChroma = (it.chroma / 0.25).coerceIn(0.0, 1.0)
-                    normScore * 0.6 + normChroma * 0.4
-                }
-                ?: valid.maxByOrNull { it.chroma }
-                ?: valid.first()
+            val chromatic = valid.filter { it.chroma >= 0.05 && it.tone in 0.10..0.90 }
+            if (chromatic.isNotEmpty()) {
+                chromatic.maxByOrNull { cand ->
+                    val normChroma = (cand.chroma / 0.28).coerceIn(0.0, 1.0)
+                    val tonalSuitability = (1.0 - 2.0 * (cand.tone - 0.5) * (cand.tone - 0.5)).coerceIn(0.25, 1.0)
+                    val logPop = kotlin.math.ln(cand.population.toDouble() + 2.0)
+                    val maxLogPop = kotlin.math.ln(totalPixels + 2.0).coerceAtLeast(1.0)
+                    val normPop = (logPop / maxLogPop).coerceIn(0.0, 1.0)
+                    val normScore = if (scored.isNotEmpty() && cand.score > 0) cand.score / scored.size else 0.0
+
+                    val chromaWeight = if (cand.chroma >= 0.10) 0.65 else 0.48
+                    (normChroma * chromaWeight * tonalSuitability) + (normPop * 0.22) + (normScore * 0.15)
+                } ?: chromatic.maxByOrNull { it.chroma } ?: valid.first()
+            } else {
+                valid.maxByOrNull { it.chroma } ?: valid.first()
+            }
         }
 
         // 2. ATMOSPHERIC
         // Candidate with high population representing the ambient canvas/environment
         val atmosphericCandidate = valid.filter { it.colorArgb != primaryCandidate.colorArgb }
-            .filter { it.chroma in 0.005..0.15 && it.tone in 0.08..0.92 }
+            .filter { it.chroma in 0.003..0.18 && it.tone in 0.06..0.94 }
             .maxByOrNull { it.population.toDouble() / totalPixels }
             ?: valid.filter { it.colorArgb != primaryCandidate.colorArgb }.maxByOrNull { it.population }
             ?: primaryCandidate
@@ -515,18 +524,94 @@ object ThemeGenerationEngine {
             return fallbackUnderstanding()
         }
 
-        // 1. Ranked candidates via MCU QuantizerCelebi & Score (computed once)
+        // 1. SOTA Multi-Chromatic Candidate Extraction: QuantizerCelebi + Salience + Distinct Hue Clustering
         val quantizerResult = QuantizerCelebi.quantize(pixels, MAX_QUANTIZER_COLORS)
         val scored = Score.score(quantizerResult)
-        val extracted = scored.ifEmpty { quantizerResult.keys.toList() }
-        val accessibleCandidates = extracted.filter {
-            val oklch = ContrastResolver.colorToOklch(it)
-            oklch.l in 0.04..0.985
+
+        // Structure raw candidate metrics in OKLCH
+        data class SalientCandidate(
+            val colorArgb: Int,
+            val oklch: ContrastResolver.Oklch,
+            val population: Int,
+            val score: Double,
+            val salience: Double
+        )
+
+        val totalPx = pixels.size.toDouble().coerceAtLeast(1.0)
+        val maxPop = quantizerResult.values.maxOrNull()?.toDouble()?.coerceAtLeast(1.0) ?: 1.0
+
+        val salienceList = quantizerResult.mapNotNull { (colorInt, pop) ->
+            val oklch = ContrastResolver.colorToOklch(colorInt)
+            // Filter extreme black/white noise
+            if (oklch.l !in 0.04..0.985) return@mapNotNull null
+
+            val scoreIdx = scored.indexOf(colorInt)
+            val score = if (scoreIdx >= 0) (scored.size - scoreIdx).toDouble() else 0.0
+
+            // Perceptual salience: Chroma vibrancy (focal pop) * tone suitability * log-population
+            val normChroma = (oklch.c / 0.28).coerceIn(0.0, 1.0)
+            val tonalFactor = (1.0 - 2.0 * (oklch.l - 0.5) * (oklch.l - 0.5)).coerceIn(0.25, 1.0)
+            val logPop = kotlin.math.ln(pop.toDouble() + 2.0)
+            val maxLogPop = kotlin.math.ln(totalPx + 2.0).coerceAtLeast(1.0)
+            val normPop = (logPop / maxLogPop).coerceIn(0.0, 1.0)
+            val chromaBoost = if (oklch.c >= 0.10) 1.45 else if (oklch.c >= 0.06) 1.20 else 0.85
+
+            val salience = (normChroma * 0.60 * chromaBoost * tonalFactor) + (normPop * 0.25) + ((score / (scored.size.coerceAtLeast(1))) * 0.15)
+
+            SalientCandidate(colorInt, oklch, pop, score, salience)
         }
-        val rankedCandidates = if (accessibleCandidates.isNotEmpty()) {
-            accessibleCandidates
-        } else if (extracted.isNotEmpty()) {
-            extracted
+
+        // Distinct hue clustering: 12 sectors around 360-degree circle
+        val hueClusters = salienceList
+            .filter { it.oklch.c >= 0.04 }
+            .groupBy { ((it.oklch.h % 360.0 + 360.0) % 360.0 / 30.0).toInt().coerceIn(0, 11) }
+            .mapValues { (_, candidatesInSector) -> candidatesInSector.maxByOrNull { it.salience }!! }
+            .values
+            .sortedByDescending { it.salience }
+
+        // Assemble ordered candidate pool:
+        // A. Top chromatic salience (ensures focal accents e.g. glowing swords are #1)
+        // B. MCU scored colors
+        // C. Distinct hue representatives
+        // D. Atmospheric candidate (high population ambient color)
+        val candidatePool = mutableListOf<SalientCandidate>()
+
+        salienceList.maxByOrNull { it.salience }?.let { candidatePool.add(it) }
+
+        scored.forEach { sc ->
+            salienceList.firstOrNull { it.colorArgb == sc }?.let { candidatePool.add(it) }
+        }
+
+        candidatePool.addAll(hueClusters)
+
+        salienceList.filter { it.oklch.c in 0.003..0.18 && it.oklch.l in 0.08..0.92 }
+            .maxByOrNull { it.population }
+            ?.let { candidatePool.add(it) }
+
+        salienceList.maxByOrNull { it.population }?.let { candidatePool.add(it) }
+
+        // Deduplicate with perceptual difference guarantees:
+        // Color must differ by >= 18 deg hue OR >= 0.12 tone OR >= 0.06 chroma
+        val finalRanked = mutableListOf<SalientCandidate>()
+        for (cand in candidatePool) {
+            val isDuplicate = finalRanked.any { existing ->
+                val dHue = circularHueDistance(cand.oklch.h, existing.oklch.h)
+                val dTone = abs(cand.oklch.l - existing.oklch.l)
+                val dChroma = abs(cand.oklch.c - existing.oklch.c)
+                (dHue < 18.0 && dTone < 0.12 && dChroma < 0.06)
+            }
+            if (!isDuplicate) {
+                finalRanked.add(cand)
+            }
+            if (finalRanked.size >= 12) break
+        }
+
+        val rankedCandidates = if (finalRanked.isNotEmpty()) {
+            finalRanked.map { it.colorArgb }
+        } else if (scored.isNotEmpty()) {
+            scored
+        } else if (quantizerResult.isNotEmpty()) {
+            quantizerResult.keys.toList()
         } else {
             listOf(0xFF3B82F6.toInt(), 0xFF1D4ED8.toInt(), 0xFF10B981.toInt(), 0xFFF59E0B.toInt())
         }
