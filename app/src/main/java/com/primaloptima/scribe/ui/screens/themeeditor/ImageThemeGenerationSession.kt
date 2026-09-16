@@ -33,8 +33,12 @@ data class ImageThemeGenerationSession(
     val activeRecipe: ThemeGenerationRecipe = ThemeGenerationRecipe.BALANCED,
     val activeInfluence: ImageInfluence = ImageInfluence.BALANCED,
     val activeWritingCharacter: WritingCharacter = WritingCharacter.NEUTRAL,
-    val canvasMode: ThemeCanvasMode = if (understanding.defaultDarkPolarity) ThemeCanvasMode.DARK else ThemeCanvasMode.LIGHT,
-    val isDark: Boolean = canvasMode != ThemeCanvasMode.LIGHT,
+    val canvasMode: ThemeCanvasMode = ThemeCanvasMode.IMAGE_NATIVE,
+    val isDark: Boolean = when (canvasMode) {
+        ThemeCanvasMode.DARK -> true
+        ThemeCanvasMode.LIGHT -> false
+        ThemeCanvasMode.IMAGE_NATIVE -> understanding.paletteSources.firstOrNull { it.visualRole == com.primaloptima.scribe.util.model.VisualRole.ATMOSPHERIC }?.let { it.tone < 0.52 } ?: understanding.defaultDarkPolarity
+    },
     val relationshipMode: ThemeRelationshipMode = ThemeRelationshipMode.THEME_ONLY,
     val customName: String? = null
 ) {
@@ -94,8 +98,14 @@ data class ImageThemeGenerationSession(
     fun withWritingCharacter(character: WritingCharacter): ImageThemeGenerationSession =
         copy(activeWritingCharacter = character)
 
-    fun withCanvasMode(mode: ThemeCanvasMode): ImageThemeGenerationSession =
-        copy(canvasMode = mode, isDark = mode != ThemeCanvasMode.LIGHT)
+    fun withCanvasMode(mode: ThemeCanvasMode): ImageThemeGenerationSession {
+        val resolvedDark = when (mode) {
+            ThemeCanvasMode.DARK -> true
+            ThemeCanvasMode.LIGHT -> false
+            ThemeCanvasMode.IMAGE_NATIVE -> understanding.paletteSources.firstOrNull { it.visualRole == com.primaloptima.scribe.util.model.VisualRole.ATMOSPHERIC }?.let { it.tone < 0.52 } ?: understanding.defaultDarkPolarity
+        }
+        return copy(canvasMode = mode, isDark = resolvedDark)
+    }
 
     fun withPolarity(isDark: Boolean): ImageThemeGenerationSession =
         copy(isDark = isDark, canvasMode = if (isDark) ThemeCanvasMode.DARK else ThemeCanvasMode.LIGHT)

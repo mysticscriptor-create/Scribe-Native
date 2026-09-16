@@ -427,7 +427,7 @@ private fun DeviceMockupFrame(
         modifier = modifier
             .fillMaxSize()
             .clip(frameShape)
-            .background(ScribeTheme.colors.surfaces.surfaceLowest)
+            .background(ScribeTheme.colors.surfaces.background)
             .border(
                 width = 1.dp,
                 color = ScribeTheme.colors.borders.subtle,

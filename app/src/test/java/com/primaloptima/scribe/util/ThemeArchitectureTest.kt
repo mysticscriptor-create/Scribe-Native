@@ -2546,4 +2546,171 @@ class ThemeArchitectureTest {
         val reloadedDraft = ThemeEditorDraft.fromAppTheme(savedTheme)
         assertEquals("Reloaded draft must restore visualPalette", customVp, reloadedDraft.visualPalette)
     }
+
+    // ── Phase 21: Advanced Creative & Architectural Research Tests ──────────────
+
+    @Test
+    fun test12CellMatrix_allCombinationsProduceDistinctValidPalettes() {
+        val candidates = listOf("#1E3A8A", "#D97706", "#059669", "#DC2626", "#475569", "#F8FAFC")
+        val understanding = ThemeGenerationEngine.analyzeArtworkPalette(candidates)
+        val candidateColor = "#1E3A8A"
+
+        val modes = listOf(
+            com.primaloptima.scribe.util.model.ThemeCanvasMode.DARK,
+            com.primaloptima.scribe.util.model.ThemeCanvasMode.LIGHT,
+            com.primaloptima.scribe.util.model.ThemeCanvasMode.IMAGE_NATIVE
+        )
+        val recipes = ThemeGenerationRecipe.values()
+
+        val generatedPalettes = mutableListOf<VisualThemePalette>()
+
+        for (mode in modes) {
+            for (recipe in recipes) {
+                val isDark = when (mode) {
+                    com.primaloptima.scribe.util.model.ThemeCanvasMode.DARK -> true
+                    com.primaloptima.scribe.util.model.ThemeCanvasMode.LIGHT -> false
+                    com.primaloptima.scribe.util.model.ThemeCanvasMode.IMAGE_NATIVE -> understanding.defaultDarkPolarity
+                }
+                val palette = ThemeGenerationEngine.generateSourcePalette(
+                    understanding = understanding,
+                    recipe = recipe,
+                    candidateColor = candidateColor,
+                    isDark = isDark,
+                    canvasMode = mode,
+                    influence = ImageInfluence.BALANCED,
+                    writingCharacter = WritingCharacter.NEUTRAL
+                )
+
+                assertNotNull("Visual palette must be generated for $mode x $recipe", palette.visualPalette)
+                val vp = palette.visualPalette!!
+                assertTrue("Canvas must be valid hex for $mode x $recipe", vp.visualCanvas.startsWith("#"))
+                assertTrue("Editor surface must be valid hex for $mode x $recipe", vp.visualEditorSurface.startsWith("#"))
+                assertTrue("Chrome must be valid hex for $mode x $recipe", vp.visualChrome.startsWith("#"))
+                assertTrue("Elevated surface must be valid hex for $mode x $recipe", vp.visualElevatedSurface.startsWith("#"))
+                assertTrue("Primary accent must be valid hex for $mode x $recipe", vp.visualPrimaryAccent.startsWith("#"))
+
+                generatedPalettes.add(vp)
+            }
+        }
+
+        assertEquals("Must generate exactly 12 matrix cells", 12, generatedPalettes.size)
+    }
+
+    @Test
+    fun testAntiZebraFilter_surfacesFollowMonotonicLuminanceEnvelopes() {
+        // High-contrast input: midnight sky with bright white moon
+        val starkCandidates = listOf("#05070B", "#FFFFFF", "#38BDF8", "#F59E0B")
+        val understanding = ThemeGenerationEngine.analyzeArtworkPalette(starkCandidates)
+
+        // Generate Dark Mode Palette
+        val darkPalette = ThemeGenerationEngine.generateSourcePalette(
+            understanding = understanding,
+            recipe = ThemeGenerationRecipe.BALANCED,
+            candidateColor = "#FFFFFF", // user tapped white highlight
+            isDark = true,
+            canvasMode = com.primaloptima.scribe.util.model.ThemeCanvasMode.DARK,
+            influence = ImageInfluence.STRONG,
+            writingCharacter = WritingCharacter.NEUTRAL
+        )
+        val darkVp = darkPalette.visualPalette!!
+
+        val canvasOklch = ContrastResolver.hexToOklch(darkVp.visualCanvas)
+        val editorOklch = ContrastResolver.hexToOklch(darkVp.visualEditorSurface)
+        val chromeOklch = ContrastResolver.hexToOklch(darkVp.visualChrome)
+        val elevatedOklch = ContrastResolver.hexToOklch(darkVp.visualElevatedSurface)
+
+        // All dark surfaces must strictly obey the dark polarity envelope (L <= 0.45)
+        assertTrue("Dark canvas must stay in dark envelope (L <= 0.45)", canvasOklch.l <= 0.45)
+        assertTrue("Dark editor surface must stay in dark envelope (L <= 0.45)", editorOklch.l <= 0.45)
+        assertTrue("Dark chrome must stay in dark envelope (L <= 0.45)", chromeOklch.l <= 0.45)
+        assertTrue("Dark elevated surface must stay in dark envelope (L <= 0.45)", elevatedOklch.l <= 0.45)
+
+        // Generate Light Mode Palette with dark candidate selected
+        val lightPalette = ThemeGenerationEngine.generateSourcePalette(
+            understanding = understanding,
+            recipe = ThemeGenerationRecipe.BALANCED,
+            candidateColor = "#05070B", // user tapped dark seed
+            isDark = false,
+            canvasMode = com.primaloptima.scribe.util.model.ThemeCanvasMode.LIGHT,
+            influence = ImageInfluence.STRONG,
+            writingCharacter = WritingCharacter.NEUTRAL
+        )
+        val lightVp = lightPalette.visualPalette!!
+
+        val lightCanvasOklch = ContrastResolver.hexToOklch(lightVp.visualCanvas)
+        val lightEditorOklch = ContrastResolver.hexToOklch(lightVp.visualEditorSurface)
+        val lightChromeOklch = ContrastResolver.hexToOklch(lightVp.visualChrome)
+        val lightElevatedOklch = ContrastResolver.hexToOklch(lightVp.visualElevatedSurface)
+
+        // All light surfaces must strictly obey the light polarity envelope (L >= 0.65)
+        assertTrue("Light canvas must stay in light envelope (L >= 0.65)", lightCanvasOklch.l >= 0.65)
+        assertTrue("Light editor surface must stay in light envelope (L >= 0.65)", lightEditorOklch.l >= 0.65)
+        assertTrue("Light chrome must stay in light envelope (L >= 0.65)", lightChromeOklch.l >= 0.65)
+        assertTrue("Light elevated surface must stay in light envelope (L >= 0.65)", lightElevatedOklch.l >= 0.65)
+    }
+
+    @Test
+    fun testDynamicInkCalculation_passesWcagAAAndAPCAContrast() {
+        val darkBg = "#0F172A"
+        val lightBg = "#F8FAFC"
+
+        val darkInk = ThemeGenerationEngine.calculateDynamicInk(darkBg, isDark = true, targetL = 0.94)
+        val lightInk = ThemeGenerationEngine.calculateDynamicInk(lightBg, isDark = false, targetL = 0.12)
+
+        val darkContrast = ContrastResolver.calculateContrastRatio(darkInk, darkBg)
+        val lightContrast = ContrastResolver.calculateContrastRatio(lightInk, lightBg)
+
+        assertTrue("Dark ink must pass WCAG AA (>= 4.5:1), actual: $darkContrast", darkContrast >= 4.5)
+        assertTrue("Light ink must pass WCAG AA (>= 4.5:1), actual: $lightContrast", lightContrast >= 4.5)
+
+        val darkApca = ContrastResolver.calculateApcaContrast(darkInk, darkBg)
+        val lightApca = ContrastResolver.calculateApcaContrast(lightInk, lightBg)
+
+        assertTrue("Dark ink must pass APCA threshold (>= 60), actual: $darkApca", darkApca >= 60)
+        assertTrue("Light ink must pass APCA threshold (>= 60), actual: $lightApca", lightApca >= 60)
+    }
+
+    @Test
+    fun testStrongInfluence_unlocksMultiChromaticSpectrum() {
+        val richCandidates = listOf("#1E3A8A", "#D97706", "#059669", "#DC2626", "#8B5CF6")
+        val understanding = ThemeGenerationEngine.analyzeArtworkPalette(richCandidates)
+
+        val strongPalette = ThemeGenerationEngine.generateSourcePalette(
+            understanding = understanding,
+            recipe = ThemeGenerationRecipe.EXPRESSIVE,
+            candidateColor = "#1E3A8A",
+            isDark = true,
+            canvasMode = com.primaloptima.scribe.util.model.ThemeCanvasMode.DARK,
+            influence = ImageInfluence.STRONG,
+            writingCharacter = WritingCharacter.NEUTRAL
+        )
+        val vp = strongPalette.visualPalette!!
+
+        // Must have distinct accents
+        assertNotEquals("Primary and secondary accents should be distinct in strong influence", vp.visualPrimaryAccent, vp.visualSecondaryAccent)
+        assertNotEquals("Secondary and tertiary accents should be distinct in strong influence", vp.visualSecondaryAccent, vp.visualTertiaryAccent)
+        assertNotNull("Highlight must be populated", vp.visualHighlight)
+        assertNotNull("Neutral must be populated", vp.visualNeutral)
+    }
+
+    @Test
+    fun testWritingSheetSanctuary_dampensChromaAndLocksHue() {
+        val candidates = listOf("#0284C7", "#F59E0B", "#10B981")
+        val understanding = ThemeGenerationEngine.analyzeArtworkPalette(candidates)
+
+        val palette = ThemeGenerationEngine.generateSourcePalette(
+            understanding = understanding,
+            recipe = ThemeGenerationRecipe.ATMOSPHERIC,
+            candidateColor = "#0284C7",
+            isDark = true,
+            canvasMode = com.primaloptima.scribe.util.model.ThemeCanvasMode.DARK,
+            influence = ImageInfluence.STRONG,
+            writingCharacter = WritingCharacter.NEUTRAL
+        )
+        val vp = palette.visualPalette!!
+
+        val editorOklch = ContrastResolver.hexToOklch(vp.visualEditorSurface)
+        // Writing sanctuary rule: Chroma must be dampened (C <= 0.05) for comfortable reading
+        assertTrue("Writing sheet chroma must be dampened (C <= 0.05), actual: ${editorOklch.c}", editorOklch.c <= 0.05)
+    }
 }
