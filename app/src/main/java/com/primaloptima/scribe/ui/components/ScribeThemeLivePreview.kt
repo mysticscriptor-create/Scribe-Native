@@ -72,6 +72,7 @@ import com.primaloptima.scribe.ui.theme.LocalAppTheme
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.ScribeComposeTheme
 import com.primaloptima.scribe.ui.theme.ScribeTheme
+import com.primaloptima.scribe.ui.theme.parseComposeColor
 import com.primaloptima.scribe.util.model.AppTheme
 import com.primaloptima.scribe.util.model.ThemeColors
 import dev.chrisbanes.haze.HazeState
@@ -105,9 +106,12 @@ fun ScribeThemeLivePreview(
     lineHeight: Float = 1.7f,
     textAlignment: String = "left",
     sideMargins: Float = 24f,
+    themeScope: String = "whole_app",
     bgMode: String = "color",
     bgUri: String? = null,
     bgOpacity: Float = 0.35f,
+    overlayEnabled: Boolean = false,
+    overlayColor: String? = null,
     blurIntensity: Float = 15f,
     frostedGlassEnabled: Boolean = true,
     frostedTintEnabled: Boolean = true,
@@ -118,7 +122,8 @@ fun ScribeThemeLivePreview(
 ) {
     val effectiveTheme = remember(
         theme, colors, themeName, fontFamily, fontSize, lineHeight,
-        textAlignment, sideMargins, bgMode, bgUri, bgOpacity, blurIntensity,
+        textAlignment, sideMargins, themeScope, bgMode, bgUri, bgOpacity,
+        overlayEnabled, overlayColor, blurIntensity,
         frostedGlassEnabled, frostedTintEnabled, frostedBlurRadius, isDark
     ) {
         if (theme != null) {
@@ -135,9 +140,12 @@ fun ScribeThemeLivePreview(
                 lineHeight = lineHeight,
                 textAlignment = textAlignment,
                 paddingHorizontal = sideMargins.toInt(),
+                themeScope = themeScope,
                 bgMode = bgMode,
                 backgroundImageUri = bgUri,
                 backgroundImageOpacity = bgOpacity,
+                overlayEnabled = overlayEnabled,
+                overlayColor = overlayColor,
                 blurIntensity = blurIntensity,
                 frostedGlassEnabled = frostedGlassEnabled,
                 frostedTintEnabled = frostedTintEnabled,
@@ -254,6 +262,10 @@ fun ScribeThemeLivePreview(
         // ── Preview Body Wrapped in ScribeComposeTheme ────────────────────────
         ScribeComposeTheme(appTheme = effectiveTheme) {
             val previewHazeState = remember { HazeState() }
+            val isArtworkPresent = !effectiveTheme.backgroundImageUri.isNullOrEmpty() && effectiveTheme.bgMode != "color"
+            val dashboardBgUri = if (effectiveTheme.themeScope == "whole_app" && isArtworkPresent) effectiveTheme.backgroundImageUri else null
+            val editorBgUri = if (isArtworkPresent) effectiveTheme.backgroundImageUri else null
+
             CompositionLocalProvider(LocalHazeState provides previewHazeState) {
                 Box(
                     modifier = Modifier
@@ -279,8 +291,10 @@ fun ScribeThemeLivePreview(
                                         DeviceMockupFrame(
                                             title = "Dashboard",
                                             hazeState = previewHazeState,
-                                            bgUri = bgUri,
-                                            bgOpacity = bgOpacity
+                                            bgUri = dashboardBgUri,
+                                            bgOpacity = effectiveTheme.backgroundImageOpacity ?: 0.35f,
+                                            overlayEnabled = effectiveTheme.overlayEnabled,
+                                            overlayColor = effectiveTheme.overlayColor
                                         ) {
                                             DashboardPreviewScreen()
                                         }
@@ -294,8 +308,10 @@ fun ScribeThemeLivePreview(
                                         DeviceMockupFrame(
                                             title = "Editor",
                                             hazeState = previewHazeState,
-                                            bgUri = bgUri,
-                                            bgOpacity = bgOpacity
+                                            bgUri = editorBgUri,
+                                            bgOpacity = effectiveTheme.backgroundImageOpacity ?: 0.35f,
+                                            overlayEnabled = effectiveTheme.overlayEnabled,
+                                            overlayColor = effectiveTheme.overlayColor
                                         ) {
                                             EditorPreviewScreen(selectedOrnamentId = selectedOrnamentId)
                                         }
@@ -317,8 +333,10 @@ fun ScribeThemeLivePreview(
                                         DeviceMockupFrame(
                                             title = "Dashboard",
                                             hazeState = previewHazeState,
-                                            bgUri = bgUri,
-                                            bgOpacity = bgOpacity
+                                            bgUri = dashboardBgUri,
+                                            bgOpacity = effectiveTheme.backgroundImageOpacity ?: 0.35f,
+                                            overlayEnabled = effectiveTheme.overlayEnabled,
+                                            overlayColor = effectiveTheme.overlayColor
                                         ) {
                                             DashboardPreviewScreen()
                                         }
@@ -340,8 +358,10 @@ fun ScribeThemeLivePreview(
                                         DeviceMockupFrame(
                                             title = "Editor",
                                             hazeState = previewHazeState,
-                                            bgUri = bgUri,
-                                            bgOpacity = bgOpacity
+                                            bgUri = editorBgUri,
+                                            bgOpacity = effectiveTheme.backgroundImageOpacity ?: 0.35f,
+                                            overlayEnabled = effectiveTheme.overlayEnabled,
+                                            overlayColor = effectiveTheme.overlayColor
                                         ) {
                                             EditorPreviewScreen(selectedOrnamentId = selectedOrnamentId)
                                         }
@@ -418,6 +438,8 @@ private fun DeviceMockupFrame(
     hazeState: HazeState,
     bgUri: String? = null,
     bgOpacity: Float = 0.35f,
+    overlayEnabled: Boolean = false,
+    overlayColor: String? = null,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
@@ -439,10 +461,18 @@ private fun DeviceMockupFrame(
                 model = bgUri,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .alpha(bgOpacity)
+                modifier = Modifier.fillMaxSize()
             )
+            val isOverlayActive = (overlayEnabled || (overlayColor != null && bgOpacity > 0f)) && bgOpacity > 0f
+            if (isOverlayActive) {
+                val tintBaseColor = overlayColor?.let { parseComposeColor(it, ScribeTheme.colors.surfaces.background) }
+                    ?: ScribeTheme.colors.surfaces.background
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(tintBaseColor.copy(alpha = bgOpacity))
+                )
+            }
         }
 
         // Screen Body with miniature proportional scaling

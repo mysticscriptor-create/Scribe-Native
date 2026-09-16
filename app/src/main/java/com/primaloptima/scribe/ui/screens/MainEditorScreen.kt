@@ -446,7 +446,11 @@ fun MainEditorScreen(
             val themeBgColor = parseComposeColor(
                 activeTheme?.colors?.background ?: "#FAFAF7", Color(0xFFFAFAF7)
             )
-            Box(Modifier.fillMaxSize().background(themeBgColor.copy(alpha = bgOpacity)))
+            val isOverlayActive = (activeTheme?.overlayEnabled == true || (activeTheme?.overlayColor != null && bgOpacity > 0f)) && bgOpacity > 0f
+            if (isOverlayActive) {
+                val overlayTint = activeTheme?.overlayColor?.let { parseComposeColor(it, themeBgColor) } ?: themeBgColor
+                Box(Modifier.fillMaxSize().background(overlayTint.copy(alpha = bgOpacity)))
+            }
         }
 
         // ── Reusable Component Renderers ──────────────────────────────────────
