@@ -188,9 +188,7 @@ fun adaptiveAccentColor(
     hasBgImage: Boolean,
     savedBgLuminance: Float = -1f
 ): Color {
-    if (!hasBgImage) return accent
-
-    val bgRef = if (savedBgLuminance >= 0f) {
+    val bgRef = if (hasBgImage && savedBgLuminance >= 0f) {
         val sRgbVal = ContrastResolver.linearToSRgb(savedBgLuminance.toDouble()).toFloat().coerceIn(0f, 1f)
         Color(sRgbVal, sRgbVal, sRgbVal)
     } else {
@@ -2473,8 +2471,21 @@ fun ScribeComposeTheme(
     val darkDefault = Color(0xFF1A1A1A)
     val isDefaultText = configuredText == lightDefault || configuredText == darkDefault
     val text: Color = when {
-        hasBgImage && bgLum >= 0f && isDefaultText ->
-            if (bgLum < 0.45f) Color.White else Color(0xFF1A1A1A)
+        hasBgImage && bgLum >= 0f -> {
+            val sRgbVal = ContrastResolver.linearToSRgb(bgLum.toDouble()).toFloat().coerceIn(0f, 1f)
+            val bgRef = Color(sRgbVal, sRgbVal, sRgbVal)
+            val textRatio = ContrastResolver.calculateWcagContrastRatio(configuredText, bgRef)
+            if (isDefaultText || textRatio < 3.0) {
+                ContrastResolver.resolveContrast(
+                    background = bgRef,
+                    preferredForeground = if (isDefaultText) (if (bgLum < 0.45f) Color.White else Color(0xFF1A1A1A)) else configuredText,
+                    minRatio = 4.5,
+                    role = ContrastResolver.ContrastRole.NORMAL_TEXT
+                ).color
+            } else {
+                configuredText
+            }
+        }
         hasBgImage && bgLum < 0f && analysisBitmap != null -> {
             // Fallback: live analysis for old themes
             contrastingTextColor(
@@ -2484,21 +2495,59 @@ fun ScribeComposeTheme(
                 screenHeightPx = screenHeightPx
             )
         }
-        else -> configuredText
+        else -> {
+            val ratio = ContrastResolver.calculateWcagContrastRatio(configuredText, surface)
+            if (ratio < 3.0) {
+                ContrastResolver.resolveContrast(
+                    background = surface,
+                    preferredForeground = configuredText,
+                    minRatio = 4.5,
+                    role = ContrastResolver.ContrastRole.NORMAL_TEXT
+                ).color
+            } else {
+                configuredText
+            }
+        }
     }
 
-    val subtleTextResolved = parseComposeColor(resolvedTheme.colors.subtleText, text.copy(alpha = 0.6f))
-    val mutedTextResolved = parseComposeColor(resolvedTheme.colors.mutedText, text.copy(alpha = 0.75f))
+    val rawSubtleText = parseComposeColor(resolvedTheme.colors.subtleText, text.copy(alpha = 0.6f))
+    val rawMutedText = parseComposeColor(resolvedTheme.colors.mutedText, text.copy(alpha = 0.75f))
+
+    val mutedTextResolved = ContrastResolver.resolveContrast(
+        background = surface,
+        preferredForeground = rawMutedText,
+        minRatio = 3.5,
+        role = ContrastResolver.ContrastRole.SECONDARY_TEXT
+    ).color
+
+    val subtleTextResolved = ContrastResolver.resolveContrast(
+        background = surface,
+        preferredForeground = rawSubtleText,
+        minRatio = 3.0,
+        role = ContrastResolver.ContrastRole.SECONDARY_TEXT
+    ).color
+
     val disabledTextResolved = text.copy(alpha = 0.38f)
 
-    val secondaryColor = parseComposeColor(
-        resolvedTheme.colors.secondary,
-        if (resolvedTheme.isDark) Color(0xFFA58BEA) else Color(0xFF6366F1)
-    )
-    val tertiaryColor = parseComposeColor(
-        resolvedTheme.colors.tertiary,
-        if (resolvedTheme.isDark) Color(0xFF63D5D0) else Color(0xFF0D9488)
-    )
+    val secondaryColor = ContrastResolver.resolveContrast(
+        background = surface,
+        preferredForeground = parseComposeColor(
+            resolvedTheme.colors.secondary,
+            if (resolvedTheme.isDark) Color(0xFFA58BEA) else Color(0xFF6366F1)
+        ),
+        minRatio = 3.0,
+        role = ContrastResolver.ContrastRole.UI_CONTROL
+    ).color
+
+    val tertiaryColor = ContrastResolver.resolveContrast(
+        background = surface,
+        preferredForeground = parseComposeColor(
+            resolvedTheme.colors.tertiary,
+            if (resolvedTheme.isDark) Color(0xFF63D5D0) else Color(0xFF0D9488)
+        ),
+        minRatio = 3.0,
+        role = ContrastResolver.ContrastRole.UI_CONTROL
+    ).color
 
     val successResolved = parseComposeColor(
         resolvedTheme.colors.success,
@@ -2703,6 +2752,10 @@ fun ScribeComposeTheme(
 
     val animPrimary by animateColorAsState(rawColorScheme.primary, animSpec, label = "primary")
     val animOnPrimary by animateColorAsState(rawColorScheme.onPrimary, animSpec, label = "onPrimary")
+    val animSecondary by animateColorAsState(rawColorScheme.secondary, animSpec, label = "secondary")
+    val animOnSecondary by animateColorAsState(rawColorScheme.onSecondary, animSpec, label = "onSecondary")
+    val animTertiary by animateColorAsState(rawColorScheme.tertiary, animSpec, label = "tertiary")
+    val animOnTertiary by animateColorAsState(rawColorScheme.onTertiary, animSpec, label = "onTertiary")
     val animBg by animateColorAsState(rawColorScheme.background, animSpec, label = "bg")
     val animOnBg by animateColorAsState(rawColorScheme.onBackground, animSpec, label = "onBg")
     val animSurfaceLowest by animateColorAsState(rawColorScheme.surfaceContainerLowest, animSpec, label = "surfaceLowest")
@@ -2736,12 +2789,12 @@ fun ScribeComposeTheme(
         onPrimary = animOnPrimary,
         primaryContainer = accentMutedResolved,
         onPrimaryContainer = onPrimaryContainerColor,
-        secondary = secondaryColor,
-        onSecondary = animOnPrimary,
+        secondary = animSecondary,
+        onSecondary = animOnSecondary,
         secondaryContainer = glassySurfaceVariant,
         onSecondaryContainer = animOnSurface,
-        tertiary = tertiaryColor,
-        onTertiary = animOnPrimary,
+        tertiary = animTertiary,
+        onTertiary = animOnTertiary,
         tertiaryContainer = glassySurfaceVariant,
         onTertiaryContainer = animOnSurface,
         background = glassyBg,
@@ -2923,9 +2976,28 @@ fun ScribeComposeTheme(
     var rootDimensions by remember { mutableStateOf(Pair(screenWidthPx, screenHeightPx)) }
     val menuHostState = remember { InWindowMenuHostState() }
 
-    val dialogueResolved = parseComposeColor(resolvedTheme.colors.dialogueText, accentIcons)
-    val monologueResolved = parseComposeColor(resolvedTheme.colors.monologueText, text)
-    val headingResolved = parseComposeColor(resolvedTheme.colors.headingText, accentIcons)
+    val rawDialogue = parseComposeColor(resolvedTheme.colors.dialogueText, accentIcons)
+    val rawMonologue = parseComposeColor(resolvedTheme.colors.monologueText, text)
+    val rawHeading = parseComposeColor(resolvedTheme.colors.headingText, accentIcons)
+
+    val dialogueResolved = ContrastResolver.resolveContrast(
+        background = bg,
+        preferredForeground = rawDialogue,
+        minRatio = 4.5,
+        role = ContrastResolver.ContrastRole.NORMAL_TEXT
+    ).color
+    val monologueResolved = ContrastResolver.resolveContrast(
+        background = bg,
+        preferredForeground = rawMonologue,
+        minRatio = 4.5,
+        role = ContrastResolver.ContrastRole.NORMAL_TEXT
+    ).color
+    val headingResolved = ContrastResolver.resolveContrast(
+        background = bg,
+        preferredForeground = rawHeading,
+        minRatio = 3.5,
+        role = ContrastResolver.ContrastRole.LARGE_TEXT
+    ).color
     val annotationResolved = parseComposeColor(
         resolvedTheme.colors.annotation,
         if (resolvedTheme.isDark) Color(0xFFC084FC) else Color(0xFF7E22CE)

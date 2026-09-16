@@ -379,14 +379,14 @@ object ThemeGenerationEngine {
         val bgHex = String.format("#%06X", 0xFFFFFF and bgInt)
 
         // 2. Derive Accent (preserving seed hue and vibrant chroma, tuned for UI control visibility)
-        val accentTargetL = if (isDark) 0.72 else 0.45
+        val accentTargetL = if (isDark) 0.72 else 0.40
         val accentTargetC = maxOf(chroma, 0.12).coerceIn(0.08, 0.22)
         val accentOklch = ContrastResolver.Oklch(l = accentTargetL, c = accentTargetC, h = hue)
         val candidateAccentInt = ContrastResolver.oklchToColorInt(accentOklch)
         val resolvedAccent = ContrastResolver.resolveContrast(
             background = androidx.compose.ui.graphics.Color(bgInt),
             preferredForeground = androidx.compose.ui.graphics.Color(candidateAccentInt),
-            minRatio = 3.0,
+            minRatio = 3.2,
             role = ContrastResolver.ContrastRole.UI_CONTROL
         )
         val accentHex = String.format("#%06X", 0xFFFFFF and resolvedAccent.color.toArgb())
@@ -408,23 +408,23 @@ object ThemeGenerationEngine {
 
         // 4. Derive Harmonized Secondary & Tertiary Accents
         val secHue = (hue + 32.0) % 360.0
-        val secOklch = ContrastResolver.Oklch(l = if (isDark) 0.74 else 0.44, c = (chroma * 0.85).coerceIn(0.06, 0.20), h = secHue)
+        val secOklch = ContrastResolver.Oklch(l = if (isDark) 0.74 else 0.40, c = (chroma * 0.85).coerceIn(0.06, 0.20), h = secHue)
         val secInt = ContrastResolver.oklchToColorInt(secOklch)
         val resolvedSec = ContrastResolver.resolveContrast(
             background = androidx.compose.ui.graphics.Color(bgInt),
             preferredForeground = androidx.compose.ui.graphics.Color(secInt),
-            minRatio = 3.0,
+            minRatio = 3.2,
             role = ContrastResolver.ContrastRole.UI_CONTROL
         )
         val secHex = String.format("#%06X", 0xFFFFFF and resolvedSec.color.toArgb())
 
         val tertHue = (hue - 28.0 + 360.0) % 360.0
-        val tertOklch = ContrastResolver.Oklch(l = if (isDark) 0.76 else 0.46, c = (chroma * 0.75).coerceIn(0.05, 0.18), h = tertHue)
+        val tertOklch = ContrastResolver.Oklch(l = if (isDark) 0.76 else 0.42, c = (chroma * 0.75).coerceIn(0.05, 0.18), h = tertHue)
         val tertInt = ContrastResolver.oklchToColorInt(tertOklch)
         val resolvedTert = ContrastResolver.resolveContrast(
             background = androidx.compose.ui.graphics.Color(bgInt),
             preferredForeground = androidx.compose.ui.graphics.Color(tertInt),
-            minRatio = 3.0,
+            minRatio = 3.2,
             role = ContrastResolver.ContrastRole.UI_CONTROL
         )
         val tertHex = String.format("#%06X", 0xFFFFFF and resolvedTert.color.toArgb())
@@ -1191,15 +1191,15 @@ object ThemeGenerationEngine {
 
         // 6. VISUAL PRIMARY ACCENT - Primary action / FAB / active triggers
         val (accentL, accentC) = when (recipe) {
-            ThemeGenerationRecipe.BALANCED -> Pair(if (effectiveIsDark) 0.72 else 0.45, (primaryChroma * accentScale).coerceIn(0.09, 0.23))
-            ThemeGenerationRecipe.ATMOSPHERIC -> Pair(if (effectiveIsDark) 0.74 else 0.43, (primaryChroma * 1.15 * accentScale).coerceIn(0.10, 0.25))
-            ThemeGenerationRecipe.INK -> Pair(if (effectiveIsDark) 0.70 else 0.46, (primaryChroma * 0.90 * accentScale).coerceIn(0.07, 0.20))
-            ThemeGenerationRecipe.EXPRESSIVE -> Pair(if (effectiveIsDark) 0.76 else 0.42, (primaryChroma * 1.35 * accentScale).coerceIn(0.14, 0.28))
+            ThemeGenerationRecipe.BALANCED -> Pair(if (effectiveIsDark) 0.72 else 0.40, (primaryChroma * accentScale).coerceIn(0.09, 0.23))
+            ThemeGenerationRecipe.ATMOSPHERIC -> Pair(if (effectiveIsDark) 0.74 else 0.38, (primaryChroma * 1.15 * accentScale).coerceIn(0.10, 0.25))
+            ThemeGenerationRecipe.INK -> Pair(if (effectiveIsDark) 0.70 else 0.40, (primaryChroma * 0.90 * accentScale).coerceIn(0.07, 0.20))
+            ThemeGenerationRecipe.EXPRESSIVE -> Pair(if (effectiveIsDark) 0.76 else 0.36, (primaryChroma * 1.35 * accentScale).coerceIn(0.14, 0.28))
         }
         val resolvedPrimaryAccent = ContrastResolver.resolveContrast(
             background = Color(canvasInt),
             preferredForeground = Color(ContrastResolver.oklchToColorInt(ContrastResolver.Oklch(accentL, accentC, primaryHue))),
-            minRatio = 3.0,
+            minRatio = 3.2,
             role = ContrastResolver.ContrastRole.UI_CONTROL
         )
         val primaryAccentHex = String.format("#%06X", 0xFFFFFF and resolvedPrimaryAccent.color.toArgb())
@@ -1227,8 +1227,8 @@ object ThemeGenerationEngine {
         }
         val resolvedSecondaryAccent = ContrastResolver.resolveContrast(
             background = Color(canvasInt),
-            preferredForeground = Color(ContrastResolver.oklchToColorInt(ContrastResolver.Oklch(if (effectiveIsDark) 0.74 else 0.44, secAccentC, secAccentHue))),
-            minRatio = 3.0,
+            preferredForeground = Color(ContrastResolver.oklchToColorInt(ContrastResolver.Oklch(if (effectiveIsDark) 0.74 else 0.40, secAccentC, secAccentHue))),
+            minRatio = 3.2,
             role = ContrastResolver.ContrastRole.UI_CONTROL
         )
         val secondaryAccentHex = String.format("#%06X", 0xFFFFFF and resolvedSecondaryAccent.color.toArgb())
@@ -1246,8 +1246,8 @@ object ThemeGenerationEngine {
         }
         val resolvedTertiaryAccent = ContrastResolver.resolveContrast(
             background = Color(canvasInt),
-            preferredForeground = Color(ContrastResolver.oklchToColorInt(ContrastResolver.Oklch(if (effectiveIsDark) 0.76 else 0.46, tertAccentC, tertAccentHue))),
-            minRatio = 3.0,
+            preferredForeground = Color(ContrastResolver.oklchToColorInt(ContrastResolver.Oklch(if (effectiveIsDark) 0.76 else 0.42, tertAccentC, tertAccentHue))),
+            minRatio = 3.2,
             role = ContrastResolver.ContrastRole.UI_CONTROL
         )
         val tertiaryAccentHex = String.format("#%06X", 0xFFFFFF and resolvedTertiaryAccent.color.toArgb())

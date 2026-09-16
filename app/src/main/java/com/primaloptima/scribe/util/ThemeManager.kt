@@ -725,13 +725,15 @@ class ThemeManager(private val context: Context) {
                     }
                 }
 
-                // Content & Typography Hierarchy (calculated relative to text luminance)
-                val mutedText = oklchToHex(Oklch((textOklch.l - 0.28).coerceIn(0.35, 0.85), (textOklch.c * 0.70).coerceAtLeast(0.0), textOklch.h))
-                val subtleText = oklchToHex(Oklch((textOklch.l - 0.45).coerceIn(0.25, 0.70), (textOklch.c * 0.50).coerceAtLeast(0.0), textOklch.h))
+                // Content & Typography Hierarchy (calculated relative to text luminance with strict legibility floor)
+                val mutedTargetL = (textOklch.l - 0.20).coerceIn(0.70, 0.84)
+                val subtleTargetL = (textOklch.l - 0.34).coerceIn(0.56, 0.70)
+                val mutedText = oklchToHex(Oklch(mutedTargetL, (textOklch.c * 0.70).coerceAtLeast(0.0), textOklch.h))
+                val subtleText = oklchToHex(Oklch(subtleTargetL, (textOklch.c * 0.50).coerceAtLeast(0.0), textOklch.h))
 
                 // Interactive & Secondary Harmonics (derived from multi-source palette or in OKLCH space from accent)
-                val secondaryDefault = visualPalette?.visualSecondaryAccent ?: secondaryHex ?: oklchToHex(Oklch((accentOklch.l - 0.04).coerceIn(0.30, 0.85), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.15 else 0.85)).coerceAtLeast(0.0), (accentOklch.h + 20.0) % 360.0))
-                val tertiaryDefault = visualPalette?.visualTertiaryAccent ?: tertiaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.06).coerceIn(0.40, 0.90), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.05 else 0.75)).coerceAtLeast(0.0), (accentOklch.h - 30.0 + 360.0) % 360.0))
+                val secondaryDefault = visualPalette?.visualSecondaryAccent ?: secondaryHex ?: oklchToHex(Oklch((accentOklch.l - 0.04).coerceIn(0.65, 0.88), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.15 else 0.85)).coerceAtLeast(0.0), (accentOklch.h + 20.0) % 360.0))
+                val tertiaryDefault = visualPalette?.visualTertiaryAccent ?: tertiaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.06).coerceIn(0.65, 0.90), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.05 else 0.75)).coerceAtLeast(0.0), (accentOklch.h - 30.0 + 360.0) % 360.0))
 
                 // Perceptually tuned Semantic Feedback Roles (APCA readable on dark surfaces)
                 val successDefault = createOklchColor(0.76, 0.15, 142.0)
@@ -924,13 +926,15 @@ class ThemeManager(private val context: Context) {
                     }
                 }
 
-                // Content & Typography Hierarchy (increasing lightness in OKLCH with reduced chroma)
-                val mutedText = oklchToHex(Oklch((textOklch.l + 0.28).coerceIn(0.20, 0.75), (textOklch.c * 0.65).coerceAtLeast(0.0), textOklch.h))
-                val subtleText = oklchToHex(Oklch((textOklch.l + 0.44).coerceIn(0.30, 0.85), (textOklch.c * 0.50).coerceAtLeast(0.0), textOklch.h))
+                // Content & Typography Hierarchy (increasing lightness in OKLCH with guaranteed contrast ceiling)
+                val mutedTargetL = (textOklch.l + 0.22).coerceIn(0.30, 0.44)
+                val subtleTargetL = (textOklch.l + 0.35).coerceIn(0.44, 0.56)
+                val mutedText = oklchToHex(Oklch(mutedTargetL, (textOklch.c * 0.65).coerceAtLeast(0.0), textOklch.h))
+                val subtleText = oklchToHex(Oklch(subtleTargetL, (textOklch.c * 0.50).coerceAtLeast(0.0), textOklch.h))
 
                 // Interactive & Secondary Harmonics (derived from multi-source palette or in OKLCH space from accent)
-                val secondaryDefault = visualPalette?.visualSecondaryAccent ?: secondaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.08).coerceIn(0.20, 0.75), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.15 else 0.85)).coerceAtLeast(0.0), (accentOklch.h + 15.0) % 360.0))
-                val tertiaryDefault = visualPalette?.visualTertiaryAccent ?: tertiaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.14).coerceIn(0.25, 0.80), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.05 else 0.75)).coerceAtLeast(0.0), (accentOklch.h - 25.0 + 360.0) % 360.0))
+                val secondaryDefault = visualPalette?.visualSecondaryAccent ?: secondaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.08).coerceIn(0.25, 0.48), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.15 else 0.85)).coerceAtLeast(0.0), (accentOklch.h + 15.0) % 360.0))
+                val tertiaryDefault = visualPalette?.visualTertiaryAccent ?: tertiaryHex ?: oklchToHex(Oklch((accentOklch.l + 0.14).coerceIn(0.25, 0.50), (accentOklch.c * (if (recipe == ThemeGenerationRecipe.EXPRESSIVE) 1.05 else 0.75)).coerceAtLeast(0.0), (accentOklch.h - 25.0 + 360.0) % 360.0))
 
                 // Perceptually tuned Semantic Feedback Roles (APCA readable on light surfaces)
                 val successDefault = createOklchColor(0.48, 0.16, 142.0)
@@ -1688,19 +1692,54 @@ class ThemeManager(private val context: Context) {
             val surfaceCol = ComposeColor(parseColor(derived.surface))
             val surfaceRaisedCol = ComposeColor(parseColor(derived.surfaceRaised))
             val surfaceOverlayCol = ComposeColor(parseColor(derived.surfaceOverlay))
-            val mutedCol = ComposeColor(parseColor(derived.mutedText))
-            val subtleCol = ComposeColor(parseColor(derived.subtleText))
+            val mutedCol = ContrastResolver.resolveContrast(
+                background = surfaceCol,
+                preferredForeground = ComposeColor(parseColor(derived.mutedText)),
+                minRatio = 3.5,
+                role = ContrastResolver.ContrastRole.SECONDARY_TEXT
+            ).color
+            val subtleCol = ContrastResolver.resolveContrast(
+                background = surfaceCol,
+                preferredForeground = ComposeColor(parseColor(derived.subtleText)),
+                minRatio = 3.0,
+                role = ContrastResolver.ContrastRole.SECONDARY_TEXT
+            ).color
             val borderSubtleCol = ComposeColor(parseColor(derived.borderSubtle))
             val normalBorderCol = ComposeColor(parseColor(derived.border))
             val focusBorderCol = ComposeColor(parseColor(derived.borderProminent))
             val focusInteractiveCol = if (derived.focus.isNotBlank()) ComposeColor(parseColor(derived.focus)) else focusBorderCol
             val selectionCol = if (derived.selection.isNotBlank()) ComposeColor(parseColor(derived.selection)) else accentCol.copy(alpha = 0.25f)
 
-            val dialogueCol = ComposeColor(parseColor(derived.dialogueText))
-            val monologueCol = ComposeColor(parseColor(derived.monologueText))
-            val headingCol = ComposeColor(parseColor(derived.headingText))
-            val secondaryCol = ComposeColor(parseColor(derived.secondary))
-            val tertiaryCol = ComposeColor(parseColor(derived.tertiary))
+            val dialogueCol = ContrastResolver.resolveContrast(
+                background = bgCol,
+                preferredForeground = ComposeColor(parseColor(derived.dialogueText)),
+                minRatio = 4.5,
+                role = ContrastResolver.ContrastRole.NORMAL_TEXT
+            ).color
+            val monologueCol = ContrastResolver.resolveContrast(
+                background = bgCol,
+                preferredForeground = ComposeColor(parseColor(derived.monologueText)),
+                minRatio = 4.5,
+                role = ContrastResolver.ContrastRole.NORMAL_TEXT
+            ).color
+            val headingCol = ContrastResolver.resolveContrast(
+                background = bgCol,
+                preferredForeground = ComposeColor(parseColor(derived.headingText)),
+                minRatio = 3.5,
+                role = ContrastResolver.ContrastRole.LARGE_TEXT
+            ).color
+            val secondaryCol = ContrastResolver.resolveContrast(
+                background = surfaceCol,
+                preferredForeground = ComposeColor(parseColor(derived.secondary)),
+                minRatio = 3.0,
+                role = ContrastResolver.ContrastRole.UI_CONTROL
+            ).color
+            val tertiaryCol = ContrastResolver.resolveContrast(
+                background = surfaceCol,
+                preferredForeground = ComposeColor(parseColor(derived.tertiary)),
+                minRatio = 3.0,
+                role = ContrastResolver.ContrastRole.UI_CONTROL
+            ).color
             val annotationCol = if (derived.annotation.isNotBlank()) ComposeColor(parseColor(derived.annotation)) else (if (isDark) ComposeColor(0xFFC084FC) else ComposeColor(0xFF7E22CE))
             val infoCol = if (derived.info.isNotBlank()) ComposeColor(parseColor(derived.info)) else (if (isDark) ComposeColor(0xFF38BDF8) else ComposeColor(0xFF0284C7))
             val linkCol = if (derived.link.isNotBlank()) ComposeColor(parseColor(derived.link)) else accentCol
