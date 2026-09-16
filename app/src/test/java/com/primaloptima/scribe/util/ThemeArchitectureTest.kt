@@ -2710,7 +2710,99 @@ class ThemeArchitectureTest {
         val vp = palette.visualPalette!!
 
         val editorOklch = ContrastResolver.hexToOklch(vp.visualEditorSurface)
-        // Writing sanctuary rule: Chroma must be dampened (C <= 0.05) for comfortable reading
-        assertTrue("Writing sheet chroma must be dampened (C <= 0.05), actual: ${editorOklch.c}", editorOklch.c <= 0.05)
+        // Writing sanctuary rule: Chroma must be dampened (C <= 0.040) for comfortable reading
+        assertTrue("Writing sheet chroma must be dampened (C <= 0.040), actual: ${editorOklch.c}", editorOklch.c <= 0.040)
+    }
+
+    @Test
+    fun testMonotonicLuminanceCoherence_enforcedInAllModes() {
+        val candidates = listOf("#1E3A8A", "#D97706", "#059669", "#DC2626")
+        val understanding = ThemeGenerationEngine.analyzeArtworkPalette(candidates)
+
+        for (recipe in ThemeGenerationRecipe.values()) {
+            for (canvasMode in com.primaloptima.scribe.util.model.ThemeCanvasMode.values()) {
+                val palette = ThemeGenerationEngine.generateSourcePalette(
+                    understanding = understanding,
+                    recipe = recipe,
+                    candidateColor = candidates[0],
+                    isDark = canvasMode == com.primaloptima.scribe.util.model.ThemeCanvasMode.DARK,
+                    canvasMode = canvasMode,
+                    influence = ImageInfluence.BALANCED,
+                    writingCharacter = WritingCharacter.NEUTRAL
+                )
+                val vp = palette.visualPalette!!
+                val canvasL = ContrastResolver.hexToOklch(vp.visualCanvas).l
+                val editorL = ContrastResolver.hexToOklch(vp.visualEditorSurface).l
+                val cardL = ContrastResolver.hexToOklch(vp.visualElevatedSurface).l
+                val chromeL = ContrastResolver.hexToOklch(vp.visualChrome).l
+
+                if (palette.isDark) {
+                    assertTrue("Dark mode canvas L <= 0.45", canvasL <= 0.45)
+                    assertTrue("Dark mode editor L <= 0.45", editorL <= 0.45)
+                    assertTrue("Dark mode card L <= 0.45", cardL <= 0.45)
+                    assertTrue("Dark mode chrome L <= 0.45", chromeL <= 0.45)
+                } else {
+                    assertTrue("Light mode canvas L >= 0.70", canvasL >= 0.70)
+                    assertTrue("Light mode editor L >= 0.70", editorL >= 0.70)
+                    assertTrue("Light mode card L >= 0.70", cardL >= 0.70)
+                    assertTrue("Light mode chrome L >= 0.70", chromeL >= 0.70)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun testSubtleInfluence_collapsesSurfaceHuesToDominantAtmosphere() {
+        val candidates = listOf("#2563EB", "#D97706", "#10B981")
+        val understanding = ThemeGenerationEngine.analyzeArtworkPalette(candidates)
+
+        val palette = ThemeGenerationEngine.generateSourcePalette(
+            understanding = understanding,
+            recipe = ThemeGenerationRecipe.BALANCED,
+            candidateColor = candidates[0],
+            isDark = true,
+            canvasMode = com.primaloptima.scribe.util.model.ThemeCanvasMode.DARK,
+            influence = ImageInfluence.SUBTLE,
+            writingCharacter = WritingCharacter.NEUTRAL
+        )
+        val vp = palette.visualPalette!!
+        val canvasH = ContrastResolver.hexToOklch(vp.visualCanvas).h
+        val chromeH = ContrastResolver.hexToOklch(vp.visualChrome).h
+        val cardH = ContrastResolver.hexToOklch(vp.visualElevatedSurface).h
+
+        assertEquals("Subtle influence must align chrome hue with atmospheric canvas", canvasH, chromeH, 1.0)
+        assertEquals("Subtle influence must align card hue with atmospheric canvas", canvasH, cardH, 1.0)
+    }
+
+    @Test
+    fun testArchivalMonolith_forGrayscaleArtwork() {
+        val grayscaleCandidates = listOf("#333333", "#777777", "#CCCCCC")
+        val understanding = ThemeGenerationEngine.analyzeArtworkPalette(grayscaleCandidates)
+
+        val darkPalette = ThemeGenerationEngine.generateSourcePalette(
+            understanding = understanding,
+            recipe = ThemeGenerationRecipe.BALANCED,
+            candidateColor = grayscaleCandidates[0],
+            isDark = true,
+            canvasMode = com.primaloptima.scribe.util.model.ThemeCanvasMode.DARK,
+            influence = ImageInfluence.BALANCED,
+            writingCharacter = WritingCharacter.NEUTRAL
+        )
+        val darkVp = darkPalette.visualPalette!!
+        val darkCanvasOklch = ContrastResolver.hexToOklch(darkVp.visualCanvas)
+        assertTrue("Grayscale dark canvas should have low chroma", darkCanvasOklch.c <= 0.02)
+
+        val lightPalette = ThemeGenerationEngine.generateSourcePalette(
+            understanding = understanding,
+            recipe = ThemeGenerationRecipe.BALANCED,
+            candidateColor = grayscaleCandidates[0],
+            isDark = false,
+            canvasMode = com.primaloptima.scribe.util.model.ThemeCanvasMode.LIGHT,
+            influence = ImageInfluence.BALANCED,
+            writingCharacter = WritingCharacter.NEUTRAL
+        )
+        val lightVp = lightPalette.visualPalette!!
+        val lightCanvasOklch = ContrastResolver.hexToOklch(lightVp.visualCanvas)
+        assertTrue("Grayscale light canvas should have low chroma (ivory parchment)", lightCanvasOklch.c <= 0.02)
     }
 }
