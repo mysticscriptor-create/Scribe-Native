@@ -324,6 +324,10 @@ class ScribeActivity : ComponentActivity() {
                                 if (backStack.lastOrNull() !is Route.Guide)
                                     backStack.add(Route.Guide)
                             },
+                            onOpenThemes    = {
+                                if (backStack.lastOrNull() !is Route.ThemeList)
+                                    backStack.add(Route.ThemeList)
+                            },
                             onOpenSettings  = {
                                 if (backStack.lastOrNull() !is Route.Settings)
                                     backStack.add(Route.Settings)

@@ -90,6 +90,16 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var headerHeight: Int = 0
         private set
 
+    var horizontalPaddingDp: Float = 28f
+        set(value) {
+            val clamped = value.coerceIn(8f, 72f)
+            if (field != clamped) {
+                field = clamped
+                requestLayout()
+                invalidate()
+            }
+        }
+
     var scrollD: Int = 0
         private set
 
@@ -233,10 +243,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             scrollDFloat = headerHeight.toFloat()
         }
 
-        val padPx = (28f * context.resources.displayMetrics.density).roundToInt()
+        val padPx = (horizontalPaddingDp * context.resources.displayMetrics.density).roundToInt()
         val contentWidth = (width - 2 * padPx).coerceAtLeast(0)
 
-        // Measure CodeEditor with symmetric 28dp margins to fill the viewport height
+        // Measure CodeEditor with symmetric margins to fill the viewport height
         editor.measure(
             MeasureSpec.makeMeasureSpec(contentWidth, MeasureSpec.EXACTLY),
             MeasureSpec.makeMeasureSpec(viewportHeight, MeasureSpec.EXACTLY)
@@ -248,7 +258,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
         val width = r - l
         val viewportHeight = b - t
-        val padPx = (28f * context.resources.displayMetrics.density).roundToInt()
+        val padPx = (horizontalPaddingDp * context.resources.displayMetrics.density).roundToInt()
         val contentWidth = (width - 2 * padPx).coerceAtLeast(0)
 
         headerView.layout(0, 0, width, headerHeight)

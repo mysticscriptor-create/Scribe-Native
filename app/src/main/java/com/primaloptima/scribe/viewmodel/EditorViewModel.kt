@@ -476,6 +476,29 @@ class EditorViewModel(
     private val _theme = MutableStateFlow<AppTheme?>(null)
     val theme: StateFlow<AppTheme?> = _theme.asStateFlow()
 
+    fun updateActiveTheme(transform: (AppTheme) -> AppTheme) {
+        val current = _theme.value ?: return
+        val updated = if (current.builtIn) {
+            val copy = current.copy(
+                id = "custom_${System.currentTimeMillis()}",
+                name = "${current.name} (Custom)",
+                builtIn = false,
+                schemaVersion = com.primaloptima.scribe.util.model.ThemeSchema.CURRENT_VERSION
+            )
+            transform(copy)
+        } else {
+            transform(current)
+        }
+        themeManager.saveCustomTheme(updated)
+        themeManager.setActiveTheme(updated.id)
+        _theme.value = updated
+        viewModelScope.launch {
+            dataStore.setActiveThemeId(updated.id)
+            dataStore.setCustomThemesJson(AppJson.encodeAppThemes(themeManager.allCustomThemes()))
+            dataStore.setEditorFontSize(updated.fontSize)
+        }
+    }
+
     // ── Word count ────────────────────────────────────────────────────────────
 
     private val _wordCount = MutableStateFlow(0)

@@ -156,6 +156,8 @@ import io.github.rosemoe.sora.lang.diagnostic.DiagnosticsContainer
 import io.github.rosemoe.sora.lang.styling.inlayHint.InlayHintsContainer
 import com.primaloptima.scribe.util.ScribeProseLanguage
 import com.primaloptima.scribe.util.ThemeManager
+import com.primaloptima.scribe.util.FontHelper
+import io.github.rosemoe.sora.event.TextSizeChangeEvent
 
 
 @OptIn(
@@ -175,6 +177,7 @@ fun MainEditorScreen(
     onOpenHistory: () -> Unit,
     onOpenShortcuts: () -> Unit,
     onOpenGuide: () -> Unit,
+    onOpenThemes: () -> Unit = {},
     onOpenSettings: () -> Unit,
     onOpenSheets: () -> Unit
 ) {
@@ -629,6 +632,15 @@ fun MainEditorScreen(
                                     isLineNumberEnabled    = false
                                     isHighlightCurrentLine = false
                                     isWordwrap             = true
+                                    isScalable             = true
+                                    val density = ctx.resources.displayMetrics.density
+                                    setScaleTextSizes(12f * density, 36f * density)
+                                    subscribeEvent(TextSizeChangeEvent::class.java) { event, _ ->
+                                        val newSp = (event.newTextSize / density).roundToInt().coerceIn(12, 36)
+                                        if (newSp != (activeTheme?.fontSize ?: 18)) {
+                                            editorVm.updateActiveTheme { it.copy(fontSize = newSp) }
+                                        }
+                                    }
                                     registerInlayHintRenderer(
                                         io.github.rosemoe.sora.graphics.inlayHint.TextInlayHintRenderer()
                                     )
@@ -695,6 +707,7 @@ fun MainEditorScreen(
                             }
                         },
                         update = { layout ->
+                            layout.horizontalPaddingDp = (activeTheme?.paddingHorizontal ?: 28).toFloat()
                             val editor = layout.editor
                             editor.setTextSize(editorTextSizeSp)
                             editorTypeface?.let { editor.typefaceText = it }
@@ -733,6 +746,10 @@ fun MainEditorScreen(
                                         secondaryTitleText = secondaryTitleText,
                                         selectedOrnamentId = selectedOrnamentId,
                                         showSecondaryTitle = showSecondaryTitle,
+                                        titleAlignment = activeTheme?.titleAlignment ?: "center",
+                                        horizontalPadding = (activeTheme?.paddingHorizontal ?: 28).dp,
+                                        primaryTitleColor = activeTheme?.overrides?.firstTitle?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() },
+                                        secondaryTitleColor = activeTheme?.overrides?.secondTitle?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() },
                                         onPrimaryTitleChange = { sanitized ->
                                             primaryTitleText = sanitized
                                             persistDualTitle(sanitized, secondaryTitleText)
@@ -1009,6 +1026,8 @@ fun MainEditorScreen(
         if (showEditorTray) {
             EditorOptionsBottomSheet(
                 noteTitle        = activeNote?.name ?: "Untitled Note",
+                activeTheme      = activeTheme,
+                onUpdateTheme    = { transform -> editorVm.updateActiveTheme(transform) },
                 onDismiss        = { showEditorTray = false },
                 onEnterZen       = {
                     showEditorTray = false
@@ -1034,6 +1053,10 @@ fun MainEditorScreen(
                 onGuide          = {
                     showEditorTray = false
                     onOpenGuide()
+                },
+                onOpenThemes     = {
+                    showEditorTray = false
+                    onOpenThemes()
                 },
                 onSettings       = {
                     showEditorTray = false
@@ -1128,6 +1151,8 @@ private fun FloatingPillButton(
 @Composable
 private fun EditorOptionsBottomSheet(
     noteTitle        : String,
+    activeTheme      : com.primaloptima.scribe.util.model.AppTheme?,
+    onUpdateTheme    : ((com.primaloptima.scribe.util.model.AppTheme) -> com.primaloptima.scribe.util.model.AppTheme) -> Unit,
     onDismiss        : () -> Unit,
     onEnterZen       : () -> Unit,
     onOpenFloating   : () -> Unit,
@@ -1135,8 +1160,11 @@ private fun EditorOptionsBottomSheet(
     onVersionHistory : () -> Unit,
     onShortcuts      : () -> Unit,
     onGuide          : () -> Unit,
+    onOpenThemes     : () -> Unit,
     onSettings       : () -> Unit,
 ) {
+    var showExportOptions by remember { mutableStateOf(false) }
+
     FrostedBottomSheet(
         onDismissRequest = onDismiss
     ) {
@@ -1144,13 +1172,14 @@ private fun EditorOptionsBottomSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 20.dp, vertical = 6.dp)
         ) {
             // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 14.dp),
+                    .padding(bottom = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -1179,6 +1208,109 @@ private fun EditorOptionsBottomSheet(
                 }
             }
 
+            // Quick 4-Item Grid (History, Shortcuts, Guide, Export)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf(
+                    Triple("History", Icons.Default.History) { onVersionHistory() },
+                    Triple("Shortcuts", Icons.Default.Keyboard) { onShortcuts() },
+                    Triple("Guide", Icons.AutoMirrored.Filled.Help) { onGuide() },
+                    Triple("Export", Icons.Default.Share) { showExportOptions = !showExportOptions }
+                ).forEach { (label, icon, action) ->
+                    Surface(
+                        onClick = action,
+                        shape = ScribeTheme.shapes.button,
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(vertical = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = icon,
+                                contentDescription = null,
+                                tint = ScribeTheme.colors.interaction.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                text = label,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Collapsible Export Options Section
+            AnimatedVisibility(
+                visible = showExportOptions,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
+                    Text(
+                        text = "CHOOSE EXPORT FORMAT",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = ScribeTheme.colors.content.secondary,
+                        letterSpacing = 0.5.sp,
+                        modifier = Modifier.padding(start = 2.dp, top = 2.dp, bottom = 6.dp)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            "TXT" to "txt",
+                            "Markdown" to "md",
+                            "HTML" to "html",
+                            "PDF" to "pdf"
+                        ).forEach { (label, format) ->
+                            Surface(
+                                onClick = { onExport(format) },
+                                shape = ScribeTheme.shapes.button,
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = when (format) {
+                                            "txt" -> Icons.Default.Description
+                                            "md" -> Icons.Default.Code
+                                            "html" -> Icons.Default.Language
+                                            else -> Icons.Default.PictureAsPdf
+                                        },
+                                        contentDescription = null,
+                                        tint = ScribeTheme.colors.interaction.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.height(2.dp))
+                                    Text(
+                                        text = label,
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Quick Mode Actions (Zen Mode & Floating Reference)
             Row(
                 modifier = Modifier
@@ -1202,57 +1334,238 @@ private fun EditorOptionsBottomSheet(
                 )
             }
 
-            // Export Options Section
-            Text(
-                text = "EXPORT NOTE",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = ScribeTheme.colors.content.secondary,
-                letterSpacing = 0.5.sp,
-                modifier = Modifier.padding(start = 2.dp, top = 4.dp, bottom = 8.dp)
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                modifier = Modifier.padding(vertical = 4.dp)
             )
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(
-                    "TXT" to "txt",
-                    "Markdown" to "md",
-                    "HTML" to "html",
-                    "PDF" to "pdf"
-                ).forEach { (label, format) ->
-                    Surface(
-                        onClick = { onExport(format) },
-                        shape = ScribeTheme.shapes.button,
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f),
-                        modifier = Modifier.weight(1f)
+            // ── TEXT & TYPOGRAPHY SECTION ───────────────────────────────────────────
+            activeTheme?.let { theme ->
+                Text(
+                    text = "TEXT & TYPOGRAPHY",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = ScribeTheme.colors.content.secondary,
+                    letterSpacing = 0.5.sp,
+                    modifier = Modifier.padding(start = 2.dp, top = 8.dp, bottom = 8.dp)
+                )
+
+                Surface(
+                    shape = ScribeTheme.shapes.cardSmall,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Column(
-                            modifier = Modifier.padding(vertical = 10.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = when (format) {
-                                    "txt" -> Icons.Default.Description
-                                    "md" -> Icons.Default.Code
-                                    "html" -> Icons.Default.Language
-                                    else -> Icons.Default.PictureAsPdf
-                                },
-                                contentDescription = null,
-                                tint = ScribeTheme.colors.interaction.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.height(4.dp))
+                        // Font Family Chips
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(
-                                text = label,
-                                fontSize = 11.sp,
+                                text = "Font Family",
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                FontHelper.fontOptions.forEach { opt ->
+                                    val isSelected = theme.fontFamily.equals(opt.key, ignoreCase = true) ||
+                                            (opt.key == "default" && (theme.fontFamily.isEmpty() || theme.fontFamily == "default" || theme.fontFamily == "sans"))
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = { onUpdateTheme { it.copy(fontFamily = opt.key) } },
+                                        label = { Text(opt.name, fontSize = 12.sp) }
+                                    )
+                                }
+                            }
+                        }
+
+                        // Font Size Slider (12sp - 36sp)
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Font Size", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                Text("${theme.fontSize} sp", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                            }
+                            Slider(
+                                value = theme.fontSize.toFloat(),
+                                onValueChange = { newSize ->
+                                    onUpdateTheme { it.copy(fontSize = newSize.roundToInt()) }
+                                },
+                                valueRange = 12f..36f,
+                                steps = 23
+                            )
+                        }
+
+                        // Line Spacing Slider (1.0f - 2.4f)
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Line Spacing", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                Text(String.format("%.2f", theme.lineHeight), fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                            }
+                            Slider(
+                                value = theme.lineHeight.coerceIn(1.0f, 2.4f),
+                                onValueChange = { newLineHeight ->
+                                    onUpdateTheme { it.copy(lineHeight = (newLineHeight * 20).roundToInt() / 20f) }
+                                },
+                                valueRange = 1.0f..2.4f
+                            )
+                        }
+
+                        // Side Margins / Horizontal Padding Slider (8dp - 72dp)
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Side Margins", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                Text("${theme.paddingHorizontal} dp", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                            }
+                            Slider(
+                                value = theme.paddingHorizontal.toFloat().coerceIn(8f, 72f),
+                                onValueChange = { newPadding ->
+                                    onUpdateTheme { it.copy(paddingHorizontal = newPadding.roundToInt()) }
+                                },
+                                valueRange = 8f..72f
+                            )
+                        }
+
+                        // Text Alignment
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Paragraph Alignment", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                listOf(
+                                    "left" to "Left",
+                                    "justified" to "Justified",
+                                    "center" to "Center"
+                                ).forEach { (key, label) ->
+                                    val isSelected = (theme.textAlign.ifEmpty { "left" }).equals(key, ignoreCase = true)
+                                    Surface(
+                                        onClick = { onUpdateTheme { it.copy(textAlign = key) } },
+                                        shape = ScribeTheme.shapes.button,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp,
+                                            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                        ),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier.padding(vertical = 8.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = label,
+                                                fontSize = 11.5.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Title Alignment
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Title Alignment", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                listOf(
+                                    "left" to "Left",
+                                    "center" to "Center",
+                                    "right" to "Right"
+                                ).forEach { (key, label) ->
+                                    val isSelected = (theme.titleAlignment.ifEmpty { "center" }).equals(key, ignoreCase = true)
+                                    Surface(
+                                        onClick = { onUpdateTheme { it.copy(titleAlignment = key) } },
+                                        shape = ScribeTheme.shapes.button,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp,
+                                            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                        ),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier.padding(vertical = 8.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = label,
+                                                fontSize = 11.5.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Indent Toggle with Centered Switch (no icon, centered toggle)
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(ScribeTheme.shapes.cardSmall)
+                                .clickable { onUpdateTheme { it.copy(firstLineIndent = !it.firstLineIndent) } },
+                            shape = ScribeTheme.shapes.cardSmall,
+                            color = MaterialTheme.colorScheme.surface,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Indent",
+                                            fontSize = 13.5.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            text = "Automatically indent first line of paragraphs",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                    Box(
+                                        modifier = Modifier.padding(start = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Switch(
+                                            checked = theme.firstLineIndent,
+                                            onCheckedChange = { isChecked ->
+                                                onUpdateTheme { it.copy(firstLineIndent = isChecked) }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1265,31 +1578,19 @@ private fun EditorOptionsBottomSheet(
 
             // Navigation & Preferences
             EditorTrayMenuItem(
-                title = "Version History",
-                subtitle = "Browse snapshots and restore edits",
-                icon = Icons.Default.History,
-                onClick = onVersionHistory
+                title = "Themes & Appearance",
+                subtitle = "Open full theme studio and customize palette",
+                icon = Icons.Default.Palette,
+                onClick = onOpenThemes
             )
             EditorTrayMenuItem(
-                title = "Keyboard Shortcuts",
-                subtitle = "Formatting keys and navigation helpers",
-                icon = Icons.Default.Keyboard,
-                onClick = onShortcuts
-            )
-            EditorTrayMenuItem(
-                title = "User Guide",
-                subtitle = "Quick manual and formatting tips",
-                icon = Icons.AutoMirrored.Filled.Help,
-                onClick = onGuide
-            )
-            EditorTrayMenuItem(
-                title = "Settings & Appearance",
-                subtitle = "Themes, fonts, and editor preferences",
+                title = "Settings & Preferences",
+                subtitle = "App backup, editor behavior, and configurations",
                 icon = Icons.Default.Settings,
                 onClick = onSettings
             )
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(14.dp))
         }
     }
 }
@@ -1572,6 +1873,10 @@ fun ManuscriptHeader(
     secondaryTitleText: String,
     selectedOrnamentId: String = "classic_flourish",
     showSecondaryTitle: Boolean = secondaryTitleText.isNotEmpty(),
+    titleAlignment: String = "center",
+    horizontalPadding: androidx.compose.ui.unit.Dp = 28.dp,
+    primaryTitleColor: Color? = null,
+    secondaryTitleColor: Color? = null,
     onPrimaryTitleChange: ((String) -> Unit)? = null,
     onSecondaryTitleChange: ((String) -> Unit)? = null,
     onOrnamentClick: (() -> Unit)? = null,
@@ -1582,6 +1887,25 @@ fun ManuscriptHeader(
     isEditable: Boolean = true,
     modifier: Modifier = Modifier
 ) {
+    val hAlign = when (titleAlignment) {
+        "left" -> Alignment.Start
+        "right" -> Alignment.End
+        else -> Alignment.CenterHorizontally
+    }
+    val tAlign = when (titleAlignment) {
+        "left" -> TextAlign.Start
+        "right" -> TextAlign.End
+        else -> TextAlign.Center
+    }
+    val boxContentAlign = when (titleAlignment) {
+        "left" -> Alignment.CenterStart
+        "right" -> Alignment.CenterEnd
+        else -> Alignment.Center
+    }
+
+    val primaryColor = primaryTitleColor ?: MaterialTheme.colorScheme.primary
+    val secondaryColor = secondaryTitleColor ?: MaterialTheme.colorScheme.onBackground
+
     if (isEditable) {
         val localPrimaryFocus = remember { FocusRequester() }
         val localSecondaryFocus = remember { FocusRequester() }
@@ -1593,10 +1917,10 @@ fun ManuscriptHeader(
         }
 
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
+            horizontalAlignment = hAlign,
             modifier = modifier
                 .fillMaxWidth()
-                .padding(start = 28.dp, top = 56.dp, end = 28.dp, bottom = 12.dp)
+                .padding(start = horizontalPadding, top = 56.dp, end = horizontalPadding, bottom = 12.dp)
         ) {
             // Primary Title / Kicker (e.g., CHAPTER I)
             BasicTextField(
@@ -1613,12 +1937,12 @@ fun ManuscriptHeader(
                 singleLine = false,
                 maxLines = 4,
                 textStyle = MaterialTheme.typography.titleMedium.copy(
-                    color = MaterialTheme.colorScheme.primary,
+                    color = primaryColor,
                     fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center,
+                    textAlign = tAlign,
                     letterSpacing = 2.5.sp
                 ),
-                cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                cursorBrush = SolidColor(primaryColor),
                 keyboardOptions = KeyboardOptions(
                     imeAction = ImeAction.Next,
                     capitalization = KeyboardCapitalization.Sentences
@@ -1638,7 +1962,7 @@ fun ManuscriptHeader(
                 decorationBox = { innerTextField ->
                     Box(
                         modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center
+                        contentAlignment = boxContentAlign
                     ) {
                         if (primaryTitleText.isEmpty()) {
                             Text(
@@ -1646,7 +1970,7 @@ fun ManuscriptHeader(
                                 style = MaterialTheme.typography.titleMedium.copy(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                                     fontWeight = FontWeight.SemiBold,
-                                    textAlign = TextAlign.Center,
+                                    textAlign = tAlign,
                                     letterSpacing = 2.5.sp
                                 )
                             )
@@ -1681,9 +2005,9 @@ fun ManuscriptHeader(
                     singleLine = false,
                     maxLines = 4,
                     textStyle = MaterialTheme.typography.headlineMedium.copy(
-                        color = MaterialTheme.colorScheme.onBackground,
+                        color = secondaryColor,
                         fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center
+                        textAlign = tAlign
                     ),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                     keyboardOptions = KeyboardOptions(
@@ -1709,7 +2033,7 @@ fun ManuscriptHeader(
                     decorationBox = { innerTextField ->
                         Box(
                             modifier = Modifier.fillMaxWidth(),
-                            contentAlignment = Alignment.Center
+                            contentAlignment = boxContentAlign
                         ) {
                             if (secondaryTitleText.isEmpty()) {
                                 Text(
@@ -1717,7 +2041,7 @@ fun ManuscriptHeader(
                                     style = MaterialTheme.typography.headlineMedium.copy(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
                                         fontWeight = FontWeight.Bold,
-                                        textAlign = TextAlign.Center
+                                        textAlign = tAlign
                                     )
                                 )
                             }
@@ -1739,10 +2063,10 @@ fun ManuscriptHeader(
                     .clip(ScribeTheme.shapes.button)
                     .clickable { onOrnamentClick?.invoke() }
                     .padding(vertical = 4.dp),
-                contentAlignment = Alignment.Center
+                contentAlignment = boxContentAlign
             ) {
                 currentOrnament.Render(
-                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                    tint = primaryColor.copy(alpha = 0.5f),
                     modifier = Modifier
                 )
             }
@@ -1750,21 +2074,21 @@ fun ManuscriptHeader(
     } else {
         // Pure display mode for live theme preview and non-editing views
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
+            horizontalAlignment = hAlign,
             modifier = modifier
                 .fillMaxWidth()
-                .padding(start = 16.dp, top = 24.dp, end = 16.dp, bottom = 8.dp)
+                .padding(start = horizontalPadding, top = 24.dp, end = horizontalPadding, bottom = 8.dp)
         ) {
             if (primaryTitleText.isNotEmpty()) {
                 Text(
                     text = primaryTitleText,
                     style = MaterialTheme.typography.titleMedium.copy(
-                        color = MaterialTheme.colorScheme.primary,
+                        color = primaryColor,
                         fontWeight = FontWeight.SemiBold,
-                        textAlign = TextAlign.Center,
+                        textAlign = tAlign,
                         letterSpacing = 2.sp
                     ),
-                    textAlign = TextAlign.Center,
+                    textAlign = tAlign,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -1774,11 +2098,11 @@ fun ManuscriptHeader(
                 Text(
                     text = secondaryTitleText,
                     style = MaterialTheme.typography.headlineMedium.copy(
-                        color = MaterialTheme.colorScheme.onBackground,
+                        color = secondaryColor,
                         fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center
+                        textAlign = tAlign
                     ),
-                    textAlign = TextAlign.Center,
+                    textAlign = tAlign,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -1787,10 +2111,15 @@ fun ManuscriptHeader(
                 OrnamentRegistry.getById(selectedOrnamentId)
             }
             Spacer(Modifier.height(8.dp))
-            currentOrnament.Render(
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                modifier = Modifier
-            )
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = boxContentAlign
+            ) {
+                currentOrnament.Render(
+                    tint = primaryColor.copy(alpha = 0.5f),
+                    modifier = Modifier
+                )
+            }
         }
     }
 }

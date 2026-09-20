@@ -726,7 +726,8 @@ private fun ActiveInspectorContent(
                 onFontFamilyChange = { onDraftChange(draft.copy(fontFamily = it)) },
                 onFontSizeChange = { onDraftChange(draft.copy(fontSize = it)) },
                 onLineHeightChange = { onDraftChange(draft.copy(lineHeight = it)) },
-                onParagraphSpacingChange = { onDraftChange(draft.copy(paragraphSpacing = it)) }
+                onParagraphSpacingChange = { onDraftChange(draft.copy(paragraphSpacing = it)) },
+                onFirstLineIndentChange = { onDraftChange(draft.copy(firstLineIndent = it)) }
             )
         }
         ThemeEditorCategory.ATMOSPHERE -> {
