@@ -151,6 +151,7 @@ import io.github.rosemoe.sora.widget.EditorSearcher
 import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
 import io.github.rosemoe.sora.event.ContentChangeEvent
 import io.github.rosemoe.sora.event.EditorKeyEvent
+import io.github.rosemoe.sora.event.LayoutStateChangeEvent
 import io.github.rosemoe.sora.lang.diagnostic.DiagnosticsContainer
 import io.github.rosemoe.sora.lang.styling.inlayHint.InlayHintsContainer
 import com.primaloptima.scribe.util.ScribeProseLanguage
@@ -371,6 +372,26 @@ fun MainEditorScreen(
             loadedNoteId = note.id
             unifiedCanvasRef?.resetScroll()
             floatingPillsVisible = true
+
+            val handler = editor.handler ?: android.os.Handler(android.os.Looper.getMainLooper())
+            var isRevealed = false
+            val revealEditor = Runnable {
+                if (!isRevealed) {
+                    isRevealed = true
+                    editor.animate().alpha(1f).setDuration(150).start()
+                }
+            }
+            editor.alpha = 0f
+            handler.postDelayed(revealEditor, 200)
+
+            editor.subscribeEvent(LayoutStateChangeEvent::class.java) { event, unsubscribe ->
+                if (!event.isLayoutBusy) {
+                    unsubscribe.unsubscribe()
+                    handler.removeCallbacks(revealEditor)
+                    revealEditor.run()
+                }
+            }
+
             editor.setText(note.content)
             ProseDiagnosticProvider.attachEditor(editor)
             val (hints, diagnostics) = withContext(Dispatchers.Default) {
@@ -564,6 +585,7 @@ fun MainEditorScreen(
                     AndroidView(
                         factory = { ctx ->
                             UnifiedCanvasLayout(ctx).apply {
+                                setBackgroundColor(bgArgb)
                                 onScrollDelta = { dy ->
                                     if (dy > 2f) {
                                         if (lastScrollDirection != 1) {
@@ -594,6 +616,16 @@ fun MainEditorScreen(
                                     ViewCompositionStrategy.DisposeOnDetachedFromWindow
                                 )
                                 editor.apply {
+                                    setBackgroundColor(bgArgb)
+                                    setTextSize(editorTextSizeSp)
+                                    editorTypeface?.let { typefaceText = it }
+                                    activeTheme?.let { theme ->
+                                        val scheme = ScribeColorScheme(theme)
+                                        scheme.setColor(EditorColorScheme.WHOLE_BACKGROUND,       bgArgb)
+                                        scheme.setColor(EditorColorScheme.LINE_NUMBER_BACKGROUND, bgArgb)
+                                        scheme.setColor(EditorColorScheme.LINE_NUMBER,            bgArgb)
+                                        colorScheme = scheme
+                                    }
                                     isLineNumberEnabled    = false
                                     isHighlightCurrentLine = false
                                     isWordwrap             = true

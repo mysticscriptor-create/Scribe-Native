@@ -1,15 +1,22 @@
 package com.primaloptima.scribe.ui.components
 
 import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Rect
+import android.os.Build
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.widget.EdgeEffect
 import android.widget.OverScroller
 import androidx.compose.ui.platform.ComposeView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsAnimationCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.widget.EdgeEffectCompat
 import io.github.rosemoe.sora.widget.CodeEditor
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -35,11 +42,49 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         id = View.generateViewId()
     }
 
+    var isImeClosing: Boolean = false
+        private set
+
     init {
         addView(headerView)
         addView(editor)
         clipChildren = false
         clipToPadding = false
+
+        ViewCompat.setWindowInsetsAnimationCallback(
+            this,
+            object : WindowInsetsAnimationCompat.Callback(DISPATCH_MODE_STOP) {
+                override fun onPrepare(animation: WindowInsetsAnimationCompat) {
+                    if ((animation.typeMask and WindowInsetsCompat.Type.ime()) != 0) {
+                        val rootInsets = ViewCompat.getRootWindowInsets(this@UnifiedCanvasLayout)
+                        val wasVisible = rootInsets?.isVisible(WindowInsetsCompat.Type.ime()) ?: false
+                        if (wasVisible) {
+                            isImeClosing = true
+                        }
+                    }
+                }
+
+                override fun onProgress(
+                    insets: WindowInsetsCompat,
+                    runningAnimations: MutableList<WindowInsetsAnimationCompat>
+                ): WindowInsetsCompat {
+                    val hasImeAnim = runningAnimations.any {
+                        (it.typeMask and WindowInsetsCompat.Type.ime()) != 0
+                    }
+                    if (hasImeAnim) {
+                        val isImeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
+                        isImeClosing = !isImeVisible
+                    }
+                    return insets
+                }
+
+                override fun onEnd(animation: WindowInsetsAnimationCompat) {
+                    if ((animation.typeMask and WindowInsetsCompat.Type.ime()) != 0) {
+                        isImeClosing = false
+                    }
+                }
+            }
+        )
     }
 
     var headerHeight: Int = 0
@@ -63,8 +108,15 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     private var initialDownX = 0f
     private var initialDownY = 0f
+    private var lastTouchX = 0f
     private var lastTouchY = 0f
     private var isDraggingCanvas = false
+
+    private val topEdgeEffect: EdgeEffect? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        EdgeEffectCompat.create(context, null)
+    } else {
+        null
+    }
 
     var isUserTouching: Boolean = false
         private set
@@ -113,7 +165,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * so that the active cursor line stays just above the shortcut bar.
      */
     fun ensureCursorVisibleAboveKeyboard() {
-        if (!editor.isFocused) return
+        if (!editor.isFocused || isImeClosing) return
         val cursor = try { editor.cursor } catch (_: Throwable) { null } ?: return
         val line = cursor.leftLine
         val col = cursor.leftColumn
@@ -181,9 +233,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             scrollDFloat = headerHeight.toFloat()
         }
 
-        // Measure CodeEditor to fill the full viewport height
+        val padPx = (28f * context.resources.displayMetrics.density).roundToInt()
+        val contentWidth = (width - 2 * padPx).coerceAtLeast(0)
+
+        // Measure CodeEditor with symmetric 28dp margins to fill the viewport height
         editor.measure(
-            MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(contentWidth, MeasureSpec.EXACTLY),
             MeasureSpec.makeMeasureSpec(viewportHeight, MeasureSpec.EXACTLY)
         )
 
@@ -193,9 +248,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
         val width = r - l
         val viewportHeight = b - t
+        val padPx = (28f * context.resources.displayMetrics.density).roundToInt()
+        val contentWidth = (width - 2 * padPx).coerceAtLeast(0)
 
         headerView.layout(0, 0, width, headerHeight)
-        editor.layout(0, headerHeight, width, headerHeight + viewportHeight)
+        editor.layout(padPx, headerHeight, padPx + contentWidth, headerHeight + viewportHeight)
 
         if (editor.offsetY > 0) {
             scrollD = headerHeight
@@ -204,12 +261,49 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         applyTranslations()
     }
 
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        topEdgeEffect?.setSize(w, h)
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null && !topEdgeEffect.isFinished) {
+            if (topEdgeEffect.draw(canvas)) {
+                postInvalidateOnAnimation()
+            }
+        }
+    }
+
     /**
      * Intercepts child requests to keep rectangles (like cursor) visible.
      * Offsets the requested rectangle by the editor's visual position, scrolling scrollD
      * so that the typing cursor is strictly kept above the keyboard and shortcut bar.
      */
     override fun requestChildRectangleOnScreen(child: View, rectangle: Rect, immediate: Boolean): Boolean {
+        if (isImeClosing) {
+            return true
+        }
+        if (child !== editor) {
+            // Header is already positioned at top of canvas.
+            // If the header was partially scrolled off, restore scrollD to 0 without mutating ViewGroup.mScrollY.
+            if (scrollD > 0) {
+                if (immediate) {
+                    scrollDFloat = 0f
+                    scrollD = 0
+                    applyTranslations()
+                    onUnifiedScrollChanged?.invoke(0, headerHeight)
+                } else {
+                    if (!scroller.isFinished) {
+                        scroller.abortAnimation()
+                    }
+                    lastScrollerY = scrollD
+                    scroller.startScroll(0, scrollD, 0, -scrollD, 250)
+                    postInvalidateOnAnimation()
+                }
+            }
+            return true
+        }
         if (child === editor && !editor.isFocused) {
             return false
         }
@@ -241,7 +335,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 }
             }
         }
-        return super.requestChildRectangleOnScreen(child, rectangle, immediate)
+        return false
     }
 
     /**
@@ -309,9 +403,23 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     scrollD = scrollDFloat.roundToInt().coerceIn(0, headerHeight)
                     applyTranslations()
                     onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
-                    return dy - consumeCanvas
+                    val unconsumed = dy - consumeCanvas
+                    if (unconsumed < 0f && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null) {
+                        val deltaDistance = -unconsumed / height.coerceAtLeast(1)
+                        val displacement = (lastTouchX / width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                        EdgeEffectCompat.onPullDistance(topEdgeEffect, deltaDistance, displacement)
+                        postInvalidateOnAnimation()
+                    }
+                    return unconsumed
+                } else {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null) {
+                        val deltaDistance = -dy / height.coerceAtLeast(1)
+                        val displacement = (lastTouchX / width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                        EdgeEffectCompat.onPullDistance(topEdgeEffect, deltaDistance, displacement)
+                        postInvalidateOnAnimation()
+                    }
+                    return dy
                 }
-                return dy
             }
         }
         return 0f
@@ -349,6 +457,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 } catch (_: Throwable) {}
                 initialDownX = ev.x
                 initialDownY = ev.y
+                lastTouchX = ev.x
                 lastTouchY = ev.y
                 isDraggingCanvas = false
                 velocityTracker?.clear() ?: run { velocityTracker = VelocityTracker.obtain() }
@@ -356,6 +465,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             }
             MotionEvent.ACTION_MOVE -> {
                 val dy = lastTouchY - ev.y
+                lastTouchX = ev.x
                 lastTouchY = ev.y
 
                 if (isDraggingCanvas) {
@@ -379,6 +489,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 isUserTouching = false
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null && !topEdgeEffect.isFinished) {
+                    topEdgeEffect.onRelease()
+                    postInvalidateOnAnimation()
+                }
                 if (isDraggingCanvas) {
                     isDraggingCanvas = false
                     velocityTracker?.computeCurrentVelocity(1000, maxFlingVelocity.toFloat())
@@ -405,6 +519,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> {
                 initialDownX = ev.x
                 initialDownY = ev.y
+                lastTouchX = ev.x
                 lastTouchY = ev.y
                 isDraggingCanvas = false
                 velocityTracker?.clear() ?: run { velocityTracker = VelocityTracker.obtain() }
@@ -420,12 +535,14 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     if (totalDy > 0f && scrollD < headerHeight) {
                         // Dragging up and header is visible: intercept canvas drag!
                         isDraggingCanvas = true
+                        lastTouchX = ev.x
                         lastTouchY = ev.y
                         parent?.requestDisallowInterceptTouchEvent(true)
                         return true
                     } else if (totalDy < 0f && editor.offsetY <= 0 && scrollD > 0) {
                         // Dragging down and editor is at top: intercept to pull header down!
                         isDraggingCanvas = true
+                        lastTouchX = ev.x
                         lastTouchY = ev.y
                         parent?.requestDisallowInterceptTouchEvent(true)
                         return true
@@ -450,6 +567,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 try {
                     editor.scroller?.abortAnimation()
                 } catch (_: Throwable) {}
+                lastTouchX = ev.x
                 lastTouchY = ev.y
                 initialDownY = ev.y
                 initialDownX = ev.x
@@ -458,12 +576,17 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             }
             MotionEvent.ACTION_MOVE -> {
                 val dy = lastTouchY - ev.y
+                lastTouchX = ev.x
                 lastTouchY = ev.y
                 scrollCanvasBy(dy)
                 return true
             }
             MotionEvent.ACTION_UP -> {
                 isUserTouching = false
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null && !topEdgeEffect.isFinished) {
+                    topEdgeEffect.onRelease()
+                    postInvalidateOnAnimation()
+                }
                 velocityTracker?.computeCurrentVelocity(1000, maxFlingVelocity.toFloat())
                 val vy = velocityTracker?.yVelocity ?: 0f
                 if (abs(vy) > minFlingVelocity) {
@@ -480,6 +603,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             }
             MotionEvent.ACTION_CANCEL -> {
                 isUserTouching = false
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null && !topEdgeEffect.isFinished) {
+                    topEdgeEffect.onRelease()
+                    postInvalidateOnAnimation()
+                }
                 isDraggingCanvas = false
                 velocityTracker?.recycle()
                 velocityTracker = null
@@ -496,6 +623,15 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             lastScrollerY = currY
 
             scrollCanvasBy(dy)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null) {
+                if ((scroller.isOverScrolled() || currY <= 0) && scrollD <= 0 && editor.offsetY <= 0 && topEdgeEffect.isFinished) {
+                    val velocity = scroller.currVelocity.toInt()
+                    if (velocity > 0) {
+                        topEdgeEffect.onAbsorb(velocity)
+                    }
+                }
+            }
 
             postInvalidateOnAnimation()
         }

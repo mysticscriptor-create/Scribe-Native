@@ -27,6 +27,52 @@ class ScribeCodeEditor @JvmOverloads constructor(
     private var lastMakeVisibleTime: Long = 0L
     private var isFlingActive = false
 
+    private val glowTopOrBottomField = try {
+        io.github.rosemoe.sora.widget.EditorTouchEventHandler::class.java.getDeclaredField("glowTopOrBottom").apply {
+            isAccessible = true
+        }
+    } catch (_: Throwable) { null }
+
+    private val selectiveEdgeEffect by lazy {
+        object : android.widget.EdgeEffect(context) {
+            private fun isBottomGlow(): Boolean {
+                return glowTopOrBottomField?.getBoolean(eventHandler) ?: (offsetY > 0)
+            }
+
+            override fun draw(canvas: android.graphics.Canvas): Boolean {
+                if (!isBottomGlow()) {
+                    finish()
+                    return false
+                }
+                return super.draw(canvas)
+            }
+
+            override fun onPull(deltaDistance: Float, displacement: Float) {
+                if (!isBottomGlow()) return
+                super.onPull(deltaDistance, displacement)
+            }
+
+            override fun onPull(deltaDistance: Float) {
+                if (!isBottomGlow()) return
+                super.onPull(deltaDistance)
+            }
+
+            override fun onPullDistance(deltaDistance: Float, displacement: Float): Float {
+                if (!isBottomGlow()) return 0f
+                return super.onPullDistance(deltaDistance, displacement)
+            }
+
+            override fun onAbsorb(velocity: Int) {
+                if (!isBottomGlow()) return
+                super.onAbsorb(velocity)
+            }
+        }
+    }
+
+    override fun getVerticalEdgeEffect(): android.widget.EdgeEffect {
+        return selectiveEdgeEffect
+    }
+
     init {
         // Prevent auto-scrolling to cursor when keyboard opens or screen resizes while header/titles are focused
         props.adjustToSelectionOnResize = false
@@ -53,6 +99,21 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        val parentCanvas = parent as? UnifiedCanvasLayout
+        if (parentCanvas?.isImeClosing == true) {
+            val savedOffsetY = offsetY
+            val savedOffsetX = offsetX
+            super.onSizeChanged(w, h, oldw, oldh)
+            if (offsetY != savedOffsetY || offsetX != savedOffsetX) {
+                try {
+                    scroller?.let { s ->
+                        s.startScroll(savedOffsetX, savedOffsetY, 0, 0, 0)
+                        s.abortAnimation()
+                    }
+                } catch (_: Throwable) {}
+            }
+            return
+        }
         super.onSizeChanged(w, h, oldw, oldh)
         // Focus-aware keyboard adjustment: when keyboard appears (height decreases)
         // and the document has focus, reveal the cursor above the keyboard.
