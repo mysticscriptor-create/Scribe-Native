@@ -36,7 +36,8 @@ object ProseInlayHintProvider {
     fun computeInlayHints(
         text: String,
         worldEntries: List<WorldEntry>,
-        firstLineIndent: Boolean = false
+        firstLineIndent: Boolean = false,
+        paragraphSpacing: Int = 14
     ): InlayHintsContainer {
         val container = InlayHintsContainer()
         if (text.isBlank()) return container

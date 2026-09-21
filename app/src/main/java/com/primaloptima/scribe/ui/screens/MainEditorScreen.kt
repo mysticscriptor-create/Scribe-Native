@@ -382,30 +382,17 @@ fun MainEditorScreen(
             loadedNoteId = note.id
             unifiedCanvasRef?.resetScroll()
             floatingPillsVisible = true
-
-            val handler = editor.handler ?: android.os.Handler(android.os.Looper.getMainLooper())
-            var isRevealed = false
-            val revealEditor = Runnable {
-                if (!isRevealed) {
-                    isRevealed = true
-                    editor.animate().alpha(1f).setDuration(150).start()
-                }
-            }
-            editor.alpha = 0f
-            handler.postDelayed(revealEditor, 200)
-
-            editor.subscribeEvent(LayoutStateChangeEvent::class.java) { event, unsubscribe ->
-                if (!event.isLayoutBusy) {
-                    unsubscribe.unsubscribe()
-                    handler.removeCallbacks(revealEditor)
-                    revealEditor.run()
-                }
-            }
+            editor.alpha = 1f
 
             editor.setText(note.content)
             ProseDiagnosticProvider.attachEditor(editor)
             val (hints, diagnostics) = withContext(Dispatchers.Default) {
-                val h = ProseInlayHintProvider.computeInlayHints(note.content, worldEntries, activeTheme?.firstLineIndent ?: false)
+                val h = ProseInlayHintProvider.computeInlayHints(
+                    note.content,
+                    worldEntries,
+                    activeTheme?.firstLineIndent ?: false,
+                    activeTheme?.paragraphSpacing ?: 14
+                )
                 val d = ProseDiagnosticProvider.analyzeDiagnostics(note.content)
                 h to d
             }
@@ -416,12 +403,17 @@ fun MainEditorScreen(
 
     // Debounced analysis for Inlay Hints (Scene word counts, POV tags, Paragraph Indents) and Diagnostics
     var editorCurrentText by remember { mutableStateOf("") }
-    LaunchedEffect(editorCurrentText, worldEntries, activeTheme?.firstLineIndent) {
+    LaunchedEffect(editorCurrentText, worldEntries, activeTheme?.firstLineIndent, activeTheme?.paragraphSpacing) {
         if (editorCurrentText.isEmpty()) return@LaunchedEffect
         val editor = soraEditorRef ?: return@LaunchedEffect
         delay(400) // Debounce 400ms to keep editing fluid
         val (hints, diagnostics) = withContext(Dispatchers.Default) {
-            val h = ProseInlayHintProvider.computeInlayHints(editorCurrentText, worldEntries, activeTheme?.firstLineIndent ?: false)
+            val h = ProseInlayHintProvider.computeInlayHints(
+                editorCurrentText,
+                worldEntries,
+                activeTheme?.firstLineIndent ?: false,
+                activeTheme?.paragraphSpacing ?: 14
+            )
             val d = ProseDiagnosticProvider.analyzeDiagnostics(editorCurrentText)
             h to d
         }
@@ -429,13 +421,18 @@ fun MainEditorScreen(
         editor.setDiagnostics(diagnostics)
     }
 
-    // Immediate update when firstLineIndent toggles in options or HUD
-    LaunchedEffect(activeTheme?.firstLineIndent) {
+    // Immediate update when firstLineIndent or paragraphSpacing toggles in options or HUD
+    LaunchedEffect(activeTheme?.firstLineIndent, activeTheme?.paragraphSpacing) {
         val editor = soraEditorRef ?: return@LaunchedEffect
         val curText = editor.text?.toString() ?: ""
         if (curText.isEmpty()) return@LaunchedEffect
         val (hints, diagnostics) = withContext(Dispatchers.Default) {
-            val h = ProseInlayHintProvider.computeInlayHints(curText, worldEntries, activeTheme?.firstLineIndent ?: false)
+            val h = ProseInlayHintProvider.computeInlayHints(
+                curText,
+                worldEntries,
+                activeTheme?.firstLineIndent ?: false,
+                activeTheme?.paragraphSpacing ?: 14
+            )
             val d = ProseDiagnosticProvider.analyzeDiagnostics(curText)
             h to d
         }
@@ -613,9 +610,32 @@ fun MainEditorScreen(
                     val docBottomNavInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                     val docBottomPadding = if (isKeyboardVisible) 0.dp else docBottomNavInset
 
+                    var lastAppliedPadding by remember { mutableFloatStateOf(-1f) }
+                    var lastAppliedTextSize by remember { mutableFloatStateOf(-1f) }
+                    var lastAppliedTypeface by remember { mutableStateOf<android.graphics.Typeface?>(null) }
+                    var lastAppliedLineSpacing by remember { mutableFloatStateOf(-1f) }
+                    var lastAppliedParaSpacing by remember { mutableFloatStateOf(-1f) }
+                    var lastAppliedBgArgb by remember { mutableIntStateOf(0) }
+                    var lastAppliedThemeId by remember { mutableStateOf<String?>(null) }
+
                     AndroidView(
                         factory = { ctx ->
+                            val density = ctx.resources.displayMetrics.density
+                            val initialPadH = (activeTheme?.paddingHorizontal ?: 28).toFloat()
+                            val initialLineHeight = activeTheme?.lineHeight ?: 1.7f
+                            val initialParaSpacing = (activeTheme?.paragraphSpacing ?: 14).toFloat()
+                            val initialParaSpacingPx = initialParaSpacing * density * 0.35f
+
+                            lastAppliedPadding = initialPadH
+                            lastAppliedTextSize = editorTextSizeSp
+                            lastAppliedTypeface = editorTypeface
+                            lastAppliedLineSpacing = initialLineHeight
+                            lastAppliedParaSpacing = initialParaSpacing
+                            lastAppliedBgArgb = bgArgb
+                            lastAppliedThemeId = activeTheme?.id
+
                             UnifiedCanvasLayout(ctx).apply {
+                                horizontalPaddingDp = initialPadH
                                 setBackgroundColor(bgArgb)
                                 onScrollDelta = { dy ->
                                     if (dy > 2f) {
@@ -650,7 +670,7 @@ fun MainEditorScreen(
                                     setBackgroundColor(bgArgb)
                                     setTextSize(editorTextSizeSp)
                                     editorTypeface?.let { typefaceText = it }
-                                    setLineSpacing(0f, activeTheme?.lineHeight ?: 1.7f)
+                                    setLineSpacing(initialParaSpacingPx, initialLineHeight)
                                     activeTheme?.let { theme ->
                                         val scheme = ScribeColorScheme(theme)
                                         scheme.setColor(EditorColorScheme.WHOLE_BACKGROUND,       bgArgb)
@@ -662,7 +682,6 @@ fun MainEditorScreen(
                                     isHighlightCurrentLine = false
                                     isWordwrap             = true
                                     isScalable             = true
-                                    val density = ctx.resources.displayMetrics.density
                                     setScaleTextSizes(12f * density, 36f * density)
                                     subscribeEvent(TextSizeChangeEvent::class.java) { event, _ ->
                                         val newSp = (event.newTextSize / density).roundToInt().coerceIn(12, 36)
@@ -736,18 +755,44 @@ fun MainEditorScreen(
                             }
                         },
                         update = { layout ->
-                            layout.horizontalPaddingDp = (activeTheme?.paddingHorizontal ?: 28).toFloat()
+                            val density = layout.context.resources.displayMetrics.density
+                            val padH = (activeTheme?.paddingHorizontal ?: 28).toFloat()
+                            if (kotlin.math.abs(lastAppliedPadding - padH) > 0.5f) {
+                                lastAppliedPadding = padH
+                                layout.horizontalPaddingDp = padH
+                            }
                             val editor = layout.editor
-                            editor.setTextSize(editorTextSizeSp)
-                            editorTypeface?.let { editor.typefaceText = it }
-                            editor.setLineSpacing(0f, activeTheme?.lineHeight ?: 1.7f)
-                            editor.setBackgroundColor(bgArgb)
+                            if (kotlin.math.abs(lastAppliedTextSize - editorTextSizeSp) > 0.1f) {
+                                lastAppliedTextSize = editorTextSizeSp
+                                editor.setTextSize(editorTextSizeSp)
+                            }
+                            if (lastAppliedTypeface !== editorTypeface && editorTypeface != null) {
+                                lastAppliedTypeface = editorTypeface
+                                editor.typefaceText = editorTypeface
+                            }
+                            val newLineHeight = activeTheme?.lineHeight ?: 1.7f
+                            val newParaSpacing = (activeTheme?.paragraphSpacing ?: 14).toFloat()
+                            val paraSpacingPx = newParaSpacing * density * 0.35f
+                            if (kotlin.math.abs(lastAppliedLineSpacing - newLineHeight) > 0.01f ||
+                                kotlin.math.abs(lastAppliedParaSpacing - newParaSpacing) > 0.5f) {
+                                lastAppliedLineSpacing = newLineHeight
+                                lastAppliedParaSpacing = newParaSpacing
+                                editor.setLineSpacing(paraSpacingPx, newLineHeight)
+                            }
+                            if (lastAppliedBgArgb != bgArgb) {
+                                lastAppliedBgArgb = bgArgb
+                                editor.setBackgroundColor(bgArgb)
+                                layout.setBackgroundColor(bgArgb)
+                            }
                             activeTheme?.let { theme ->
-                                val scheme = ScribeColorScheme(theme)
-                                scheme.setColor(EditorColorScheme.WHOLE_BACKGROUND,       bgArgb)
-                                scheme.setColor(EditorColorScheme.LINE_NUMBER_BACKGROUND, bgArgb)
-                                scheme.setColor(EditorColorScheme.LINE_NUMBER,            bgArgb)
-                                editor.colorScheme = scheme
+                                if (lastAppliedThemeId != theme.id) {
+                                    lastAppliedThemeId = theme.id
+                                    val scheme = ScribeColorScheme(theme)
+                                    scheme.setColor(EditorColorScheme.WHOLE_BACKGROUND,       bgArgb)
+                                    scheme.setColor(EditorColorScheme.LINE_NUMBER_BACKGROUND, bgArgb)
+                                    scheme.setColor(EditorColorScheme.LINE_NUMBER,            bgArgb)
+                                    editor.colorScheme = scheme
+                                }
                                 try {
                                     val aw = editor.getComponent(
                                         io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
@@ -1912,7 +1957,10 @@ private fun EditorLiveTuningHud(
                             Slider(
                                 value = currentPadding,
                                 onValueChange = { newVal ->
-                                    onUpdateTheme { it.copy(paddingHorizontal = newVal.roundToInt()) }
+                                    val rounded = newVal.roundToInt()
+                                    if (rounded != activeTheme.paddingHorizontal) {
+                                        onUpdateTheme { it.copy(paddingHorizontal = rounded) }
+                                    }
                                 },
                                 valueRange = 8f..72f
                             )
@@ -1951,10 +1999,12 @@ private fun EditorLiveTuningHud(
                                 value = currentVal,
                                 onValueChange = { newVal ->
                                     val rounded = (newVal * 20).roundToInt() / 20f
-                                    when (typographyTarget) {
-                                        "title1" -> onUpdateTheme { it.copy(title1LineHeight = rounded) }
-                                        "title2" -> onUpdateTheme { it.copy(title2LineHeight = rounded) }
-                                        else -> onUpdateTheme { it.copy(lineHeight = rounded) }
+                                    if (kotlin.math.abs(rounded - currentVal) >= 0.04f) {
+                                        when (typographyTarget) {
+                                            "title1" -> onUpdateTheme { it.copy(title1LineHeight = rounded) }
+                                            "title2" -> onUpdateTheme { it.copy(title2LineHeight = rounded) }
+                                            else -> onUpdateTheme { it.copy(lineHeight = rounded) }
+                                        }
                                     }
                                 },
                                 valueRange = 1.0f..2.4f
@@ -1975,7 +2025,10 @@ private fun EditorLiveTuningHud(
                             Slider(
                                 value = currentVal,
                                 onValueChange = { newVal ->
-                                    onUpdateTheme { it.copy(paragraphSpacing = newVal.roundToInt()) }
+                                    val rounded = newVal.roundToInt()
+                                    if (rounded != (activeTheme.paragraphSpacing ?: 0)) {
+                                        onUpdateTheme { it.copy(paragraphSpacing = rounded) }
+                                    }
                                 },
                                 valueRange = 0f..40f
                             )

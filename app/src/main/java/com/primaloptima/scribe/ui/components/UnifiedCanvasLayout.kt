@@ -48,8 +48,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     init {
         addView(headerView)
         addView(editor)
-        clipChildren = false
-        clipToPadding = false
+        clipChildren = true
+        clipToPadding = true
 
         ViewCompat.setWindowInsetsAnimationCallback(
             this,

@@ -474,7 +474,7 @@ class EditorViewModel(
 
     // ── Theme ─────────────────────────────────────────────────────────────────
 
-    private val _theme = MutableStateFlow<AppTheme?>(null)
+    private val _theme = MutableStateFlow<AppTheme?>(themeManager.activeTheme())
     val theme: StateFlow<AppTheme?> = _theme.asStateFlow()
 
     fun updateActiveTheme(transform: (AppTheme) -> AppTheme) {

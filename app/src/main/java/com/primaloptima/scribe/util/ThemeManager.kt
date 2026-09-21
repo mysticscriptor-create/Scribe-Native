@@ -1645,17 +1645,22 @@ class ThemeManager(private val context: Context) {
         }
 
         fun resolveTypeface(context: Context, fontFamilyKey: String): Typeface {
-            val fontResId = when (fontFamilyKey) {
-                "serif", "serif-medium", "serif-bold" -> R.font.playfair_display
-                "sans", "sans-medium", "sans-semibold", "sans-bold" -> R.font.inter
-                "mono", "mono-medium" -> R.font.jetbrains_mono
+            val key = fontFamilyKey.lowercase().trim()
+            val fontResId = when (key) {
+                "playfair", "playfair display", "serif", "serif-medium", "serif-bold" -> R.font.playfair_display
+                "courier", "courier prime" -> R.font.courier_prime
+                "cormorant", "cormorant garamond" -> R.font.cormorant_garamond
+                "inter", "inter clean", "sans", "sans-medium", "sans-semibold", "sans-bold" -> R.font.inter
+                "caveat", "caveat handwritten" -> R.font.caveat
+                "lora", "lora literary" -> R.font.lora
+                "mono", "mono-medium", "jetbrains_mono" -> R.font.jetbrains_mono
                 else -> 0
             }
             if (fontResId != 0) {
                 try {
                     val tf = ResourcesCompat.getFont(context, fontResId)
                     if (tf != null) {
-                        return when (fontFamilyKey) {
+                        return when (key) {
                             "serif-bold", "sans-bold" ->
                                 Typeface.create(tf, Typeface.BOLD)
                             "serif-medium", "sans-medium", "sans-semibold", "mono-medium" ->
@@ -1668,8 +1673,9 @@ class ThemeManager(private val context: Context) {
                 } catch (_: Exception) {}
             }
             return when {
-                fontFamilyKey.startsWith("serif") -> Typeface.SERIF
-                fontFamilyKey.startsWith("mono")  -> Typeface.MONOSPACE
+                key.startsWith("serif") || key == "playfair" || key == "cormorant" || key == "lora" -> Typeface.SERIF
+                key.startsWith("mono") || key == "courier" || key == "jetbrains_mono" -> Typeface.MONOSPACE
+                key == "caveat" -> if (Build.VERSION.SDK_INT >= 28) Typeface.create("casual", Typeface.NORMAL) else Typeface.SERIF
                 else -> Typeface.SANS_SERIF
             }
         }
