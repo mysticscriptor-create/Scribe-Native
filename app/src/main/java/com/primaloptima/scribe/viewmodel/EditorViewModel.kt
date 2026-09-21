@@ -670,11 +670,34 @@ class EditorViewModel(
     /** The currently in-flight loadNote Job; cancelled by clearActiveNote(). */
     private var loadNoteJob: Job? = null
 
-    fun loadNote(noteId: String) {
-        if (_activeNote.value?.id == noteId) return
+    /**
+     * Seeds the active note synchronously into memory so that the first composition
+     * frame in MainEditorScreen has full title, header, and content without any blank frame.
+     */
+    fun preloadNote(note: Note) {
+        if (_activeNote.value?.id == note.id) return
+        _activeNote.value = note
+        lastSavedContent = note.content
+        lastWordCount = MarkdownUtil.countWords(note.content)
+        lastSnapshotWordCount = lastWordCount
+        updateStatsSync(note.content)
+        viewModelScope.launch { dataStore.setActiveNoteId(note.id) }
+    }
+
+    fun loadNote(noteId: String, preloadedNote: Note? = null) {
+        if (preloadedNote != null && preloadedNote.id == noteId) {
+            preloadNote(preloadedNote)
+        }
+        if (_activeNote.value?.id == noteId && (_activeNote.value?.externalUri == null || _activeNote.value?.loaded == true)) {
+            if (preloadedNote != null) return
+        }
         if (loadNoteJob?.isActive == true) return
         loadNoteJob = viewModelScope.launch {
-            val note = withContext(Dispatchers.IO) { db.noteDao().getById(noteId) } ?: return@launch
+            val note = if (preloadedNote != null && preloadedNote.id == noteId && (preloadedNote.externalUri == null || preloadedNote.loaded)) {
+                preloadedNote
+            } else {
+                withContext(Dispatchers.IO) { db.noteDao().getById(noteId) } ?: return@launch
+            }
             val loaded = if (note.externalUri != null && !note.loaded) {
                 try {
                     val content = SAFHelper.readFile(getApplication(), Uri.parse(note.externalUri))

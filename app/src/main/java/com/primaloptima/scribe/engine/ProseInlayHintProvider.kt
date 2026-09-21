@@ -132,7 +132,7 @@ object ProseInlayHintProvider {
                 if (trimmed.startsWith("#") || trimmed.startsWith("***") || trimmed.startsWith("###") ||
                     trimmed.startsWith("* * *") || trimmed.startsWith("---") || trimmed.startsWith("/") ||
                     trimmed.startsWith(">") || trimmed.startsWith("- ") || trimmed.startsWith("* ") ||
-                    trimmed.startsWith("+ ") || trimmed.matches(Regex("^\\d+\\..*"))
+                    trimmed.startsWith("+ ") || isNumberedListItem(trimmed)
                 ) {
                     continue
                 }
@@ -165,5 +165,15 @@ object ProseInlayHintProvider {
             }
         }
         return count
+    }
+
+    /** Allocation-free check for ordered list items like "1. ", "2. ", "10. " etc. */
+    private fun isNumberedListItem(trimmed: String): Boolean {
+        if (trimmed.isEmpty() || !trimmed[0].isDigit()) return false
+        var idx = 1
+        while (idx < trimmed.length && trimmed[idx].isDigit()) {
+            idx++
+        }
+        return idx < trimmed.length && trimmed[idx] == '.'
     }
 }

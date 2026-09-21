@@ -364,14 +364,29 @@ fun MainEditorScreen(
             Toast.makeText(context, "Daily writing goal reached!", Toast.LENGTH_SHORT).show()
         }
     }
+    val preloadedNote = remember(initialNoteId, currentBookNotes) {
+        if (!initialNoteId.isNullOrEmpty()) {
+            currentBookNotes.firstOrNull { it.id == initialNoteId }
+                ?: noteListVm.notes.value.firstOrNull { it.id == initialNoteId }
+        } else if (currentBookNotes.isNotEmpty()) {
+            currentBookNotes.first()
+        } else null
+    }
+
+    // Seed note synchronously on first composition pass if not yet set
+    remember(initialNoteId, preloadedNote) {
+        if (preloadedNote != null && editorVm.activeNote.value?.id != preloadedNote.id) {
+            editorVm.preloadNote(preloadedNote)
+        }
+        true
+    }
+
     LaunchedEffect(initialNoteId) {
-        if (!initialNoteId.isNullOrEmpty()) editorVm.loadNote(initialNoteId)
-        else if (currentBookNotes.isNotEmpty()) editorVm.loadNote(currentBookNotes.first().id)
+        if (!initialNoteId.isNullOrEmpty()) editorVm.loadNote(initialNoteId, preloadedNote)
+        else if (currentBookNotes.isNotEmpty()) editorVm.loadNote(currentBookNotes.first().id, currentBookNotes.first())
     }
 
     // FIX 3: Removed activeNote?.content from the LaunchedEffect key.
-    // Previously keying on content meant this effect was cancelled and re-launched on
-    // every keystroke (content changes → ViewModel emits → new content value → effect restarts).
     // The guard condition `editor.text.length == 0 && note.content.isNotEmpty()` already
     // handles the edge case of an editor that exists but hasn't been filled yet.
     // Keying only on id + soraEditorRef is sufficient and far cheaper.
@@ -382,22 +397,31 @@ fun MainEditorScreen(
             loadedNoteId = note.id
             unifiedCanvasRef?.resetScroll()
             floatingPillsVisible = true
-            editor.alpha = 1f
 
+            // 1. Compute Inlay Hints synchronously so paragraph indents & scene badges are
+            // already registered when text is set. Sora Editor measures character metrics
+            // with indents already present, completely eliminating post-load text reflow and shifting!
+            val hints = ProseInlayHintProvider.computeInlayHints(
+                note.content,
+                worldEntries,
+                activeTheme?.firstLineIndent ?: false,
+                activeTheme?.paragraphSpacing ?: 14
+            )
             editor.setText(note.content)
-            ProseDiagnosticProvider.attachEditor(editor)
-            val (hints, diagnostics) = withContext(Dispatchers.Default) {
-                val h = ProseInlayHintProvider.computeInlayHints(
-                    note.content,
-                    worldEntries,
-                    activeTheme?.firstLineIndent ?: false,
-                    activeTheme?.paragraphSpacing ?: 14
-                )
-                val d = ProseDiagnosticProvider.analyzeDiagnostics(note.content)
-                h to d
-            }
             editor.setInlayHints(hints)
-            editor.setDiagnostics(diagnostics)
+            editor.alpha = 1f
+            ProseDiagnosticProvider.attachEditor(editor)
+
+            // 2. Heavy prose diagnostics (clichés, passive voice, filter words) run asynchronously in the background.
+            // Diagnostic squiggles do NOT alter character layout, font metrics, or line wraps.
+            launch(Dispatchers.Default) {
+                val diagnostics = ProseDiagnosticProvider.analyzeDiagnostics(note.content)
+                withContext(Dispatchers.Main) {
+                    if (loadedNoteId == note.id) {
+                        editor.setDiagnostics(diagnostics)
+                    }
+                }
+            }
         }
     }
 
@@ -407,17 +431,18 @@ fun MainEditorScreen(
         if (editorCurrentText.isEmpty()) return@LaunchedEffect
         val editor = soraEditorRef ?: return@LaunchedEffect
         delay(400) // Debounce 400ms to keep editing fluid
-        val (hints, diagnostics) = withContext(Dispatchers.Default) {
-            val h = ProseInlayHintProvider.computeInlayHints(
+        val hints = withContext(Dispatchers.Default) {
+            ProseInlayHintProvider.computeInlayHints(
                 editorCurrentText,
                 worldEntries,
                 activeTheme?.firstLineIndent ?: false,
                 activeTheme?.paragraphSpacing ?: 14
             )
-            val d = ProseDiagnosticProvider.analyzeDiagnostics(editorCurrentText)
-            h to d
         }
         editor.setInlayHints(hints)
+        val diagnostics = withContext(Dispatchers.Default) {
+            ProseDiagnosticProvider.analyzeDiagnostics(editorCurrentText)
+        }
         editor.setDiagnostics(diagnostics)
     }
 
@@ -426,18 +451,13 @@ fun MainEditorScreen(
         val editor = soraEditorRef ?: return@LaunchedEffect
         val curText = editor.text?.toString() ?: ""
         if (curText.isEmpty()) return@LaunchedEffect
-        val (hints, diagnostics) = withContext(Dispatchers.Default) {
-            val h = ProseInlayHintProvider.computeInlayHints(
-                curText,
-                worldEntries,
-                activeTheme?.firstLineIndent ?: false,
-                activeTheme?.paragraphSpacing ?: 14
-            )
-            val d = ProseDiagnosticProvider.analyzeDiagnostics(curText)
-            h to d
-        }
+        val hints = ProseInlayHintProvider.computeInlayHints(
+            curText,
+            worldEntries,
+            activeTheme?.firstLineIndent ?: false,
+            activeTheme?.paragraphSpacing ?: 14
+        )
         editor.setInlayHints(hints)
-        editor.setDiagnostics(diagnostics)
     }
 
     val soraEditorForDispose = soraEditorRef

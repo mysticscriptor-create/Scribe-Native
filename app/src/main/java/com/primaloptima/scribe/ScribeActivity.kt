@@ -298,6 +298,15 @@ class ScribeActivity : ComponentActivity() {
                     val bookVm:     BookViewModel     = viewModel()
                     val noteListVm: NoteListViewModel = viewModel()
                     remember(key.bookId) { bookVm.init(key.bookId); true }
+                    // Preload note synchronously into editorVm so frame 0 has title and content immediately
+                    remember(key.noteId) {
+                        val cached = bookVm.notes.value.firstOrNull { it.id == key.noteId }
+                            ?: noteListVm.notes.value.firstOrNull { it.id == key.noteId }
+                        if (cached != null) {
+                            editorVm.loadNote(key.noteId, cached)
+                        }
+                        true
+                    }
                     // Keep the hoisted reference current so History can receive it.
                     activeEditorVm = editorVm
 
