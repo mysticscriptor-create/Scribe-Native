@@ -7,6 +7,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.primaloptima.scribe.ScribeApp
 import com.primaloptima.scribe.util.AppJson
+import com.primaloptima.scribe.util.encodeAppThemes
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.data.NoteVersion
 import com.primaloptima.scribe.util.DefaultThemes

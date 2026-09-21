@@ -156,7 +156,7 @@ import io.github.rosemoe.sora.lang.diagnostic.DiagnosticsContainer
 import io.github.rosemoe.sora.lang.styling.inlayHint.InlayHintsContainer
 import com.primaloptima.scribe.util.ScribeProseLanguage
 import com.primaloptima.scribe.util.ThemeManager
-import com.primaloptima.scribe.util.FontHelper
+import com.primaloptima.scribe.ui.theme.FontHelper
 import io.github.rosemoe.sora.event.TextSizeChangeEvent
 
 
@@ -748,8 +748,8 @@ fun MainEditorScreen(
                                         showSecondaryTitle = showSecondaryTitle,
                                         titleAlignment = activeTheme?.titleAlignment ?: "center",
                                         horizontalPadding = (activeTheme?.paddingHorizontal ?: 28).dp,
-                                        primaryTitleColor = activeTheme?.overrides?.firstTitle?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() },
-                                        secondaryTitleColor = activeTheme?.overrides?.secondTitle?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() },
+                                        primaryTitleColor = activeTheme?.colors?.headingText?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() },
+                                        secondaryTitleColor = activeTheme?.colors?.text?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() },
                                         onPrimaryTitleChange = { sanitized ->
                                             primaryTitleText = sanitized
                                             persistDualTitle(sanitized, secondaryTitleText)
@@ -1455,9 +1455,9 @@ private fun EditorOptionsBottomSheet(
                                     "justified" to "Justified",
                                     "center" to "Center"
                                 ).forEach { (key, label) ->
-                                    val isSelected = (theme.textAlign.ifEmpty { "left" }).equals(key, ignoreCase = true)
+                                    val isSelected = (theme.textAlignment.ifEmpty { "left" }).equals(key, ignoreCase = true)
                                     Surface(
-                                        onClick = { onUpdateTheme { it.copy(textAlign = key) } },
+                                        onClick = { onUpdateTheme { it.copy(textAlignment = key) } },
                                         shape = ScribeTheme.shapes.button,
                                         color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
                                         border = androidx.compose.foundation.BorderStroke(
