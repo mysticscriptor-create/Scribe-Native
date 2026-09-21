@@ -84,6 +84,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.automirrored.filled.Help
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import coil3.compose.AsyncImage
 
 import androidx.activity.compose.BackHandler
@@ -242,6 +243,11 @@ fun MainEditorScreen(
     var showRenameDialog     by remember { mutableStateOf(false) }
     var showCreateNoteDialog by remember { mutableStateOf(false) }
     var showEditorTray       by remember { mutableStateOf(false) }
+    var activeTuningCategory by rememberSaveable { mutableStateOf<String?>(null) }
+
+    BackHandler(enabled = activeTuningCategory != null) {
+        activeTuningCategory = null
+    }
 
     val dataStore = remember { (context.applicationContext as? ScribeApp)?.dataStore ?: ScribeDataStore(context) }
     val selectedOrnamentId by dataStore.manuscriptOrnamentIdFlow.collectAsStateWithLifecycle("classic_diamond")
@@ -398,7 +404,7 @@ fun MainEditorScreen(
             editor.setText(note.content)
             ProseDiagnosticProvider.attachEditor(editor)
             val (hints, diagnostics) = withContext(Dispatchers.Default) {
-                val h = ProseInlayHintProvider.computeInlayHints(note.content, worldEntries)
+                val h = ProseInlayHintProvider.computeInlayHints(note.content, worldEntries, activeTheme?.firstLineIndent ?: false)
                 val d = ProseDiagnosticProvider.analyzeDiagnostics(note.content)
                 h to d
             }
@@ -407,15 +413,29 @@ fun MainEditorScreen(
         }
     }
 
-    // Debounced analysis for Inlay Hints (Scene word counts & POV tags) and Diagnostics (Passives, Adverbs, Repetitions)
+    // Debounced analysis for Inlay Hints (Scene word counts, POV tags, Paragraph Indents) and Diagnostics
     var editorCurrentText by remember { mutableStateOf("") }
-    LaunchedEffect(editorCurrentText, worldEntries) {
+    LaunchedEffect(editorCurrentText, worldEntries, activeTheme?.firstLineIndent) {
         if (editorCurrentText.isEmpty()) return@LaunchedEffect
         val editor = soraEditorRef ?: return@LaunchedEffect
         delay(400) // Debounce 400ms to keep editing fluid
         val (hints, diagnostics) = withContext(Dispatchers.Default) {
-            val h = ProseInlayHintProvider.computeInlayHints(editorCurrentText, worldEntries)
+            val h = ProseInlayHintProvider.computeInlayHints(editorCurrentText, worldEntries, activeTheme?.firstLineIndent ?: false)
             val d = ProseDiagnosticProvider.analyzeDiagnostics(editorCurrentText)
+            h to d
+        }
+        editor.setInlayHints(hints)
+        editor.setDiagnostics(diagnostics)
+    }
+
+    // Immediate update when firstLineIndent toggles in options or HUD
+    LaunchedEffect(activeTheme?.firstLineIndent) {
+        val editor = soraEditorRef ?: return@LaunchedEffect
+        val curText = editor.text?.toString() ?: ""
+        if (curText.isEmpty()) return@LaunchedEffect
+        val (hints, diagnostics) = withContext(Dispatchers.Default) {
+            val h = ProseInlayHintProvider.computeInlayHints(curText, worldEntries, activeTheme?.firstLineIndent ?: false)
+            val d = ProseDiagnosticProvider.analyzeDiagnostics(curText)
             h to d
         }
         editor.setInlayHints(hints)
@@ -548,8 +568,15 @@ fun MainEditorScreen(
                     val editorTextSizeSp    = remember(activeTheme?.fontSize) {
                         (activeTheme?.fontSize ?: 18).toFloat()
                     }
-                    val editorTypeface      = remember(activeTheme?.fontFamily) {
-                        activeTheme?.fontFamily?.let { ThemeManager.resolveTypeface(context, it) }
+                    val editorTypeface      = remember(activeTheme?.fontFamily, activeTheme?.documentFontWeight) {
+                        val baseTf = activeTheme?.fontFamily?.let { ThemeManager.resolveTypeface(context, it) } ?: android.graphics.Typeface.DEFAULT
+                        val weight = activeTheme?.documentFontWeight ?: 400
+                        if (Build.VERSION.SDK_INT >= 28) {
+                            android.graphics.Typeface.create(baseTf, weight, false)
+                        } else {
+                            if (weight >= 600) android.graphics.Typeface.create(baseTf, android.graphics.Typeface.BOLD)
+                            else android.graphics.Typeface.create(baseTf, android.graphics.Typeface.NORMAL)
+                        }
                     }
                     val bgArgb              = remember(hasBgImageLocal, currentThemeBg) {
                         if (hasBgImageLocal) android.graphics.Color.TRANSPARENT
@@ -622,6 +649,7 @@ fun MainEditorScreen(
                                     setBackgroundColor(bgArgb)
                                     setTextSize(editorTextSizeSp)
                                     editorTypeface?.let { typefaceText = it }
+                                    setLineSpacing(0f, activeTheme?.lineHeight ?: 1.7f)
                                     activeTheme?.let { theme ->
                                         val scheme = ScribeColorScheme(theme)
                                         scheme.setColor(EditorColorScheme.WHOLE_BACKGROUND,       bgArgb)
@@ -711,6 +739,7 @@ fun MainEditorScreen(
                             val editor = layout.editor
                             editor.setTextSize(editorTextSizeSp)
                             editorTypeface?.let { editor.typefaceText = it }
+                            editor.setLineSpacing(0f, activeTheme?.lineHeight ?: 1.7f)
                             editor.setBackgroundColor(bgArgb)
                             activeTheme?.let { theme ->
                                 val scheme = ScribeColorScheme(theme)
@@ -741,6 +770,18 @@ fun MainEditorScreen(
                             // Update Header inside ComposeView
                             layout.headerView.setContent {
                                 if (!zenMode && activeNote != null) {
+                                    val resolvedTitleFont = FontHelper.getFontFamily(activeTheme?.titleFontFamily ?: activeTheme?.fontFamily ?: "default")
+                                    val pTitleSize = (activeTheme?.title1FontSize ?: 18).sp
+                                    val sTitleSize = (activeTheme?.title2FontSize ?: 24).sp
+                                    val pTitleWeight = FontWeight(activeTheme?.title1FontWeight ?: 600)
+                                    val sTitleWeight = FontWeight(activeTheme?.title2FontWeight ?: 700)
+                                    val pTitleLineHeight = ((activeTheme?.title1LineHeight ?: 1.35f) * (activeTheme?.title1FontSize ?: 18)).sp
+                                    val sTitleLineHeight = ((activeTheme?.title2LineHeight ?: 1.30f) * (activeTheme?.title2FontSize ?: 24)).sp
+                                    val pTitleColor = activeTheme?.primaryTitleColor?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() }
+                                        ?: activeTheme?.colors?.headingText?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() }
+                                    val sTitleColor = activeTheme?.secondaryTitleColor?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() }
+                                        ?: activeTheme?.colors?.text?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() }
+
                                     ManuscriptHeader(
                                         primaryTitleText = primaryTitleText,
                                         secondaryTitleText = secondaryTitleText,
@@ -748,8 +789,15 @@ fun MainEditorScreen(
                                         showSecondaryTitle = showSecondaryTitle,
                                         titleAlignment = activeTheme?.titleAlignment ?: "center",
                                         horizontalPadding = (activeTheme?.paddingHorizontal ?: 28).dp,
-                                        primaryTitleColor = activeTheme?.colors?.headingText?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() },
-                                        secondaryTitleColor = activeTheme?.colors?.text?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() },
+                                        primaryTitleColor = pTitleColor,
+                                        secondaryTitleColor = sTitleColor,
+                                        titleFontFamily = resolvedTitleFont,
+                                        primaryTitleFontSize = pTitleSize,
+                                        secondaryTitleFontSize = sTitleSize,
+                                        primaryTitleFontWeight = pTitleWeight,
+                                        secondaryTitleFontWeight = sTitleWeight,
+                                        primaryTitleLineHeight = pTitleLineHeight,
+                                        secondaryTitleLineHeight = sTitleLineHeight,
                                         onPrimaryTitleChange = { sanitized ->
                                             primaryTitleText = sanitized
                                             persistDualTitle(sanitized, secondaryTitleText)
@@ -1029,6 +1077,10 @@ fun MainEditorScreen(
                 activeTheme      = activeTheme,
                 onUpdateTheme    = { transform -> editorVm.updateActiveTheme(transform) },
                 onDismiss        = { showEditorTray = false },
+                onOpenTuning     = { category ->
+                    showEditorTray = false
+                    activeTuningCategory = category
+                },
                 onEnterZen       = {
                     showEditorTray = false
                     editorVm.setZen(true)
@@ -1062,6 +1114,24 @@ fun MainEditorScreen(
                     showEditorTray = false
                     onOpenSettings()
                 },
+            )
+        }
+
+        if (activeTuningCategory != null && activeTheme != null) {
+            EditorLiveTuningHud(
+                initialCategory = activeTuningCategory ?: "text",
+                activeTheme     = activeTheme,
+                onUpdateTheme   = { transform -> editorVm.updateActiveTheme(transform) },
+                onBackToMenu    = {
+                    activeTuningCategory = null
+                    showEditorTray = true
+                },
+                onClose         = {
+                    activeTuningCategory = null
+                },
+                modifier        = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
             )
         }
 
@@ -1154,6 +1224,7 @@ private fun EditorOptionsBottomSheet(
     activeTheme      : com.primaloptima.scribe.util.model.AppTheme?,
     onUpdateTheme    : ((com.primaloptima.scribe.util.model.AppTheme) -> com.primaloptima.scribe.util.model.AppTheme) -> Unit,
     onDismiss        : () -> Unit,
+    onOpenTuning     : (String) -> Unit,
     onEnterZen       : () -> Unit,
     onOpenFloating   : () -> Unit,
     onExport         : (String) -> Unit,
@@ -1339,232 +1410,75 @@ private fun EditorOptionsBottomSheet(
                 modifier = Modifier.padding(vertical = 4.dp)
             )
 
-            // ── TEXT & TYPOGRAPHY SECTION ───────────────────────────────────────────
-            activeTheme?.let { theme ->
-                Text(
-                    text = "TEXT & TYPOGRAPHY",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = ScribeTheme.colors.content.secondary,
-                    letterSpacing = 0.5.sp,
-                    modifier = Modifier.padding(start = 2.dp, top = 8.dp, bottom = 8.dp)
-                )
+            // ── FINE-TUNING & STYLING SECTION ───────────────────────────────────────────
+            Text(
+                text = "FINE-TUNING & STYLING",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = ScribeTheme.colors.content.secondary,
+                letterSpacing = 0.5.sp,
+                modifier = Modifier.padding(start = 2.dp, top = 8.dp, bottom = 6.dp)
+            )
 
+            EditorTrayMenuItem(
+                title = "Text & Typography",
+                subtitle = "Tune font, size, weight, margins, line & paragraph spacing",
+                icon = Icons.Default.TextFields,
+                onClick = { onOpenTuning("text") }
+            )
+
+            EditorTrayMenuItem(
+                title = "Colors & Highlights",
+                subtitle = "Customize Title 1, Title 2, Prose, Dialogue, Thoughts & Headings",
+                icon = Icons.Default.Palette,
+                onClick = { onOpenTuning("colors") }
+            )
+
+            Spacer(Modifier.height(4.dp))
+
+            // Dedicated Indent Section with Centered Switch (no icon, clean centered toggle)
+            activeTheme?.let { theme ->
                 Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(ScribeTheme.shapes.cardSmall)
+                        .clickable { onUpdateTheme { it.copy(firstLineIndent = !it.firstLineIndent) } },
                     shape = ScribeTheme.shapes.cardSmall,
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
                 ) {
                     Column(
-                        modifier = Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        // Font Family Chips
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                text = "Font Family",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                FontHelper.fontOptions.forEach { opt ->
-                                    val isSelected = theme.fontFamily.equals(opt.key, ignoreCase = true) ||
-                                            (opt.key == "default" && (theme.fontFamily.isEmpty() || theme.fontFamily == "default" || theme.fontFamily == "sans"))
-                                    FilterChip(
-                                        selected = isSelected,
-                                        onClick = { onUpdateTheme { it.copy(fontFamily = opt.key) } },
-                                        label = { Text(opt.name, fontSize = 12.sp) }
-                                    )
-                                }
-                            }
-                        }
-
-                        // Font Size Slider (12sp - 36sp)
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("Font Size", fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                Text("${theme.fontSize} sp", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                            }
-                            Slider(
-                                value = theme.fontSize.toFloat(),
-                                onValueChange = { newSize ->
-                                    onUpdateTheme { it.copy(fontSize = newSize.roundToInt()) }
-                                },
-                                valueRange = 12f..36f,
-                                steps = 23
-                            )
-                        }
-
-                        // Line Spacing Slider (1.0f - 2.4f)
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("Line Spacing", fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                Text(String.format("%.2f", theme.lineHeight), fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                            }
-                            Slider(
-                                value = theme.lineHeight.coerceIn(1.0f, 2.4f),
-                                onValueChange = { newLineHeight ->
-                                    onUpdateTheme { it.copy(lineHeight = (newLineHeight * 20).roundToInt() / 20f) }
-                                },
-                                valueRange = 1.0f..2.4f
-                            )
-                        }
-
-                        // Side Margins / Horizontal Padding Slider (8dp - 72dp)
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("Side Margins", fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                                Text("${theme.paddingHorizontal} dp", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                            }
-                            Slider(
-                                value = theme.paddingHorizontal.toFloat().coerceIn(8f, 72f),
-                                onValueChange = { newPadding ->
-                                    onUpdateTheme { it.copy(paddingHorizontal = newPadding.roundToInt()) }
-                                },
-                                valueRange = 8f..72f
-                            )
-                        }
-
-                        // Text Alignment
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Paragraph Alignment", fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                listOf(
-                                    "left" to "Left",
-                                    "justified" to "Justified",
-                                    "center" to "Center"
-                                ).forEach { (key, label) ->
-                                    val isSelected = (theme.textAlignment.ifEmpty { "left" }).equals(key, ignoreCase = true)
-                                    Surface(
-                                        onClick = { onUpdateTheme { it.copy(textAlignment = key) } },
-                                        shape = ScribeTheme.shapes.button,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                                        border = androidx.compose.foundation.BorderStroke(
-                                            1.dp,
-                                            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                        ),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier.padding(vertical = 8.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = label,
-                                                fontSize = 11.5.sp,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Title Alignment
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Title Alignment", fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                listOf(
-                                    "left" to "Left",
-                                    "center" to "Center",
-                                    "right" to "Right"
-                                ).forEach { (key, label) ->
-                                    val isSelected = (theme.titleAlignment.ifEmpty { "center" }).equals(key, ignoreCase = true)
-                                    Surface(
-                                        onClick = { onUpdateTheme { it.copy(titleAlignment = key) } },
-                                        shape = ScribeTheme.shapes.button,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
-                                        border = androidx.compose.foundation.BorderStroke(
-                                            1.dp,
-                                            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                                        ),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Box(
-                                            modifier = Modifier.padding(vertical = 8.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = label,
-                                                fontSize = 11.5.sp,
-                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Indent Toggle with Centered Switch (no icon, centered toggle)
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(ScribeTheme.shapes.cardSmall)
-                                .clickable { onUpdateTheme { it.copy(firstLineIndent = !it.firstLineIndent) } },
-                            shape = ScribeTheme.shapes.cardSmall,
-                            color = MaterialTheme.colorScheme.surface,
-                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Indent",
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Automatically indent first line of paragraphs",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Box(
+                                modifier = Modifier.padding(start = 8.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = "Indent",
-                                            fontSize = 13.5.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Text(
-                                            text = "Automatically indent first line of paragraphs",
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                Switch(
+                                    checked = theme.firstLineIndent,
+                                    onCheckedChange = { isChecked ->
+                                        onUpdateTheme { it.copy(firstLineIndent = isChecked) }
                                     }
-                                    Box(
-                                        modifier = Modifier.padding(start = 8.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Switch(
-                                            checked = theme.firstLineIndent,
-                                            onCheckedChange = { isChecked ->
-                                                onUpdateTheme { it.copy(firstLineIndent = isChecked) }
-                                            }
-                                        )
-                                    }
-                                }
+                                )
                             }
                         }
                     }
@@ -1580,7 +1494,7 @@ private fun EditorOptionsBottomSheet(
             EditorTrayMenuItem(
                 title = "Themes & Appearance",
                 subtitle = "Open full theme studio and customize palette",
-                icon = Icons.Default.Palette,
+                icon = Icons.Default.Style,
                 onClick = onOpenThemes
             )
             EditorTrayMenuItem(
@@ -1591,6 +1505,706 @@ private fun EditorOptionsBottomSheet(
             )
 
             Spacer(Modifier.height(14.dp))
+        }
+    }
+}
+
+// ── Compact Live-Tuning HUD (Zero-Scrim Overlay for Direct Visual Feedback) ─────
+@Composable
+private fun EditorLiveTuningHud(
+    initialCategory : String,
+    activeTheme     : com.primaloptima.scribe.util.model.AppTheme,
+    onUpdateTheme   : ((com.primaloptima.scribe.util.model.AppTheme) -> com.primaloptima.scribe.util.model.AppTheme) -> Unit,
+    onBackToMenu    : () -> Unit,
+    onClose         : () -> Unit,
+    modifier        : Modifier = Modifier
+) {
+    var category by remember(initialCategory) { mutableStateOf(initialCategory) }
+    var typographyTool by remember { mutableStateOf("size") }
+    var typographyTarget by remember { mutableStateOf("document") }
+    var alignmentTarget by remember { mutableStateOf("document") }
+    var colorRole by remember { mutableStateOf("title1") }
+    var customHexInput by remember { mutableStateOf("") }
+    var isEditingHex by remember { mutableStateOf(false) }
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .navigationBarsPadding(),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+        shadowElevation = 16.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.40f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+        ) {
+            // Drag handle
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 36.dp, height = 4.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f))
+                )
+            }
+
+            // Top Bar: [< Back] • Title & Category Toggle • [X Close]
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onBackToMenu,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back to Menu",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = if (category == "text") "Typography HUD" else "Colors HUD",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                // Category Toggle Pills: [ Text | Colors ]
+                Row(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    listOf("text" to "Text", "colors" to "Colors").forEach { (catKey, catLabel) ->
+                        val isSelected = category == catKey
+                        Surface(
+                            onClick = { category = catKey },
+                            shape = CircleShape,
+                            color = if (isSelected) ScribeTheme.colors.interaction.primary else Color.Transparent,
+                            modifier = Modifier.height(26.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier.padding(horizontal = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = catLabel,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+
+                IconButton(
+                    onClick = onClose,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close HUD",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            // Sub-Tool Strip & Controls
+            if (category == "text") {
+                // Typography Tools
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        "size" to "Size",
+                        "font" to "Font",
+                        "weight" to "Weight",
+                        "margins" to "Margins",
+                        "line" to "Line Spacing",
+                        "para" to "Paragraph",
+                        "align" to "Alignment"
+                    ).forEach { (toolKey, toolLabel) ->
+                        val isSelected = typographyTool == toolKey
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { typographyTool = toolKey },
+                            label = { Text(toolLabel, fontSize = 11.5.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) }
+                        )
+                    }
+                }
+
+                // Target Selector when applicable
+                if (typographyTool in listOf("size", "font", "weight", "line")) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Target Scope:",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = ScribeTheme.colors.content.secondary
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf(
+                                "document" to "Document",
+                                "title1" to "Title 1",
+                                "title2" to "Title 2"
+                            ).forEach { (tKey, tLabel) ->
+                                val isSelected = typographyTarget == tKey
+                                Surface(
+                                    onClick = { typographyTarget = tKey },
+                                    shape = ScribeTheme.shapes.button,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
+                                    ),
+                                    modifier = Modifier.height(24.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier.padding(horizontal = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = tLabel,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } else if (typographyTool == "align") {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Target Scope:",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = ScribeTheme.colors.content.secondary
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            listOf(
+                                "document" to "Document Text",
+                                "titles" to "Titles"
+                            ).forEach { (tKey, tLabel) ->
+                                val isSelected = alignmentTarget == tKey
+                                Surface(
+                                    onClick = { alignmentTarget = tKey },
+                                    shape = ScribeTheme.shapes.button,
+                                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        1.dp,
+                                        if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
+                                    ),
+                                    modifier = Modifier.height(24.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier.padding(horizontal = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = tLabel,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Active Tool Control UI
+                when (typographyTool) {
+                    "size" -> {
+                        val currentVal = when (typographyTarget) {
+                            "title1" -> (activeTheme.title1FontSize ?: 18).toFloat()
+                            "title2" -> (activeTheme.title2FontSize ?: 24).toFloat()
+                            else -> activeTheme.fontSize.toFloat()
+                        }
+                        val minRange = if (typographyTarget == "title2") 14f else if (typographyTarget == "title1") 12f else 10f
+                        val maxRange = if (typographyTarget == "title2") 56f else if (typographyTarget == "title1") 48f else 36f
+
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = when (typographyTarget) {
+                                        "title1" -> "Title 1 (Chapter) Size"
+                                        "title2" -> "Title 2 (Main Title) Size"
+                                        else -> "Document Prose Size"
+                                    },
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = "${currentVal.roundToInt()} sp",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Slider(
+                                value = currentVal.coerceIn(minRange, maxRange),
+                                onValueChange = { newVal ->
+                                    val rounded = newVal.roundToInt()
+                                    when (typographyTarget) {
+                                        "title1" -> onUpdateTheme { it.copy(title1FontSize = rounded) }
+                                        "title2" -> onUpdateTheme { it.copy(title2FontSize = rounded) }
+                                        else -> onUpdateTheme { it.copy(fontSize = rounded) }
+                                    }
+                                },
+                                valueRange = minRange..maxRange
+                            )
+                        }
+                    }
+                    "font" -> {
+                        val activeFont = when (typographyTarget) {
+                            "title1", "title2" -> activeTheme.titleFontFamily ?: activeTheme.fontFamily
+                            else -> activeTheme.fontFamily
+                        }
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = when (typographyTarget) {
+                                    "title1" -> "Title 1 Font Family"
+                                    "title2" -> "Title 2 Font Family"
+                                    else -> "Document Font Family"
+                                },
+                                fontSize = 11.5.sp,
+                                color = ScribeTheme.colors.content.secondary
+                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                FontHelper.fontOptions.forEach { opt ->
+                                    val isSelected = activeFont.equals(opt.key, ignoreCase = true) ||
+                                            (opt.key == "default" && (activeFont.isEmpty() || activeFont == "default" || activeFont == "sans"))
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = {
+                                            when (typographyTarget) {
+                                                "title1", "title2" -> onUpdateTheme { it.copy(titleFontFamily = opt.key) }
+                                                else -> onUpdateTheme { it.copy(fontFamily = opt.key) }
+                                            }
+                                        },
+                                        label = { Text(opt.name, fontSize = 11.5.sp) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    "weight" -> {
+                        val currentWeight = when (typographyTarget) {
+                            "title1" -> activeTheme.title1FontWeight ?: 600
+                            "title2" -> activeTheme.title2FontWeight ?: 700
+                            else -> activeTheme.documentFontWeight
+                        }
+                        val weightLabels = mapOf(
+                            300 to "Light (300)",
+                            400 to "Regular (400)",
+                            500 to "Medium (500)",
+                            600 to "SemiBold (600)",
+                            700 to "Bold (700)",
+                            800 to "ExtraBold (800)"
+                        )
+
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = when (typographyTarget) {
+                                        "title1" -> "Title 1 Weight"
+                                        "title2" -> "Title 2 Weight"
+                                        else -> "Document Font Weight"
+                                    },
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = weightLabels[currentWeight] ?: "$currentWeight",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                listOf(300, 400, 500, 600, 700, 800).forEach { w ->
+                                    val isSelected = currentWeight == w
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = {
+                                            when (typographyTarget) {
+                                                "title1" -> onUpdateTheme { it.copy(title1FontWeight = w) }
+                                                "title2" -> onUpdateTheme { it.copy(title2FontWeight = w) }
+                                                else -> onUpdateTheme { it.copy(documentFontWeight = w) }
+                                            }
+                                        },
+                                        label = { Text(weightLabels[w] ?: "$w", fontSize = 11.sp) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    "margins" -> {
+                        val currentPadding = activeTheme.paddingHorizontal.toFloat().coerceIn(8f, 72f)
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Canvas Side Margins", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                Text("${currentPadding.roundToInt()} dp", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                            }
+                            Slider(
+                                value = currentPadding,
+                                onValueChange = { newVal ->
+                                    onUpdateTheme { it.copy(paddingHorizontal = newVal.roundToInt()) }
+                                },
+                                valueRange = 8f..72f
+                            )
+                        }
+                    }
+                    "line" -> {
+                        val currentVal = when (typographyTarget) {
+                            "title1" -> activeTheme.title1LineHeight ?: 1.35f
+                            "title2" -> activeTheme.title2LineHeight ?: 1.30f
+                            else -> activeTheme.lineHeight
+                        }.coerceIn(1.0f, 2.4f)
+
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = when (typographyTarget) {
+                                        "title1" -> "Title 1 Line Height"
+                                        "title2" -> "Title 2 Line Height"
+                                        else -> "Prose Line Spacing"
+                                    },
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Text(
+                                    text = String.format("%.2fx", currentVal),
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Slider(
+                                value = currentVal,
+                                onValueChange = { newVal ->
+                                    val rounded = (newVal * 20).roundToInt() / 20f
+                                    when (typographyTarget) {
+                                        "title1" -> onUpdateTheme { it.copy(title1LineHeight = rounded) }
+                                        "title2" -> onUpdateTheme { it.copy(title2LineHeight = rounded) }
+                                        else -> onUpdateTheme { it.copy(lineHeight = rounded) }
+                                    }
+                                },
+                                valueRange = 1.0f..2.4f
+                            )
+                        }
+                    }
+                    "para" -> {
+                        val currentVal = (activeTheme.paragraphSpacing ?: 0).toFloat().coerceIn(0f, 40f)
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Paragraph Block Spacing", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                Text("${currentVal.roundToInt()} dp", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                            }
+                            Slider(
+                                value = currentVal,
+                                onValueChange = { newVal ->
+                                    onUpdateTheme { it.copy(paragraphSpacing = newVal.roundToInt()) }
+                                },
+                                valueRange = 0f..40f
+                            )
+                        }
+                    }
+                    "align" -> {
+                        if (alignmentTarget == "document") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(
+                                    "left" to "Left",
+                                    "justified" to "Justified",
+                                    "center" to "Center"
+                                ).forEach { (key, label) ->
+                                    val isSelected = (activeTheme.textAlignment.ifEmpty { "left" }).equals(key, ignoreCase = true)
+                                    Surface(
+                                        onClick = { onUpdateTheme { it.copy(textAlignment = key) } },
+                                        shape = ScribeTheme.shapes.button,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp,
+                                            if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
+                                        ),
+                                        modifier = Modifier.weight(1f).height(36.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = label,
+                                                fontSize = 12.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(
+                                    "left" to "Left",
+                                    "center" to "Center",
+                                    "right" to "Right"
+                                ).forEach { (key, label) ->
+                                    val isSelected = (activeTheme.titleAlignment.ifEmpty { "center" }).equals(key, ignoreCase = true)
+                                    Surface(
+                                        onClick = { onUpdateTheme { it.copy(titleAlignment = key) } },
+                                        shape = ScribeTheme.shapes.button,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp,
+                                            if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent
+                                        ),
+                                        modifier = Modifier.weight(1f).height(36.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = label,
+                                                fontSize = 12.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Colors Section
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    listOf(
+                        "title1" to "Title 1",
+                        "title2" to "Title 2",
+                        "prose" to "Prose",
+                        "dialogue" to "Dialogue",
+                        "thoughts" to "Thoughts",
+                        "headings" to "Headings"
+                    ).forEach { (rKey, rLabel) ->
+                        val isSelected = colorRole == rKey
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = {
+                                colorRole = rKey
+                                isEditingHex = false
+                            },
+                            label = { Text(rLabel, fontSize = 11.5.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) }
+                        )
+                    }
+                }
+
+                val currentHex = when (colorRole) {
+                    "title1" -> activeTheme.primaryTitleColor ?: activeTheme.colors?.headingText ?: "#0F172A"
+                    "title2" -> activeTheme.secondaryTitleColor ?: activeTheme.colors?.text ?: "#0F172A"
+                    "prose" -> activeTheme.colors?.text ?: "#0F172A"
+                    "dialogue" -> activeTheme.overrides?.dialogueText ?: activeTheme.colors?.dialogueText ?: "#0D9488"
+                    "thoughts" -> activeTheme.overrides?.monologueText ?: activeTheme.colors?.monologueText ?: "#7C3AED"
+                    "headings" -> activeTheme.overrides?.headingText ?: activeTheme.colors?.headingText ?: "#B45309"
+                    else -> "#0F172A"
+                }
+
+                val applyColor = { hex: String ->
+                    when (colorRole) {
+                        "title1" -> onUpdateTheme { it.copy(primaryTitleColor = hex) }
+                        "title2" -> onUpdateTheme { it.copy(secondaryTitleColor = hex) }
+                        "prose" -> onUpdateTheme { ThemeManager.updateFoundationColors(it, newText = hex) }
+                        "dialogue" -> onUpdateTheme { ThemeManager.updateSemanticOverride(it, "dialogueText", hex) }
+                        "thoughts" -> onUpdateTheme { ThemeManager.updateSemanticOverride(it, "monologueText", hex) }
+                        "headings" -> onUpdateTheme { ThemeManager.updateSemanticOverride(it, "headingText", hex) }
+                    }
+                }
+
+                val swatches = listOf(
+                    "#0F172A", "#334155", "#475569", "#64748B",
+                    "#F8FAFC", "#F1F5F9", "#FFFFFF",
+                    "#B45309", "#78350F", "#D97706",
+                    "#059669", "#047857", "#0D9488",
+                    "#1D4ED8", "#4F46E5", "#3730A3",
+                    "#7C3AED", "#6D28D9", "#8B5CF6",
+                    "#DC2626", "#B91C1C", "#EA580C"
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Current: $currentHex",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    TextButton(
+                        onClick = {
+                            customHexInput = currentHex
+                            isEditingHex = !isEditingHex
+                        },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Text(if (isEditingHex) "Hide Hex" else "Custom Hex", fontSize = 11.sp)
+                    }
+                }
+
+                if (isEditingHex) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = customHexInput,
+                            onValueChange = { input ->
+                                customHexInput = input
+                                if (input.startsWith("#") && (input.length == 7 || input.length == 9)) {
+                                    runCatching {
+                                        android.graphics.Color.parseColor(input)
+                                        applyColor(input)
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            label = { Text("Hex Color (e.g. #D97706)", fontSize = 10.5.sp) },
+                            modifier = Modifier.weight(1f),
+                            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                        )
+                        Button(
+                            onClick = {
+                                val formatted = if (customHexInput.startsWith("#")) customHexInput else "#$customHexInput"
+                                runCatching {
+                                    android.graphics.Color.parseColor(formatted)
+                                    applyColor(formatted)
+                                    isEditingHex = false
+                                }
+                            },
+                            modifier = Modifier.height(48.dp)
+                        ) {
+                            Text("Apply", fontSize = 11.5.sp)
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    swatches.forEach { hex ->
+                        val swatchColor = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color.Gray)
+                        val isSelected = currentHex.equals(hex, ignoreCase = true)
+                        Surface(
+                            onClick = { applyColor(hex) },
+                            shape = CircleShape,
+                            color = swatchColor,
+                            border = androidx.compose.foundation.BorderStroke(
+                                if (isSelected) 2.5.dp else 1.dp,
+                                if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                            ),
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            if (isSelected) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = if (hex == "#FFFFFF" || hex.startsWith("#F")) Color.Black else Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

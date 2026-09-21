@@ -336,6 +336,16 @@ data class AppTheme(
     val textAlignment: String = "left", // "left" | "justified" | "center"
     val titleAlignment: String = "center", // "left" | "center" | "right"
     val firstLineIndent: Boolean = false,
+    val titleFontFamily: String? = null,
+    val title1FontSize: Int? = null,
+    val title2FontSize: Int? = null,
+    val title1FontWeight: Int? = null,
+    val title2FontWeight: Int? = null,
+    val documentFontWeight: Int = 400,
+    val title1LineHeight: Float? = null,
+    val title2LineHeight: Float? = null,
+    val primaryTitleColor: String? = null,
+    val secondaryTitleColor: String? = null,
     val themeScope: String = "whole_app", // "editor_only" | "whole_app"
     val emoji: String? = null,
     /**
