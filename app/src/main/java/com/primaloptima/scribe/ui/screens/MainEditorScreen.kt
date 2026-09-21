@@ -97,6 +97,7 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -1117,10 +1118,11 @@ fun MainEditorScreen(
             )
         }
 
-        if (activeTuningCategory != null && activeTheme != null) {
+        val curActiveTheme = activeTheme
+        if (activeTuningCategory != null && curActiveTheme != null) {
             EditorLiveTuningHud(
                 initialCategory = activeTuningCategory ?: "text",
-                activeTheme     = activeTheme,
+                activeTheme     = curActiveTheme,
                 onUpdateTheme   = { transform -> editorVm.updateActiveTheme(transform) },
                 onBackToMenu    = {
                     activeTuningCategory = null
@@ -2491,6 +2493,13 @@ fun ManuscriptHeader(
     horizontalPadding: androidx.compose.ui.unit.Dp = 28.dp,
     primaryTitleColor: Color? = null,
     secondaryTitleColor: Color? = null,
+    titleFontFamily: FontFamily? = null,
+    primaryTitleFontSize: androidx.compose.ui.unit.TextUnit = 18.sp,
+    secondaryTitleFontSize: androidx.compose.ui.unit.TextUnit = 24.sp,
+    primaryTitleFontWeight: FontWeight = FontWeight.SemiBold,
+    secondaryTitleFontWeight: FontWeight = FontWeight.Bold,
+    primaryTitleLineHeight: androidx.compose.ui.unit.TextUnit = androidx.compose.ui.unit.TextUnit.Unspecified,
+    secondaryTitleLineHeight: androidx.compose.ui.unit.TextUnit = androidx.compose.ui.unit.TextUnit.Unspecified,
     onPrimaryTitleChange: ((String) -> Unit)? = null,
     onSecondaryTitleChange: ((String) -> Unit)? = null,
     onOrnamentClick: (() -> Unit)? = null,
@@ -2552,7 +2561,10 @@ fun ManuscriptHeader(
                 maxLines = 4,
                 textStyle = MaterialTheme.typography.titleMedium.copy(
                     color = primaryColor,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = primaryTitleFontWeight,
+                    fontSize = primaryTitleFontSize,
+                    fontFamily = titleFontFamily,
+                    lineHeight = if (primaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) primaryTitleLineHeight else MaterialTheme.typography.titleMedium.lineHeight,
                     textAlign = tAlign,
                     letterSpacing = 2.5.sp
                 ),
@@ -2583,7 +2595,10 @@ fun ManuscriptHeader(
                                 text = "CHAPTER / TITLE",
                                 style = MaterialTheme.typography.titleMedium.copy(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                    fontWeight = FontWeight.SemiBold,
+                                    fontWeight = primaryTitleFontWeight,
+                                    fontSize = primaryTitleFontSize,
+                                    fontFamily = titleFontFamily,
+                                    lineHeight = if (primaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) primaryTitleLineHeight else MaterialTheme.typography.titleMedium.lineHeight,
                                     textAlign = tAlign,
                                     letterSpacing = 2.5.sp
                                 )
@@ -2620,7 +2635,10 @@ fun ManuscriptHeader(
                     maxLines = 4,
                     textStyle = MaterialTheme.typography.headlineMedium.copy(
                         color = secondaryColor,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = secondaryTitleFontWeight,
+                        fontSize = secondaryTitleFontSize,
+                        fontFamily = titleFontFamily,
+                        lineHeight = if (secondaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) secondaryTitleLineHeight else MaterialTheme.typography.headlineMedium.lineHeight,
                         textAlign = tAlign
                     ),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
@@ -2654,7 +2672,10 @@ fun ManuscriptHeader(
                                     text = "Manuscript Title (Optional)",
                                     style = MaterialTheme.typography.headlineMedium.copy(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                                        fontWeight = FontWeight.Bold,
+                                        fontWeight = secondaryTitleFontWeight,
+                                        fontSize = secondaryTitleFontSize,
+                                        fontFamily = titleFontFamily,
+                                        lineHeight = if (secondaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) secondaryTitleLineHeight else MaterialTheme.typography.headlineMedium.lineHeight,
                                         textAlign = tAlign
                                     )
                                 )
@@ -2698,7 +2719,10 @@ fun ManuscriptHeader(
                     text = primaryTitleText,
                     style = MaterialTheme.typography.titleMedium.copy(
                         color = primaryColor,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = primaryTitleFontWeight,
+                        fontSize = primaryTitleFontSize,
+                        fontFamily = titleFontFamily,
+                        lineHeight = if (primaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) primaryTitleLineHeight else MaterialTheme.typography.titleMedium.lineHeight,
                         textAlign = tAlign,
                         letterSpacing = 2.sp
                     ),
@@ -2713,7 +2737,10 @@ fun ManuscriptHeader(
                     text = secondaryTitleText,
                     style = MaterialTheme.typography.headlineMedium.copy(
                         color = secondaryColor,
-                        fontWeight = FontWeight.Bold,
+                        fontWeight = secondaryTitleFontWeight,
+                        fontSize = secondaryTitleFontSize,
+                        fontFamily = titleFontFamily,
+                        lineHeight = if (secondaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) secondaryTitleLineHeight else MaterialTheme.typography.headlineMedium.lineHeight,
                         textAlign = tAlign
                     ),
                     textAlign = tAlign,
