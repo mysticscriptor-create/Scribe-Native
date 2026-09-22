@@ -1,3 +1,14 @@
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import android.view.inputmethod.InputMethodManager
+import android.app.Activity
+import android.content.Context
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.material3.ripple
 package com.primaloptima.scribe.ui.screens
 
 import android.net.Uri
@@ -188,6 +199,7 @@ fun MainEditorScreen(
     val context = LocalContext.current
     val scope   = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     // ── Adaptive Window Size Class ────────────────────────────────────────────
     val adaptiveInfo = currentWindowAdaptiveInfo()
@@ -246,6 +258,19 @@ fun MainEditorScreen(
     var showRenameDialog     by remember { mutableStateOf(false) }
     var showCreateNoteDialog by remember { mutableStateOf(false) }
     var showEditorTray       by remember { mutableStateOf(false) }
+
+    // Dismiss keyboard immediately whenever the overflow menu opens
+    LaunchedEffect(showEditorTray) {
+        if (showEditorTray) {
+            keyboardController?.hide()
+            focusManager.clearFocus()
+            try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            val windowToken = (context as? Activity)?.window?.decorView?.windowToken
+                ?: soraEditorRef?.windowToken
+            windowToken?.let { imm?.hideSoftInputFromWindow(it, 0) }
+        }
+    }
     var activeTuningCategory by rememberSaveable { mutableStateOf<String?>(null) }
 
     BackHandler(enabled = activeTuningCategory != null) {
@@ -424,7 +449,6 @@ fun MainEditorScreen(
             val hints = ProseInlayHintProvider.computeInlayHints(
                 note.content,
                 worldEntries,
-                activeTheme?.firstLineIndent ?: false,
                 activeTheme?.paragraphSpacing ?: 14
             )
 
@@ -463,7 +487,7 @@ fun MainEditorScreen(
 
     // Debounced analysis for Inlay Hints (Scene word counts, POV tags, Paragraph Indents) and Diagnostics
     var editorCurrentText by remember { mutableStateOf("") }
-    LaunchedEffect(editorCurrentText, worldEntries, activeTheme?.firstLineIndent, activeTheme?.paragraphSpacing) {
+    LaunchedEffect(editorCurrentText, worldEntries, activeTheme?.paragraphSpacing) {
         if (editorCurrentText.isEmpty()) return@LaunchedEffect
         val editor = soraEditorRef ?: return@LaunchedEffect
         delay(400) // Debounce 400ms to keep editing fluid
@@ -471,7 +495,6 @@ fun MainEditorScreen(
             ProseInlayHintProvider.computeInlayHints(
                 editorCurrentText,
                 worldEntries,
-                activeTheme?.firstLineIndent ?: false,
                 activeTheme?.paragraphSpacing ?: 14
             )
         }
@@ -482,15 +505,14 @@ fun MainEditorScreen(
         editor.setDiagnostics(diagnostics)
     }
 
-    // Immediate update when firstLineIndent or paragraphSpacing toggles in options or HUD
-    LaunchedEffect(activeTheme?.firstLineIndent, activeTheme?.paragraphSpacing) {
+    // Immediate update when paragraphSpacing toggles in options or HUD
+    LaunchedEffect(activeTheme?.paragraphSpacing) {
         val editor = soraEditorRef ?: return@LaunchedEffect
         val curText = editor.text?.toString() ?: ""
         if (curText.isEmpty()) return@LaunchedEffect
         val hints = ProseInlayHintProvider.computeInlayHints(
             curText,
             worldEntries,
-            activeTheme?.firstLineIndent ?: false,
             activeTheme?.paragraphSpacing ?: 14
         )
         editor.setInlayHints(hints)
@@ -1049,7 +1071,16 @@ fun MainEditorScreen(
                                         icon = Icons.Default.MoreVert,
                                         contentDescription = "Menu",
                                         hazeState = hazeState,
-                                        onClick = { showEditorTray = true }
+                                        onClick = {
+                                            keyboardController?.hide()
+                                            focusManager.clearFocus()
+                                            try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
+                                            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+                                            val windowToken = (context as? Activity)?.window?.decorView?.windowToken
+                                                ?: soraEditorRef?.windowToken
+                                            windowToken?.let { imm?.hideSoftInputFromWindow(it, 0) }
+                                            showEditorTray = true
+                                        }
                                     )
                                 }
                             }
@@ -1348,6 +1379,18 @@ private fun EditorOptionsBottomSheet(
     onSettings       : () -> Unit,
 ) {
     var showExportOptions by remember { mutableStateOf(false) }
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val context = LocalContext.current
+
+    // Dismiss keyboard immediately when bottom sheet appears
+    LaunchedEffect(Unit) {
+        keyboardController?.hide()
+        focusManager.clearFocus()
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+        val windowToken = (context as? Activity)?.window?.decorView?.windowToken
+        windowToken?.let { imm?.hideSoftInputFromWindow(it, 0) }
+    }
 
     FrostedBottomSheet(
         onDismissRequest = onDismiss
@@ -1392,46 +1435,37 @@ private fun EditorOptionsBottomSheet(
                 }
             }
 
-            // Quick 4-Item Grid (History, Shortcuts, Guide, Export)
+            // Row 1: 4 Compact Boxes (History, Shortcuts, Guide, Export)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                listOf(
-                    Triple("History", Icons.Default.History) { onVersionHistory() },
-                    Triple("Shortcuts", Icons.Default.Keyboard) { onShortcuts() },
-                    Triple("Guide", Icons.AutoMirrored.Filled.Help) { onGuide() },
-                    Triple("Export", Icons.Default.Share) { showExportOptions = !showExportOptions }
-                ).forEach { (label, icon, action) ->
-                    Surface(
-                        onClick = action,
-                        shape = ScribeTheme.shapes.button,
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(vertical = 10.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Icon(
-                                imageVector = icon,
-                                contentDescription = null,
-                                tint = ScribeTheme.colors.interaction.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = label,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-                }
+                EditorTactileBox(
+                    title = "History",
+                    icon = Icons.Default.History,
+                    modifier = Modifier.weight(1f),
+                    onClick = onVersionHistory
+                )
+                EditorTactileBox(
+                    title = "Shortcuts",
+                    icon = Icons.Default.Keyboard,
+                    modifier = Modifier.weight(1f),
+                    onClick = onShortcuts
+                )
+                EditorTactileBox(
+                    title = "Guide",
+                    icon = Icons.AutoMirrored.Filled.Help,
+                    modifier = Modifier.weight(1f),
+                    onClick = onGuide
+                )
+                EditorTactileBox(
+                    title = "Export",
+                    icon = Icons.Default.Share,
+                    modifier = Modifier.weight(1f),
+                    onClick = { showExportOptions = !showExportOptions }
+                )
             }
 
             // Collapsible Export Options Section
@@ -1459,165 +1493,78 @@ private fun EditorOptionsBottomSheet(
                             "HTML" to "html",
                             "PDF" to "pdf"
                         ).forEach { (label, format) ->
-                            Surface(
-                                onClick = { onExport(format) },
-                                shape = ScribeTheme.shapes.button,
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(vertical = 8.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = when (format) {
-                                            "txt" -> Icons.Default.Description
-                                            "md" -> Icons.Default.Code
-                                            "html" -> Icons.Default.Language
-                                            else -> Icons.Default.PictureAsPdf
-                                        },
-                                        contentDescription = null,
-                                        tint = ScribeTheme.colors.interaction.primary,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(Modifier.height(2.dp))
-                                    Text(
-                                        text = label,
-                                        fontSize = 10.5.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                            }
+                            EditorTactileBox(
+                                title = label,
+                                icon = when (format) {
+                                    "txt" -> Icons.Default.Description
+                                    "md" -> Icons.Default.Code
+                                    "html" -> Icons.Default.Language
+                                    else -> Icons.Default.PictureAsPdf
+                                },
+                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                                modifier = Modifier.weight(1f),
+                                onClick = { onExport(format) }
+                            )
                         }
                     }
                 }
             }
 
-            // Quick Mode Actions (Zen Mode & Floating Reference)
+            // Row 2: 4 Compact Boxes (Typography, Colors, Themes, Settings)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                EditorTactileBox(
+                    title = "Typography",
+                    icon = Icons.Default.TextFields,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onOpenTuning("text") }
+                )
+                EditorTactileBox(
+                    title = "Colors",
+                    icon = Icons.Default.Palette,
+                    modifier = Modifier.weight(1f),
+                    onClick = { onOpenTuning("colors") }
+                )
+                EditorTactileBox(
+                    title = "Themes",
+                    icon = Icons.Default.Style,
+                    modifier = Modifier.weight(1f),
+                    onClick = onOpenThemes
+                )
+                EditorTactileBox(
+                    title = "Settings",
+                    icon = Icons.Default.Settings,
+                    modifier = Modifier.weight(1f),
+                    onClick = onSettings
+                )
+            }
+
+            // Row 3: Quick Mode Actions (Zen Mode & Floating)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                EditorTrayActionCard(
+                EditorTactileBox(
                     title = "Zen Mode",
-                    subtitle = "Focus distraction-free",
                     icon = Icons.Default.Fullscreen,
                     modifier = Modifier.weight(1f),
                     onClick = onEnterZen
                 )
-                EditorTrayActionCard(
-                    title = "Floating Window",
-                    subtitle = "Pin as quick reference",
+                EditorTactileBox(
+                    title = "Floating",
                     icon = Icons.Default.PictureInPicture,
                     modifier = Modifier.weight(1f),
                     onClick = onOpenFloating
                 )
             }
 
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
-
-            // ── FINE-TUNING & STYLING SECTION ───────────────────────────────────────────
-            Text(
-                text = "FINE-TUNING & STYLING",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = ScribeTheme.colors.content.secondary,
-                letterSpacing = 0.5.sp,
-                modifier = Modifier.padding(start = 2.dp, top = 8.dp, bottom = 6.dp)
-            )
-
-            EditorTrayMenuItem(
-                title = "Text & Typography",
-                subtitle = "Tune font, size, weight, margins, line & paragraph spacing",
-                icon = Icons.Default.TextFields,
-                onClick = { onOpenTuning("text") }
-            )
-
-            EditorTrayMenuItem(
-                title = "Colors & Highlights",
-                subtitle = "Customize Title 1, Title 2, Prose, Dialogue, Thoughts & Headings",
-                icon = Icons.Default.Palette,
-                onClick = { onOpenTuning("colors") }
-            )
-
-            Spacer(Modifier.height(4.dp))
-
-            // Dedicated Indent Section with Centered Switch (no icon, clean centered toggle)
-            activeTheme?.let { theme ->
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(ScribeTheme.shapes.cardSmall)
-                        .clickable { onUpdateTheme { it.copy(firstLineIndent = !it.firstLineIndent) } },
-                    shape = ScribeTheme.shapes.cardSmall,
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Indent",
-                                    fontSize = 13.5.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "Automatically indent first line of paragraphs",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            Box(
-                                modifier = Modifier.padding(start = 8.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Switch(
-                                    checked = theme.firstLineIndent,
-                                    onCheckedChange = { isChecked ->
-                                        onUpdateTheme { it.copy(firstLineIndent = isChecked) }
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                modifier = Modifier.padding(vertical = 4.dp)
-            )
-
-            // Navigation & Preferences
-            EditorTrayMenuItem(
-                title = "Themes & Appearance",
-                subtitle = "Open full theme studio and customize palette",
-                icon = Icons.Default.Style,
-                onClick = onOpenThemes
-            )
-            EditorTrayMenuItem(
-                title = "Settings & Preferences",
-                subtitle = "App backup, editor behavior, and configurations",
-                icon = Icons.Default.Settings,
-                onClick = onSettings
-            )
-
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(10.dp))
         }
     }
 }
@@ -1640,9 +1587,60 @@ private fun EditorLiveTuningHud(
     var customHexInput by remember { mutableStateOf("") }
     var isEditingHex by remember { mutableStateOf(false) }
 
+    val coroutineScope = rememberCoroutineScope()
+    val animOffsetY = remember { Animatable(0f) }
+    var hudHeightPx by remember { mutableFloatStateOf(600f) }
+
+    val dismissWithAnimation: () -> Unit = {
+        coroutineScope.launch {
+            animOffsetY.animateTo(
+                targetValue = hudHeightPx,
+                animationSpec = tween(durationMillis = 180)
+            )
+            onClose()
+        }
+    }
+
+    BackHandler(enabled = true) {
+        dismissWithAnimation()
+    }
+
+    val draggableState = rememberDraggableState { delta ->
+        if (delta > 0 || animOffsetY.value > 0f) {
+            coroutineScope.launch {
+                animOffsetY.snapTo((animOffsetY.value + delta).coerceAtLeast(0f))
+            }
+        }
+    }
+
+    val onDragStoppedAction: suspend (Float) -> Unit = { velocity ->
+        if (animOffsetY.value > 120f || velocity > 650f) {
+            dismissWithAnimation()
+        } else {
+            animOffsetY.animateTo(
+                targetValue = 0f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+        }
+    }
+
     Surface(
         modifier = modifier
             .fillMaxWidth()
+            .onGloballyPositioned { coordinates ->
+                hudHeightPx = coordinates.size.height.toFloat()
+            }
+            .graphicsLayer {
+                translationY = animOffsetY.value
+            }
+            .draggable(
+                state = draggableState,
+                orientation = Orientation.Vertical,
+                onDragStopped = { v -> coroutineScope.launch { onDragStoppedAction(v) } }
+            )
             .navigationBarsPadding(),
         shape = androidx.compose.foundation.shape.RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
@@ -1654,18 +1652,23 @@ private fun EditorLiveTuningHud(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
-            // Drag handle
+            // Drag handle with touch gesture support
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 6.dp),
+                    .draggable(
+                        state = draggableState,
+                        orientation = Orientation.Vertical,
+                        onDragStopped = { v -> coroutineScope.launch { onDragStoppedAction(v) } }
+                    )
+                    .padding(top = 2.dp, bottom = 6.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
                     modifier = Modifier
-                        .size(width = 36.dp, height = 4.dp)
+                        .size(width = 38.dp, height = 4.dp)
                         .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.25f))
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f))
                 )
             }
 
@@ -1730,7 +1733,7 @@ private fun EditorLiveTuningHud(
                 }
 
                 IconButton(
-                    onClick = onClose,
+                    onClick = dismissWithAnimation,
                     modifier = Modifier.size(32.dp)
                 ) {
                     Icon(
@@ -2330,108 +2333,69 @@ private fun EditorLiveTuningHud(
     }
 }
 
+/**
+ * Tactile compact option box with an icon, concise text label, and subtle directional
+ * shadow underneath and to the side (bottom & right) for a modern elevated feel.
+ */
 @Composable
-private fun EditorTrayActionCard(
+private fun EditorTactileBox(
     title: String,
-    subtitle: String,
     icon: ImageVector,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit
+    containerColor: Color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f),
+    contentColor: Color = ScribeTheme.colors.interaction.primary,
+    textColor: Color = MaterialTheme.colorScheme.onSurface
 ) {
-    Surface(
-        onClick = onClick,
-        shape = ScribeTheme.shapes.cardSmall,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.50f),
-        modifier = modifier
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = CircleShape,
-                color = ScribeTheme.colors.interaction.primary.copy(alpha = 0.15f),
-                modifier = Modifier.size(34.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = ScribeTheme.colors.interaction.primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = subtitle,
-                    fontSize = 10.5.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-    }
-}
+    val isDark = LocalAppTheme.current?.isDark == true
+    val shadowColor = if (isDark) Color.Black.copy(alpha = 0.55f) else Color(0xFF0F172A).copy(alpha = 0.10f)
+    val borderColor = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
 
-@Composable
-private fun EditorTrayMenuItem(
-    title: String,
-    subtitle: String,
-    icon: ImageVector,
-    onClick: () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        shape = ScribeTheme.shapes.button,
-        color = Color.Transparent,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 1.dp)
+    Box(
+        modifier = modifier
+            .drawBehind {
+                val cornerPx = 12.dp.toPx()
+                // Directional tactile shadow: thin, crisp below and to the right side
+                drawRoundRect(
+                    color = shadowColor,
+                    topLeft = Offset(1.5.dp.toPx(), 2.dp.toPx()),
+                    size = size,
+                    cornerRadius = CornerRadius(cornerPx, cornerPx)
+                )
+            }
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+            .background(containerColor)
+            .border(
+                width = 1.dp,
+                color = borderColor,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+            )
+            .clickable(
+                onClick = onClick,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(bounded = true)
+            )
+            .padding(vertical = 10.dp, horizontal = 4.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = ScribeTheme.colors.interaction.primary,
+                tint = contentColor,
                 modifier = Modifier.size(20.dp)
             )
-            Spacer(Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = subtitle,
-                    fontSize = 11.5.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                )
-            }
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                modifier = Modifier.size(16.dp)
+            Spacer(Modifier.height(5.dp))
+            Text(
+                text = title,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                color = textColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }

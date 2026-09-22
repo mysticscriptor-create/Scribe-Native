@@ -37,7 +37,6 @@ fun ThemeWritingPanel(
     onFontSizeChange: (Float) -> Unit,
     onLineHeightChange: (Float) -> Unit,
     onParagraphSpacingChange: (Float) -> Unit,
-    onFirstLineIndentChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -361,63 +360,6 @@ fun ThemeWritingPanel(
                         onValueChange = onParagraphSpacingChange,
                         valueRange = 0f..32f,
                         steps = 15
-                    )
-                }
-            }
-        }
-
-        // ── 4. INDENT ──────────────────────────────────────────────────────────
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = ScribeTheme.shapes.themeEditorSection,
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Indent",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = ScribeTheme.colors.content.primary
-                    )
-                    Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                        shape = ScribeTheme.shapes.themeEditorControl
-                    ) {
-                        Text(
-                            text = "Paragraph",
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-
-                Text(
-                    text = "Automatically apply first-line paragraph indentation for classic book typesetting.",
-                    fontSize = 12.sp,
-                    color = ScribeTheme.colors.content.secondary,
-                    lineHeight = 16.sp
-                )
-
-                // Toggle in the center instead of an icon
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Switch(
-                        checked = draft.firstLineIndent,
-                        onCheckedChange = onFirstLineIndentChange
                     )
                 }
             }

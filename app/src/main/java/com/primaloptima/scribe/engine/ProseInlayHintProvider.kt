@@ -36,7 +36,6 @@ object ProseInlayHintProvider {
     fun computeInlayHints(
         text: String,
         worldEntries: List<WorldEntry>,
-        firstLineIndent: Boolean = false,
         paragraphSpacing: Int = 14
     ): InlayHintsContainer {
         val container = InlayHintsContainer()
@@ -120,32 +119,6 @@ object ProseInlayHintProvider {
                 tagBadge      // badge text
             )
             container.add(hint)
-        }
-
-        // ── 3. First-line paragraph indentation for classic typesetting ──────────────
-        if (firstLineIndent) {
-            for (i in lines.indices) {
-                val line = lines[i]
-                val trimmed = line.trim()
-                if (trimmed.isEmpty()) continue
-                // Skip headings, scene breaks, tags, blockquotes, list markers
-                if (trimmed.startsWith("#") || trimmed.startsWith("***") || trimmed.startsWith("###") ||
-                    trimmed.startsWith("* * *") || trimmed.startsWith("---") || trimmed.startsWith("/") ||
-                    trimmed.startsWith(">") || trimmed.startsWith("- ") || trimmed.startsWith("* ") ||
-                    trimmed.startsWith("+ ") || isNumberedListItem(trimmed)
-                ) {
-                    continue
-                }
-                // Only indent if line does not already begin with spaces, tabs, or ideographic full-width spaces
-                if (!line.startsWith(" ") && !line.startsWith("\t") && !line.startsWith("\u3000")) {
-                    val indentHint = TextInlayHint(
-                        i,
-                        0,
-                        "    " // 4-space paragraph indent
-                    )
-                    container.add(indentHint)
-                }
-            }
         }
 
         return container

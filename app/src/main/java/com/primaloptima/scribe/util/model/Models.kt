@@ -335,7 +335,6 @@ data class AppTheme(
     val frostedBlurRadius: Float = 15f,
     val textAlignment: String = "left", // "left" | "justified" | "center"
     val titleAlignment: String = "center", // "left" | "center" | "right"
-    val firstLineIndent: Boolean = false,
     val titleFontFamily: String? = null,
     val title1FontSize: Int? = null,
     val title2FontSize: Int? = null,

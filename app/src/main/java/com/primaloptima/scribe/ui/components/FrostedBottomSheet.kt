@@ -2,6 +2,7 @@ package com.primaloptima.scribe.ui.components
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -38,14 +39,21 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import com.primaloptima.scribe.ui.theme.LocalAppTheme
 import com.primaloptima.scribe.ui.theme.LocalHazeState
@@ -55,6 +63,7 @@ import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.autoTextColor
 import com.primaloptima.scribe.ui.theme.frostedPanel
 import dev.chrisbanes.haze.HazeState
+import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 /**
@@ -89,6 +98,8 @@ fun FrostedSheetDragHandle(
  * An in-tree frosted bottom sheet that renders within the main activity window's RenderNode tree.
  * Unlike standard [androidx.compose.material3.ModalBottomSheet] which spawns a detached OS sub-window,
  * [FrostedBottomSheet] maintains seamless access to the root [HazeState] for real-time GPU blur.
+ *
+ * Supports fluid swipe-to-dismiss following the finger with velocity fling detection and spring settle.
  */
 @Composable
 fun FrostedBottomSheet(
@@ -101,21 +112,42 @@ fun FrostedBottomSheet(
     content: @Composable ColumnScope.() -> Unit
 ) {
     var isVisible by remember { mutableStateOf(false) }
-    var offsetY by remember { mutableFloatStateOf(0f) }
+    val animOffsetY = remember { Animatable(0f) }
+    val coroutineScope = rememberCoroutineScope()
+    var sheetHeightPx by remember { mutableFloatStateOf(800f) }
 
     LaunchedEffect(Unit) {
         isVisible = true
     }
 
     val dismissWithAnimation: () -> Unit = {
-        isVisible = false
+        coroutineScope.launch {
+            animOffsetY.animateTo(
+                targetValue = sheetHeightPx,
+                animationSpec = tween(durationMillis = 200)
+            )
+            isVisible = false
+            onDismissRequest()
+        }
     }
 
-    // Dismiss trigger after slideOut completes
-    LaunchedEffect(isVisible) {
-        if (!isVisible) {
-            kotlinx.coroutines.delay(220)
+    // Settle logic when drag stops
+    val settleSheet: suspend (Float) -> Unit = { velocity ->
+        if (animOffsetY.value > 140f || velocity > 750f) {
+            animOffsetY.animateTo(
+                targetValue = sheetHeightPx,
+                animationSpec = tween(durationMillis = 200)
+            )
+            isVisible = false
             onDismissRequest()
+        } else {
+            animOffsetY.animateTo(
+                targetValue = 0f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
         }
     }
 
@@ -123,14 +155,65 @@ fun FrostedBottomSheet(
         dismissWithAnimation()
     }
 
+    val draggableState = rememberDraggableState { delta ->
+        if (delta > 0 || animOffsetY.value > 0f) {
+            coroutineScope.launch {
+                animOffsetY.snapTo((animOffsetY.value + delta).coerceAtLeast(0f))
+            }
+        }
+    }
+
+    val nestedScrollConnection = remember(coroutineScope, sheetHeightPx) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val delta = available.y
+                if (delta < 0 && animOffsetY.value > 0f) {
+                    val consumed = delta.coerceAtLeast(-animOffsetY.value)
+                    coroutineScope.launch { animOffsetY.snapTo(animOffsetY.value + consumed) }
+                    return Offset(0f, consumed)
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                val delta = available.y
+                if (delta > 0 && available.y > 0) {
+                    coroutineScope.launch { animOffsetY.snapTo(animOffsetY.value + delta) }
+                    return Offset(0f, delta)
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (animOffsetY.value > 0f) {
+                    settleSheet(available.y)
+                    return available
+                }
+                return Velocity.Zero
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (animOffsetY.value > 0f) {
+                    settleSheet(available.y)
+                    return available
+                }
+                return Velocity.Zero
+            }
+        }
+    }
+
     val solidSurface = LocalSolidSurface.current
     val contentColor = autoTextColor(solidSurface)
+
+    // Calculate dynamic scrim fade as sheet is dragged down
+    val dragFraction = if (sheetHeightPx > 0f) (animOffsetY.value / sheetHeightPx).coerceIn(0f, 1f) else 0f
+    val scrimAlpha = (1f - dragFraction) * 0.45f
 
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.BottomCenter
     ) {
-        // Scrim backdrop
+        // Scrim backdrop with interactive alpha tracking
         AnimatedVisibility(
             visible = isVisible,
             enter = fadeIn(animationSpec = tween(220)),
@@ -139,7 +222,7 @@ fun FrostedBottomSheet(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.45f))
+                    .background(Color.Black.copy(alpha = scrimAlpha))
                     .clickable(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() }
@@ -164,28 +247,22 @@ fun FrostedBottomSheet(
                 animationSpec = tween(durationMillis = 200)
             ) + fadeOut(animationSpec = tween(150))
         ) {
-            val draggableState = rememberDraggableState { delta ->
-                if (delta > 0 || offsetY > 0) {
-                    offsetY = (offsetY + delta).coerceAtLeast(0f)
-                }
-            }
-
             CompositionLocalProvider(LocalContentColor provides contentColor) {
                 Column(
                     modifier = modifier
                         .fillMaxWidth()
-                        .graphicsLayer {
-                            translationY = offsetY
+                        .onGloballyPositioned { coordinates ->
+                            sheetHeightPx = coordinates.size.height.toFloat()
                         }
+                        .graphicsLayer {
+                            translationY = animOffsetY.value
+                        }
+                        .nestedScroll(nestedScrollConnection)
                         .draggable(
                             state = draggableState,
                             orientation = Orientation.Vertical,
                             onDragStopped = { velocity ->
-                                if (offsetY > 180f || velocity > 800f) {
-                                    dismissWithAnimation()
-                                } else {
-                                    offsetY = 0f
-                                }
+                                coroutineScope.launch { settleSheet(velocity) }
                             }
                         )
                         .frostedPanel(
@@ -200,7 +277,19 @@ fun FrostedBottomSheet(
                         .imePadding()
                         .windowInsetsPadding(WindowInsets.navigationBars)
                 ) {
-                    dragHandle?.invoke()
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .draggable(
+                                state = draggableState,
+                                orientation = Orientation.Vertical,
+                                onDragStopped = { velocity ->
+                                    coroutineScope.launch { settleSheet(velocity) }
+                                }
+                            )
+                    ) {
+                        dragHandle?.invoke()
+                    }
                     content()
                 }
             }

@@ -96,7 +96,6 @@ data class ThemeEditorDraft(
 
     // Layout
     val textAlignment: String,
-    val firstLineIndent: Boolean = false,
     val themeScope: String,
 
     // Atmosphere & Background
@@ -256,7 +255,6 @@ data class ThemeEditorDraft(
         if (paragraphSpacing.toInt() != original.paragraphSpacing) return true
         if (sideMargins.toInt() != original.paddingHorizontal) return true
         if (textAlignment != original.textAlignment) return true
-        if (firstLineIndent != original.firstLineIndent) return true
         if (themeScope != original.themeScope) return true
         if (bgMode != original.bgMode) return true
         if (bgUri != original.backgroundImageUri) return true
@@ -486,7 +484,6 @@ data class ThemeEditorDraft(
             paragraphSpacing = paragraphSpacing.toInt(),
             paddingHorizontal = sideMargins.toInt(),
             textAlignment = textAlignment,
-            firstLineIndent = firstLineIndent,
             themeScope = themeScope,
             bgMode = bgMode,
             backgroundImageUri = bgUri,
@@ -538,7 +535,6 @@ data class ThemeEditorDraft(
                 paragraphSpacing = theme.paragraphSpacing.toFloat(),
                 sideMargins = theme.paddingHorizontal.toFloat(),
                 textAlignment = theme.textAlignment,
-                firstLineIndent = theme.firstLineIndent,
                 themeScope = theme.themeScope,
                 bgMode = theme.bgMode,
                 bgUri = theme.backgroundImageUri,
