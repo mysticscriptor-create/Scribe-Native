@@ -1,15 +1,16 @@
+package com.primaloptima.scribe.ui.screens
+
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import android.view.inputmethod.InputMethodManager
 import android.app.Activity
 import android.content.Context
 import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.material3.ripple
-package com.primaloptima.scribe.ui.screens
+import androidx.compose.animation.core.tween
 
 import android.net.Uri
 import android.widget.Toast
@@ -95,7 +96,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material.icons.automirrored.filled.Help
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import coil3.compose.AsyncImage
 
 import androidx.activity.compose.BackHandler
@@ -259,18 +259,7 @@ fun MainEditorScreen(
     var showCreateNoteDialog by remember { mutableStateOf(false) }
     var showEditorTray       by remember { mutableStateOf(false) }
 
-    // Dismiss keyboard immediately whenever the overflow menu opens
-    LaunchedEffect(showEditorTray) {
-        if (showEditorTray) {
-            keyboardController?.hide()
-            focusManager.clearFocus()
-            try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
-            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
-            val windowToken = (context as? Activity)?.window?.decorView?.windowToken
-                ?: soraEditorRef?.windowToken
-            windowToken?.let { imm?.hideSoftInputFromWindow(it, 0) }
-        }
-    }
+
     var activeTuningCategory by rememberSaveable { mutableStateOf<String?>(null) }
 
     BackHandler(enabled = activeTuningCategory != null) {
@@ -295,6 +284,19 @@ fun MainEditorScreen(
     var soraEditorRef      by remember { mutableStateOf<CodeEditor?>(null) }
     var isHandleDragging   by remember { mutableStateOf(false) }
     var loadedNoteId       by rememberSaveable { mutableStateOf<String?>(null) }
+
+    // Dismiss keyboard immediately whenever the overflow menu opens
+    LaunchedEffect(showEditorTray) {
+        if (showEditorTray) {
+            keyboardController?.hide()
+            focusManager.clearFocus()
+            try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as? InputMethodManager
+            val windowToken = (context as? Activity)?.window?.decorView?.windowToken
+                ?: soraEditorRef?.windowToken
+            windowToken?.let { imm?.hideSoftInputFromWindow(it, 0) }
+        }
+    }
 
     // ── Floating Pills Scroll Animation & Dual-Title State ──────────────────────
     var floatingPillsVisible by rememberSaveable { mutableStateOf(true) }
