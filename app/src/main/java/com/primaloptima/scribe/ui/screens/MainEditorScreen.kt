@@ -739,10 +739,19 @@ fun MainEditorScreen(
                                     isWordwrap             = true
                                     isScalable             = true
                                     setScaleTextSizes(12f * density, 36f * density)
+                                    onPinchScaleEndListener = { finalSp ->
+                                        if (finalSp != (activeTheme?.fontSize ?: 18)) {
+                                            lastAppliedTextSize = finalSp.toFloat()
+                                            editorVm.updateActiveTheme { it.copy(fontSize = finalSp) }
+                                        }
+                                    }
                                     subscribeEvent(TextSizeChangeEvent::class.java) { event, _ ->
-                                        val newSp = (event.newTextSize / density).roundToInt().coerceIn(12, 36)
-                                        if (newSp != (activeTheme?.fontSize ?: 18)) {
-                                            editorVm.updateActiveTheme { it.copy(fontSize = newSp) }
+                                        if (!isPinchScaling) {
+                                            val newSp = (event.newTextSize / density).roundToInt().coerceIn(12, 36)
+                                            if (newSp != (activeTheme?.fontSize ?: 18)) {
+                                                lastAppliedTextSize = newSp.toFloat()
+                                                editorVm.updateActiveTheme { it.copy(fontSize = newSp) }
+                                            }
                                         }
                                     }
                                     registerInlayHintRenderer(
@@ -818,7 +827,8 @@ fun MainEditorScreen(
                                 layout.horizontalPaddingDp = padH
                             }
                             val editor = layout.editor
-                            if (kotlin.math.abs(lastAppliedTextSize - editorTextSizeSp) > 0.1f) {
+                            val scribeEditor = editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor
+                            if (scribeEditor?.isPinchScaling != true && kotlin.math.abs(lastAppliedTextSize - editorTextSizeSp) > 0.1f) {
                                 lastAppliedTextSize = editorTextSizeSp
                                 editor.setTextSize(editorTextSizeSp)
                             }

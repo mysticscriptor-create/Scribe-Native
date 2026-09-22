@@ -8,6 +8,8 @@ import android.text.InputType
 import android.util.AttributeSet
 import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.EditorInfo
+import android.view.MotionEvent
+import kotlin.math.roundToInt
 import android.view.inputmethod.InputConnection
 import io.github.rosemoe.sora.event.LayoutStateChangeEvent
 import io.github.rosemoe.sora.event.ScrollEvent
@@ -79,6 +81,14 @@ class ScribeCodeEditor @JvmOverloads constructor(
         return true
     }
 
+    private val safetyFadeInRunnable = Runnable {
+        if (isAwaitingLayoutReady) {
+            isAwaitingLayoutReady = false
+            alpha = 1f
+            onLayoutReadyListener?.invoke()
+        }
+    }
+
     /**
      * Prepares the editor for a newly loaded document:
      * Fades the editor to invisible (alpha = 0f) and arms the ready-check listener.
@@ -87,6 +97,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
         animate().cancel()
         alpha = 0f
         isAwaitingLayoutReady = true
+        removeCallbacks(safetyFadeInRunnable)
+        postDelayed(safetyFadeInRunnable, 600)
     }
 
     /**
@@ -95,6 +107,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
      */
     fun checkAndTriggerReady() {
         if (isAwaitingLayoutReady && isWordwrapReady()) {
+            removeCallbacks(safetyFadeInRunnable)
             isAwaitingLayoutReady = false
             onLayoutReadyListener?.invoke()
             animate()
@@ -110,6 +123,13 @@ class ScribeCodeEditor @JvmOverloads constructor(
      * (e.g. empty document) or to schedule the check on the UI message looper.
      */
     fun notifyContentSet() {
+        if (text.length == 0 || !isWordwrap) {
+            removeCallbacks(safetyFadeInRunnable)
+            isAwaitingLayoutReady = false
+            alpha = 1f
+            onLayoutReadyListener?.invoke()
+            return
+        }
         post {
             checkAndTriggerReady()
         }
@@ -186,10 +206,41 @@ class ScribeCodeEditor @JvmOverloads constructor(
         }
     }
 
+    /**
+     * Override createLayout to preserve wordwrap cache during interactive adjustments
+     * (sliders for font size, margin changes, typeface updates, pinch-to-zoom).
+     *
+     * When loading a brand new document (isAwaitingLayoutReady is true), cache is cleared (true).
+     * Once the document is open and visible, cache is preserved (false) so that rowTable is NEVER
+     * emptied while background tasks recompute breaks. This guarantees zero flashing into single-line
+     * mode and zero disappearing text during interactive sliders.
+     */
+    override fun createLayout() {
+        val shouldClear = isAwaitingLayoutReady || layout == null
+        super.createLayout(shouldClear)
+    }
+
+    val isPinchScaling: Boolean
+        get() = eventHandler?.isScaling == true
+
+    var onPinchScaleEndListener: ((finalSizeSp: Int) -> Unit)? = null
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        val wasScaling = eventHandler?.isScaling == true
+        val result = super.onTouchEvent(event)
+        val isScalingNow = eventHandler?.isScaling == true
+
+        if (wasScaling && !isScalingNow) {
+            val currentSp = (textSizePx / context.resources.displayMetrics.density).roundToInt().coerceIn(12, 36)
+            onPinchScaleEndListener?.invoke(currentSp)
+        }
+        return result
+    }
+
     override fun onDraw(canvas: Canvas) {
-        if (isWordwrap && !isWordwrapReady()) {
-            // Layout computation in progress. Paint only background color to completely
-            // eliminate flashing of un-wrapped single-line fallback text.
+        if (isAwaitingLayoutReady && isWordwrap && !isWordwrapReady()) {
+            // Layout computation for initial document load in progress. Paint only background
+            // color to completely eliminate flashing of un-wrapped single-line fallback text.
             val bgColor = colorScheme?.getColor(EditorColorScheme.WHOLE_BACKGROUND) ?: Color.TRANSPARENT
             canvas.drawColor(bgColor)
             return
