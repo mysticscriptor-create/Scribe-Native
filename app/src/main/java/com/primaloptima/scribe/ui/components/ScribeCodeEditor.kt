@@ -1,12 +1,19 @@
 package com.primaloptima.scribe.ui.components
 
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Rect
 import android.text.InputType
 import android.util.AttributeSet
+import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
+import io.github.rosemoe.sora.event.LayoutStateChangeEvent
 import io.github.rosemoe.sora.event.ScrollEvent
 import io.github.rosemoe.sora.widget.CodeEditor
+import io.github.rosemoe.sora.widget.EditorColorScheme
+import io.github.rosemoe.sora.widget.layout.WordwrapLayout
 import kotlin.math.abs
 
 /**
@@ -17,6 +24,9 @@ import kotlin.math.abs
  *    keeping the active cursor line just above the shortcut bar rather than jumping 2 lines above.
  * 3. Configures prose writing input options (auto-capitalization after newlines and sentences).
  * 4. Focus-aware keyboard resize adjustments ensuring cursor visibility only when document is focused.
+ * 5. Wordwrap flash-suppression and calculation-ready fade-in animation:
+ *    Suppresses drawing single-line fallback text during background wrap computation and
+ *    smoothly fades in the formatted document the exact millisecond layout calculations complete.
  */
 class ScribeCodeEditor @JvmOverloads constructor(
     context: Context,
@@ -26,6 +36,84 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     private var lastMakeVisibleTime: Long = 0L
     private var isFlingActive = false
+
+    // ── Wordwrap Layout Ready & Flash-Suppression Engine ───────────────────────
+    private var isLayoutBusyState: Boolean = false
+    private var isAwaitingLayoutReady: Boolean = false
+    var onLayoutReadyListener: (() -> Unit)? = null
+
+    private val layoutBusyField = try {
+        CodeEditor::class.java.getDeclaredField("layoutBusy").apply {
+            isAccessible = true
+        }
+    } catch (_: Throwable) { null }
+
+    private val rowTableField = try {
+        WordwrapLayout::class.java.getDeclaredField("rowTable").apply {
+            isAccessible = true
+        }
+    } catch (_: Throwable) { null }
+
+    val isLayoutComputing: Boolean
+        get() = (layoutBusyField?.getBoolean(this) ?: isLayoutBusyState)
+
+    /**
+     * Checks whether the wordwrap layout calculation is genuinely complete and ready to render.
+     * Returns true when:
+     * - Wordwrap is disabled (LineBreakLayout)
+     * - Or when measured width > 0, background wordwrap analysis is NOT busy,
+     *   and rowTable is populated (or text is empty).
+     */
+    fun isWordwrapReady(): Boolean {
+        if (width <= 0) return false
+        val curLayout = layout ?: return false
+        if (!isWordwrap) return true
+        if (curLayout is WordwrapLayout) {
+            if (isLayoutComputing) return false
+            val table = try { rowTableField?.get(curLayout) as? List<*> } catch (_: Throwable) { null }
+            if (table != null && text.length > 0 && table.isEmpty()) {
+                return false
+            }
+            return true
+        }
+        return true
+    }
+
+    /**
+     * Prepares the editor for a newly loaded document:
+     * Fades the editor to invisible (alpha = 0f) and arms the ready-check listener.
+     */
+    fun prepareForNewDocument() {
+        animate().cancel()
+        alpha = 0f
+        isAwaitingLayoutReady = true
+    }
+
+    /**
+     * Evaluates whether layout calculation is complete.
+     * When ready, smoothly fades in the text and triggers onLayoutReadyListener.
+     */
+    fun checkAndTriggerReady() {
+        if (isAwaitingLayoutReady && isWordwrapReady()) {
+            isAwaitingLayoutReady = false
+            onLayoutReadyListener?.invoke()
+            animate()
+                .alpha(1f)
+                .setDuration(180)
+                .setInterpolator(DecelerateInterpolator())
+                .start()
+        }
+    }
+
+    /**
+     * Called after setting new text to check immediately if layout is already ready
+     * (e.g. empty document) or to schedule the check on the UI message looper.
+     */
+    fun notifyContentSet() {
+        post {
+            checkAndTriggerReady()
+        }
+    }
 
     private val glowTopOrBottomField = try {
         io.github.rosemoe.sora.widget.EditorTouchEventHandler::class.java.getDeclaredField("glowTopOrBottom").apply {
@@ -86,6 +174,27 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 ScrollEvent.CAUSE_TEXT_SELECTING -> isFlingActive = false
             }
         }
+
+        // Listen for layout completion events from Sora Editor to trigger smooth fade-in
+        subscribeEvent(LayoutStateChangeEvent::class.java) { event, _ ->
+            isLayoutBusyState = event.isLayoutBusy
+            if (!event.isLayoutBusy) {
+                post {
+                    checkAndTriggerReady()
+                }
+            }
+        }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        if (isWordwrap && !isWordwrapReady()) {
+            // Layout computation in progress. Paint only background color to completely
+            // eliminate flashing of un-wrapped single-line fallback text.
+            val bgColor = colorScheme?.getColor(EditorColorScheme.WHOLE_BACKGROUND) ?: Color.TRANSPARENT
+            canvas.drawColor(bgColor)
+            return
+        }
+        super.onDraw(canvas)
     }
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
@@ -115,6 +224,13 @@ class ScribeCodeEditor @JvmOverloads constructor(
             return
         }
         super.onSizeChanged(w, h, oldw, oldh)
+
+        if (w > 0 && isAwaitingLayoutReady) {
+            post {
+                checkAndTriggerReady()
+            }
+        }
+
         // Focus-aware keyboard adjustment: when keyboard appears (height decreases)
         // and the document has focus, reveal the cursor above the keyboard.
         if (isFocused && h < oldh) {

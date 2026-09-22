@@ -148,6 +148,8 @@ import com.primaloptima.scribe.ui.ornaments.OrnamentPickerSheet
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import com.primaloptima.scribe.ui.components.UnifiedCanvasLayout
+import com.primaloptima.scribe.ui.components.ScribeCodeEditor
+import kotlinx.coroutines.suspendCancellableCoroutine
 import io.github.rosemoe.sora.widget.CodeEditor
 import io.github.rosemoe.sora.widget.EditorSearcher
 import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
@@ -394,6 +396,24 @@ fun MainEditorScreen(
         val note   = activeNote ?: return@LaunchedEffect
         val editor = soraEditorRef ?: return@LaunchedEffect
         if (loadedNoteId != note.id || (editor.text.length == 0 && note.content.isNotEmpty())) {
+            // Ensure editor is measured and has a valid layout width before triggering wordwrap calculations.
+            // Suspends until layout pass completes on the exact frame without any artificial delay.
+            if (editor.width <= 0) {
+                suspendCancellableCoroutine<Unit> { cont ->
+                    var listener: android.view.View.OnLayoutChangeListener? = null
+                    listener = android.view.View.OnLayoutChangeListener { v, l, _, r, _, _, _, _, _ ->
+                        if (r - l > 0) {
+                            v.removeOnLayoutChangeListener(listener)
+                            if (cont.isActive) cont.resume(Unit) {}
+                        }
+                    }
+                    editor.addOnLayoutChangeListener(listener)
+                    cont.invokeOnCancellation {
+                        editor.removeOnLayoutChangeListener(listener)
+                    }
+                }
+            }
+
             loadedNoteId = note.id
             unifiedCanvasRef?.resetScroll()
             floatingPillsVisible = true
@@ -407,9 +427,25 @@ fun MainEditorScreen(
                 activeTheme?.firstLineIndent ?: false,
                 activeTheme?.paragraphSpacing ?: 14
             )
+
+            // Prepare for new document: suppress raw rendering and await wordwrap calculation
+            if (editor is ScribeCodeEditor) {
+                editor.prepareForNewDocument()
+            } else {
+                editor.alpha = 0f
+            }
+
             editor.setText(note.content)
             editor.setInlayHints(hints)
-            editor.alpha = 1f
+
+            if (note.content.isEmpty()) {
+                editor.alpha = 1f
+            } else if (editor is ScribeCodeEditor) {
+                editor.notifyContentSet()
+            } else {
+                editor.animate().alpha(1f).setDuration(180).start()
+            }
+
             ProseDiagnosticProvider.attachEditor(editor)
 
             // 2. Heavy prose diagnostics (clichés, passive voice, filter words) run asynchronously in the background.
