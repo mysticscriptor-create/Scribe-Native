@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,6 +32,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.primaloptima.scribe.ui.theme.FontHelper
 import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.util.font.OnlineFontItem
@@ -38,6 +41,16 @@ import com.primaloptima.scribe.util.font.OnlineFontLibrary
 import com.primaloptima.scribe.util.font.ScribeFont
 import com.primaloptima.scribe.util.font.ScribeFontManager
 import kotlinx.coroutines.launch
+
+/**
+ * Preview sample mode presets for side-by-side font comparison.
+ */
+enum class FontPreviewMode(val label: String, val sampleText: String) {
+    SENTENCE("Sentence", "The quick brown fox jumps over the lazy dog."),
+    HEADLINE("Headline", "Chapter VII: The Obsidian Gate"),
+    ALPHABET("Alphabet", "Aa Bb Cc Dd Ee Ff Gg Hh Ii Jj Kk Ll Mm Nn Oo Pp Qq Rr Ss Tt Uu Vv Ww Xx Yy Zz"),
+    NUMERALS("Numerals", "0 1 2 3 4 5 6 7 8 9  •  & % $ € £ # @ ! ?")
+}
 
 /**
  * Collapsed Typography Font Section:
@@ -320,6 +333,376 @@ fun TypographyFontSection(
 }
 
 /**
+ * Visual Specimen Card Component:
+ * Embeds a rich typography preview directly into the list item, showing:
+ * - A distinctive large specimen glyph (e.g. "Aa")
+ * - Live rendered sample sentence/headline/alphabet in the actual font
+ * - Weight discrimination badges (300, 400, 700)
+ * - Tap to open the full interactive Typeface Specimen Inspector
+ */
+@Composable
+fun FontVisualPreviewCard(
+    fontName: String,
+    fontFamily: FontFamily,
+    category: String,
+    isVariable: Boolean,
+    previewMode: FontPreviewMode,
+    onOpenSpecimenModal: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onOpenSpecimenModal,
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Large Specimen Glyph + Sample Text
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Aa",
+                            fontFamily = fontFamily,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Text(
+                        text = previewMode.sampleText,
+                        fontFamily = fontFamily,
+                        fontSize = if (previewMode == FontPreviewMode.HEADLINE) 14.5.sp else 12.5.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // Tactile preview magnifier button
+                IconButton(
+                    onClick = onOpenSpecimenModal,
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Visibility,
+                        contentDescription = "Inspect Specimen",
+                        tint = ScribeTheme.colors.content.secondary,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+            }
+
+            // Weight discrimination preview strip (shows Light 300, Regular 400, Bold 700)
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "300 Light",
+                    fontFamily = fontFamily,
+                    fontWeight = FontWeight.W300,
+                    fontSize = 10.5.sp,
+                    color = ScribeTheme.colors.content.secondary
+                )
+                Text(
+                    text = "•",
+                    fontSize = 10.sp,
+                    color = ScribeTheme.colors.content.secondary.copy(alpha = 0.5f)
+                )
+                Text(
+                    text = "400 Regular",
+                    fontFamily = fontFamily,
+                    fontWeight = FontWeight.W400,
+                    fontSize = 10.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = "•",
+                    fontSize = 10.sp,
+                    color = ScribeTheme.colors.content.secondary.copy(alpha = 0.5f)
+                )
+                Text(
+                    text = "700 Bold",
+                    fontFamily = fontFamily,
+                    fontWeight = FontWeight.W700,
+                    fontSize = 10.5.sp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Full Interactive Typeface Specimen Inspector Modal:
+ * Allows user to dynamically test custom text, slider sizes (14sp to 42sp),
+ * weight variations, and character maps before selecting or downloading!
+ */
+@Composable
+fun TypefaceSpecimenModal(
+    fontName: String,
+    fontFamily: FontFamily,
+    category: String,
+    license: String,
+    isVariable: Boolean,
+    isInstalled: Boolean,
+    actionButtonText: String,
+    onActionClick: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    var sampleMode by remember { mutableStateOf(FontPreviewMode.SENTENCE) }
+    var customText by remember { mutableStateOf("") }
+    var previewSizeSp by remember { mutableFloatStateOf(18f) }
+    var selectedWeight by remember { mutableIntStateOf(400) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.94f)
+                .fillMaxHeight(0.85f),
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(18.dp)
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                text = fontName,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.primaryContainer
+                            ) {
+                                Text(
+                                    text = category.replaceFirstChar { it.uppercase() },
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                            if (isVariable) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = MaterialTheme.colorScheme.secondaryContainer
+                                ) {
+                                    Text(
+                                        text = "Variable",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            text = "License: $license • Interactive Typeface Specimen",
+                            fontSize = 11.5.sp,
+                            color = ScribeTheme.colors.content.secondary
+                        )
+                    }
+
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(20.dp))
+                    }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+
+                // Preview mode preset chips
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    FontPreviewMode.values().forEach { mode ->
+                        FilterChip(
+                            selected = sampleMode == mode && customText.isEmpty(),
+                            onClick = {
+                                sampleMode = mode
+                                customText = ""
+                            },
+                            label = { Text(mode.label, fontSize = 11.sp) },
+                            modifier = Modifier.height(28.dp)
+                        )
+                    }
+                }
+
+                // Custom text input
+                OutlinedTextField(
+                    value = customText,
+                    onValueChange = { customText = it },
+                    placeholder = { Text("Type custom specimen text...", fontSize = 12.sp) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .padding(top = 8.dp)
+                )
+
+                // Size & Weight Sliders / Selectors
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Size: ${previewSizeSp.toInt()} sp",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        listOf(300 to "300", 400 to "400", 500 to "500", 700 to "700").forEach { (w, label) ->
+                            val isWSelected = selectedWeight == w
+                            Surface(
+                                onClick = { selectedWeight = w },
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (isWSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.height(24.dp)
+                            ) {
+                                Box(modifier = Modifier.padding(horizontal = 6.dp), contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = label,
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isWSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Slider(
+                    value = previewSizeSp,
+                    onValueChange = { previewSizeSp = it },
+                    valueRange = 14f..40f,
+                    modifier = Modifier.fillMaxWidth().height(30.dp)
+                )
+
+                // Live Specimen Canvas
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .padding(vertical = 8.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(14.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        val textToRender = if (customText.isNotEmpty()) customText else sampleMode.sampleText
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(
+                                text = textToRender,
+                                fontFamily = fontFamily,
+                                fontSize = previewSizeSp.sp,
+                                fontWeight = FontWeight(selectedWeight),
+                                lineHeight = (previewSizeSp * 1.35f).sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+
+                            // Glyphs quick showcase
+                            if (sampleMode != FontPreviewMode.ALPHABET) {
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                                Text(
+                                    text = "ABCDEFGHIJKLMNOPQRSTUVWXYZ
+abcdefghijklmnopqrstuvwxyz
+0123456789  •  & ? ! @ # $",
+                                    fontFamily = fontFamily,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight(selectedWeight),
+                                    lineHeight = 18.sp,
+                                    color = ScribeTheme.colors.content.secondary
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Bottom Action Bar
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f).height(44.dp)
+                    ) {
+                        Text("Close", fontSize = 13.sp)
+                    }
+
+                    Button(
+                        onClick = {
+                            onActionClick()
+                            onDismiss()
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1.5f).height(44.dp)
+                    ) {
+                        Text(actionButtonText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
  * Sub-Sheet: "My Fonts"
  * Displays list of installed, built-in, and imported fonts with real-time typography preview.
  */
@@ -334,7 +717,9 @@ fun MyFontsSubSheet(
     val context = LocalContext.current
     var searchQuery by remember { mutableStateOf("") }
     var fontToDelete by remember { mutableStateOf<ScribeFont?>(null) }
+    var fontToInspect by remember { mutableStateOf<Pair<ScribeFont, FontFamily>?>(null) }
     var refreshTrigger by remember { mutableIntStateOf(0) }
+    var globalPreviewMode by remember { mutableStateOf(FontPreviewMode.SENTENCE) }
 
     val allFonts = remember(refreshTrigger) { ScribeFontManager.getAllFonts(context) }
     val filteredFonts = remember(searchQuery, allFonts) {
@@ -354,13 +739,13 @@ fun MyFontsSubSheet(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(max = 480.dp)
+            .heightIn(max = 520.dp)
     ) {
         // Top Sub-Sheet Bar
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 8.dp),
+                .padding(bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -381,7 +766,7 @@ fun MyFontsSubSheet(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Target: $targetLabel (${allFonts.size} available)",
+                        text = "Target: $targetLabel (${allFonts.size} installed)",
                         fontSize = 11.sp,
                         color = ScribeTheme.colors.content.secondary
                     )
@@ -402,7 +787,7 @@ fun MyFontsSubSheet(
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
-            placeholder = { Text("Filter installed fonts...", fontSize = 12.5.sp) },
+            placeholder = { Text("Filter installed fonts...", fontSize = 12.sp) },
             leadingIcon = {
                 Icon(Icons.Default.Search, contentDescription = "Search", modifier = Modifier.size(18.dp))
             },
@@ -417,9 +802,35 @@ fun MyFontsSubSheet(
             shape = RoundedCornerShape(10.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp)
-                .padding(bottom = 8.dp)
+                .height(46.dp)
+                .padding(bottom = 6.dp)
         )
+
+        // Global Specimen Mode Bar: Quick sample style selector for side-by-side comparison
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = "Preview:",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                color = ScribeTheme.colors.content.secondary
+            )
+            FontPreviewMode.values().forEach { mode ->
+                val isSelected = globalPreviewMode == mode
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { globalPreviewMode = mode },
+                    label = { Text(mode.label, fontSize = 11.sp) },
+                    modifier = Modifier.height(28.dp)
+                )
+            }
+        }
 
         // List of fonts
         LazyColumn(
@@ -452,7 +863,7 @@ fun MyFontsSubSheet(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp)
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -529,20 +940,40 @@ fun MyFontsSubSheet(
                             }
                         }
 
-                        // Sample Preview Sentence
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "The quick brown fox jumps over the lazy dog.",
+                        // Embedded Visual Specimen Preview Card
+                        Spacer(modifier = Modifier.height(6.dp))
+                        FontVisualPreviewCard(
+                            fontName = font.name,
                             fontFamily = resolvedFamily,
-                            fontSize = 13.sp,
-                            color = ScribeTheme.colors.content.secondary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            category = font.category,
+                            isVariable = font.isVariable,
+                            previewMode = globalPreviewMode,
+                            onOpenSpecimenModal = {
+                                fontToInspect = font to resolvedFamily
+                            }
                         )
                     }
                 }
             }
         }
+    }
+
+    // Interactive Specimen Inspector Dialog
+    fontToInspect?.let { (font, family) ->
+        TypefaceSpecimenModal(
+            fontName = font.name,
+            fontFamily = family,
+            category = font.category,
+            license = if (font.isCustom) "User Imported" else "OFL-1.1",
+            isVariable = font.isVariable,
+            isInstalled = true,
+            actionButtonText = "Select Font",
+            onActionClick = {
+                onSelectFont(font.id)
+                onBack()
+            },
+            onDismiss = { fontToInspect = null }
+        )
     }
 
     // Confirmation Dialog for Deleting Font
@@ -574,7 +1005,7 @@ fun MyFontsSubSheet(
 
 /**
  * Sub-Sheet: "Download Online Fonts"
- * Browse, search, and 1-click download from over 2,000 free editorial and literary fonts.
+ * Browse, search, preview visual specimens, and 1-click download from over 2,000 free editorial and literary fonts.
  */
 @Composable
 fun DownloadFontsSubSheet(
@@ -591,6 +1022,10 @@ fun DownloadFontsSubSheet(
     var selectedCategory by remember { mutableStateOf("all") }
     var fontItems by remember { mutableStateOf<List<OnlineFontItem>>(OnlineFontLibrary.curatedFonts) }
     var isSearching by remember { mutableStateOf(false) }
+    var globalPreviewMode by remember { mutableStateOf(FontPreviewMode.SENTENCE) }
+
+    // Font specimen inspector state: Pair of OnlineFontItem and resolved FontFamily
+    var fontToInspect by remember { mutableStateOf<Pair<OnlineFontItem, FontFamily>?>(null) }
 
     // Map of fontId to download progress (0.0 to 1.0), or null if not downloading
     val downloadingMap = remember { mutableStateMapOf<String, Float>() }
@@ -618,7 +1053,7 @@ fun DownloadFontsSubSheet(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(max = 500.dp)
+            .heightIn(max = 520.dp)
     ) {
         // Top Sub-Sheet Bar
         Row(
@@ -681,7 +1116,7 @@ fun DownloadFontsSubSheet(
             shape = RoundedCornerShape(10.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp)
+                .height(46.dp)
                 .padding(bottom = 6.dp)
         )
 
@@ -690,7 +1125,7 @@ fun DownloadFontsSubSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(bottom = 8.dp),
+                .padding(bottom = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             categories.forEach { (catKey, catName) ->
@@ -699,7 +1134,33 @@ fun DownloadFontsSubSheet(
                     selected = isSelected,
                     onClick = { selectedCategory = catKey },
                     label = { Text(catName, fontSize = 11.5.sp) },
-                    modifier = Modifier.height(30.dp)
+                    modifier = Modifier.height(28.dp)
+                )
+            }
+        }
+
+        // Global Specimen Mode Bar: Quick sample style selector for side-by-side comparison
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = "Preview:",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                color = ScribeTheme.colors.content.secondary
+            )
+            FontPreviewMode.values().forEach { mode ->
+                val isSelected = globalPreviewMode == mode
+                FilterChip(
+                    selected = isSelected,
+                    onClick = { globalPreviewMode = mode },
+                    label = { Text(mode.label, fontSize = 11.sp) },
+                    modifier = Modifier.height(28.dp)
                 )
             }
         }
@@ -740,6 +1201,15 @@ fun DownloadFontsSubSheet(
                             activeFontKey.equals(item.name, ignoreCase = true)
                     val downloadProgress = downloadingMap[item.id]
 
+                    // Resolve visual preview font family dynamically (before or after download)
+                    val previewFamily = remember(item.name, item.category, isInstalled) {
+                        if (isInstalled) {
+                            FontHelper.getFontFamily(item.id)
+                        } else {
+                            FontHelper.getOnlineFontPreviewFamily(item.name, item.category)
+                        }
+                    }
+
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
@@ -767,6 +1237,7 @@ fun DownloadFontsSubSheet(
                                     ) {
                                         Text(
                                             text = item.name,
+                                            fontFamily = previewFamily,
                                             fontSize = 15.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             color = MaterialTheme.colorScheme.onSurface
@@ -799,7 +1270,7 @@ fun DownloadFontsSubSheet(
                                         text = item.description,
                                         fontSize = 11.5.sp,
                                         color = ScribeTheme.colors.content.secondary,
-                                        maxLines = 2,
+                                        maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                         modifier = Modifier.padding(top = 2.dp)
                                     )
@@ -893,10 +1364,60 @@ fun DownloadFontsSubSheet(
                                     }
                                 }
                             }
+
+                            // Embedded Visual Specimen Preview Card before/after downloading
+                            Spacer(modifier = Modifier.height(6.dp))
+                            FontVisualPreviewCard(
+                                fontName = item.name,
+                                fontFamily = previewFamily,
+                                category = item.category,
+                                isVariable = item.isVariable,
+                                previewMode = globalPreviewMode,
+                                onOpenSpecimenModal = {
+                                    fontToInspect = item to previewFamily
+                                }
+                            )
                         }
                     }
                 }
             }
         }
+    }
+
+    // Interactive Specimen Inspector Dialog
+    fontToInspect?.let { (item, family) ->
+        val isInstalled = ScribeFontManager.isFontInstalled(context, item.id)
+        TypefaceSpecimenModal(
+            fontName = item.name,
+            fontFamily = family,
+            category = item.category,
+            license = item.license,
+            isVariable = item.isVariable,
+            isInstalled = isInstalled,
+            actionButtonText = if (isInstalled) "Apply Font" else "Download & Apply",
+            onActionClick = {
+                if (isInstalled) {
+                    onApplyFont(item.id)
+                    onBack()
+                } else {
+                    coroutineScope.launch {
+                        downloadingMap[item.id] = 0.1f
+                        val result = OnlineFontLibrary.downloadFont(context, item) { prog ->
+                            downloadingMap[item.id] = prog
+                        }
+                        downloadingMap.remove(item.id)
+                        if (result.isSuccess) {
+                            installedCheckKey++
+                            onApplyFont(item.id)
+                            onBack()
+                            Toast.makeText(context, "Downloaded & applied ${item.name}!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "Failed to download: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            },
+            onDismiss = { fontToInspect = null }
+        )
     }
 }

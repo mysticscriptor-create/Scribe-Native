@@ -63,6 +63,32 @@ object FontHelper {
     /**
      * Resolves a Jetpack Compose FontFamily for any built-in, downloaded, or custom font.
      */
+        val googleFontProvider: GoogleFont.Provider
+        get() = fontProvider
+
+    /**
+     * Resolves a preview FontFamily for online or uninstalled typefaces.
+     * Uses GoogleFont with graceful fallback to category family.
+     */
+    fun getOnlineFontPreviewFamily(fontName: String, category: String = "sans", weight: FontWeight = FontWeight.Normal): FontFamily {
+        return try {
+            FontFamily(
+                Font(
+                    googleFont = GoogleFont(fontName),
+                    fontProvider = fontProvider,
+                    weight = weight
+                )
+            )
+        } catch (_: Exception) {
+            when (category.lowercase()) {
+                "serif" -> FontFamily.Serif
+                "mono", "monospace" -> FontFamily.Monospace
+                "handwriting" -> FontFamily.Cursive
+                else -> FontFamily.SansSerif
+            }
+        }
+    }
+
     fun getFontFamily(fontKey: String, weight: Int = 400): FontFamily {
         val norm = fontKey.lowercase().trim()
 
