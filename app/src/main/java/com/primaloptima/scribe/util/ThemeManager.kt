@@ -1644,8 +1644,34 @@ class ThemeManager(private val context: Context) {
             )
         }
 
-        fun resolveTypeface(context: Context, fontFamilyKey: String): Typeface {
+        fun resolveTypeface(context: Context, fontFamilyKey: String, weight: Int = 400): Typeface {
             val key = fontFamilyKey.lowercase().trim()
+
+            // 1. Check custom / downloaded fonts
+            try {
+                val custom = com.primaloptima.scribe.util.font.ScribeFontManager.getCustomFonts(context).find {
+                    it.id.equals(key, ignoreCase = true) || it.name.equals(key, ignoreCase = true)
+                }
+                if (custom != null && custom.filePath != null) {
+                    val f = java.io.File(custom.filePath)
+                    if (f.exists()) {
+                        if (custom.isVariable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            return Typeface.Builder(f)
+                                .setFontVariationSettings("'wght' $weight")
+                                .setWeight(weight)
+                                .build()
+                        }
+                        val base = Typeface.createFromFile(f)
+                        return if (Build.VERSION.SDK_INT >= 28) {
+                            Typeface.create(base, weight, false)
+                        } else {
+                            if (weight >= 600) Typeface.create(base, Typeface.BOLD) else base
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+
+            // 2. Check bundled / built-in fonts
             val fontResId = when (key) {
                 "playfair", "playfair display", "serif", "serif-medium", "serif-bold" -> R.font.playfair_display
                 "courier", "courier prime" -> R.font.courier_prime
@@ -1660,23 +1686,30 @@ class ThemeManager(private val context: Context) {
                 try {
                     val tf = ResourcesCompat.getFont(context, fontResId)
                     if (tf != null) {
-                        return when (key) {
-                            "serif-bold", "sans-bold" ->
-                                Typeface.create(tf, Typeface.BOLD)
-                            "serif-medium", "sans-medium", "sans-semibold", "mono-medium" ->
-                                if (Build.VERSION.SDK_INT >= 28)
-                                    Typeface.create(tf, 500, false)
-                                else Typeface.create(tf, Typeface.NORMAL)
-                            else -> tf
+                        return if (Build.VERSION.SDK_INT >= 28) {
+                            Typeface.create(tf, weight, false)
+                        } else {
+                            when {
+                                weight >= 600 -> Typeface.create(tf, Typeface.BOLD)
+                                weight <= 300 -> Typeface.create(tf, Typeface.NORMAL)
+                                else -> tf
+                            }
                         }
                     }
                 } catch (_: Exception) {}
             }
-            return when {
+
+            // 3. Fallback system typeface with weight
+            val fallback = when {
                 key.startsWith("serif") || key == "playfair" || key == "cormorant" || key == "lora" -> Typeface.SERIF
                 key.startsWith("mono") || key == "courier" || key == "jetbrains_mono" -> Typeface.MONOSPACE
                 key == "caveat" -> if (Build.VERSION.SDK_INT >= 28) Typeface.create("casual", Typeface.NORMAL) else Typeface.SERIF
                 else -> Typeface.SANS_SERIF
+            }
+            return if (Build.VERSION.SDK_INT >= 28) {
+                Typeface.create(fallback, weight, false)
+            } else {
+                if (weight >= 600) Typeface.create(fallback, Typeface.BOLD) else fallback
             }
         }
 

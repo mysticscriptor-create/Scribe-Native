@@ -1,4 +1,8 @@
 package com.primaloptima.scribe.ui.screens
+import com.primaloptima.scribe.util.font.ScribeFontManager
+import com.primaloptima.scribe.ui.components.TypographyFontSection
+import com.primaloptima.scribe.ui.components.MyFontsSubSheet
+import com.primaloptima.scribe.ui.components.DownloadFontsSubSheet
 
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import android.view.inputmethod.InputMethodManager
@@ -647,14 +651,9 @@ fun MainEditorScreen(
                         (activeTheme?.fontSize ?: 18).toFloat()
                     }
                     val editorTypeface      = remember(activeTheme?.fontFamily, activeTheme?.documentFontWeight) {
-                        val baseTf = activeTheme?.fontFamily?.let { ThemeManager.resolveTypeface(context, it) } ?: android.graphics.Typeface.DEFAULT
                         val weight = activeTheme?.documentFontWeight ?: 400
-                        if (Build.VERSION.SDK_INT >= 28) {
-                            android.graphics.Typeface.create(baseTf, weight, false)
-                        } else {
-                            if (weight >= 600) android.graphics.Typeface.create(baseTf, android.graphics.Typeface.BOLD)
-                            else android.graphics.Typeface.create(baseTf, android.graphics.Typeface.NORMAL)
-                        }
+                        val fontKey = activeTheme?.fontFamily ?: "default"
+                        ScribeFontManager.resolveTypeface(context, fontKey, weight)
                     }
                     val bgArgb              = remember(hasBgImageLocal, currentThemeBg) {
                         if (hasBgImageLocal) android.graphics.Color.TRANSPARENT
@@ -906,7 +905,11 @@ fun MainEditorScreen(
                             // Update Header inside ComposeView
                             layout.headerView.setContent {
                                 if (!zenMode && activeNote != null) {
-                                    val resolvedTitleFont = FontHelper.getFontFamily(activeTheme?.titleFontFamily ?: activeTheme?.fontFamily ?: "default")
+                                    val resolvedTitleFont = ScribeFontManager.resolveFontFamily(
+                                        context = context,
+                                        fontKey = activeTheme?.titleFontFamily ?: activeTheme?.fontFamily ?: "default",
+                                        weight = activeTheme?.title1FontWeight ?: 600
+                                    )
                                     val pTitleSize = (activeTheme?.title1FontSize ?: 18).sp
                                     val sTitleSize = (activeTheme?.title2FontSize ?: 24).sp
                                     val pTitleWeight = FontWeight(activeTheme?.title1FontWeight ?: 600)
@@ -1581,6 +1584,7 @@ private fun EditorLiveTuningHud(
     onClose         : () -> Unit,
     modifier        : Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var category by remember(initialCategory) { mutableStateOf(initialCategory) }
     var typographyTool by remember { mutableStateOf("size") }
     var typographyTarget by remember { mutableStateOf("document") }
@@ -1588,10 +1592,31 @@ private fun EditorLiveTuningHud(
     var colorRole by remember { mutableStateOf("title1") }
     var customHexInput by remember { mutableStateOf("") }
     var isEditingHex by remember { mutableStateOf(false) }
+    var fontSubSheet by remember { mutableStateOf<String?>(null) } // null, "my_fonts", "download_fonts"
 
     val coroutineScope = rememberCoroutineScope()
     val animOffsetY = remember { Animatable(0f) }
     var hudHeightPx by remember { mutableFloatStateOf(600f) }
+
+    val fontImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch {
+                val result = ScribeFontManager.importFontFromUri(context, uri)
+                if (result.isSuccess) {
+                    val font = result.getOrThrow()
+                    when (typographyTarget) {
+                        "title1", "title2" -> onUpdateTheme { it.copy(titleFontFamily = font.id) }
+                        else -> onUpdateTheme { it.copy(fontFamily = font.id) }
+                    }
+                    Toast.makeText(context, "Imported and applied ${font.name}!", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "Failed to import font: ${result.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
 
     val dismissWithAnimation: () -> Unit = {
         coroutineScope.launch {
@@ -1604,7 +1629,11 @@ private fun EditorLiveTuningHud(
     }
 
     BackHandler(enabled = true) {
-        dismissWithAnimation()
+        if (fontSubSheet != null) {
+            fontSubSheet = null
+        } else {
+            dismissWithAnimation()
+        }
     }
 
     val draggableState = rememberDraggableState { delta ->
@@ -1654,6 +1683,39 @@ private fun EditorLiveTuningHud(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
+            if (fontSubSheet == "my_fonts") {
+                val activeFont = when (typographyTarget) {
+                    "title1", "title2" -> activeTheme.titleFontFamily ?: activeTheme.fontFamily
+                    else -> activeTheme.fontFamily
+                }
+                MyFontsSubSheet(
+                    activeFontKey = activeFont,
+                    typographyTarget = typographyTarget,
+                    onSelectFont = { selectedId ->
+                        when (typographyTarget) {
+                            "title1", "title2" -> onUpdateTheme { it.copy(titleFontFamily = selectedId) }
+                            else -> onUpdateTheme { it.copy(fontFamily = selectedId) }
+                        }
+                    },
+                    onBack = { fontSubSheet = null }
+                )
+            } else if (fontSubSheet == "download_fonts") {
+                val activeFont = when (typographyTarget) {
+                    "title1", "title2" -> activeTheme.titleFontFamily ?: activeTheme.fontFamily
+                    else -> activeTheme.fontFamily
+                }
+                DownloadFontsSubSheet(
+                    activeFontKey = activeFont,
+                    typographyTarget = typographyTarget,
+                    onApplyFont = { selectedId ->
+                        when (typographyTarget) {
+                            "title1", "title2" -> onUpdateTheme { it.copy(titleFontFamily = selectedId) }
+                            else -> onUpdateTheme { it.copy(fontFamily = selectedId) }
+                        }
+                    },
+                    onBack = { fontSubSheet = null }
+                )
+            } else {
             // Drag handle with touch gesture support
             Box(
                 modifier = Modifier
@@ -1921,38 +1983,24 @@ private fun EditorLiveTuningHud(
                             "title1", "title2" -> activeTheme.titleFontFamily ?: activeTheme.fontFamily
                             else -> activeTheme.fontFamily
                         }
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(
-                                text = when (typographyTarget) {
-                                    "title1" -> "Title 1 Font Family"
-                                    "title2" -> "Title 2 Font Family"
-                                    else -> "Document Font Family"
-                                },
-                                fontSize = 11.5.sp,
-                                color = ScribeTheme.colors.content.secondary
-                            )
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                FontHelper.fontOptions.forEach { opt ->
-                                    val isSelected = activeFont.equals(opt.key, ignoreCase = true) ||
-                                            (opt.key == "default" && (activeFont.isEmpty() || activeFont == "default" || activeFont == "sans"))
-                                    FilterChip(
-                                        selected = isSelected,
-                                        onClick = {
-                                            when (typographyTarget) {
-                                                "title1", "title2" -> onUpdateTheme { it.copy(titleFontFamily = opt.key) }
-                                                else -> onUpdateTheme { it.copy(fontFamily = opt.key) }
-                                            }
-                                        },
-                                        label = { Text(opt.name, fontSize = 11.5.sp) }
+                        TypographyFontSection(
+                            activeFontKey = activeFont,
+                            typographyTarget = typographyTarget,
+                            onOpenMyFonts = { fontSubSheet = "my_fonts" },
+                            onOpenDownloadFonts = { fontSubSheet = "download_fonts" },
+                            onImportFont = {
+                                fontImportLauncher.launch(
+                                    arrayOf(
+                                        "font/*",
+                                        "font/ttf",
+                                        "font/otf",
+                                        "application/x-font-ttf",
+                                        "application/x-font-opentype",
+                                        "application/octet-stream"
                                     )
-                                }
+                                )
                             }
-                        }
+                        )
                     }
                     "weight" -> {
                         val currentWeight = when (typographyTarget) {
@@ -2330,6 +2378,7 @@ private fun EditorLiveTuningHud(
                         }
                     }
                 }
+            }
             }
         }
     }

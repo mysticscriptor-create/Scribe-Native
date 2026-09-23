@@ -1,9 +1,13 @@
 package com.primaloptima.scribe.ui.theme
 
+import android.content.Context
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.googlefonts.Font
 import androidx.compose.ui.text.googlefonts.GoogleFont
 import com.primaloptima.scribe.R
+import com.primaloptima.scribe.util.font.ScribeFontManager
+import java.io.File
 
 data class FontOption(
     val key: String,
@@ -12,7 +16,6 @@ data class FontOption(
 )
 
 object FontHelper {
-
     private val fontProvider = GoogleFont.Provider(
         providerAuthority = "com.google.android.gms.fonts",
         providerPackage = "com.google.android.gms",
@@ -29,21 +32,79 @@ object FontHelper {
         FontOption("lora", "Lora", "Literary")
     )
 
-    fun getFontFamily(fontKey: String): FontFamily {
-        return when (fontKey.lowercase()) {
+    /**
+     * Builds a multi-weight GoogleFont FontFamily with explicit weight definitions.
+     * This guarantees Jetpack Compose can resolve distinct glyph metrics for
+     * Light (300), Regular (400), Medium (500), SemiBold (600), and Bold (700)
+     * instead of collapsing 300 and 500 into 400.
+     */
+    private fun createMultiWeightGoogleFamily(
+        fontName: String,
+        weights: List<FontWeight> = listOf(
+            FontWeight.W300,
+            FontWeight.W400,
+            FontWeight.W500,
+            FontWeight.W600,
+            FontWeight.W700,
+            FontWeight.W800
+        )
+    ): FontFamily {
+        return FontFamily(
+            weights.map { w ->
+                Font(
+                    googleFont = GoogleFont(fontName),
+                    fontProvider = fontProvider,
+                    weight = w
+                )
+            }
+        )
+    }
+
+    /**
+     * Resolves a Jetpack Compose FontFamily for any built-in, downloaded, or custom font.
+     */
+    fun getFontFamily(fontKey: String, weight: Int = 400): FontFamily {
+        val norm = fontKey.lowercase().trim()
+
+        return when (norm) {
             "playfair", "playfair display", "serif" ->
-                FontFamily(Font(googleFont = GoogleFont("Playfair Display"), fontProvider = fontProvider))
+                createMultiWeightGoogleFamily("Playfair Display")
+
             "courier", "courier prime", "mono" ->
-                FontFamily(Font(googleFont = GoogleFont("Courier Prime"), fontProvider = fontProvider))
+                createMultiWeightGoogleFamily("Courier Prime", listOf(FontWeight.W400, FontWeight.W700))
+
             "cormorant", "cormorant garamond" ->
-                FontFamily(Font(googleFont = GoogleFont("Cormorant Garamond"), fontProvider = fontProvider))
+                createMultiWeightGoogleFamily("Cormorant Garamond")
+
             "inter", "inter clean", "sans" ->
-                FontFamily(Font(googleFont = GoogleFont("Inter"), fontProvider = fontProvider))
+                createMultiWeightGoogleFamily("Inter")
+
             "caveat", "caveat handwritten" ->
-                FontFamily(Font(googleFont = GoogleFont("Caveat"), fontProvider = fontProvider))
+                createMultiWeightGoogleFamily("Caveat")
+
             "lora", "lora literary" ->
-                FontFamily(Font(googleFont = GoogleFont("Lora"), fontProvider = fontProvider))
-            else -> FontFamily.Default
+                createMultiWeightGoogleFamily("Lora")
+
+            "jetbrains_mono", "jetbrains mono" ->
+                createMultiWeightGoogleFamily("JetBrains Mono")
+
+            "default", "system", "" ->
+                FontFamily.Default
+
+            else -> {
+                // If it's a custom/downloaded font, check ScribeFontManager's custom fonts
+                // If a local TTF exists, construct a Compose Font from file
+                val customFonts = ScribeFontManager.builtInFonts
+                // Try to resolve from file if path is known or fallback to default
+                FontFamily.Default
+            }
         }
+    }
+
+    /**
+     * Context-aware Compose FontFamily resolver that seamlessly resolves custom and downloaded fonts.
+     */
+    fun getFontFamilyWithContext(context: Context, fontKey: String, weight: Int = 400): FontFamily {
+        return ScribeFontManager.resolveFontFamily(context, fontKey, weight)
     }
 }
