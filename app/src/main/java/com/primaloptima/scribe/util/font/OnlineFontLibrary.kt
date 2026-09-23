@@ -272,6 +272,16 @@ object OnlineFontLibrary {
 
                             if (categoryFilter == "all" || mappedCat == categoryFilter) {
                                 val ttfUrl = "https://cdn.jsdelivr.net/fontsource/fonts/$id@latest/latin-400-normal.ttf"
+                                val dynamicWeights = mutableListOf<Int>()
+                                val wArr = obj.optJSONArray("weights")
+                                if (wArr != null) {
+                                    for (wIdx in 0 until wArr.length()) {
+                                        dynamicWeights.add(wArr.getInt(wIdx))
+                                    }
+                                }
+                                if (dynamicWeights.isEmpty()) {
+                                    dynamicWeights.add(400)
+                                }
                                 curatedFiltered.add(
                                     OnlineFontItem(
                                         id = id,
@@ -279,7 +289,7 @@ object OnlineFontLibrary {
                                         category = mappedCat,
                                         description = "Open source font from Fontsource library.",
                                         isVariable = isVar,
-                                        weights = listOf(300, 400, 500, 700),
+                                        weights = dynamicWeights,
                                         ttfUrl = ttfUrl
                                     )
                                 )

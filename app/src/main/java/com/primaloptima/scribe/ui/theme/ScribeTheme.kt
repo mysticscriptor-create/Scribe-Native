@@ -3178,6 +3178,7 @@ fun ScribeComposeTheme(
         scribeColors
     ) {
         val resolvedFontFamily = FontHelper.getFontFamily(resolvedTheme.fontFamily, resolvedTheme.documentFontWeight)
+        val resolvedHeadingFamily = FontHelper.getFontFamily(resolvedTheme.fontFamily, resolvedTheme.title1FontWeight ?: 700)
         val app = ScribeAppTypography(
             display = TextStyle(
                 fontFamily = FontFamily.Default,
@@ -3289,7 +3290,7 @@ fun ScribeComposeTheme(
                 color = scribeColors.writing.monologue
             ),
             heading = TextStyle(
-                fontFamily = resolvedFontFamily,
+                fontFamily = resolvedHeadingFamily,
                 fontWeight = headingWeight,
                 fontSize = (resolvedTheme.fontSize * 1.25f).sp,
                 lineHeight = (resolvedTheme.fontSize * 1.25f * resolvedTheme.lineHeight).sp,

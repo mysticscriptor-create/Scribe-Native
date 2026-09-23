@@ -57,7 +57,7 @@ object ScribeFontManager {
             name = "Default System",
             category = "sans",
             isVariable = false,
-            weights = listOf(300, 400, 500, 700),
+            weights = listOf(300, 400, 500, 600, 700, 800),
             isCustom = false
         ),
         ScribeFont(
@@ -105,7 +105,7 @@ object ScribeFontManager {
             name = "JetBrains Mono",
             category = "mono",
             isVariable = true,
-            weights = listOf(300, 400, 500, 700),
+            weights = listOf(300, 400, 500, 600, 700, 800),
             isCustom = false
         ),
         ScribeFont(
@@ -236,22 +236,43 @@ object ScribeFontManager {
             val fontInfo = parseFontMetadata(bytes)
                 ?: return@withContext Result.failure(Exception("Invalid font format (.ttf/.otf required)"))
 
-            val safeId = "custom_" + System.currentTimeMillis() + "_" +
-                    fontInfo.familyName.lowercase().replace("[^a-z0-9]".toRegex(), "_")
-            val targetFile = File(getFontsDir(context), "$safeId.ttf")
+            val existingFonts = getCustomFonts(context)
+            val existingSameFamily = existingFonts.find {
+                it.name.equals(fontInfo.familyName, ignoreCase = true)
+            }
 
-            FileOutputStream(targetFile).use { it.write(bytes) }
+            val font = if (existingSameFamily != null && !fontInfo.isVariable) {
+                val weightFile = File(getFontsDir(context), "${existingSameFamily.id}_${fontInfo.weightClass}.ttf")
+                FileOutputStream(weightFile).use { it.write(bytes) }
+                val updatedWeights = (existingSameFamily.weights + fontInfo.weightClass).distinct().sorted()
+                val updatedPaths = existingSameFamily.weightFilePaths.toMutableMap().apply {
+                    put(fontInfo.weightClass, weightFile.absolutePath)
+                }
+                existingSameFamily.copy(
+                    weights = updatedWeights,
+                    weightFilePaths = updatedPaths
+                )
+            } else {
+                val safeId = "custom_" + System.currentTimeMillis() + "_" +
+                        fontInfo.familyName.lowercase().replace("[^a-z0-9]".toRegex(), "_")
+                val targetFile = File(getFontsDir(context), "$safeId.ttf")
+                FileOutputStream(targetFile).use { it.write(bytes) }
+                val weightMap = if (!fontInfo.isVariable && fontInfo.weightClass != 400) {
+                    mapOf(fontInfo.weightClass to targetFile.absolutePath)
+                } else emptyMap()
 
-            val font = ScribeFont(
-                id = safeId,
-                name = fontInfo.familyName.ifBlank { "Custom Font" },
-                category = "custom",
-                isVariable = fontInfo.isVariable,
-                weights = if (fontInfo.isVariable) listOf(300, 400, 500, 600, 700, 800) else listOf(400),
-                isCustom = true,
-                filePath = targetFile.absolutePath,
-                license = "Custom Import"
-            )
+                ScribeFont(
+                    id = safeId,
+                    name = fontInfo.familyName.ifBlank { "Custom Font" },
+                    category = "custom",
+                    isVariable = fontInfo.isVariable,
+                    weights = if (fontInfo.isVariable) listOf(300, 400, 500, 600, 700, 800) else listOf(fontInfo.weightClass).distinct(),
+                    isCustom = true,
+                    filePath = targetFile.absolutePath,
+                    weightFilePaths = weightMap,
+                    license = "Custom Import"
+                )
+            }
 
             saveFontToRegistry(context, font)
             clearCache()
@@ -387,10 +408,19 @@ object ScribeFontManager {
                 val fontFile = File(custom.filePath)
                 if (fontFile.exists()) {
                     if (custom.isVariable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        Typeface.Builder(fontFile)
+                        val tf = Typeface.Builder(fontFile)
                             .setFontVariationSettings("'wght' $weight")
                             .setWeight(weight)
                             .build()
+                        if (tf != null) {
+                            if (weight >= 800 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                Typeface.create(tf, weight, false)
+                            } else {
+                                tf
+                            }
+                        } else {
+                            Typeface.createFromFile(fontFile)
+                        }
                     } else {
                         // Check if static weight file exists, or find closest available weight
                         val specificPath = custom.weightFilePaths[weight]
@@ -405,7 +435,11 @@ object ScribeFontManager {
 
                         val base = Typeface.createFromFile(targetFile)
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            Typeface.create(base, weight, false)
+                            if (weight >= 600 && targetFile == fontFile && !custom.weightFilePaths.containsKey(weight)) {
+                                Typeface.create(base, Typeface.BOLD)
+                            } else {
+                                Typeface.create(base, weight, false)
+                            }
                         } else {
                             if (weight >= 600) Typeface.create(base, Typeface.BOLD) else base
                         }
@@ -449,7 +483,8 @@ object ScribeFontManager {
 
     data class ParsedFontInfo(
         val familyName: String,
-        val isVariable: Boolean
+        val isVariable: Boolean,
+        val weightClass: Int = 400
     )
 
     /**
@@ -474,6 +509,8 @@ object ScribeFontManager {
             var hasFvar = false
             var nameOffset = 0
             var nameLength = 0
+            var os2Offset = 0
+            var os2Length = 0
 
             for (i in 0 until numTables) {
                 val tag = dis.readInt()
@@ -490,6 +527,11 @@ object ScribeFontManager {
                     nameOffset = offset
                     nameLength = length
                 }
+                // 0x4F532F32 = 'OS/2'
+                if (tag == 0x4F532F32) {
+                    os2Offset = offset
+                    os2Length = length
+                }
             }
 
             var familyName = ""
@@ -497,9 +539,19 @@ object ScribeFontManager {
                 familyName = parseNameTable(bytes, nameOffset)
             }
 
+            var weightClass = 400
+            if (os2Offset > 0 && os2Offset + 6 <= bytes.size) {
+                val usWeightClass = ((bytes[os2Offset + 4].toInt() and 0xFF) shl 8) or
+                        (bytes[os2Offset + 5].toInt() and 0xFF)
+                if (usWeightClass in 100..900) {
+                    weightClass = usWeightClass
+                }
+            }
+
             ParsedFontInfo(
                 familyName = familyName,
-                isVariable = hasFvar
+                isVariable = hasFvar,
+                weightClass = weightClass
             )
         } catch (e: Exception) {
             Log.w(TAG, "Failed to parse OpenType metadata", e)

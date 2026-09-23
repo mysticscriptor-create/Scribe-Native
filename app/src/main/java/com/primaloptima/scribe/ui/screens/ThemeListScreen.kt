@@ -446,7 +446,7 @@ private fun ThemeCard(
                         color = bgColor,
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp,
-                        fontFamily = FontHelper.getFontFamily(theme.fontFamily)
+                        fontFamily = FontHelper.getFontFamily(theme.fontFamily, 700)
                     )
                 }
 
@@ -471,7 +471,7 @@ private fun ThemeCard(
                         fontSize = 12.sp,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        fontFamily = FontHelper.getFontFamily(theme.fontFamily)
+                        fontFamily = FontHelper.getFontFamily(theme.fontFamily, theme.documentFontWeight)
                     )
                 }
 

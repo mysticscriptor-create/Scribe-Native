@@ -343,6 +343,7 @@ fun TypographyFontSection(
  */
 @Composable
 fun FontVisualPreviewCard(
+    fontId: String = "",
     fontName: String,
     fontFamily: FontFamily,
     category: String,
@@ -351,6 +352,11 @@ fun FontVisualPreviewCard(
     onOpenSpecimenModal: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val effectiveKey = fontId.ifBlank { fontName }
+    val lightFamily = remember(effectiveKey) { FontHelper.getFontFamily(effectiveKey, 300) }
+    val regularFamily = remember(effectiveKey) { FontHelper.getFontFamily(effectiveKey, 400) }
+    val boldFamily = remember(effectiveKey) { FontHelper.getFontFamily(effectiveKey, 700) }
+
     Surface(
         onClick = onOpenSpecimenModal,
         shape = RoundedCornerShape(8.dp),
@@ -423,7 +429,7 @@ fun FontVisualPreviewCard(
             ) {
                 Text(
                     text = "300 Light",
-                    fontFamily = fontFamily,
+                    fontFamily = lightFamily,
                     fontWeight = FontWeight.W300,
                     fontSize = 10.5.sp,
                     color = ScribeTheme.colors.content.secondary
@@ -435,7 +441,7 @@ fun FontVisualPreviewCard(
                 )
                 Text(
                     text = "400 Regular",
-                    fontFamily = fontFamily,
+                    fontFamily = regularFamily,
                     fontWeight = FontWeight.W400,
                     fontSize = 10.5.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -447,7 +453,7 @@ fun FontVisualPreviewCard(
                 )
                 Text(
                     text = "700 Bold",
-                    fontFamily = fontFamily,
+                    fontFamily = boldFamily,
                     fontWeight = FontWeight.W700,
                     fontSize = 10.5.sp,
                     color = MaterialTheme.colorScheme.primary
@@ -464,6 +470,7 @@ fun FontVisualPreviewCard(
  */
 @Composable
 fun TypefaceSpecimenModal(
+    fontId: String = "",
     fontName: String,
     fontFamily: FontFamily,
     category: String,
@@ -478,6 +485,10 @@ fun TypefaceSpecimenModal(
     var customText by remember { mutableStateOf("") }
     var previewSizeSp by remember { mutableFloatStateOf(18f) }
     var selectedWeight by remember { mutableIntStateOf(400) }
+    val effectiveKey = fontId.ifBlank { fontName }
+    val dynamicFamily = remember(effectiveKey, selectedWeight) {
+        FontHelper.getFontFamily(effectiveKey, selectedWeight)
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -600,7 +611,7 @@ fun TypefaceSpecimenModal(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        listOf(300 to "300", 400 to "400", 500 to "500", 700 to "700").forEach { (w, label) ->
+                        listOf(300 to "300", 400 to "400", 500 to "500", 600 to "600", 700 to "700", 800 to "800").forEach { (w, label) ->
                             val isWSelected = selectedWeight == w
                             Surface(
                                 onClick = { selectedWeight = w },
@@ -648,7 +659,7 @@ fun TypefaceSpecimenModal(
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text(
                                 text = textToRender,
-                                fontFamily = fontFamily,
+                                fontFamily = dynamicFamily,
                                 fontSize = previewSizeSp.sp,
                                 fontWeight = FontWeight(selectedWeight),
                                 lineHeight = (previewSizeSp * 1.35f).sp,
@@ -660,7 +671,7 @@ fun TypefaceSpecimenModal(
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
                                 Text(
                                     text = "ABCDEFGHIJKLMNOPQRSTUVWXYZ\nabcdefghijklmnopqrstuvwxyz\n0123456789  •  & ? ! @ # $",
-                                    fontFamily = fontFamily,
+                                    fontFamily = dynamicFamily,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight(selectedWeight),
                                     lineHeight = 18.sp,
@@ -942,6 +953,7 @@ fun MyFontsSubSheet(
                         // Embedded Visual Specimen Preview Card
                         Spacer(modifier = Modifier.height(6.dp))
                         FontVisualPreviewCard(
+                            fontId = font.id,
                             fontName = font.name,
                             fontFamily = resolvedFamily,
                             category = font.category,
@@ -960,6 +972,7 @@ fun MyFontsSubSheet(
     // Interactive Specimen Inspector Dialog
     fontToInspect?.let { (font, family) ->
         TypefaceSpecimenModal(
+            fontId = font.id,
             fontName = font.name,
             fontFamily = family,
             category = font.category,
@@ -1367,6 +1380,7 @@ fun DownloadFontsSubSheet(
                             // Embedded Visual Specimen Preview Card before/after downloading
                             Spacer(modifier = Modifier.height(6.dp))
                             FontVisualPreviewCard(
+                                fontId = item.id,
                                 fontName = item.name,
                                 fontFamily = previewFamily,
                                 category = item.category,
@@ -1387,6 +1401,7 @@ fun DownloadFontsSubSheet(
     fontToInspect?.let { (item, family) ->
         val isInstalled = ScribeFontManager.isFontInstalled(context, item.id)
         TypefaceSpecimenModal(
+            fontId = item.id,
             fontName = item.name,
             fontFamily = family,
             category = item.category,

@@ -1665,7 +1665,13 @@ class ThemeManager(private val context: Context) {
                             .setFontVariationSettings("'wght' $weight")
                             .setWeight(weight)
                             .build()
-                        if (tf != null) return tf
+                        if (tf != null) {
+                            return if (weight >= 800 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                Typeface.create(tf, weight, false)
+                            } else {
+                                tf
+                            }
+                        }
                     } else {
                         val tf = Typeface.createFromAsset(context.assets, "fonts/$assetName")
                         if (tf != null) {
@@ -1692,7 +1698,13 @@ class ThemeManager(private val context: Context) {
                                 .setFontVariationSettings("'wght' $weight")
                                 .setWeight(weight)
                                 .build()
-                            if (tf != null) return tf
+                            if (tf != null) {
+                                return if (weight >= 800 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                    Typeface.create(tf, weight, false)
+                                } else {
+                                    tf
+                                }
+                            }
                         }
                         val specificPath = custom.weightFilePaths[weight]
                         val targetFile = if (specificPath != null && java.io.File(specificPath).exists()) {
@@ -1705,7 +1717,11 @@ class ThemeManager(private val context: Context) {
                         }
                         val base = Typeface.createFromFile(targetFile)
                         return if (Build.VERSION.SDK_INT >= 28) {
-                            Typeface.create(base, weight, false)
+                            if (weight >= 600 && targetFile == fontFile && !custom.weightFilePaths.containsKey(weight)) {
+                                Typeface.create(base, Typeface.BOLD)
+                            } else {
+                                Typeface.create(base, weight, false)
+                            }
                         } else {
                             if (weight >= 600) Typeface.create(base, Typeface.BOLD) else base
                         }
