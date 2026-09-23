@@ -38,6 +38,22 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     private var lastMakeVisibleTime: Long = 0L
     private var isFlingActive = false
+    private var forceNextLayoutClear = false
+
+    /**
+     * Updates the editor's text typeface and base font weight.
+     * Clears the wordwrap table cache to ensure new glyph advances and metrics
+     * are re-measured, updates the language tokenizer with the new base weight,
+     * reruns analysis, and triggers a full redraw.
+     */
+    fun updateTypefaceAndWeight(newTypeface: android.graphics.Typeface, weight: Int) {
+        this.typefaceText = newTypeface
+        setEditorLanguage(com.primaloptima.scribe.util.ScribeProseLanguage(weight))
+        forceNextLayoutClear = true
+        createLayout()
+        rerunAnalysis()
+        invalidate()
+    }
 
     // ── Wordwrap Layout Ready & Flash-Suppression Engine ───────────────────────
     private var isLayoutBusyState: Boolean = false
@@ -216,7 +232,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
      * mode and zero disappearing text during interactive sliders.
      */
     override fun createLayout() {
-        val shouldClear = isAwaitingLayoutReady || layout == null
+        val shouldClear = isAwaitingLayoutReady || layout == null || forceNextLayoutClear
+        forceNextLayoutClear = false
         super.createLayout(shouldClear)
     }
 

@@ -285,7 +285,7 @@ fun MainEditorScreen(
 
     // ── Sora CodeEditor & Unified Canvas state ──────────────────────────────────
     var unifiedCanvasRef   by remember { mutableStateOf<UnifiedCanvasLayout?>(null) }
-    var soraEditorRef      by remember { mutableStateOf<CodeEditor?>(null) }
+    var soraEditorRef      by remember { mutableStateOf<com.primaloptima.scribe.ui.components.ScribeCodeEditor?>(null) }
     var isHandleDragging   by remember { mutableStateOf(false) }
     var loadedNoteId       by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -692,6 +692,7 @@ fun MainEditorScreen(
                     var lastAppliedPadding by remember { mutableFloatStateOf(-1f) }
                     var lastAppliedTextSize by remember { mutableFloatStateOf(-1f) }
                     var lastAppliedTypeface by remember { mutableStateOf<android.graphics.Typeface?>(null) }
+                    var lastAppliedDocWeight by remember { mutableIntStateOf(-1) }
                     var lastAppliedLineSpacing by remember { mutableFloatStateOf(-1f) }
                     var lastAppliedParaSpacing by remember { mutableFloatStateOf(-1f) }
                     var lastAppliedBgArgb by remember { mutableIntStateOf(0) }
@@ -708,6 +709,7 @@ fun MainEditorScreen(
                             lastAppliedPadding = initialPadH
                             lastAppliedTextSize = editorTextSizeSp
                             lastAppliedTypeface = editorTypeface
+                            lastAppliedDocWeight = activeTheme?.documentFontWeight ?: 400
                             lastAppliedLineSpacing = initialLineHeight
                             lastAppliedParaSpacing = initialParaSpacing
                             lastAppliedBgArgb = bgArgb
@@ -780,7 +782,7 @@ fun MainEditorScreen(
                                     registerInlayHintRenderer(
                                         io.github.rosemoe.sora.graphics.inlayHint.TextInlayHintRenderer()
                                     )
-                                    setEditorLanguage(ScribeProseLanguage())
+                                    setEditorLanguage(ScribeProseLanguage(activeTheme?.documentFontWeight ?: 400))
                                     isNestedScrollingEnabled = true
                                     try {
                                         getComponent(
@@ -855,9 +857,13 @@ fun MainEditorScreen(
                                 lastAppliedTextSize = editorTextSizeSp
                                 editor.setTextSize(editorTextSizeSp)
                             }
-                            if (lastAppliedTypeface !== editorTypeface && editorTypeface != null) {
+                            val currentDocWeight = activeTheme?.documentFontWeight ?: 400
+                            if ((lastAppliedTypeface !== editorTypeface && editorTypeface != null) || lastAppliedDocWeight != currentDocWeight) {
                                 lastAppliedTypeface = editorTypeface
-                                editor.typefaceText = editorTypeface
+                                lastAppliedDocWeight = currentDocWeight
+                                if (editorTypeface != null) {
+                                    editor.updateTypefaceAndWeight(editorTypeface, currentDocWeight)
+                                }
                             }
                             val newLineHeight = activeTheme?.lineHeight ?: 1.7f
                             val newParaSpacing = (activeTheme?.paragraphSpacing ?: 14).toFloat()
@@ -905,10 +911,16 @@ fun MainEditorScreen(
                             // Update Header inside ComposeView
                             layout.headerView.setContent {
                                 if (!zenMode && activeNote != null) {
-                                    val resolvedTitleFont = ScribeFontManager.resolveFontFamily(
+                                    val titleKey = activeTheme?.titleFontFamily ?: activeTheme?.fontFamily ?: "default"
+                                    val resolvedTitle1Font = ScribeFontManager.resolveFontFamily(
                                         context = context,
-                                        fontKey = activeTheme?.titleFontFamily ?: activeTheme?.fontFamily ?: "default",
+                                        fontKey = titleKey,
                                         weight = activeTheme?.title1FontWeight ?: 600
+                                    )
+                                    val resolvedTitle2Font = ScribeFontManager.resolveFontFamily(
+                                        context = context,
+                                        fontKey = titleKey,
+                                        weight = activeTheme?.title2FontWeight ?: 700
                                     )
                                     val pTitleSize = (activeTheme?.title1FontSize ?: 18).sp
                                     val sTitleSize = (activeTheme?.title2FontSize ?: 24).sp
@@ -930,7 +942,8 @@ fun MainEditorScreen(
                                         horizontalPadding = (activeTheme?.paddingHorizontal ?: 28).dp,
                                         primaryTitleColor = pTitleColor,
                                         secondaryTitleColor = sTitleColor,
-                                        titleFontFamily = resolvedTitleFont,
+                                        title1FontFamily = resolvedTitle1Font,
+                                        title2FontFamily = resolvedTitle2Font,
                                         primaryTitleFontSize = pTitleSize,
                                         secondaryTitleFontSize = sTitleSize,
                                         primaryTitleFontWeight = pTitleWeight,
@@ -2628,6 +2641,8 @@ fun ManuscriptHeader(
     primaryTitleColor: Color? = null,
     secondaryTitleColor: Color? = null,
     titleFontFamily: FontFamily? = null,
+    title1FontFamily: FontFamily? = titleFontFamily,
+    title2FontFamily: FontFamily? = titleFontFamily,
     primaryTitleFontSize: androidx.compose.ui.unit.TextUnit = 18.sp,
     secondaryTitleFontSize: androidx.compose.ui.unit.TextUnit = 24.sp,
     primaryTitleFontWeight: FontWeight = FontWeight.SemiBold,
@@ -2697,7 +2712,7 @@ fun ManuscriptHeader(
                     color = primaryColor,
                     fontWeight = primaryTitleFontWeight,
                     fontSize = primaryTitleFontSize,
-                    fontFamily = titleFontFamily,
+                    fontFamily = title1FontFamily ?: titleFontFamily,
                     lineHeight = if (primaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) primaryTitleLineHeight else MaterialTheme.typography.titleMedium.lineHeight,
                     textAlign = tAlign,
                     letterSpacing = 2.5.sp
@@ -2731,7 +2746,7 @@ fun ManuscriptHeader(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                                     fontWeight = primaryTitleFontWeight,
                                     fontSize = primaryTitleFontSize,
-                                    fontFamily = titleFontFamily,
+                                    fontFamily = title1FontFamily ?: titleFontFamily,
                                     lineHeight = if (primaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) primaryTitleLineHeight else MaterialTheme.typography.titleMedium.lineHeight,
                                     textAlign = tAlign,
                                     letterSpacing = 2.5.sp
@@ -2771,7 +2786,7 @@ fun ManuscriptHeader(
                         color = secondaryColor,
                         fontWeight = secondaryTitleFontWeight,
                         fontSize = secondaryTitleFontSize,
-                        fontFamily = titleFontFamily,
+                        fontFamily = title2FontFamily ?: titleFontFamily,
                         lineHeight = if (secondaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) secondaryTitleLineHeight else MaterialTheme.typography.headlineMedium.lineHeight,
                         textAlign = tAlign
                     ),
@@ -2808,7 +2823,7 @@ fun ManuscriptHeader(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
                                         fontWeight = secondaryTitleFontWeight,
                                         fontSize = secondaryTitleFontSize,
-                                        fontFamily = titleFontFamily,
+                                        fontFamily = title2FontFamily ?: titleFontFamily,
                                         lineHeight = if (secondaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) secondaryTitleLineHeight else MaterialTheme.typography.headlineMedium.lineHeight,
                                         textAlign = tAlign
                                     )
@@ -2855,7 +2870,7 @@ fun ManuscriptHeader(
                         color = primaryColor,
                         fontWeight = primaryTitleFontWeight,
                         fontSize = primaryTitleFontSize,
-                        fontFamily = titleFontFamily,
+                        fontFamily = title1FontFamily ?: titleFontFamily,
                         lineHeight = if (primaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) primaryTitleLineHeight else MaterialTheme.typography.titleMedium.lineHeight,
                         textAlign = tAlign,
                         letterSpacing = 2.sp
@@ -2873,7 +2888,7 @@ fun ManuscriptHeader(
                         color = secondaryColor,
                         fontWeight = secondaryTitleFontWeight,
                         fontSize = secondaryTitleFontSize,
-                        fontFamily = titleFontFamily,
+                        fontFamily = title2FontFamily ?: titleFontFamily,
                         lineHeight = if (secondaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) secondaryTitleLineHeight else MaterialTheme.typography.headlineMedium.lineHeight,
                         textAlign = tAlign
                     ),

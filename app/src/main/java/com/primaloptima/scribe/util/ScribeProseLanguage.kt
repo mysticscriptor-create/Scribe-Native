@@ -50,7 +50,7 @@ object ScribeProseTokens {
     const val HEADING   = EditorColorScheme.KEYWORD
 }
 
-class ScribeProseLanguage : EmptyLanguage() {
+class ScribeProseLanguage(private val documentWeight: Int = 400) : EmptyLanguage() {
 
     // ── Symbol pairing ────────────────────────────────────────────────────────────────
 
@@ -99,10 +99,11 @@ class ScribeProseLanguage : EmptyLanguage() {
                 var inDialogue = state?.inDialogue ?: false
                 var inThoughtQuote = state?.inThoughtQuote ?: false
                 val len = line.length
+                val isBaseBold = documentWeight >= 600
 
                 // Empty line — just carry state forward
                 if (len == 0) {
-                    spans.add(SpanFactory.obtain(0, TextStyle.makeStyle(ScribeProseTokens.PROSE)))
+                    spans.add(SpanFactory.obtain(0, TextStyle.makeStyle(ScribeProseTokens.PROSE, 0, isBaseBold, false, false)))
                     return IncrementalAnalyzeManager.LineTokenizeResult(
                         ProseState(inDialogue, inThoughtQuote), spans, spans
                     )
@@ -140,9 +141,9 @@ class ScribeProseLanguage : EmptyLanguage() {
                 if (isEmDashDialogue) {
                     val emDashOffset = line.indexOf(trimmed[0])
                     if (emDashOffset > 0) {
-                        spans.add(SpanFactory.obtain(0, TextStyle.makeStyle(ScribeProseTokens.PROSE)))
+                        spans.add(SpanFactory.obtain(0, TextStyle.makeStyle(ScribeProseTokens.PROSE, 0, isBaseBold, false, false)))
                     }
-                    spans.add(SpanFactory.obtain(emDashOffset, TextStyle.makeStyle(ScribeProseTokens.DIALOGUE)))
+                    spans.add(SpanFactory.obtain(emDashOffset, TextStyle.makeStyle(ScribeProseTokens.DIALOGUE, 0, isBaseBold, false, false)))
                     return IncrementalAnalyzeManager.LineTokenizeResult(
                         ProseState(inDialogue = false, inThoughtQuote = false), spans, spans
                     )
@@ -163,11 +164,11 @@ class ScribeProseLanguage : EmptyLanguage() {
                 // Apply opening carry-over state
                 val initialStyle = when {
                     inDialogue ->
-                        TextStyle.makeStyle(ScribeProseTokens.DIALOGUE)
+                        TextStyle.makeStyle(ScribeProseTokens.DIALOGUE, 0, isBaseBold, false, false)
                     inThoughtQuote ->
-                        TextStyle.makeStyle(ScribeProseTokens.MONOLOGUE, 0, false, true, false)
+                        TextStyle.makeStyle(ScribeProseTokens.MONOLOGUE, 0, isBaseBold, true, false)
                     else ->
-                        TextStyle.makeStyle(ScribeProseTokens.PROSE)
+                        TextStyle.makeStyle(ScribeProseTokens.PROSE, 0, isBaseBold, false, false)
                 }
                 addSpan(0, initialStyle)
 
@@ -181,9 +182,9 @@ class ScribeProseLanguage : EmptyLanguage() {
                             '\u201C' -> inDialogue = true
                             '\u201D' -> inDialogue = false
                         }
-                        addSpan(i, TextStyle.makeStyle(ScribeProseTokens.DIALOGUE))
+                        addSpan(i, TextStyle.makeStyle(ScribeProseTokens.DIALOGUE, 0, isBaseBold, false, false))
                         if (!inDialogue && i + 1 < len) {
-                            addSpan(i + 1, TextStyle.makeStyle(ScribeProseTokens.PROSE))
+                            addSpan(i + 1, TextStyle.makeStyle(ScribeProseTokens.PROSE, 0, isBaseBold, false, false))
                         }
                         i++
                         continue
@@ -198,7 +199,7 @@ class ScribeProseLanguage : EmptyLanguage() {
                                 TextStyle.makeStyle(ScribeProseTokens.PROSE, 0, true, false, false)
                             )
                             i = closingIndex + 2
-                            if (i < len) addSpan(i, TextStyle.makeStyle(ScribeProseTokens.PROSE))
+                            if (i < len) addSpan(i, TextStyle.makeStyle(ScribeProseTokens.PROSE, 0, isBaseBold, false, false))
                             continue
                         }
                     }
@@ -209,10 +210,10 @@ class ScribeProseLanguage : EmptyLanguage() {
                         if (closingIndex != -1 && closingIndex > i + 1) {
                             addSpan(
                                 i,
-                                TextStyle.makeStyle(ScribeProseTokens.MONOLOGUE, 0, false, true, false)
+                                TextStyle.makeStyle(ScribeProseTokens.MONOLOGUE, 0, isBaseBold, true, false)
                             )
                             i = closingIndex + 1
-                            if (i < len) addSpan(i, TextStyle.makeStyle(ScribeProseTokens.PROSE))
+                            if (i < len) addSpan(i, TextStyle.makeStyle(ScribeProseTokens.PROSE, 0, isBaseBold, false, false))
                             continue
                         }
                     }
@@ -223,10 +224,10 @@ class ScribeProseLanguage : EmptyLanguage() {
                         if (closingIndex != -1 && closingIndex > i + 1) {
                             addSpan(
                                 i,
-                                TextStyle.makeStyle(ScribeProseTokens.PROSE, 0, false, true, false)
+                                TextStyle.makeStyle(ScribeProseTokens.PROSE, 0, isBaseBold, true, false)
                             )
                             i = closingIndex + 1
-                            if (i < len) addSpan(i, TextStyle.makeStyle(ScribeProseTokens.PROSE))
+                            if (i < len) addSpan(i, TextStyle.makeStyle(ScribeProseTokens.PROSE, 0, isBaseBold, false, false))
                             continue
                         }
                     }
@@ -237,16 +238,16 @@ class ScribeProseLanguage : EmptyLanguage() {
                         if (closingIndex != -1) {
                             addSpan(
                                 i,
-                                TextStyle.makeStyle(ScribeProseTokens.MONOLOGUE, 0, false, true, false)
+                                TextStyle.makeStyle(ScribeProseTokens.MONOLOGUE, 0, isBaseBold, true, false)
                             )
                             i = closingIndex + 1
-                            if (i < len) addSpan(i, TextStyle.makeStyle(ScribeProseTokens.PROSE))
+                            if (i < len) addSpan(i, TextStyle.makeStyle(ScribeProseTokens.PROSE, 0, isBaseBold, false, false))
                             continue
                         } else {
                             inThoughtQuote = true
                             addSpan(
                                 i,
-                                TextStyle.makeStyle(ScribeProseTokens.MONOLOGUE, 0, false, true, false)
+                                TextStyle.makeStyle(ScribeProseTokens.MONOLOGUE, 0, isBaseBold, true, false)
                             )
                             i++
                             continue
@@ -258,10 +259,10 @@ class ScribeProseLanguage : EmptyLanguage() {
                         inThoughtQuote = false
                         addSpan(
                             i,
-                            TextStyle.makeStyle(ScribeProseTokens.MONOLOGUE, 0, false, true, false)
+                            TextStyle.makeStyle(ScribeProseTokens.MONOLOGUE, 0, isBaseBold, true, false)
                         )
                         if (i + 1 < len) {
-                            addSpan(i + 1, TextStyle.makeStyle(ScribeProseTokens.PROSE))
+                            addSpan(i + 1, TextStyle.makeStyle(ScribeProseTokens.PROSE, 0, isBaseBold, false, false))
                         }
                         i++
                         continue

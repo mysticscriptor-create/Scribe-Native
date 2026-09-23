@@ -37,6 +37,7 @@ fun ThemeWritingPanel(
     onFontSizeChange: (Float) -> Unit,
     onLineHeightChange: (Float) -> Unit,
     onParagraphSpacingChange: (Float) -> Unit,
+    onDocumentFontWeightChange: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -303,6 +304,53 @@ fun ThemeWritingPanel(
                         valueRange = 12f..28f,
                         steps = 15
                     )
+                }
+
+                // Document Font Weight
+                val weightLabels = mapOf(
+                    300 to "Light (300)",
+                    400 to "Regular (400)",
+                    500 to "Medium (500)",
+                    600 to "SemiBold (600)",
+                    700 to "Bold (700)",
+                    800 to "ExtraBold (800)"
+                )
+                val currentWeight = draft.documentFontWeight
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Base Font Weight", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = ScribeTheme.colors.content.primary)
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            shape = ScribeTheme.shapes.extraSmall
+                        ) {
+                            Text(
+                                text = weightLabels[currentWeight] ?: "$currentWeight",
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(300, 400, 500, 600, 700).forEach { w ->
+                            val isSelected = currentWeight == w
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { onDocumentFontWeightChange(w) },
+                                label = { Text(weightLabels[w] ?: "$w", fontSize = 11.sp) }
+                            )
+                        }
+                    }
                 }
 
                 // Line Height

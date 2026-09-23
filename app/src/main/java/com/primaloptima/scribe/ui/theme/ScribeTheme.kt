@@ -3174,6 +3174,7 @@ fun ScribeComposeTheme(
     val scribeTypography = remember(
         resolvedTheme.fontFamily, resolvedTheme.fontSize, resolvedTheme.lineHeight,
         resolvedTheme.letterSpacing, resolvedTheme.paragraphSpacing, resolvedTheme.textAlignment,
+        resolvedTheme.documentFontWeight, resolvedTheme.title1FontWeight, resolvedTheme.title2FontWeight,
         scribeColors
     ) {
         val resolvedFontFamily = FontHelper.getFontFamily(resolvedTheme.fontFamily)
@@ -3259,10 +3260,12 @@ fun ScribeComposeTheme(
                 color = scribeColors.content.secondary
             )
         )
+        val docWeight = FontWeight(resolvedTheme.documentFontWeight.coerceIn(100, 900))
+        val headingWeight = FontWeight((resolvedTheme.title1FontWeight ?: 700).coerceIn(100, 900))
         val editor = ScribeEditorTypography(
             prose = TextStyle(
                 fontFamily = resolvedFontFamily,
-                fontWeight = FontWeight.Normal,
+                fontWeight = docWeight,
                 fontSize = resolvedTheme.fontSize.sp,
                 lineHeight = (resolvedTheme.fontSize * resolvedTheme.lineHeight).sp,
                 letterSpacing = resolvedTheme.letterSpacing.sp,
@@ -3270,7 +3273,7 @@ fun ScribeComposeTheme(
             ),
             dialogue = TextStyle(
                 fontFamily = resolvedFontFamily,
-                fontWeight = FontWeight.Normal,
+                fontWeight = docWeight,
                 fontSize = resolvedTheme.fontSize.sp,
                 lineHeight = (resolvedTheme.fontSize * resolvedTheme.lineHeight).sp,
                 letterSpacing = resolvedTheme.letterSpacing.sp,
@@ -3279,7 +3282,7 @@ fun ScribeComposeTheme(
             monologue = TextStyle(
                 fontFamily = resolvedFontFamily,
                 fontStyle = FontStyle.Italic,
-                fontWeight = FontWeight.Normal,
+                fontWeight = docWeight,
                 fontSize = resolvedTheme.fontSize.sp,
                 lineHeight = (resolvedTheme.fontSize * resolvedTheme.lineHeight).sp,
                 letterSpacing = resolvedTheme.letterSpacing.sp,
@@ -3287,7 +3290,7 @@ fun ScribeComposeTheme(
             ),
             heading = TextStyle(
                 fontFamily = resolvedFontFamily,
-                fontWeight = FontWeight.Bold,
+                fontWeight = headingWeight,
                 fontSize = (resolvedTheme.fontSize * 1.25f).sp,
                 lineHeight = (resolvedTheme.fontSize * 1.25f * resolvedTheme.lineHeight).sp,
                 letterSpacing = (resolvedTheme.letterSpacing * 1.1f).sp,

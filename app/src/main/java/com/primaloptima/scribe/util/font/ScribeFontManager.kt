@@ -404,7 +404,7 @@ object ScribeFontManager {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                             Typeface.create(base, weight, false)
                         } else {
-                            base
+                            if (weight >= 600) Typeface.create(base, Typeface.BOLD) else base
                         }
                     }
                 } else null
