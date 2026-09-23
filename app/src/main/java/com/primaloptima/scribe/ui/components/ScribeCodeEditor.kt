@@ -50,6 +50,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         this.typefaceText = newTypeface
         setEditorLanguage(com.primaloptima.scribe.util.ScribeProseLanguage(weight))
         forceNextLayoutClear = true
+        renderContext.invalidateRenderNodes()
         createLayout()
         rerunAnalysis()
         invalidate()
