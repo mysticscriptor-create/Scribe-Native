@@ -93,6 +93,7 @@ data class ThemeEditorDraft(
     val lineHeight: Float,
     val paragraphSpacing: Float,
     val sideMargins: Float,
+    val documentFontWeight: Int = 400,
 
     // Layout
     val textAlignment: String,
@@ -250,6 +251,7 @@ data class ThemeEditorDraft(
         if (accentHex != original.colors.accent) return true
         if (overrides != original.overrides) return true
         if (fontFamily != original.fontFamily) return true
+        if (documentFontWeight != original.documentFontWeight) return true
         if (fontSize.toInt() != original.fontSize) return true
         if (lineHeight != original.lineHeight) return true
         if (paragraphSpacing.toInt() != original.paragraphSpacing) return true
@@ -479,6 +481,7 @@ data class ThemeEditorDraft(
             colors = resolved,
             overrides = if (overrides?.isEmpty() == true) null else overrides,
             fontFamily = fontFamily,
+            documentFontWeight = documentFontWeight,
             fontSize = fontSize.toInt(),
             lineHeight = lineHeight,
             paragraphSpacing = paragraphSpacing.toInt(),
@@ -530,6 +533,7 @@ data class ThemeEditorDraft(
                 accentHex = theme.colors.accent,
                 overrides = theme.overrides,
                 fontFamily = theme.fontFamily,
+                documentFontWeight = theme.documentFontWeight,
                 fontSize = theme.fontSize.toFloat(),
                 lineHeight = theme.lineHeight,
                 paragraphSpacing = theme.paragraphSpacing.toFloat(),
