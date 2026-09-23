@@ -1647,21 +1647,63 @@ class ThemeManager(private val context: Context) {
         fun resolveTypeface(context: Context, fontFamilyKey: String, weight: Int = 400): Typeface {
             val key = fontFamilyKey.lowercase().trim()
 
-            // 1. Check custom / downloaded fonts
+            // 1. Check bundled core fonts in assets (with true variable font weight support)
+            val (assetName, isVariable) = when (key) {
+                "playfair", "playfair display", "serif", "serif-medium", "serif-bold" -> Pair("playfair_display.ttf", true)
+                "courier", "courier prime" -> Pair(if (weight >= 600) "courier_prime_bold.ttf" else "courier_prime.ttf", false)
+                "cormorant", "cormorant garamond" -> Pair("cormorant_garamond.ttf", true)
+                "inter", "inter clean", "sans", "sans-medium", "sans-semibold", "sans-bold" -> Pair("inter.ttf", true)
+                "caveat", "caveat handwritten" -> Pair("caveat.ttf", true)
+                "lora", "lora literary" -> Pair("lora.ttf", true)
+                "mono", "mono-medium", "jetbrains_mono" -> Pair("jetbrains_mono.ttf", true)
+                else -> Pair(null, false)
+            }
+            if (assetName != null) {
+                try {
+                    if (isVariable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        val tf = Typeface.Builder(context.assets, "fonts/$assetName")
+                            .setFontVariationSettings("'wght' $weight")
+                            .setWeight(weight)
+                            .build()
+                        if (tf != null) return tf
+                    } else {
+                        val tf = Typeface.createFromAsset(context.assets, "fonts/$assetName")
+                        if (tf != null) {
+                            return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                Typeface.create(tf, weight, false)
+                            } else {
+                                if (weight >= 600) Typeface.create(tf, Typeface.BOLD) else tf
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+
+            // 2. Check custom / downloaded fonts
             try {
                 val custom = com.primaloptima.scribe.util.font.ScribeFontManager.getCustomFonts(context).find {
                     it.id.equals(key, ignoreCase = true) || it.name.equals(key, ignoreCase = true)
                 }
                 if (custom != null && custom.filePath != null) {
-                    val f = java.io.File(custom.filePath)
-                    if (f.exists()) {
+                    val fontFile = java.io.File(custom.filePath)
+                    if (fontFile.exists()) {
                         if (custom.isVariable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            return Typeface.Builder(f)
+                            val tf = Typeface.Builder(fontFile)
                                 .setFontVariationSettings("'wght' $weight")
                                 .setWeight(weight)
                                 .build()
+                            if (tf != null) return tf
                         }
-                        val base = Typeface.createFromFile(f)
+                        val specificPath = custom.weightFilePaths[weight]
+                        val targetFile = if (specificPath != null && java.io.File(specificPath).exists()) {
+                            java.io.File(specificPath)
+                        } else {
+                            val closestWeight = custom.weightFilePaths.keys.minByOrNull { Math.abs(it - weight) }
+                            if (closestWeight != null && custom.weightFilePaths[closestWeight]?.let { java.io.File(it).exists() } == true) {
+                                java.io.File(custom.weightFilePaths[closestWeight]!!)
+                            } else fontFile
+                        }
+                        val base = Typeface.createFromFile(targetFile)
                         return if (Build.VERSION.SDK_INT >= 28) {
                             Typeface.create(base, weight, false)
                         } else {
@@ -1671,7 +1713,7 @@ class ThemeManager(private val context: Context) {
                 }
             } catch (_: Exception) {}
 
-            // 2. Check bundled / built-in fonts
+            // 3. Fallback to resource XML fonts (if assets missing)
             val fontResId = when (key) {
                 "playfair", "playfair display", "serif", "serif-medium", "serif-bold" -> R.font.playfair_display
                 "courier", "courier prime" -> R.font.courier_prime
@@ -1699,7 +1741,7 @@ class ThemeManager(private val context: Context) {
                 } catch (_: Exception) {}
             }
 
-            // 3. Fallback system typeface with weight
+            // 4. Fallback system typeface with weight
             val fallback = when {
                 key.startsWith("serif") || key == "playfair" || key == "cormorant" || key == "lora" -> Typeface.SERIF
                 key.startsWith("mono") || key == "courier" || key == "jetbrains_mono" -> Typeface.MONOSPACE

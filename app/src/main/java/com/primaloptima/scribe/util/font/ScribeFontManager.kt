@@ -118,7 +118,7 @@ object ScribeFontManager {
         )
     )
 
-    private fun getFontsDir(context: Context): File {
+    fun getFontsDir(context: Context): File {
         val dir = File(context.filesDir, "fonts")
         if (!dir.exists()) {
             dir.mkdirs()
@@ -272,20 +272,18 @@ object ScribeFontManager {
         category: String,
         bytes: ByteArray,
         supportedWeights: List<Int> = listOf(400),
+        weightFiles: Map<Int, String> = emptyMap(),
         license: String = "OFL-1.1"
     ): Result<ScribeFont> = withContext(Dispatchers.IO) {
         try {
             if (bytes.size < 12) {
                 return@withContext Result.failure(Exception("Downloaded font file is empty or corrupted"))
             }
-
             val fontInfo = parseFontMetadata(bytes)
             val isVariable = fontInfo?.isVariable ?: false
             val parsedName = fontInfo?.familyName?.takeIf { it.isNotBlank() } ?: name
-
             val targetFile = File(getFontsDir(context), "$id.ttf")
             FileOutputStream(targetFile).use { it.write(bytes) }
-
             val font = ScribeFont(
                 id = id,
                 name = parsedName,
@@ -294,9 +292,9 @@ object ScribeFontManager {
                 weights = if (isVariable) listOf(300, 400, 500, 600, 700, 800) else supportedWeights,
                 isCustom = true,
                 filePath = targetFile.absolutePath,
+                weightFilePaths = if (isVariable) emptyMap() else weightFiles,
                 license = license
             )
-
             saveFontToRegistry(context, font)
             clearCache()
             Result.success(font)
@@ -394,11 +392,16 @@ object ScribeFontManager {
                             .setWeight(weight)
                             .build()
                     } else {
-                        // Check if static weight file exists
+                        // Check if static weight file exists, or find closest available weight
                         val specificPath = custom.weightFilePaths[weight]
                         val targetFile = if (specificPath != null && File(specificPath).exists()) {
                             File(specificPath)
-                        } else fontFile
+                        } else {
+                            val closestWeight = custom.weightFilePaths.keys.minByOrNull { Math.abs(it - weight) }
+                            if (closestWeight != null && custom.weightFilePaths[closestWeight]?.let { File(it).exists() } == true) {
+                                File(custom.weightFilePaths[closestWeight]!!)
+                            } else fontFile
+                        }
 
                         val base = Typeface.createFromFile(targetFile)
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -454,7 +457,7 @@ object ScribeFontManager {
      * - Detects 'fvar' table for variable fonts.
      * - Parses 'name' table (ID 1 = Family Name, ID 16 = Typographic Family).
      */
-    private fun parseFontMetadata(bytes: ByteArray): ParsedFontInfo? {
+    fun parseFontMetadata(bytes: ByteArray): ParsedFontInfo? {
         return try {
             val dis = DataInputStream(ByteArrayInputStream(bytes))
             val sfntVersion = dis.readInt()

@@ -6,6 +6,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
@@ -15,7 +17,7 @@ data class OnlineFontItem(
     val name: String,
     val category: String, // "all", "serif", "sans", "mono", "display", "handwriting"
     val description: String,
-    val isVariable: Boolean = true,
+    val isVariable: Boolean = false,
     val weights: List<Int> = listOf(300, 400, 500, 600, 700),
     val ttfUrl: String,
     val license: String = "OFL-1.1"
@@ -335,8 +337,47 @@ object OnlineFontLibrary {
             }
 
             val fontBytes = outputStream.toByteArray()
-            onProgress(1.0f)
 
+            // Check if font has variable axes (fvar table)
+            val fontInfo = ScribeFontManager.parseFontMetadata(fontBytes)
+            val isVariable = fontInfo?.isVariable ?: false
+            val weightFiles = mutableMapOf<Int, String>()
+
+            // If not a variable font, fetch additional static weight files from Fontsource
+            if (!isVariable && item.weights.size > 1) {
+                val otherWeights = item.weights.filter { it != 400 }
+                val weightCount = otherWeights.size
+                otherWeights.forEachIndexed { index, w ->
+                    try {
+                        val weightUrlStr = if (item.ttfUrl.contains("latin-400-normal.ttf")) {
+                            item.ttfUrl.replace("latin-400-normal.ttf", "latin-$w-normal.ttf")
+                        } else {
+                            "https://cdn.jsdelivr.net/fontsource/fonts/${item.id}@latest/latin-$w-normal.ttf"
+                        }
+                        val wConn = (URL(weightUrlStr).openConnection() as HttpURLConnection).apply {
+                            instanceFollowRedirects = true
+                            connectTimeout = 6000
+                            readTimeout = 8000
+                            setRequestProperty("User-Agent", "Scribe-Android/1.0")
+                        }
+                        if (wConn.responseCode in 200..299) {
+                            val wBytes = wConn.inputStream.use { it.readBytes() }
+                            if (wBytes.size >= 12) {
+                                val wFile = File(ScribeFontManager.getFontsDir(context), "${item.id}_$w.ttf")
+                                FileOutputStream(wFile).use { it.write(wBytes) }
+                                weightFiles[w] = wFile.absolutePath
+                            }
+                        }
+                        wConn.disconnect()
+                    } catch (e: Exception) {
+                        Log.d(TAG, "Optional weight $w download skipped for ${item.id}: ${e.message}")
+                    }
+                    val weightProgress = 0.5f + 0.45f * ((index + 1).toFloat() / weightCount.toFloat())
+                    onProgress(weightProgress)
+                }
+            }
+
+            onProgress(1.0f)
             ScribeFontManager.saveDownloadedFont(
                 context = context,
                 id = item.id,
@@ -344,6 +385,7 @@ object OnlineFontLibrary {
                 category = item.category,
                 bytes = fontBytes,
                 supportedWeights = item.weights,
+                weightFiles = weightFiles,
                 license = item.license
             )
         } catch (e: Exception) {

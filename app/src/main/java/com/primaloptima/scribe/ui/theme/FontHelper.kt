@@ -90,6 +90,11 @@ object FontHelper {
     }
 
     fun getFontFamily(fontKey: String, weight: Int = 400): FontFamily {
+        try {
+            val app = com.primaloptima.scribe.ScribeApp.instance
+            return ScribeFontManager.resolveFontFamily(app, fontKey, weight)
+        } catch (_: Exception) {}
+
         val norm = fontKey.lowercase().trim()
 
         return when (norm) {

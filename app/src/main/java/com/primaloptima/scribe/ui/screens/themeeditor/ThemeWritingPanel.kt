@@ -3,6 +3,8 @@ package com.primaloptima.scribe.ui.screens.themeeditor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
@@ -182,7 +184,7 @@ fun ThemeWritingPanel(
                     FontHelper.fontOptions.forEach { option ->
                         val isSelected = draft.fontFamily.equals(option.key, ignoreCase = true) ||
                                 (option.key == "default" && (draft.fontFamily.isEmpty() || draft.fontFamily.equals("default", ignoreCase = true)))
-                        val optionFont = FontHelper.getFontFamily(option.key)
+                        val optionFont = FontHelper.getFontFamily(option.key, if (isSelected) draft.documentFontWeight else 400)
 
                         Card(
                             modifier = Modifier
@@ -339,10 +341,11 @@ fun ThemeWritingPanel(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 4.dp),
+                            .padding(top = 4.dp)
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        listOf(300, 400, 500, 600, 700).forEach { w ->
+                        listOf(300, 400, 500, 600, 700, 800).forEach { w ->
                             val isSelected = currentWeight == w
                             FilterChip(
                                 selected = isSelected,
