@@ -476,6 +476,7 @@ class EditorViewModel(
 
     private val _theme = MutableStateFlow<AppTheme?>(themeManager.activeTheme())
     val theme: StateFlow<AppTheme?> = _theme.asStateFlow()
+    private var themeSaveJob: Job? = null
 
     fun updateActiveTheme(transform: (AppTheme) -> AppTheme) {
         val current = _theme.value ?: return
@@ -493,7 +494,9 @@ class EditorViewModel(
         themeManager.saveCustomTheme(updated)
         themeManager.setActiveTheme(updated.id)
         _theme.value = updated
-        viewModelScope.launch {
+        themeSaveJob?.cancel()
+        themeSaveJob = viewModelScope.launch {
+            delay(400)
             dataStore.setActiveThemeId(updated.id)
             dataStore.setCustomThemesJson(AppJson.encodeAppThemes(themeManager.allCustomThemes()))
             dataStore.setEditorFontSize(updated.fontSize)

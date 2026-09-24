@@ -56,6 +56,18 @@ class ScribeCodeEditor @JvmOverloads constructor(
         invalidate()
     }
 
+    /**
+     * Updates line spacing and guarantees immediate view invalidation,
+     * resetting cached hardware-accelerated RenderNodes and redrawing the document.
+     */
+    override fun setLineSpacing(add: Float, mult: Float) {
+        super.setLineSpacing(add, mult)
+        try {
+            renderContext.invalidateRenderNodes()
+        } catch (_: Throwable) {}
+        invalidate()
+    }
+
     // ── Wordwrap Layout Ready & Flash-Suppression Engine ───────────────────────
     private var isLayoutBusyState: Boolean = false
     private var isAwaitingLayoutReady: Boolean = false

@@ -863,11 +863,23 @@ fun MainEditorScreen(
                             val newLineHeight = activeTheme?.lineHeight ?: 1.00f
                             val newParaSpacing = (activeTheme?.paragraphSpacing ?: 1).toFloat()
                             val paraSpacingPx = newParaSpacing * density * 0.35f
-                            if (kotlin.math.abs(lastAppliedLineSpacing - newLineHeight) > 0.01f ||
+                            if (kotlin.math.abs(lastAppliedLineSpacing - newLineHeight) > 0.005f ||
                                 kotlin.math.abs(lastAppliedParaSpacing - newParaSpacing) > 0.5f) {
                                 lastAppliedLineSpacing = newLineHeight
                                 lastAppliedParaSpacing = newParaSpacing
                                 editor.setLineSpacing(paraSpacingPx, newLineHeight)
+                                try {
+                                    editor.renderContext.invalidateRenderNodes()
+                                } catch (_: Throwable) {}
+                                editor.invalidate()
+                                if (editor.offsetY > editor.scrollMaxY && editor.scrollMaxY >= 0) {
+                                    try {
+                                        editor.scroller?.let { s ->
+                                            s.startScroll(editor.offsetX, editor.offsetY, 0, editor.scrollMaxY - editor.offsetY, 0)
+                                            s.abortAnimation()
+                                        }
+                                    } catch (_: Throwable) {}
+                                }
                             }
                             if (lastAppliedBgArgb != bgArgb) {
                                 lastAppliedBgArgb = bgArgb
