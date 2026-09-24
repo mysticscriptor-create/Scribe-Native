@@ -118,8 +118,9 @@ import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.ScribeMetricTokens
 import com.primaloptima.scribe.ui.theme.ScribeShapeTokens
 import com.primaloptima.scribe.ui.theme.ScribeTheme
-import com.primaloptima.scribe.util.FontHelper
-import com.primaloptima.scribe.util.ScribeFontManager
+import com.primaloptima.scribe.ui.theme.FontHelper
+import com.primaloptima.scribe.util.font.ScribeFont
+import com.primaloptima.scribe.util.font.ScribeFontManager
 import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.util.model.AppTheme
 import kotlinx.coroutines.launch
@@ -910,9 +911,18 @@ private fun EditorTuningPage(
                 }
 
                 TypographyTool.FONT -> {
-                    TypographyFontControl(
-                        activeTarget = activeTarget,
-                        activeTheme = activeTheme,
+                    val activeFont = when (activeTarget) {
+                        TypographyTarget.TITLE_1, TypographyTarget.TITLE_2 ->
+                            activeTheme.titleFontFamily ?: activeTheme.fontFamily
+                        else -> activeTheme.fontFamily
+                    }
+                    TypographyFontSection(
+                        activeFontKey = activeFont,
+                        typographyTarget = when (activeTarget) {
+                            TypographyTarget.TITLE_1 -> "title1"
+                            TypographyTarget.TITLE_2 -> "title2"
+                            else -> "document"
+                        },
                         onOpenMyFonts = onOpenMyFonts,
                         onOpenDownloadFonts = onOpenDownloadFonts,
                         onImportFont = onImportFont
@@ -1186,7 +1196,7 @@ private fun TypographySizeControl(
             else -> activeTheme.fontFamily
         }
         val fontFamily = remember(activeFontId) {
-            FontHelper.resolveFontFamily(context, activeFontId)
+            FontHelper.getFontFamilyWithContext(context, activeFontId)
         }
         Surface(
             shape = RoundedCornerShape(12.dp),
@@ -1206,7 +1216,7 @@ private fun TypographySizeControl(
                 Text(
                     text = "The quick brown fox jumps over the lazy dog.",
                     fontFamily = fontFamily,
-                    fontSize = currentVal.sp.coerceAtMost(28.sp),
+                    fontSize = minOf(currentVal, 28f).sp,
                     fontWeight = FontWeight(activeTheme.documentFontWeight),
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
@@ -1217,240 +1227,7 @@ private fun TypographySizeControl(
     }
 }
 
-/**
- * Font Control: Current Font preview card and 3 tactile action cards (Browse, Download, Import).
- */
-@Composable
-private fun TypographyFontControl(
-    activeTarget: TypographyTarget,
-    activeTheme: AppTheme,
-    onOpenMyFonts: () -> Unit,
-    onOpenDownloadFonts: () -> Unit,
-    onImportFont: () -> Unit
-) {
-    val context = LocalContext.current
-    val activeFontId = when (activeTarget) {
-        TypographyTarget.TITLE_1, TypographyTarget.TITLE_2 -> activeTheme.titleFontFamily ?: activeTheme.fontFamily
-        else -> activeTheme.fontFamily
-    }
-    val fontMeta = remember(activeFontId) {
-        ScribeFontManager.getFontById(context, activeFontId)
-    }
-    val fontName = fontMeta?.name ?: activeFontId.replace('_', ' ').replaceFirstChar { it.uppercase() }
-    val resolvedFamily = remember(activeFontId) {
-        FontHelper.resolveFontFamily(context, activeFontId)
-    }
 
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // Active Font Preview Card
-        Surface(
-            shape = RoundedCornerShape(14.dp),
-            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.30f),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onOpenMyFonts)
-                .semantics {
-                    contentDescription = "Active font: $fontName. Tap to browse installed fonts."
-                }
-        ) {
-            Row(
-                modifier = Modifier.padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(ScribeTheme.colors.interaction.primary.copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Aa",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = resolvedFamily,
-                            color = ScribeTheme.colors.interaction.primary
-                        )
-                    }
-                    Column {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = fontName,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Surface(
-                                shape = CircleShape,
-                                color = ScribeTheme.colors.interaction.primary,
-                                modifier = Modifier.height(18.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier.padding(horizontal = 6.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "Active",
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                }
-                            }
-                        }
-                        Text(
-                            text = if (fontMeta?.isCustom == true) "Imported Font • Custom" else "${fontMeta?.category ?: "System"} • ${if (fontMeta?.isVariable == true) "Variable" else "Static"}",
-                            fontSize = 11.5.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                Icon(
-                    imageVector = Icons.Default.ChevronRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
-
-        // Action 1: My Fonts
-        FontActionCard(
-            title = "My Fonts",
-            subtitle = "Browse installed & built-in typefaces",
-            badge = "Installed",
-            icon = Icons.Default.FontDownload,
-            onClick = onOpenMyFonts
-        )
-
-        // Action 2: Download Fonts
-        FontActionCard(
-            title = "Download Fonts",
-            subtitle = "Browse 2,000+ curated Google fonts",
-            badge = "Library",
-            icon = Icons.Default.Language,
-            onClick = onOpenDownloadFonts
-        )
-
-        // Action 3: Import Font
-        FontActionCard(
-            title = "Import Font",
-            subtitle = "Load .ttf or .otf files from device storage",
-            badge = ".ttf / .otf",
-            icon = Icons.Default.FolderOpen,
-            onClick = onImportFont
-        )
-    }
-}
-
-/**
- * Tactile action card for font sub-actions.
- */
-@Composable
-private fun FontActionCard(
-    title: String,
-    subtitle: String,
-    badge: String,
-    icon: ImageVector,
-    onClick: () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(
-                onClick = onClick,
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(bounded = true)
-            )
-            .semantics {
-                role = Role.Button
-                contentDescription = "$title, $subtitle"
-            }
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = ScribeTheme.colors.interaction.primary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                Column {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Text(
-                            text = title,
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.40f),
-                            modifier = Modifier.height(18.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier.padding(horizontal = 6.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = badge,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                    Text(
-                        text = subtitle,
-                        fontSize = 11.5.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                    )
-                }
-            }
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp)
-            )
-        }
-    }
-}
 
 /**
  * Weight Control: Numeric weight display and tactile weight pills rendered with corresponding weights.
@@ -1581,7 +1358,7 @@ private fun TypographyMarginsControl(
     activeTheme: AppTheme,
     onUpdateTheme: ((AppTheme) -> AppTheme) -> Unit
 ) {
-    val currentVal = (activeTheme.marginHorizontal ?: 24).toFloat().coerceIn(8f, 72f)
+    val currentVal = activeTheme.paddingHorizontal.toFloat().coerceIn(8f, 72f)
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(
@@ -1618,8 +1395,8 @@ private fun TypographyMarginsControl(
             value = currentVal,
             onValueChange = { newVal ->
                 val rounded = newVal.roundToInt()
-                if (rounded != (activeTheme.marginHorizontal ?: 24)) {
-                    onUpdateTheme { it.copy(marginHorizontal = rounded) }
+                if (rounded != activeTheme.paddingHorizontal) {
+                    onUpdateTheme { it.copy(paddingHorizontal = rounded) }
                 }
             },
             valueRange = 8f..72f,
@@ -1937,21 +1714,21 @@ private fun EditorColorsPage(
     onClose: () -> Unit
 ) {
     val currentHex = when (activeRole) {
-        ColorRole.TITLE_1 -> activeTheme.title1Color ?: activeTheme.textColor
-        ColorRole.TITLE_2 -> activeTheme.title2Color ?: activeTheme.textColor
-        ColorRole.PROSE -> activeTheme.textColor
-        ColorRole.DIALOGUE -> activeTheme.dialogueColor ?: activeTheme.textColor
-        ColorRole.THOUGHTS -> activeTheme.thoughtsColor ?: activeTheme.textColor
-        ColorRole.HEADINGS -> activeTheme.headingColor ?: activeTheme.textColor
+        ColorRole.TITLE_1 -> activeTheme.primaryTitleColor ?: activeTheme.colors.headingText
+        ColorRole.TITLE_2 -> activeTheme.secondaryTitleColor ?: activeTheme.colors.text
+        ColorRole.PROSE -> activeTheme.colors.text
+        ColorRole.DIALOGUE -> activeTheme.overrides?.dialogueText ?: activeTheme.colors.dialogueText
+        ColorRole.THOUGHTS -> activeTheme.overrides?.monologueText ?: activeTheme.colors.monologueText
+        ColorRole.HEADINGS -> activeTheme.overrides?.headingText ?: activeTheme.colors.headingText
     }
 
     val applyColor: (String) -> Unit = { hex ->
         when (activeRole) {
-            ColorRole.TITLE_1 -> onUpdateTheme { it.copy(title1Color = hex) }
-            ColorRole.TITLE_2 -> onUpdateTheme { it.copy(title2Color = hex) }
-            ColorRole.PROSE -> onUpdateTheme { it.copy(textColor = hex) }
-            ColorRole.DIALOGUE -> onUpdateTheme { it.copy(dialogueColor = hex) }
-            ColorRole.THOUGHTS -> onUpdateTheme { it.copy(thoughtsColor = hex) }
+            ColorRole.TITLE_1 -> onUpdateTheme { it.copy(primaryTitleColor = hex) }
+            ColorRole.TITLE_2 -> onUpdateTheme { it.copy(secondaryTitleColor = hex) }
+            ColorRole.PROSE -> onUpdateTheme { ThemeManager.updateFoundationColors(it, newText = hex) }
+            ColorRole.DIALOGUE -> onUpdateTheme { ThemeManager.updateSemanticOverride(it, "dialogueText", hex) }
+            ColorRole.THOUGHTS -> onUpdateTheme { ThemeManager.updateSemanticOverride(it, "monologueText", hex) }
             ColorRole.HEADINGS -> onUpdateTheme { ThemeManager.updateSemanticOverride(it, "headingText", hex) }
         }
     }
@@ -1980,10 +1757,10 @@ private fun EditorColorsPage(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                ColorRole.entries.forEach { role ->
-                    val isSelected = activeRole == role
+                ColorRole.entries.forEach { cRole ->
+                    val isSelected = activeRole == cRole
                     Surface(
-                        onClick = { onSelectRole(role) },
+                        onClick = { onSelectRole(cRole) },
                         shape = RoundedCornerShape(10.dp),
                         color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f),
                         border = BorderStroke(
@@ -1994,8 +1771,8 @@ private fun EditorColorsPage(
                             .height(38.dp)
                             .semantics {
                                 selected = isSelected
-                                role = Role.Tab
-                                contentDescription = "${role.label} color role"
+                                this.role = Role.Tab
+                                contentDescription = "${cRole.label} color role"
                             }
                     ) {
                         Box(
@@ -2003,7 +1780,7 @@ private fun EditorColorsPage(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                text = role.label,
+                                text = cRole.label,
                                 fontSize = 12.sp,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                 color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
