@@ -5,6 +5,10 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -146,7 +150,7 @@ enum class TypographyTool(val key: String, val label: String, val icon: ImageVec
     FONT("font", "Font", Icons.Default.TextFields),
     WEIGHT("weight", "Weight", Icons.Default.FormatBold),
     MARGINS("margins", "Margins", Icons.Default.FormatIndentIncrease),
-    LINE_SPACING("line", "Line Spacing", Icons.Default.FormatLineSpacing),
+    LINE_SPACING("line", "Spacing", Icons.Default.FormatLineSpacing),
     PARAGRAPH("para", "Paragraph", Icons.Default.DensityMedium),
     ALIGNMENT("align", "Alignment", Icons.Default.FormatAlignLeft);
 
@@ -798,8 +802,17 @@ private fun EditorTuningPage(
     onBack: () -> Unit,
     onClose: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        // Pinned Header
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .animateContentSize(
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            )
+    ) {
+        // Pinned Top Header (Back, Scope Title, Colors Switcher, Close)
         TuningSharedHeader(
             isTextMode = isTextMode,
             onNavigate = onNavigate,
@@ -807,85 +820,13 @@ private fun EditorTuningPage(
             onClose = onClose
         )
 
-        // Pinned Typography Tool Navigation Row
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp)
-        ) {
-            val toolScrollState = rememberScrollState()
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(toolScrollState)
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                TypographyTool.entries.forEach { tool ->
-                    val isSelected = activeTool == tool
-                    Surface(
-                        onClick = { onSelectTool(tool) },
-                        shape = RoundedCornerShape(10.dp),
-                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.40f),
-                        border = BorderStroke(
-                            width = if (isSelected) 1.5.dp else 1.dp,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-                        ),
-                        modifier = Modifier
-                            .height(38.dp)
-                            .semantics {
-                                selected = isSelected
-                                role = Role.Tab
-                                contentDescription = "${tool.label} tool"
-                            }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = tool.icon,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = tool.label,
-                                fontSize = 12.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Right scroll indication cue
-            if (toolScrollState.canScrollForward) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .width(28.dp)
-                        .height(38.dp)
-                        .background(
-                            Brush.horizontalGradient(
-                                colors = listOf(Color.Transparent, MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
-                            )
-                        )
-                )
-            }
-        }
-
-        Spacer(Modifier.height(6.dp))
-
-        // Scrollable Body Content
+        // Scrollable Body Content (Flexible height, smoothly animated)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .weight(1f, fill = false)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 18.dp, vertical = 4.dp)
+                .padding(horizontal = 18.dp, vertical = 6.dp)
         ) {
             // Target Scope Selector (Document, Title 1, Title 2)
             if (activeTool in listOf(TypographyTool.SIZE, TypographyTool.FONT, TypographyTool.WEIGHT, TypographyTool.LINE_SPACING)) {
@@ -893,90 +834,316 @@ private fun EditorTuningPage(
                     activeTarget = activeTarget,
                     onSelectTarget = onSelectTarget
                 )
+                Spacer(Modifier.height(8.dp))
             } else if (activeTool == TypographyTool.ALIGNMENT) {
                 AlignmentScopeSelector(
                     alignmentTarget = alignmentTarget,
                     onSelectAlignmentTarget = onSelectAlignmentTarget
                 )
+                Spacer(Modifier.height(8.dp))
             }
 
-            // Active Tool Controls UI
-            when (activeTool) {
-                TypographyTool.SIZE -> {
-                    TypographySizeControl(
-                        activeTarget = activeTarget,
-                        activeTheme = activeTheme,
-                        onUpdateTheme = onUpdateTheme
-                    )
-                }
-
-                TypographyTool.FONT -> {
-                    val activeFont = when (activeTarget) {
-                        TypographyTarget.TITLE_1, TypographyTarget.TITLE_2 ->
-                            activeTheme.titleFontFamily ?: activeTheme.fontFamily
-                        else -> activeTheme.fontFamily
+            // Active Tool Controls with directional horizontal slide & fade
+            AnimatedContent(
+                targetState = activeTool,
+                transitionSpec = {
+                    val forward = targetState.ordinal > initialState.ordinal
+                    if (forward) {
+                        (slideInHorizontally(
+                            initialOffsetX = { (it * 0.12f).toInt() },
+                            animationSpec = tween(200, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(180)))
+                            .togetherWith(
+                                slideOutHorizontally(
+                                    targetOffsetX = { (-it * 0.12f).toInt() },
+                                    animationSpec = tween(200, easing = FastOutSlowInEasing)
+                                ) + fadeOut(animationSpec = tween(140))
+                            )
+                    } else {
+                        (slideInHorizontally(
+                            initialOffsetX = { (-it * 0.12f).toInt() },
+                            animationSpec = tween(200, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(180)))
+                            .togetherWith(
+                                slideOutHorizontally(
+                                    targetOffsetX = { (it * 0.12f).toInt() },
+                                    animationSpec = tween(200, easing = FastOutSlowInEasing)
+                                ) + fadeOut(animationSpec = tween(140))
+                            )
                     }
-                    TypographyFontSection(
-                        activeFontKey = activeFont,
-                        typographyTarget = when (activeTarget) {
-                            TypographyTarget.TITLE_1 -> "title1"
-                            TypographyTarget.TITLE_2 -> "title2"
-                            else -> "document"
-                        },
-                        onOpenMyFonts = onOpenMyFonts,
-                        onOpenDownloadFonts = onOpenDownloadFonts,
-                        onImportFont = onImportFont
-                    )
-                }
+                },
+                label = "TypographyToolControlsTransition"
+            ) { tool ->
+                when (tool) {
+                    TypographyTool.SIZE -> {
+                        TypographySizeControl(
+                            activeTarget = activeTarget,
+                            activeTheme = activeTheme,
+                            onUpdateTheme = onUpdateTheme
+                        )
+                    }
 
-                TypographyTool.WEIGHT -> {
-                    TypographyWeightControl(
-                        activeTarget = activeTarget,
-                        activeTheme = activeTheme,
-                        onUpdateTheme = onUpdateTheme
-                    )
-                }
+                    TypographyTool.FONT -> {
+                        val activeFont = when (activeTarget) {
+                            TypographyTarget.TITLE_1, TypographyTarget.TITLE_2 ->
+                                activeTheme.titleFontFamily ?: activeTheme.fontFamily
+                            else -> activeTheme.fontFamily
+                        }
+                        TypographyFontSection(
+                            activeFontKey = activeFont,
+                            typographyTarget = when (activeTarget) {
+                                TypographyTarget.TITLE_1 -> "title1"
+                                TypographyTarget.TITLE_2 -> "title2"
+                                else -> "document"
+                            },
+                            onOpenMyFonts = onOpenMyFonts,
+                            onOpenDownloadFonts = onOpenDownloadFonts,
+                            onImportFont = onImportFont
+                        )
+                    }
 
-                TypographyTool.MARGINS -> {
-                    TypographyMarginsControl(
-                        activeTheme = activeTheme,
-                        onUpdateTheme = onUpdateTheme
-                    )
-                }
+                    TypographyTool.WEIGHT -> {
+                        TypographyWeightControl(
+                            activeTarget = activeTarget,
+                            activeTheme = activeTheme,
+                            onUpdateTheme = onUpdateTheme
+                        )
+                    }
 
-                TypographyTool.LINE_SPACING -> {
-                    TypographyLineSpacingControl(
-                        activeTarget = activeTarget,
-                        activeTheme = activeTheme,
-                        onUpdateTheme = onUpdateTheme
-                    )
-                }
+                    TypographyTool.MARGINS -> {
+                        TypographyMarginsControl(
+                            activeTheme = activeTheme,
+                            onUpdateTheme = onUpdateTheme
+                        )
+                    }
 
-                TypographyTool.PARAGRAPH -> {
-                    TypographyParagraphControl(
-                        activeTheme = activeTheme,
-                        onUpdateTheme = onUpdateTheme
-                    )
-                }
+                    TypographyTool.LINE_SPACING -> {
+                        TypographyLineSpacingControl(
+                            activeTarget = activeTarget,
+                            activeTheme = activeTheme,
+                            onUpdateTheme = onUpdateTheme
+                        )
+                    }
 
-                TypographyTool.ALIGNMENT -> {
-                    TypographyAlignmentControl(
-                        alignmentTarget = alignmentTarget,
-                        activeTheme = activeTheme,
-                        onUpdateTheme = onUpdateTheme
-                    )
+                    TypographyTool.PARAGRAPH -> {
+                        TypographyParagraphControl(
+                            activeTheme = activeTheme,
+                            onUpdateTheme = onUpdateTheme
+                        )
+                    }
+
+                    TypographyTool.ALIGNMENT -> {
+                        TypographyAlignmentControl(
+                            alignmentTarget = alignmentTarget,
+                            activeTheme = activeTheme,
+                            onUpdateTheme = onUpdateTheme
+                        )
+                    }
                 }
             }
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(8.dp))
+        }
+
+        // Subtle divider above the bottom tool selector
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f))
+        )
+
+        // Pinned Typography Tool Navigation Row at the BOTTOM
+        TypographyToolSelectionRow(
+            activeTool = activeTool,
+            onSelectTool = onSelectTool
+        )
+    }
+}
+
+/**
+ * Visual navigation row at the bottom for easy thumb access.
+ */
+@Composable
+private fun TypographyToolSelectionRow(
+    activeTool: TypographyTool,
+    onSelectTool: (TypographyTool) -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+    ) {
+        val toolScrollState = rememberScrollState()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(toolScrollState)
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TypographyTool.entries.forEach { tool ->
+                TypographyToolChip(
+                    tool = tool,
+                    isSelected = activeTool == tool,
+                    onClick = { onSelectTool(tool) }
+                )
+            }
+        }
+
+        // Right scroll indicator cue
+        if (toolScrollState.canScrollForward) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .width(28.dp)
+                    .height(42.dp)
+                    .background(
+                        Brush.horizontalGradient(
+                            colors = listOf(Color.Transparent, MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                        )
+                    )
+            )
         }
     }
 }
 
 /**
- * Secondary Target Scope Selector with clean styling and accessible radio button semantics.
+ * Tactile pill chip styled precisely like the reference design.
+ * Features soft pastel sage tint when selected, clean outline when unselected,
+ * and custom iconic typographic glyphs.
  */
 @Composable
+private fun TypographyToolChip(
+    tool: TypographyTool,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    val isDark = LocalAppTheme.current?.isDark == true
+    // Reference image styling: gentle sage/mint pastel fill for selected
+    val selectedBg = if (isDark) Color(0xFF283A32) else Color(0xFFDCE7DF)
+    val selectedBorder = if (isDark) Color(0xFF384A41) else Color(0xFFCAD7CF)
+    val unselectedBorder = if (isDark) Color(0xFF3A4841) else Color(0xFFD4DDD7)
+
+    val contentColor = if (isSelected) {
+        if (isDark) Color(0xFFE2F0E8) else Color(0xFF1B2B24)
+    } else {
+        if (isDark) Color(0xFFCFDBD4) else Color(0xFF2B3A33)
+    }
+
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = if (isSelected) selectedBg else Color.Transparent,
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (isSelected) selectedBorder else unselectedBorder
+        ),
+        shadowElevation = if (isSelected) 1.5.dp else 0.dp,
+        modifier = Modifier
+            .height(42.dp)
+            .semantics {
+                selected = isSelected
+                this.role = Role.Tab
+                contentDescription = "${tool.label} tool"
+            }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            TypographyToolGlyph(tool = tool, color = contentColor)
+            Text(
+                text = tool.label,
+                fontSize = 13.sp,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                color = contentColor
+            )
+        }
+    }
+}
+
+/**
+ * Typographic glyph rendered matching the icons in the reference image:
+ * - Aa: bold dual-case for Size
+ * - A: serif uppercase for Font
+ * - W: serif underlined for Weight
+ * - ↔: horizontal double arrow for Margins
+ * - ↕: vertical double arrow for Spacing
+ * - ¶: pilcrow for Paragraph
+ * - ≡: lines for Alignment
+ */
+@Composable
+private fun TypographyToolGlyph(
+    tool: TypographyTool,
+    color: Color
+) {
+    when (tool) {
+        TypographyTool.SIZE -> {
+            Text(
+                text = "Aa",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.2).sp,
+                color = color
+            )
+        }
+        TypographyTool.FONT -> {
+            Text(
+                text = "A",
+                fontSize = 16.sp,
+                fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.SemiBold,
+                color = color
+            )
+        }
+        TypographyTool.WEIGHT -> {
+            Text(
+                text = "W",
+                fontSize = 15.sp,
+                fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.Bold,
+                textDecoration = TextDecoration.Underline,
+                color = color
+            )
+        }
+        TypographyTool.MARGINS -> {
+            Text(
+                text = "↔",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = color
+            )
+        }
+        TypographyTool.LINE_SPACING -> {
+            Text(
+                text = "↕",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = color
+            )
+        }
+        TypographyTool.PARAGRAPH -> {
+            Text(
+                text = "¶",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = color
+            )
+        }
+        TypographyTool.ALIGNMENT -> {
+            Icon(
+                imageVector = Icons.Default.FormatAlignLeft,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+}
+
 private fun TargetScopeSelector(
     activeTarget: TypographyTarget,
     onSelectTarget: (TypographyTarget) -> Unit

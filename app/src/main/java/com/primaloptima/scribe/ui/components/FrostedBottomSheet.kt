@@ -2,6 +2,7 @@ package com.primaloptima.scribe.ui.components
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
@@ -262,6 +263,12 @@ fun FrostedBottomSheet(
                 Column(
                     modifier = modifier
                         .fillMaxWidth()
+                        .animateContentSize(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        )
                         .onGloballyPositioned { coordinates ->
                             sheetHeightPx = coordinates.size.height.toFloat()
                         }
