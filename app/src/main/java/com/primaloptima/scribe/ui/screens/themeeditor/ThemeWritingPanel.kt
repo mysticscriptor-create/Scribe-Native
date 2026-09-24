@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.primaloptima.scribe.ui.components.ScribeSettingSlider
 import com.primaloptima.scribe.ui.theme.FontHelper
 import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.parseComposeColor
@@ -280,33 +281,14 @@ fun ThemeWritingPanel(
                 }
 
                 // Base Font Size
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Base Font Size", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = ScribeTheme.colors.content.primary)
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            shape = ScribeTheme.shapes.extraSmall
-                        ) {
-                            Text(
-                                text = "${draft.fontSize.toInt()} sp",
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                    Slider(
-                        value = draft.fontSize,
-                        onValueChange = onFontSizeChange,
-                        valueRange = 12f..28f,
-                        steps = 15
-                    )
-                }
+                ScribeSettingSlider(
+                    label = "Base Font Size",
+                    value = draft.fontSize,
+                    onValueChange = onFontSizeChange,
+                    valueRange = 10f..56f,
+                    step = 1f,
+                    unit = "sp"
+                )
 
                 // Document Font Weight
                 val weightLabels = mapOf(
@@ -357,62 +339,25 @@ fun ThemeWritingPanel(
                 }
 
                 // Line Height
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Line Height", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = ScribeTheme.colors.content.primary)
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            shape = ScribeTheme.shapes.extraSmall
-                        ) {
-                            Text(
-                                text = String.format("%.2fx", draft.lineHeight),
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                    Slider(
-                        value = draft.lineHeight,
-                        onValueChange = onLineHeightChange,
-                        valueRange = 1.2f..2.4f,
-                        steps = 11
-                    )
-                }
+                ScribeSettingSlider(
+                    label = "Line Height",
+                    value = draft.lineHeight,
+                    onValueChange = onLineHeightChange,
+                    valueRange = 1.0f..2.4f,
+                    step = 0.1f,
+                    unit = "×",
+                    decimalPlaces = 2
+                )
 
                 // Paragraph Spacing
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Paragraph Spacing", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = ScribeTheme.colors.content.primary)
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            shape = ScribeTheme.shapes.extraSmall
-                        ) {
-                            Text(
-                                text = "${draft.paragraphSpacing.toInt()} dp",
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                    Slider(
-                        value = draft.paragraphSpacing,
-                        onValueChange = onParagraphSpacingChange,
-                        valueRange = 0f..32f,
-                        steps = 15
-                    )
-                }
+                ScribeSettingSlider(
+                    label = "Paragraph Spacing",
+                    value = draft.paragraphSpacing,
+                    onValueChange = onParagraphSpacingChange,
+                    valueRange = 0f..40f,
+                    step = 2f,
+                    unit = "dp"
+                )
             }
         }
     }

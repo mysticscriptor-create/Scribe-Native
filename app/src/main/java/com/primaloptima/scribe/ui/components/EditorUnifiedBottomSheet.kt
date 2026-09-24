@@ -1407,7 +1407,7 @@ private fun AlignmentScopeSelector(
 }
 
 /**
- * Size Control: Value badge, slider with readable min/max, and live visual specimen.
+ * Size Control: Reusable ScribeSettingSlider (10..56 sp, step 1) with live visual specimen.
  */
 @Composable
 private fun TypographySizeControl(
@@ -1421,44 +1421,16 @@ private fun TypographySizeControl(
         else -> activeTheme.fontSize.toFloat()
     }
     val minRange = if (activeTarget == TypographyTarget.TITLE_2) 14f else if (activeTarget == TypographyTarget.TITLE_1) 12f else 10f
-    val maxRange = if (activeTarget == TypographyTarget.TITLE_2) 56f else if (activeTarget == TypographyTarget.TITLE_1) 48f else 36f
+    val maxRange = 56f
+    val label = when (activeTarget) {
+        TypographyTarget.TITLE_1 -> "Title 1 (Chapter) Size"
+        TypographyTarget.TITLE_2 -> "Title 2 (Main Title) Size"
+        else -> "Document Prose Size"
+    }
 
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = when (activeTarget) {
-                    TypographyTarget.TITLE_1 -> "Title 1 (Chapter) Size"
-                    TypographyTarget.TITLE_2 -> "Title 2 (Main Title) Size"
-                    else -> "Document Prose Size"
-                },
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                modifier = Modifier.height(26.dp)
-            ) {
-                Box(
-                    modifier = Modifier.padding(horizontal = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "${currentVal.roundToInt()} sp",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-
-        Slider(
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        ScribeSettingSlider(
+            label = label,
             value = currentVal.coerceIn(minRange, maxRange),
             onValueChange = { newVal ->
                 val rounded = newVal.roundToInt()
@@ -1469,27 +1441,9 @@ private fun TypographySizeControl(
                 }
             },
             valueRange = minRange..maxRange,
-            colors = SliderDefaults.colors(
-                thumbColor = ScribeTheme.colors.interaction.primary,
-                activeTrackColor = ScribeTheme.colors.interaction.primary
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics {
-                    contentDescription = "Font size slider"
-                    stateDescription = "${currentVal.roundToInt()} sp"
-                }
+            step = 1f,
+            unit = "sp"
         )
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("${minRange.toInt()} sp", fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-            Text("${maxRange.toInt()} sp", fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-        }
 
         Spacer(Modifier.height(4.dp))
 
