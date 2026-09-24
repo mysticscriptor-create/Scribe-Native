@@ -94,6 +94,8 @@ fun FrostedSheetDragHandle(
     }
 }
 
+val LocalFrostedSheetDismiss = compositionLocalOf<(() -> Unit)?> { null }
+
 /**
  * An in-tree frosted bottom sheet that renders within the main activity window's RenderNode tree.
  * Unlike standard [androidx.compose.material3.ModalBottomSheet] which spawns a detached OS sub-window,
@@ -109,6 +111,7 @@ fun FrostedBottomSheet(
     shape: Shape = ScribeShapeTokens.BottomSheet,
     isDark: Boolean = LocalAppTheme.current?.isDark == true,
     dragHandle: @Composable (() -> Unit)? = { FrostedSheetDragHandle() },
+    onBackRequest: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     var isVisible by remember { mutableStateOf(false) }
@@ -152,7 +155,11 @@ fun FrostedBottomSheet(
     }
 
     BackHandler(enabled = true) {
-        dismissWithAnimation()
+        if (onBackRequest != null) {
+            onBackRequest()
+        } else {
+            dismissWithAnimation()
+        }
     }
 
     val draggableState = rememberDraggableState { delta ->
@@ -247,7 +254,10 @@ fun FrostedBottomSheet(
                 animationSpec = tween(durationMillis = 200)
             ) + fadeOut(animationSpec = tween(150))
         ) {
-            CompositionLocalProvider(LocalContentColor provides contentColor) {
+            CompositionLocalProvider(
+                LocalContentColor provides contentColor,
+                LocalFrostedSheetDismiss provides dismissWithAnimation
+            ) {
                 Column(
                     modifier = modifier
                         .fillMaxWidth()
