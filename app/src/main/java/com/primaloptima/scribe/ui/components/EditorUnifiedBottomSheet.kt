@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -802,15 +803,13 @@ private fun EditorTuningPage(
     onBack: () -> Unit,
     onClose: () -> Unit
 ) {
+    val configuration = LocalConfiguration.current
+    val tuningHeight = (configuration.screenHeightDp.dp * 0.52f).coerceIn(385.dp, 430.dp)
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .animateContentSize(
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                )
-            )
+            .height(tuningHeight)
     ) {
         // Pinned Top Header (Back, Scope Title, Colors Switcher, Close)
         TuningSharedHeader(
@@ -820,28 +819,46 @@ private fun EditorTuningPage(
             onClose = onClose
         )
 
-        // Scrollable Body Content (Flexible height, smoothly animated)
-        Column(
+        // Flexible Body Content (Rigidly bounded between top header and bottom selector)
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f, fill = false)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 18.dp, vertical = 6.dp)
+                .weight(1f)
         ) {
-            // Target Scope Selector (Document, Title 1, Title 2)
-            if (activeTool in listOf(TypographyTool.SIZE, TypographyTool.FONT, TypographyTool.WEIGHT, TypographyTool.LINE_SPACING)) {
-                TargetScopeSelector(
-                    activeTarget = activeTarget,
-                    onSelectTarget = onSelectTarget
-                )
-                Spacer(Modifier.height(8.dp))
-            } else if (activeTool == TypographyTool.ALIGNMENT) {
-                AlignmentScopeSelector(
-                    alignmentTarget = alignmentTarget,
-                    onSelectAlignmentTarget = onSelectAlignmentTarget
-                )
-                Spacer(Modifier.height(8.dp))
-            }
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 18.dp, vertical = 6.dp)
+            ) {
+                // Target Scope Selector (Document, Title 1, Title 2)
+                AnimatedVisibility(
+                    visible = activeTool in listOf(TypographyTool.SIZE, TypographyTool.FONT, TypographyTool.WEIGHT, TypographyTool.LINE_SPACING),
+                    enter = expandVertically(animationSpec = tween(180)) + fadeIn(animationSpec = tween(180)),
+                    exit = shrinkVertically(animationSpec = tween(140)) + fadeOut(animationSpec = tween(140))
+                ) {
+                    Column {
+                        TargetScopeSelector(
+                            activeTarget = activeTarget,
+                            onSelectTarget = onSelectTarget
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = activeTool == TypographyTool.ALIGNMENT,
+                    enter = expandVertically(animationSpec = tween(180)) + fadeIn(animationSpec = tween(180)),
+                    exit = shrinkVertically(animationSpec = tween(140)) + fadeOut(animationSpec = tween(140))
+                ) {
+                    Column {
+                        AlignmentScopeSelector(
+                            alignmentTarget = alignmentTarget,
+                            onSelectAlignmentTarget = onSelectAlignmentTarget
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                }
 
             // Active Tool Controls with directional horizontal slide & fade
             AnimatedContent(
@@ -942,7 +959,8 @@ private fun EditorTuningPage(
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(8.dp))
+            }
         }
 
         // Subtle divider above the bottom tool selector
@@ -1010,9 +1028,9 @@ private fun TypographyToolSelectionRow(
 }
 
 /**
- * Tactile pill chip styled precisely like the reference design.
- * Features soft pastel sage tint when selected, clean outline when unselected,
- * and custom iconic typographic glyphs.
+ * Tactile pill chip styled with theme-aware semantic tokens.
+ * Features soft pastel accent tint from primaryContainer when selected, clean subtle outline when unselected,
+ * semantic depth elevation, and iconic typographic glyphs.
  */
 @Composable
 private fun TypographyToolChip(
@@ -1020,16 +1038,14 @@ private fun TypographyToolChip(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    val isDark = LocalAppTheme.current?.isDark == true
-    // Reference image styling: gentle sage/mint pastel fill for selected
-    val selectedBg = if (isDark) Color(0xFF283A32) else Color(0xFFDCE7DF)
-    val selectedBorder = if (isDark) Color(0xFF384A41) else Color(0xFFCAD7CF)
-    val unselectedBorder = if (isDark) Color(0xFF3A4841) else Color(0xFFD4DDD7)
+    val selectedBg = ScribeTheme.colors.interaction.primaryContainer
+    val selectedBorder = ScribeTheme.colors.borders.normal
+    val unselectedBorder = ScribeTheme.colors.borders.subtle
 
     val contentColor = if (isSelected) {
-        if (isDark) Color(0xFFE2F0E8) else Color(0xFF1B2B24)
+        ScribeTheme.colors.interaction.onPrimaryContainer
     } else {
-        if (isDark) Color(0xFFCFDBD4) else Color(0xFF2B3A33)
+        ScribeTheme.colors.content.secondary
     }
 
     Surface(
@@ -1040,7 +1056,8 @@ private fun TypographyToolChip(
             width = 1.dp,
             color = if (isSelected) selectedBorder else unselectedBorder
         ),
-        shadowElevation = if (isSelected) 1.5.dp else 0.dp,
+        tonalElevation = 0.dp,
+        shadowElevation = if (isSelected) ScribeTheme.metrics.elevationLow else ScribeTheme.metrics.elevationNone,
         modifier = Modifier
             .height(42.dp)
             .semantics {
@@ -1058,7 +1075,7 @@ private fun TypographyToolChip(
             Text(
                 text = tool.label,
                 fontSize = 13.sp,
-                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                fontWeight = FontWeight.SemiBold,
                 color = contentColor
             )
         }
@@ -1901,7 +1918,14 @@ private fun EditorColorsPage(
         }
     }
 
-    Column(modifier = Modifier.fillMaxWidth()) {
+    val configuration = LocalConfiguration.current
+    val tuningHeight = (configuration.screenHeightDp.dp * 0.52f).coerceIn(385.dp, 430.dp)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(tuningHeight)
+    ) {
         // Pinned Header
         TuningSharedHeader(
             isTextMode = false,
@@ -1979,6 +2003,7 @@ private fun EditorColorsPage(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .weight(1f)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 18.dp, vertical = 4.dp)
         ) {
