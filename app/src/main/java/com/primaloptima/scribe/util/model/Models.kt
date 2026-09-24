@@ -309,10 +309,10 @@ data class AppTheme(
     /** Font family key matching Google Fonts or system fonts */
     val fontFamily: String = "sans",
     val fontSize: Int = 17,
-    val lineHeight: Float = 1.7f,
+    val lineHeight: Float = 1.00f,
     val letterSpacing: Float = 0.1f,
-    val paragraphSpacing: Int = 14,
-    val paddingHorizontal: Int = 24,
+    val paragraphSpacing: Int = 1,
+    val paddingHorizontal: Int = 10,
     val paddingVertical: Int = 20,
     val maxWidth: Int = 720,
     /** Explicit schema version for safe forward-compatible serialization & migration */
@@ -340,7 +340,7 @@ data class AppTheme(
     val title2FontSize: Int? = null,
     val title1FontWeight: Int? = null,
     val title2FontWeight: Int? = null,
-    val documentFontWeight: Int = 400,
+    val documentFontWeight: Int = 500,
     val title1LineHeight: Float? = null,
     val title2LineHeight: Float? = null,
     val primaryTitleColor: String? = null,

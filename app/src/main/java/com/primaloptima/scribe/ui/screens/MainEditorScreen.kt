@@ -450,7 +450,7 @@ fun MainEditorScreen(
             val hints = ProseInlayHintProvider.computeInlayHints(
                 note.content,
                 worldEntries,
-                activeTheme?.paragraphSpacing ?: 14
+                activeTheme?.paragraphSpacing ?: 1
             )
 
             // Prepare for new document: suppress raw rendering and await wordwrap calculation
@@ -496,7 +496,7 @@ fun MainEditorScreen(
             ProseInlayHintProvider.computeInlayHints(
                 editorCurrentText,
                 worldEntries,
-                activeTheme?.paragraphSpacing ?: 14
+                activeTheme?.paragraphSpacing ?: 1
             )
         }
         editor.setInlayHints(hints)
@@ -514,7 +514,7 @@ fun MainEditorScreen(
         val hints = ProseInlayHintProvider.computeInlayHints(
             curText,
             worldEntries,
-            activeTheme?.paragraphSpacing ?: 14
+            activeTheme?.paragraphSpacing ?: 1
         )
         editor.setInlayHints(hints)
     }
@@ -643,10 +643,10 @@ fun MainEditorScreen(
                     val hasBgImageLocal     = !activeTheme?.backgroundImageUri.isNullOrEmpty()
                     val currentThemeBg      = MaterialTheme.colorScheme.background
                     val editorTextSizeSp    = remember(activeTheme?.fontSize) {
-                        (activeTheme?.fontSize ?: 18).toFloat()
+                        (activeTheme?.fontSize ?: 17).toFloat()
                     }
                     val editorTypeface      = remember(activeTheme?.fontFamily, activeTheme?.documentFontWeight) {
-                        val weight = activeTheme?.documentFontWeight ?: 400
+                        val weight = activeTheme?.documentFontWeight ?: 500
                         val fontKey = activeTheme?.fontFamily ?: "default"
                         ScribeFontManager.resolveTypeface(context, fontKey, weight)
                     }
@@ -696,15 +696,15 @@ fun MainEditorScreen(
                     AndroidView(
                         factory = { ctx ->
                             val density = ctx.resources.displayMetrics.density
-                            val initialPadH = (activeTheme?.paddingHorizontal ?: 28).toFloat()
-                            val initialLineHeight = activeTheme?.lineHeight ?: 1.7f
-                            val initialParaSpacing = (activeTheme?.paragraphSpacing ?: 14).toFloat()
+                            val initialPadH = (activeTheme?.paddingHorizontal ?: 10).toFloat()
+                            val initialLineHeight = activeTheme?.lineHeight ?: 1.00f
+                            val initialParaSpacing = (activeTheme?.paragraphSpacing ?: 1).toFloat()
                             val initialParaSpacingPx = initialParaSpacing * density * 0.35f
 
                             lastAppliedPadding = initialPadH
                             lastAppliedTextSize = editorTextSizeSp
                             lastAppliedTypeface = editorTypeface
-                            lastAppliedDocWeight = activeTheme?.documentFontWeight ?: 400
+                            lastAppliedDocWeight = activeTheme?.documentFontWeight ?: 500
                             lastAppliedLineSpacing = initialLineHeight
                             lastAppliedParaSpacing = initialParaSpacing
                             lastAppliedBgArgb = bgArgb
@@ -760,7 +760,7 @@ fun MainEditorScreen(
                                     isScalable             = true
                                     setScaleTextSizes(12f * density, 36f * density)
                                     onPinchScaleEndListener = { finalSp ->
-                                        if (finalSp != (activeTheme?.fontSize ?: 18)) {
+                                        if (finalSp != (activeTheme?.fontSize ?: 17)) {
                                             lastAppliedTextSize = finalSp.toFloat()
                                             editorVm.updateActiveTheme { it.copy(fontSize = finalSp) }
                                         }
@@ -768,7 +768,7 @@ fun MainEditorScreen(
                                     subscribeEvent(TextSizeChangeEvent::class.java) { event, _ ->
                                         if (!isPinchScaling) {
                                             val newSp = (event.newTextSize / density).roundToInt().coerceIn(12, 36)
-                                            if (newSp != (activeTheme?.fontSize ?: 18)) {
+                                            if (newSp != (activeTheme?.fontSize ?: 17)) {
                                                 lastAppliedTextSize = newSp.toFloat()
                                                 editorVm.updateActiveTheme { it.copy(fontSize = newSp) }
                                             }
@@ -777,7 +777,7 @@ fun MainEditorScreen(
                                     registerInlayHintRenderer(
                                         io.github.rosemoe.sora.graphics.inlayHint.TextInlayHintRenderer()
                                     )
-                                    setEditorLanguage(ScribeProseLanguage(activeTheme?.documentFontWeight ?: 400))
+                                    setEditorLanguage(ScribeProseLanguage(activeTheme?.documentFontWeight ?: 500))
                                     isNestedScrollingEnabled = true
                                     try {
                                         getComponent(
@@ -841,7 +841,7 @@ fun MainEditorScreen(
                         },
                         update = { layout ->
                             val density = layout.context.resources.displayMetrics.density
-                            val padH = (activeTheme?.paddingHorizontal ?: 28).toFloat()
+                            val padH = (activeTheme?.paddingHorizontal ?: 10).toFloat()
                             if (kotlin.math.abs(lastAppliedPadding - padH) > 0.5f) {
                                 lastAppliedPadding = padH
                                 layout.horizontalPaddingDp = padH
@@ -852,7 +852,7 @@ fun MainEditorScreen(
                                 lastAppliedTextSize = editorTextSizeSp
                                 editor.setTextSize(editorTextSizeSp)
                             }
-                            val currentDocWeight = activeTheme?.documentFontWeight ?: 400
+                            val currentDocWeight = activeTheme?.documentFontWeight ?: 500
                             if ((lastAppliedTypeface !== editorTypeface && editorTypeface != null) || lastAppliedDocWeight != currentDocWeight) {
                                 lastAppliedTypeface = editorTypeface
                                 lastAppliedDocWeight = currentDocWeight
@@ -860,8 +860,8 @@ fun MainEditorScreen(
                                     editor.updateTypefaceAndWeight(editorTypeface, currentDocWeight)
                                 }
                             }
-                            val newLineHeight = activeTheme?.lineHeight ?: 1.7f
-                            val newParaSpacing = (activeTheme?.paragraphSpacing ?: 14).toFloat()
+                            val newLineHeight = activeTheme?.lineHeight ?: 1.00f
+                            val newParaSpacing = (activeTheme?.paragraphSpacing ?: 1).toFloat()
                             val paraSpacingPx = newParaSpacing * density * 0.35f
                             if (kotlin.math.abs(lastAppliedLineSpacing - newLineHeight) > 0.01f ||
                                 kotlin.math.abs(lastAppliedParaSpacing - newParaSpacing) > 0.5f) {
@@ -934,7 +934,7 @@ fun MainEditorScreen(
                                         selectedOrnamentId = selectedOrnamentId,
                                         showSecondaryTitle = showSecondaryTitle,
                                         titleAlignment = activeTheme?.titleAlignment ?: "center",
-                                        horizontalPadding = (activeTheme?.paddingHorizontal ?: 28).dp,
+                                        horizontalPadding = (activeTheme?.paddingHorizontal ?: 10).dp,
                                         primaryTitleColor = pTitleColor,
                                         secondaryTitleColor = sTitleColor,
                                         title1FontFamily = resolvedTitle1Font,

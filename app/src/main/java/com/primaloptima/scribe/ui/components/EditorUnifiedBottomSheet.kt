@@ -1655,7 +1655,7 @@ private fun TypographyWeightControl(
 }
 
 /**
- * Margins Control: Value display, slider from 8dp to 72dp.
+ * Margins Control: Reusable ScribeSettingSlider (8..72 dp, step 2).
  */
 @Composable
 private fun TypographyMarginsControl(
@@ -1664,72 +1664,23 @@ private fun TypographyMarginsControl(
 ) {
     val currentVal = activeTheme.paddingHorizontal.toFloat().coerceIn(8f, 72f)
 
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Horizontal Page Margins",
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                modifier = Modifier.height(26.dp)
-            ) {
-                Box(
-                    modifier = Modifier.padding(horizontal = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "${currentVal.roundToInt()} dp",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+    ScribeSettingSlider(
+        label = "Horizontal Page Margins",
+        value = currentVal,
+        onValueChange = { newVal ->
+            val rounded = newVal.roundToInt()
+            if (rounded != activeTheme.paddingHorizontal) {
+                onUpdateTheme { it.copy(paddingHorizontal = rounded) }
             }
-        }
-
-        Slider(
-            value = currentVal,
-            onValueChange = { newVal ->
-                val rounded = newVal.roundToInt()
-                if (rounded != activeTheme.paddingHorizontal) {
-                    onUpdateTheme { it.copy(paddingHorizontal = rounded) }
-                }
-            },
-            valueRange = 8f..72f,
-            colors = SliderDefaults.colors(
-                thumbColor = ScribeTheme.colors.interaction.primary,
-                activeTrackColor = ScribeTheme.colors.interaction.primary
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics {
-                    contentDescription = "Horizontal page margin slider"
-                    stateDescription = "${currentVal.roundToInt()} dp"
-                }
-        )
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("8 dp", fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-            Text("72 dp", fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-        }
-    }
+        },
+        valueRange = 8f..72f,
+        step = 2f,
+        unit = "dp"
+    )
 }
 
 /**
- * Line Spacing Control: Multiplier display, slider from 1.00x to 2.40x.
+ * Line Spacing Control: Reusable ScribeSettingSlider (1.0..2.4 ×, step 0.1).
  */
 @Composable
 private fun TypographyLineSpacingControl(
@@ -1738,153 +1689,57 @@ private fun TypographyLineSpacingControl(
     onUpdateTheme: ((AppTheme) -> AppTheme) -> Unit
 ) {
     val currentVal = when (activeTarget) {
-        TypographyTarget.TITLE_1 -> (activeTheme.title1LineHeight ?: 1.30f).coerceIn(1.0f, 2.4f)
-        TypographyTarget.TITLE_2 -> (activeTheme.title2LineHeight ?: 1.25f).coerceIn(1.0f, 2.4f)
+        TypographyTarget.TITLE_1 -> (activeTheme.title1LineHeight ?: 1.00f).coerceIn(1.0f, 2.4f)
+        TypographyTarget.TITLE_2 -> (activeTheme.title2LineHeight ?: 1.00f).coerceIn(1.0f, 2.4f)
         else -> activeTheme.lineHeight.coerceIn(1.0f, 2.4f)
     }
-
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = when (activeTarget) {
-                    TypographyTarget.TITLE_1 -> "Title 1 Line Spacing"
-                    TypographyTarget.TITLE_2 -> "Title 2 Line Spacing"
-                    else -> "Document Line Spacing"
-                },
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                modifier = Modifier.height(26.dp)
-            ) {
-                Box(
-                    modifier = Modifier.padding(horizontal = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = String.format(Locale.US, "%.2fx", currentVal),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-
-        Slider(
-            value = currentVal,
-            onValueChange = { newVal ->
-                val rounded = (newVal * 20f).roundToInt() / 20f
-                when (activeTarget) {
-                    TypographyTarget.TITLE_1 -> onUpdateTheme { it.copy(title1LineHeight = rounded) }
-                    TypographyTarget.TITLE_2 -> onUpdateTheme { it.copy(title2LineHeight = rounded) }
-                    else -> onUpdateTheme { it.copy(lineHeight = rounded) }
-                }
-            },
-            valueRange = 1.0f..2.4f,
-            colors = SliderDefaults.colors(
-                thumbColor = ScribeTheme.colors.interaction.primary,
-                activeTrackColor = ScribeTheme.colors.interaction.primary
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics {
-                    contentDescription = "Line spacing multiplier slider"
-                    stateDescription = String.format(Locale.US, "%.2fx", currentVal)
-                }
-        )
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("1.00x", fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-            Text("2.40x", fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-        }
+    val label = when (activeTarget) {
+        TypographyTarget.TITLE_1 -> "Title 1 Line Spacing"
+        TypographyTarget.TITLE_2 -> "Title 2 Line Spacing"
+        else -> "Document Line Spacing"
     }
+
+    ScribeSettingSlider(
+        label = label,
+        value = currentVal,
+        onValueChange = { newVal ->
+            val rounded = (newVal * 20f).roundToInt() / 20f
+            when (activeTarget) {
+                TypographyTarget.TITLE_1 -> onUpdateTheme { it.copy(title1LineHeight = rounded) }
+                TypographyTarget.TITLE_2 -> onUpdateTheme { it.copy(title2LineHeight = rounded) }
+                else -> onUpdateTheme { it.copy(lineHeight = rounded) }
+            }
+        },
+        valueRange = 1.0f..2.4f,
+        step = 0.1f,
+        unit = "×",
+        decimalPlaces = 2
+    )
 }
 
 /**
- * Paragraph Spacing Control: Block spacing from 0dp to 40dp.
+ * Paragraph Spacing Control: Reusable ScribeSettingSlider (0..40 dp, step 2).
  */
 @Composable
 private fun TypographyParagraphControl(
     activeTheme: AppTheme,
     onUpdateTheme: ((AppTheme) -> AppTheme) -> Unit
 ) {
-    val currentVal = (activeTheme.paragraphSpacing ?: 0).toFloat().coerceIn(0f, 40f)
+    val currentVal = (activeTheme.paragraphSpacing ?: 1).toFloat().coerceIn(0f, 40f)
 
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Paragraph Block Spacing",
-                fontSize = 12.5.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
-                modifier = Modifier.height(26.dp)
-            ) {
-                Box(
-                    modifier = Modifier.padding(horizontal = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "${currentVal.roundToInt()} dp",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+    ScribeSettingSlider(
+        label = "Paragraph Block Spacing",
+        value = currentVal,
+        onValueChange = { newVal ->
+            val rounded = newVal.roundToInt()
+            if (rounded != (activeTheme.paragraphSpacing ?: 1)) {
+                onUpdateTheme { it.copy(paragraphSpacing = rounded) }
             }
-        }
-
-        Slider(
-            value = currentVal,
-            onValueChange = { newVal ->
-                val rounded = newVal.roundToInt()
-                if (rounded != (activeTheme.paragraphSpacing ?: 0)) {
-                    onUpdateTheme { it.copy(paragraphSpacing = rounded) }
-                }
-            },
-            valueRange = 0f..40f,
-            colors = SliderDefaults.colors(
-                thumbColor = ScribeTheme.colors.interaction.primary,
-                activeTrackColor = ScribeTheme.colors.interaction.primary
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics {
-                    contentDescription = "Paragraph spacing slider"
-                    stateDescription = "${currentVal.roundToInt()} dp"
-                }
-        )
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("0 dp", fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-            Text("40 dp", fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-        }
-    }
+        },
+        valueRange = 0f..40f,
+        step = 2f,
+        unit = "dp"
+    )
 }
 
 /**

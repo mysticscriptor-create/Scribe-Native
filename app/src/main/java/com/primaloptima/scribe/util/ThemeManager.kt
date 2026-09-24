@@ -418,7 +418,7 @@ class ThemeManager(private val context: Context) {
                 colors = sanitizedColors,
                 overrides = sanitizedOverrides,
                 fontFamily = if (theme.fontFamily.isBlank()) "sans" else theme.fontFamily,
-                fontSize = theme.fontSize.coerceIn(10, 48),
+                fontSize = theme.fontSize.coerceIn(10, 56),
                 lineHeight = theme.lineHeight.coerceIn(1.0f, 3.0f),
                 letterSpacing = theme.letterSpacing.coerceIn(-1.0f, 2.0f),
                 paragraphSpacing = theme.paragraphSpacing.coerceIn(0, 60),

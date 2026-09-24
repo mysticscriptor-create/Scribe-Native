@@ -666,9 +666,9 @@ data class ScribeEditorTypography(
     ),
     val fontFamily: FontFamily = FontFamily.Default,
     val fontSize: Int = 17,
-    val lineHeight: Float = 1.68f,
+    val lineHeight: Float = 1.00f,
     val letterSpacing: Float = 0f,
-    val paragraphSpacing: Int = 14,
+    val paragraphSpacing: Int = 1,
     val textAlignment: String = "left"
 )
 

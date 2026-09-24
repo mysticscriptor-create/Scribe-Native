@@ -37,9 +37,9 @@ object DefaultThemes {
                 toolbar         = "#1E1E22",
                 toolbarText     = "#F4F4F6"
             ),
-            fontFamily = "sans", fontSize = 17, lineHeight = 1.68f,
-            letterSpacing = 0.1f, paragraphSpacing = 14,
-            paddingHorizontal = 24, paddingVertical = 20, maxWidth = 720
+            fontFamily = "sans", fontSize = 17, documentFontWeight = 500, lineHeight = 1.00f,
+            letterSpacing = 0.1f, paragraphSpacing = 1,
+            paddingHorizontal = 10, paddingVertical = 20, maxWidth = 720
         ),
         AppTheme(
             id = "midnight", name = "Midnight Blue", isDark = true, builtIn = true,
@@ -70,9 +70,9 @@ object DefaultThemes {
                 toolbar         = "#141D2B",
                 toolbarText     = "#EDF2F7"
             ),
-            fontFamily = "sans", fontSize = 17, lineHeight = 1.70f,
-            letterSpacing = 0.15f, paragraphSpacing = 14,
-            paddingHorizontal = 24, paddingVertical = 20, maxWidth = 720
+            fontFamily = "sans", fontSize = 17, documentFontWeight = 500, lineHeight = 1.00f,
+            letterSpacing = 0.15f, paragraphSpacing = 1,
+            paddingHorizontal = 10, paddingVertical = 20, maxWidth = 720
         ),
         AppTheme(
             id = "focus", name = "Focus", isDark = true, builtIn = true,
@@ -103,9 +103,9 @@ object DefaultThemes {
                 toolbar         = "#121212",
                 toolbarText     = "#F0F0F0"
             ),
-            fontFamily = "mono", fontSize = 17, lineHeight = 1.72f,
-            letterSpacing = 0f, paragraphSpacing = 14,
-            paddingHorizontal = 26, paddingVertical = 22, maxWidth = 700
+            fontFamily = "mono", fontSize = 17, documentFontWeight = 500, lineHeight = 1.00f,
+            letterSpacing = 0f, paragraphSpacing = 1,
+            paddingHorizontal = 10, paddingVertical = 22, maxWidth = 700
         ),
         AppTheme(
             id = "paper", name = "Paper", isDark = false, builtIn = true,
@@ -136,9 +136,9 @@ object DefaultThemes {
                 toolbar         = "#F3EFE7",
                 toolbarText     = "#1C211E"
             ),
-            fontFamily = "serif", fontSize = 18, lineHeight = 1.72f,
-            letterSpacing = 0.2f, paragraphSpacing = 15,
-            paddingHorizontal = 26, paddingVertical = 22, maxWidth = 720
+            fontFamily = "serif", fontSize = 17, documentFontWeight = 500, lineHeight = 1.00f,
+            letterSpacing = 0.2f, paragraphSpacing = 1,
+            paddingHorizontal = 10, paddingVertical = 22, maxWidth = 720
         ),
         AppTheme(
             id = "sepia", name = "Sepia", isDark = false, builtIn = true,
@@ -169,9 +169,9 @@ object DefaultThemes {
                 toolbar         = "#EFE3CB",
                 toolbarText     = "#322214"
             ),
-            fontFamily = "serif", fontSize = 19, lineHeight = 1.75f,
-            letterSpacing = 0.25f, paragraphSpacing = 16,
-            paddingHorizontal = 28, paddingVertical = 24, maxWidth = 680
+            fontFamily = "serif", fontSize = 17, documentFontWeight = 500, lineHeight = 1.00f,
+            letterSpacing = 0.25f, paragraphSpacing = 1,
+            paddingHorizontal = 10, paddingVertical = 24, maxWidth = 680
         ),
         AppTheme(
             id = "typewriter", name = "Typewriter", isDark = false, builtIn = true,
@@ -202,9 +202,9 @@ object DefaultThemes {
                 toolbar         = "#F0F0F3",
                 toolbarText     = "#111113"
             ),
-            fontFamily = "mono", fontSize = 16, lineHeight = 1.80f,
-            letterSpacing = 0f, paragraphSpacing = 14,
-            paddingHorizontal = 24, paddingVertical = 20, maxWidth = 680
+            fontFamily = "mono", fontSize = 17, documentFontWeight = 500, lineHeight = 1.00f,
+            letterSpacing = 0f, paragraphSpacing = 1,
+            paddingHorizontal = 10, paddingVertical = 20, maxWidth = 680
         )
     )
     

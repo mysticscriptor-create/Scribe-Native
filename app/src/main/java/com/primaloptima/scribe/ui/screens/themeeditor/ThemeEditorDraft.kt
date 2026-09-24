@@ -93,7 +93,7 @@ data class ThemeEditorDraft(
     val lineHeight: Float,
     val paragraphSpacing: Float,
     val sideMargins: Float,
-    val documentFontWeight: Int = 400,
+    val documentFontWeight: Int = 500,
 
     // Layout
     val textAlignment: String,
