@@ -1144,6 +1144,7 @@ private fun TypographyToolGlyph(
     }
 }
 
+@Composable
 private fun TargetScopeSelector(
     activeTarget: TypographyTarget,
     onSelectTarget: (TypographyTarget) -> Unit
