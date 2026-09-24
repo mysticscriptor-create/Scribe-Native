@@ -147,17 +147,17 @@ enum class EditorSheetPage {
  * Seven tools supported inside Typography mode.
  */
 enum class TypographyTool(val key: String, val label: String, val icon: ImageVector) {
-    SIZE("size", "Size", Icons.Default.FormatSize),
     FONT("font", "Font", Icons.Default.TextFields),
     WEIGHT("weight", "Weight", Icons.Default.FormatBold),
     MARGINS("margins", "Margins", Icons.Default.FormatIndentIncrease),
-    LINE_SPACING("line", "Spacing", Icons.Default.FormatLineSpacing),
+    LINE_SPACING("line", "Line Spacing", Icons.Default.FormatLineSpacing),
+    SIZE("size", "Size", Icons.Default.FormatSize),
     PARAGRAPH("para", "Paragraph", Icons.Default.DensityMedium),
     ALIGNMENT("align", "Alignment", Icons.Default.FormatAlignLeft);
 
     companion object {
         fun fromKey(key: String): TypographyTool =
-            entries.find { it.key.equals(key, ignoreCase = true) } ?: SIZE
+            entries.find { it.key.equals(key, ignoreCase = true) } ?: FONT
     }
 }
 
@@ -251,7 +251,7 @@ fun EditorUnifiedBottomSheet(
     val configuration = LocalConfiguration.current
     val maxSheetHeight = (configuration.screenHeightDp.dp * 0.88f)
 
-    var typographyTool by rememberSaveable { mutableStateOf(TypographyTool.SIZE) }
+    var typographyTool by rememberSaveable { mutableStateOf<TypographyTool?>(null) }
     var typographyTarget by rememberSaveable { mutableStateOf(TypographyTarget.DOCUMENT) }
     var alignmentTarget by rememberSaveable { mutableStateOf("document") }
     var colorRole by rememberSaveable { mutableStateOf(ColorRole.TITLE_1) }
@@ -284,10 +284,14 @@ fun EditorUnifiedBottomSheet(
 
     // Determine back destination based on current page
     val handleBack: () -> Unit = {
-        when (activePage) {
-            EditorSheetPage.MY_FONTS, EditorSheetPage.DOWNLOAD_FONTS -> onNavigate(EditorSheetPage.TYPOGRAPHY)
-            EditorSheetPage.TYPOGRAPHY, EditorSheetPage.COLORS -> onNavigate(EditorSheetPage.MENU)
-            EditorSheetPage.MENU -> onDismiss()
+        if (activePage == EditorSheetPage.TYPOGRAPHY && typographyTool != null) {
+            typographyTool = null
+        } else {
+            when (activePage) {
+                EditorSheetPage.MY_FONTS, EditorSheetPage.DOWNLOAD_FONTS -> onNavigate(EditorSheetPage.TYPOGRAPHY)
+                EditorSheetPage.TYPOGRAPHY, EditorSheetPage.COLORS -> onNavigate(EditorSheetPage.MENU)
+                EditorSheetPage.MENU -> onDismiss()
+            }
         }
     }
 
@@ -788,8 +792,8 @@ private fun TuningSharedHeader(
 @Composable
 private fun EditorTuningPage(
     isTextMode: Boolean,
-    activeTool: TypographyTool,
-    onSelectTool: (TypographyTool) -> Unit,
+    activeTool: TypographyTool?,
+    onSelectTool: (TypographyTool?) -> Unit,
     activeTarget: TypographyTarget,
     onSelectTarget: (TypographyTarget) -> Unit,
     alignmentTarget: String,
@@ -803,167 +807,142 @@ private fun EditorTuningPage(
     onBack: () -> Unit,
     onClose: () -> Unit
 ) {
-    val configuration = LocalConfiguration.current
-    val tuningHeight = (configuration.screenHeightDp.dp * 0.52f).coerceIn(385.dp, 430.dp)
+    AnimatedContent(
+        targetState = activeTool,
+        transitionSpec = {
+            if (targetState != null) {
+                // Forward drill-down into tool detail
+                (slideInHorizontally(
+                    initialOffsetX = { (it * 0.15f).toInt() },
+                    animationSpec = tween(220, easing = FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(200)))
+                    .togetherWith(
+                        slideOutHorizontally(
+                            targetOffsetX = { (-it * 0.15f).toInt() },
+                            animationSpec = tween(220, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(180))
+                    )
+            } else {
+                // Return back to master list
+                (slideInHorizontally(
+                    initialOffsetX = { (-it * 0.15f).toInt() },
+                    animationSpec = tween(220, easing = FastOutSlowInEasing)
+                ) + fadeIn(animationSpec = tween(200)))
+                    .togetherWith(
+                        slideOutHorizontally(
+                            targetOffsetX = { (it * 0.15f).toInt() },
+                            animationSpec = tween(220, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(180))
+                    )
+            }
+        },
+        label = "TypographyMasterDetailTransition"
+    ) { tool ->
+        if (tool == null) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                // Pinned Top Header (Back, Scope Title, Colors Switcher, Close)
+                TuningSharedHeader(
+                    isTextMode = isTextMode,
+                    onNavigate = onNavigate,
+                    onBack = onBack,
+                    onClose = onClose
+                )
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(tuningHeight)
-    ) {
-        // Pinned Top Header (Back, Scope Title, Colors Switcher, Close)
-        TuningSharedHeader(
-            isTextMode = isTextMode,
-            onNavigate = onNavigate,
-            onBack = onBack,
-            onClose = onClose
-        )
-
-        // Flexible Body Content (Rigidly bounded between top header and bottom selector)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 18.dp, vertical = 6.dp)
-            ) {
-                // Target Scope Selector (Document, Title 1, Title 2)
-                AnimatedVisibility(
-                    visible = activeTool in listOf(TypographyTool.SIZE, TypographyTool.FONT, TypographyTool.WEIGHT, TypographyTool.LINE_SPACING),
-                    enter = expandVertically(animationSpec = tween(180)) + fadeIn(animationSpec = tween(180)),
-                    exit = shrinkVertically(animationSpec = tween(140)) + fadeOut(animationSpec = tween(140))
+                // Master List of typography tools matching the reference design
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 18.dp, vertical = 6.dp)
                 ) {
-                    Column {
-                        TargetScopeSelector(
-                            activeTarget = activeTarget,
-                            onSelectTarget = onSelectTarget
-                        )
-                        Spacer(Modifier.height(8.dp))
-                    }
-                }
-
-                AnimatedVisibility(
-                    visible = activeTool == TypographyTool.ALIGNMENT,
-                    enter = expandVertically(animationSpec = tween(180)) + fadeIn(animationSpec = tween(180)),
-                    exit = shrinkVertically(animationSpec = tween(140)) + fadeOut(animationSpec = tween(140))
-                ) {
-                    Column {
-                        AlignmentScopeSelector(
-                            alignmentTarget = alignmentTarget,
-                            onSelectAlignmentTarget = onSelectAlignmentTarget
-                        )
-                        Spacer(Modifier.height(8.dp))
-                    }
-                }
-
-            // Active Tool Controls with directional horizontal slide & fade
-            AnimatedContent(
-                targetState = activeTool,
-                transitionSpec = {
-                    val forward = targetState.ordinal > initialState.ordinal
-                    if (forward) {
-                        (slideInHorizontally(
-                            initialOffsetX = { (it * 0.12f).toInt() },
-                            animationSpec = tween(200, easing = FastOutSlowInEasing)
-                        ) + fadeIn(animationSpec = tween(180)))
-                            .togetherWith(
-                                slideOutHorizontally(
-                                    targetOffsetX = { (-it * 0.12f).toInt() },
-                                    animationSpec = tween(200, easing = FastOutSlowInEasing)
-                                ) + fadeOut(animationSpec = tween(140))
-                            )
-                    } else {
-                        (slideInHorizontally(
-                            initialOffsetX = { (-it * 0.12f).toInt() },
-                            animationSpec = tween(200, easing = FastOutSlowInEasing)
-                        ) + fadeIn(animationSpec = tween(180)))
-                            .togetherWith(
-                                slideOutHorizontally(
-                                    targetOffsetX = { (it * 0.12f).toInt() },
-                                    animationSpec = tween(200, easing = FastOutSlowInEasing)
-                                ) + fadeOut(animationSpec = tween(140))
-                            )
-                    }
-                },
-                label = "TypographyToolControlsTransition"
-            ) { tool ->
-                when (tool) {
-                    TypographyTool.SIZE -> {
-                        TypographySizeControl(
-                            activeTarget = activeTarget,
-                            activeTheme = activeTheme,
-                            onUpdateTheme = onUpdateTheme
-                        )
-                    }
-
-                    TypographyTool.FONT -> {
-                        val activeFont = when (activeTarget) {
-                            TypographyTarget.TITLE_1, TypographyTarget.TITLE_2 ->
-                                activeTheme.titleFontFamily ?: activeTheme.fontFamily
-                            else -> activeTheme.fontFamily
-                        }
-                        TypographyFontSection(
-                            activeFontKey = activeFont,
-                            typographyTarget = when (activeTarget) {
-                                TypographyTarget.TITLE_1 -> "title1"
-                                TypographyTarget.TITLE_2 -> "title2"
-                                else -> "document"
-                            },
-                            onOpenMyFonts = onOpenMyFonts,
-                            onOpenDownloadFonts = onOpenDownloadFonts,
-                            onImportFont = onImportFont
-                        )
-                    }
-
-                    TypographyTool.WEIGHT -> {
-                        TypographyWeightControl(
-                            activeTarget = activeTarget,
-                            activeTheme = activeTheme,
-                            onUpdateTheme = onUpdateTheme
-                        )
-                    }
-
-                    TypographyTool.MARGINS -> {
-                        TypographyMarginsControl(
-                            activeTheme = activeTheme,
-                            onUpdateTheme = onUpdateTheme
-                        )
-                    }
-
-                    TypographyTool.LINE_SPACING -> {
-                        TypographyLineSpacingControl(
-                            activeTarget = activeTarget,
-                            activeTheme = activeTheme,
-                            onUpdateTheme = onUpdateTheme
-                        )
-                    }
-
-                    TypographyTool.PARAGRAPH -> {
-                        TypographyParagraphControl(
-                            activeTheme = activeTheme,
-                            onUpdateTheme = onUpdateTheme
-                        )
-                    }
-
-                    TypographyTool.ALIGNMENT -> {
-                        TypographyAlignmentControl(
-                            alignmentTarget = alignmentTarget,
-                            activeTheme = activeTheme,
-                            onUpdateTheme = onUpdateTheme
-                        )
-                    }
+                    TypographyMasterCard(
+                        activeTheme = activeTheme,
+                        onSelectTool = { onSelectTool(it) }
+                    )
+                    Spacer(Modifier.height(14.dp))
                 }
             }
+        } else {
+            TypographyDetailPage(
+                activeTool = tool,
+                activeTarget = activeTarget,
+                onSelectTarget = onSelectTarget,
+                alignmentTarget = alignmentTarget,
+                onSelectAlignmentTarget = onSelectAlignmentTarget,
+                activeTheme = activeTheme,
+                onUpdateTheme = onUpdateTheme,
+                onOpenMyFonts = onOpenMyFonts,
+                onOpenDownloadFonts = onOpenDownloadFonts,
+                onImportFont = onImportFont,
+                onBack = { onSelectTool(null) },
+                onClose = onClose
+            )
+        }
+    }
+}
 
-                Spacer(Modifier.height(8.dp))
+/**
+ * Focused tool detail sub-page with dedicated header and custom natural content height.
+ */
+@Composable
+private fun TypographyDetailPage(
+    activeTool: TypographyTool,
+    activeTarget: TypographyTarget,
+    onSelectTarget: (TypographyTarget) -> Unit,
+    alignmentTarget: String,
+    onSelectAlignmentTarget: (String) -> Unit,
+    activeTheme: AppTheme,
+    onUpdateTheme: ((AppTheme) -> AppTheme) -> Unit,
+    onOpenMyFonts: () -> Unit,
+    onOpenDownloadFonts: () -> Unit,
+    onImportFont: () -> Unit,
+    onBack: () -> Unit,
+    onClose: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // Focused Detail Header with back navigation & tool title
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back to Typography list",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Text(
+                    text = activeTool.label,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+            IconButton(
+                onClick = onClose,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Close",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp)
+                )
             }
         }
 
-        // Subtle divider above the bottom tool selector
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -971,112 +950,250 @@ private fun EditorTuningPage(
                 .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f))
         )
 
-        // Pinned Typography Tool Navigation Row at the BOTTOM
-        TypographyToolSelectionRow(
-            activeTool = activeTool,
-            onSelectTool = onSelectTool
-        )
+        // Detail controls with natural wrapping height
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 18.dp, vertical = 12.dp)
+        ) {
+            // Target Scope Selector (Document, Title 1, Title 2)
+            if (activeTool in listOf(TypographyTool.SIZE, TypographyTool.FONT, TypographyTool.WEIGHT, TypographyTool.LINE_SPACING)) {
+                TargetScopeSelector(
+                    activeTarget = activeTarget,
+                    onSelectTarget = onSelectTarget
+                )
+                Spacer(Modifier.height(10.dp))
+            } else if (activeTool == TypographyTool.ALIGNMENT) {
+                AlignmentScopeSelector(
+                    alignmentTarget = alignmentTarget,
+                    onSelectAlignmentTarget = onSelectAlignmentTarget
+                )
+                Spacer(Modifier.height(10.dp))
+            }
+
+            when (activeTool) {
+                TypographyTool.FONT -> {
+                    val activeFont = when (activeTarget) {
+                        TypographyTarget.TITLE_1, TypographyTarget.TITLE_2 ->
+                            activeTheme.titleFontFamily ?: activeTheme.fontFamily
+                        else -> activeTheme.fontFamily
+                    }
+                    TypographyFontSection(
+                        activeFontKey = activeFont,
+                        typographyTarget = when (activeTarget) {
+                            TypographyTarget.TITLE_1 -> "title1"
+                            TypographyTarget.TITLE_2 -> "title2"
+                            else -> "document"
+                        },
+                        onOpenMyFonts = onOpenMyFonts,
+                        onOpenDownloadFonts = onOpenDownloadFonts,
+                        onImportFont = onImportFont
+                    )
+                }
+                TypographyTool.WEIGHT -> {
+                    TypographyWeightControl(
+                        activeTarget = activeTarget,
+                        activeTheme = activeTheme,
+                        onUpdateTheme = onUpdateTheme
+                    )
+                }
+                TypographyTool.MARGINS -> {
+                    TypographyMarginsControl(
+                        activeTheme = activeTheme,
+                        onUpdateTheme = onUpdateTheme
+                    )
+                }
+                TypographyTool.LINE_SPACING -> {
+                    TypographyLineSpacingControl(
+                        activeTarget = activeTarget,
+                        activeTheme = activeTheme,
+                        onUpdateTheme = onUpdateTheme
+                    )
+                }
+                TypographyTool.SIZE -> {
+                    TypographySizeControl(
+                        activeTarget = activeTarget,
+                        activeTheme = activeTheme,
+                        onUpdateTheme = onUpdateTheme
+                    )
+                }
+                TypographyTool.PARAGRAPH -> {
+                    TypographyParagraphControl(
+                        activeTheme = activeTheme,
+                        onUpdateTheme = onUpdateTheme
+                    )
+                }
+                TypographyTool.ALIGNMENT -> {
+                    TypographyAlignmentControl(
+                        alignmentTarget = alignmentTarget,
+                        activeTheme = activeTheme,
+                        onUpdateTheme = onUpdateTheme
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+        }
     }
 }
 
 /**
- * Visual navigation row at the bottom for easy thumb access.
+ * Resolves user-friendly font name and style classification.
+ */
+private fun formatFontSubtitle(fontKey: String): String {
+    val option = FontHelper.fontOptions.find { it.key.equals(fontKey, ignoreCase = true) }
+    if (option != null) return "${option.name} • ${option.subtitle}"
+    val builtIn = ScribeFontManager.builtInFonts.find { it.id.equals(fontKey, ignoreCase = true) }
+    if (builtIn != null) return "${builtIn.name} • ${builtIn.category.replaceFirstChar { it.uppercase() }}"
+    return "${fontKey.replaceFirstChar { it.uppercase() }} • Custom"
+}
+
+/**
+ * Master vertical list card for Typography tools matching the reference design.
+ * Renders all available tools with circular icon avatar badges, bold labels,
+ * live formatted value subtitles, and trailing chevrons within a rounded elevated card.
  */
 @Composable
-private fun TypographyToolSelectionRow(
-    activeTool: TypographyTool,
+private fun TypographyMasterCard(
+    activeTheme: AppTheme,
     onSelectTool: (TypographyTool) -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp)
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        val toolScrollState = rememberScrollState()
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(toolScrollState)
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TypographyTool.entries.forEach { tool ->
-                TypographyToolChip(
+        Column(modifier = Modifier.fillMaxWidth()) {
+            TypographyTool.entries.forEachIndexed { index, tool ->
+                val subtitle = when (tool) {
+                    TypographyTool.FONT -> {
+                        formatFontSubtitle(activeTheme.fontFamily)
+                    }
+                    TypographyTool.WEIGHT -> {
+                        val w = activeTheme.documentFontWeight
+                        val label = when (w) {
+                            300 -> "Light"
+                            400 -> "Regular"
+                            500 -> "Medium"
+                            600 -> "SemiBold"
+                            700 -> "Bold"
+                            800 -> "ExtraBold"
+                            else -> "Regular"
+                        }
+                        "$label ($w)"
+                    }
+                    TypographyTool.MARGINS -> {
+                        val m = activeTheme.paddingHorizontal
+                        val preset = when {
+                            m <= 12 -> "Compact"
+                            m <= 24 -> "Normal"
+                            else -> "Wide"
+                        }
+                        "$preset • ${m}px"
+                    }
+                    TypographyTool.LINE_SPACING -> {
+                        "%.1f".format(activeTheme.lineHeight)
+                    }
+                    TypographyTool.SIZE -> {
+                        val tSize = activeTheme.title1FontSize ?: 18
+                        "${activeTheme.fontSize} sp • Title: ${tSize} sp"
+                    }
+                    TypographyTool.PARAGRAPH -> {
+                        val p = activeTheme.paragraphSpacing ?: 0
+                        if (p > 0) "Spacing • ${p}px" else "Compact • 0px"
+                    }
+                    TypographyTool.ALIGNMENT -> {
+                        val align = when (activeTheme.textAlignment.lowercase()) {
+                            "justified" -> "Justified"
+                            "center" -> "Center Align"
+                            else -> "Left Align"
+                        }
+                        "$align • Prose"
+                    }
+                }
+
+                TypographyMasterRow(
                     tool = tool,
-                    isSelected = activeTool == tool,
-                    onClick = { onSelectTool(tool) }
+                    title = tool.label,
+                    subtitle = subtitle,
+                    onClick = { onSelectTool(tool) },
+                    showDivider = index < TypographyTool.entries.size - 1
                 )
             }
         }
-
-        // Right scroll indicator cue
-        if (toolScrollState.canScrollForward) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .width(28.dp)
-                    .height(42.dp)
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(Color.Transparent, MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
-                        )
-                    )
-            )
-        }
     }
 }
 
-/**
- * Tactile pill chip styled with theme-aware semantic tokens.
- * Features soft pastel accent tint from primaryContainer when selected, clean subtle outline when unselected,
- * semantic depth elevation, and iconic typographic glyphs.
- */
 @Composable
-private fun TypographyToolChip(
+private fun TypographyMasterRow(
     tool: TypographyTool,
-    isSelected: Boolean,
-    onClick: () -> Unit
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    showDivider: Boolean
 ) {
-    val selectedBg = ScribeTheme.colors.interaction.primaryContainer
-    val selectedBorder = ScribeTheme.colors.borders.normal
-    val unselectedBorder = ScribeTheme.colors.borders.subtle
-
-    val contentColor = if (isSelected) {
-        ScribeTheme.colors.interaction.onPrimaryContainer
-    } else {
-        ScribeTheme.colors.content.secondary
-    }
-
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(14.dp),
-        color = if (isSelected) selectedBg else Color.Transparent,
-        border = BorderStroke(
-            width = 1.dp,
-            color = if (isSelected) selectedBorder else unselectedBorder
-        ),
-        tonalElevation = 0.dp,
-        shadowElevation = if (isSelected) ScribeTheme.metrics.elevationLow else ScribeTheme.metrics.elevationNone,
-        modifier = Modifier
-            .height(42.dp)
-            .semantics {
-                selected = isSelected
-                this.role = Role.Tab
-                contentDescription = "${tool.label} tool"
-            }
-    ) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = ripple(),
+                    onClick = onClick
+                )
+                .padding(horizontal = 16.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            TypographyToolGlyph(tool = tool, color = contentColor)
-            Text(
-                text = tool.label,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = contentColor
+            // Circular Avatar Badge with soft pastel primaryContainer fill
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(ScribeTheme.colors.interaction.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                TypographyToolGlyph(
+                    tool = tool,
+                    color = ScribeTheme.colors.interaction.onPrimaryContainer
+                )
+            }
+
+            Spacer(Modifier.width(14.dp))
+
+            // Tool Label & Live Formatted Subtitle
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    fontSize = 12.5.sp,
+                    color = ScribeTheme.colors.content.secondary
+                )
+            }
+
+            // Trailing Chevron
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = ScribeTheme.colors.content.secondary.copy(alpha = 0.55f),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        if (showDivider) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 72.dp, end = 16.dp)
+                    .height(0.6.dp)
+                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f))
             )
         }
     }
@@ -1084,11 +1201,11 @@ private fun TypographyToolChip(
 
 /**
  * Typographic glyph rendered matching the icons in the reference image:
- * - Aa: bold dual-case for Size
- * - A: serif uppercase for Font
- * - W: serif underlined for Weight
+ * - Aa: bold dual-case for Font
+ * - W: serif bold for Weight
  * - ↔: horizontal double arrow for Margins
- * - ↕: vertical double arrow for Spacing
+ * - ↕: vertical double arrow for Line Spacing
+ * - Tt: bold dual-case for Size
  * - ¶: pilcrow for Paragraph
  * - ≡: lines for Alignment
  */
@@ -1098,21 +1215,12 @@ private fun TypographyToolGlyph(
     color: Color
 ) {
     when (tool) {
-        TypographyTool.SIZE -> {
+        TypographyTool.FONT -> {
             Text(
                 text = "Aa",
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.2).sp,
-                color = color
-            )
-        }
-        TypographyTool.FONT -> {
-            Text(
-                text = "A",
-                fontSize = 16.sp,
-                fontFamily = FontFamily.Serif,
-                fontWeight = FontWeight.SemiBold,
+                letterSpacing = (-0.3).sp,
                 color = color
             )
         }
@@ -1122,7 +1230,6 @@ private fun TypographyToolGlyph(
                 fontSize = 15.sp,
                 fontFamily = FontFamily.Serif,
                 fontWeight = FontWeight.Bold,
-                textDecoration = TextDecoration.Underline,
                 color = color
             )
         }
@@ -1139,6 +1246,15 @@ private fun TypographyToolGlyph(
                 text = "↕",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
+                color = color
+            )
+        }
+        TypographyTool.SIZE -> {
+            Text(
+                text = "Tt",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = (-0.3).sp,
                 color = color
             )
         }
@@ -1919,12 +2035,12 @@ private fun EditorColorsPage(
     }
 
     val configuration = LocalConfiguration.current
-    val tuningHeight = (configuration.screenHeightDp.dp * 0.52f).coerceIn(385.dp, 430.dp)
+    val maxColorsHeight = (configuration.screenHeightDp.dp * 0.70f).coerceIn(385.dp, 520.dp)
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .height(tuningHeight)
+            .heightIn(max = maxColorsHeight)
     ) {
         // Pinned Header
         TuningSharedHeader(
