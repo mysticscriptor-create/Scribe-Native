@@ -74,6 +74,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Style
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -1143,13 +1144,13 @@ private fun TypographyMasterRow(
                     indication = ripple(),
                     onClick = onClick
                 )
-                .padding(horizontal = 16.dp, vertical = 13.dp),
+                .padding(horizontal = 14.dp, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Circular Avatar Badge with soft pastel primaryContainer fill
+            // Compact Circular Avatar Badge with snug gap around icon
             Box(
                 modifier = Modifier
-                    .size(42.dp)
+                    .size(28.dp)
                     .clip(CircleShape)
                     .background(ScribeTheme.colors.interaction.primaryContainer),
                 contentAlignment = Alignment.Center
@@ -1160,21 +1161,25 @@ private fun TypographyMasterRow(
                 )
             }
 
-            Spacer(Modifier.width(14.dp))
+            Spacer(Modifier.width(10.dp))
 
-            // Tool Label & Live Formatted Subtitle
-            Column(modifier = Modifier.weight(1f)) {
+            // Title & Subtitle side-by-side after ":" on a single line to minimize vertical space
+            Row(
+                modifier = Modifier.weight(1f),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    text = title,
-                    fontSize = 15.sp,
+                    text = "$title: ",
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
-                Spacer(Modifier.height(2.dp))
                 Text(
                     text = subtitle,
-                    fontSize = 12.5.sp,
-                    color = ScribeTheme.colors.content.secondary
+                    fontSize = 13.sp,
+                    color = ScribeTheme.colors.content.secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
@@ -1182,18 +1187,16 @@ private fun TypographyMasterRow(
             Icon(
                 imageVector = Icons.Default.ChevronRight,
                 contentDescription = null,
-                tint = ScribeTheme.colors.content.secondary.copy(alpha = 0.55f),
-                modifier = Modifier.size(20.dp)
+                tint = ScribeTheme.colors.content.secondary.copy(alpha = 0.50f),
+                modifier = Modifier.size(18.dp)
             )
         }
 
         if (showDivider) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 72.dp, end = 16.dp)
-                    .height(0.6.dp)
-                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.20f))
+            HorizontalDivider(
+                modifier = Modifier.padding(start = 52.dp, end = 14.dp),
+                thickness = 1.dp,
+                color = ScribeTheme.colors.borders.subtle
             )
         }
     }
@@ -1218,7 +1221,7 @@ private fun TypographyToolGlyph(
         TypographyTool.FONT -> {
             Text(
                 text = "Aa",
-                fontSize = 15.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = (-0.3).sp,
                 color = color
@@ -1227,7 +1230,7 @@ private fun TypographyToolGlyph(
         TypographyTool.WEIGHT -> {
             Text(
                 text = "W",
-                fontSize = 15.sp,
+                fontSize = 12.sp,
                 fontFamily = FontFamily.Serif,
                 fontWeight = FontWeight.Bold,
                 color = color
@@ -1236,7 +1239,7 @@ private fun TypographyToolGlyph(
         TypographyTool.MARGINS -> {
             Text(
                 text = "↔",
-                fontSize = 16.sp,
+                fontSize = 12.5.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = color
             )
@@ -1244,7 +1247,7 @@ private fun TypographyToolGlyph(
         TypographyTool.LINE_SPACING -> {
             Text(
                 text = "↕",
-                fontSize = 16.sp,
+                fontSize = 12.5.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = color
             )
@@ -1252,7 +1255,7 @@ private fun TypographyToolGlyph(
         TypographyTool.SIZE -> {
             Text(
                 text = "Tt",
-                fontSize = 15.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = (-0.3).sp,
                 color = color
@@ -1261,7 +1264,7 @@ private fun TypographyToolGlyph(
         TypographyTool.PARAGRAPH -> {
             Text(
                 text = "¶",
-                fontSize = 15.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 color = color
             )
@@ -1271,7 +1274,7 @@ private fun TypographyToolGlyph(
                 imageVector = Icons.Default.FormatAlignLeft,
                 contentDescription = null,
                 tint = color,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(13.dp)
             )
         }
     }

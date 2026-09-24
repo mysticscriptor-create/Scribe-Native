@@ -6,6 +6,11 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -352,11 +357,6 @@ fun FontVisualPreviewCard(
     onOpenSpecimenModal: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val effectiveKey = fontId.ifBlank { fontName }
-    val lightFamily = remember(effectiveKey) { FontHelper.getFontFamily(effectiveKey, 300) }
-    val regularFamily = remember(effectiveKey) { FontHelper.getFontFamily(effectiveKey, 400) }
-    val boldFamily = remember(effectiveKey) { FontHelper.getFontFamily(effectiveKey, 700) }
-
     Surface(
         onClick = onOpenSpecimenModal,
         shape = RoundedCornerShape(8.dp),
@@ -364,99 +364,55 @@ fun FontVisualPreviewCard(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)),
         modifier = modifier.fillMaxWidth()
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 8.dp)
+                .padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
+            // Large Specimen Glyph + Sample Text
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.weight(1f),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Large Specimen Glyph + Sample Text
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "Aa",
-                            fontFamily = fontFamily,
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
                     Text(
-                        text = previewMode.sampleText,
+                        text = "Aa",
                         fontFamily = fontFamily,
-                        fontSize = if (previewMode == FontPreviewMode.HEADLINE) 14.5.sp else 12.5.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
 
-                // Tactile preview magnifier button
-                IconButton(
-                    onClick = onOpenSpecimenModal,
-                    modifier = Modifier.size(24.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Visibility,
-                        contentDescription = "Inspect Specimen",
-                        tint = ScribeTheme.colors.content.secondary,
-                        modifier = Modifier.size(15.dp)
-                    )
-                }
+                Text(
+                    text = previewMode.sampleText,
+                    fontFamily = fontFamily,
+                    fontSize = if (previewMode == FontPreviewMode.HEADLINE) 14.sp else 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
 
-            // Weight discrimination preview strip (shows Light 300, Regular 400, Bold 700)
-            Spacer(modifier = Modifier.height(4.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // Tactile preview eye icon button
+            IconButton(
+                onClick = onOpenSpecimenModal,
+                modifier = Modifier.size(24.dp)
             ) {
-                Text(
-                    text = "300 Light",
-                    fontFamily = lightFamily,
-                    fontWeight = FontWeight.W300,
-                    fontSize = 10.5.sp,
-                    color = ScribeTheme.colors.content.secondary
-                )
-                Text(
-                    text = "•",
-                    fontSize = 10.sp,
-                    color = ScribeTheme.colors.content.secondary.copy(alpha = 0.5f)
-                )
-                Text(
-                    text = "400 Regular",
-                    fontFamily = regularFamily,
-                    fontWeight = FontWeight.W400,
-                    fontSize = 10.5.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Text(
-                    text = "•",
-                    fontSize = 10.sp,
-                    color = ScribeTheme.colors.content.secondary.copy(alpha = 0.5f)
-                )
-                Text(
-                    text = "700 Bold",
-                    fontFamily = boldFamily,
-                    fontWeight = FontWeight.W700,
-                    fontSize = 10.5.sp,
-                    color = MaterialTheme.colorScheme.primary
+                Icon(
+                    imageVector = Icons.Outlined.Visibility,
+                    contentDescription = "Inspect Specimen",
+                    tint = ScribeTheme.colors.content.secondary,
+                    modifier = Modifier.size(16.dp)
                 )
             }
         }
@@ -797,7 +753,7 @@ fun MyFontsSubSheet(
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
-            placeholder = { Text("Filter installed fonts...", fontSize = 12.sp) },
+            placeholder = { Text("Filter installed fonts...", fontSize = 12.5.sp) },
             leadingIcon = {
                 Icon(Icons.Default.Search, contentDescription = "Search", modifier = Modifier.size(18.dp))
             },
@@ -809,10 +765,10 @@ fun MyFontsSubSheet(
                 }
             },
             singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.5.sp),
             shape = RoundedCornerShape(10.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(46.dp)
                 .padding(bottom = 6.dp)
         )
 
@@ -1109,11 +1065,11 @@ fun DownloadFontsSubSheet(
             }
         }
 
-        // Search Input
+        // Search Input (Unconstrained height so typed text is never cut off)
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
-            placeholder = { Text("Search 2,000+ fonts (e.g. Merriweather, Cinzel...)", fontSize = 12.sp) },
+            placeholder = { Text("Search 2,000+ fonts (e.g. Merriweather, Cinzel...)", fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             leadingIcon = {
                 Icon(Icons.Default.Search, contentDescription = "Search", modifier = Modifier.size(18.dp))
             },
@@ -1125,10 +1081,10 @@ fun DownloadFontsSubSheet(
                 }
             },
             singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium.copy(fontSize = 13.5.sp),
             shape = RoundedCornerShape(10.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .height(46.dp)
                 .padding(bottom = 6.dp)
         )
 
@@ -1137,7 +1093,7 @@ fun DownloadFontsSubSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
-                .padding(bottom = 6.dp),
+                .padding(bottom = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             categories.forEach { (catKey, catName) ->
@@ -1146,32 +1102,6 @@ fun DownloadFontsSubSheet(
                     selected = isSelected,
                     onClick = { selectedCategory = catKey },
                     label = { Text(catName, fontSize = 11.5.sp) },
-                    modifier = Modifier.height(28.dp)
-                )
-            }
-        }
-
-        // Global Specimen Mode Bar: Quick sample style selector for side-by-side comparison
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(
-                text = "Preview:",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium,
-                color = ScribeTheme.colors.content.secondary
-            )
-            FontPreviewMode.values().forEach { mode ->
-                val isSelected = globalPreviewMode == mode
-                FilterChip(
-                    selected = isSelected,
-                    onClick = { globalPreviewMode = mode },
-                    label = { Text(mode.label, fontSize = 11.sp) },
                     modifier = Modifier.height(28.dp)
                 )
             }
@@ -1290,62 +1220,59 @@ fun DownloadFontsSubSheet(
 
                                 Spacer(modifier = Modifier.width(8.dp))
 
-                                // Action Button
+                                // Action Button: Only download icon for non-downloaded, only apply/active icon for downloaded
                                 when {
                                     downloadProgress != null -> {
-                                        // Downloading state with progress
+                                        // Downloading state with progress spinner
                                         Box(
-                                            modifier = Modifier.size(36.dp),
+                                            modifier = Modifier.size(32.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
                                             CircularProgressIndicator(
                                                 progress = { downloadProgress },
-                                                modifier = Modifier.size(26.dp),
-                                                strokeWidth = 2.5.dp
+                                                modifier = Modifier.size(22.dp),
+                                                strokeWidth = 2.2.dp
                                             )
                                         }
                                     }
                                     isInstalled -> {
-                                        // Installed state: Show Installed badge + Apply button
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                        ) {
-                                            Surface(
-                                                shape = RoundedCornerShape(8.dp),
-                                                color = MaterialTheme.colorScheme.primaryContainer,
-                                                modifier = Modifier.height(28.dp)
+                                        // Downloaded: Show active check or apply check icon (no Installed/Apply text)
+                                        if (isCurrentlyActive) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(32.dp)
+                                                    .clip(CircleShape)
+                                                    .background(MaterialTheme.colorScheme.primaryContainer),
+                                                contentAlignment = Alignment.Center
                                             ) {
-                                                Box(
-                                                    modifier = Modifier.padding(horizontal = 8.dp),
-                                                    contentAlignment = Alignment.Center
-                                                ) {
-                                                    Text(
-                                                        text = if (isCurrentlyActive) "Active ✓" else "Installed ✓",
-                                                        fontSize = 10.5.sp,
-                                                        fontWeight = FontWeight.SemiBold,
-                                                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                                                    )
-                                                }
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = "Currently active font",
+                                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
                                             }
-
-                                            if (!isCurrentlyActive) {
-                                                FilledTonalButton(
-                                                    onClick = {
-                                                        onApplyFont(item.id)
-                                                        onBack()
-                                                    },
-                                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                                                    modifier = Modifier.height(28.dp)
-                                                ) {
-                                                    Text("Apply", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                                                }
+                                        } else {
+                                            FilledTonalIconButton(
+                                                onClick = {
+                                                    onApplyFont(item.id)
+                                                    onBack()
+                                                },
+                                                shape = CircleShape,
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Check,
+                                                    contentDescription = "Apply ${item.name}",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
                                             }
                                         }
                                     }
                                     else -> {
-                                        // Not installed: 1-click Download button
-                                        Button(
+                                        // Not downloaded: Only download icon
+                                        FilledTonalIconButton(
                                             onClick = {
                                                 coroutineScope.launch {
                                                     downloadingMap[item.id] = 0.1f
@@ -1361,35 +1288,41 @@ fun DownloadFontsSubSheet(
                                                     }
                                                 }
                                             },
-                                            shape = RoundedCornerShape(8.dp),
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                                            modifier = Modifier.height(30.dp)
+                                            shape = CircleShape,
+                                            modifier = Modifier.size(32.dp)
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Default.CloudDownload,
-                                                contentDescription = "Download",
-                                                modifier = Modifier.size(14.dp)
+                                                contentDescription = "Download ${item.name}",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
                                             )
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("Download", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
                                         }
                                     }
                                 }
                             }
 
-                            // Embedded Visual Specimen Preview Card before/after downloading
-                            Spacer(modifier = Modifier.height(6.dp))
-                            FontVisualPreviewCard(
-                                fontId = item.id,
-                                fontName = item.name,
-                                fontFamily = previewFamily,
-                                category = item.category,
-                                isVariable = item.isVariable,
-                                previewMode = globalPreviewMode,
-                                onOpenSpecimenModal = {
-                                    fontToInspect = item to previewFamily
+                            // Only when the font is downloaded, the preview option animates in smoothly
+                            AnimatedVisibility(
+                                visible = isInstalled,
+                                enter = expandVertically(animationSpec = tween(260, easing = FastOutSlowInEasing)) + fadeIn(animationSpec = tween(220)),
+                                exit = shrinkVertically(animationSpec = tween(200, easing = FastOutSlowInEasing)) + fadeOut(animationSpec = tween(180))
+                            ) {
+                                Column {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    FontVisualPreviewCard(
+                                        fontId = item.id,
+                                        fontName = item.name,
+                                        fontFamily = previewFamily,
+                                        category = item.category,
+                                        isVariable = item.isVariable,
+                                        previewMode = globalPreviewMode,
+                                        onOpenSpecimenModal = {
+                                            fontToInspect = item to previewFamily
+                                        }
+                                    )
                                 }
-                            )
+                            }
                         }
                     }
                 }
