@@ -352,6 +352,19 @@ fun MainEditorScreen(
         mutableStateOf(raw.contains('\n'))
     }
 
+    LaunchedEffect(activeNote?.id, activeNote?.name) {
+        val raw = activeNote?.name ?: ""
+        val p = raw.substringBefore('\n')
+        val s = if (raw.contains('\n')) raw.substringAfter('\n') else ""
+        if (primaryTitleText != p) {
+            primaryTitleText = p
+        }
+        if (secondaryTitleText != s) {
+            secondaryTitleText = s
+        }
+        showSecondaryTitle = raw.contains('\n')
+    }
+
     fun persistDualTitle(primary: String, secondary: String) {
         val targetNote = activeNote ?: return
         val p = primary.trim()
@@ -747,81 +760,6 @@ fun MainEditorScreen(
                                 headerView.setViewCompositionStrategy(
                                     ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool
                                 )
-                                headerView.setContent {
-                                    if (!zenMode && activeNote != null) {
-                                        val titleKey = activeTheme?.titleFontFamily ?: activeTheme?.fontFamily ?: "default"
-                                        val resolvedTitle1Font = ScribeFontManager.resolveFontFamily(
-                                            context = context,
-                                            fontKey = titleKey,
-                                            weight = activeTheme?.title1FontWeight ?: 600
-                                        )
-                                        val resolvedTitle2Font = ScribeFontManager.resolveFontFamily(
-                                            context = context,
-                                            fontKey = titleKey,
-                                            weight = activeTheme?.title2FontWeight ?: 700
-                                        )
-                                        val pTitleSize = (activeTheme?.title1FontSize ?: 18).sp
-                                        val sTitleSize = (activeTheme?.title2FontSize ?: 24).sp
-                                        val pTitleWeight = FontWeight(activeTheme?.title1FontWeight ?: 600)
-                                        val sTitleWeight = FontWeight(activeTheme?.title2FontWeight ?: 700)
-                                        val pTitleLineHeight = ((activeTheme?.title1LineHeight ?: 1.35f) * (activeTheme?.title1FontSize ?: 18)).sp
-                                        val sTitleLineHeight = ((activeTheme?.title2LineHeight ?: 1.30f) * (activeTheme?.title2FontSize ?: 24)).sp
-                                        val pTitleColor = activeTheme?.primaryTitleColor?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() }
-                                            ?: activeTheme?.colors?.headingText?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() }
-                                        val sTitleColor = activeTheme?.secondaryTitleColor?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() }
-                                            ?: activeTheme?.colors?.text?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() }
-
-                                        ManuscriptHeader(
-                                            primaryTitleText = primaryTitleText,
-                                            secondaryTitleText = secondaryTitleText,
-                                            selectedOrnamentId = selectedOrnamentId,
-                                            showSecondaryTitle = showSecondaryTitle,
-                                            titleAlignment = activeTheme?.titleAlignment ?: "center",
-                                            horizontalPadding = (activeTheme?.paddingHorizontal ?: 10).dp,
-                                            primaryTitleColor = pTitleColor,
-                                            secondaryTitleColor = sTitleColor,
-                                            title1FontFamily = resolvedTitle1Font,
-                                            title2FontFamily = resolvedTitle2Font,
-                                            primaryTitleFontSize = pTitleSize,
-                                            secondaryTitleFontSize = sTitleSize,
-                                            primaryTitleFontWeight = pTitleWeight,
-                                            secondaryTitleFontWeight = sTitleWeight,
-                                            primaryTitleLineHeight = pTitleLineHeight,
-                                            secondaryTitleLineHeight = sTitleLineHeight,
-                                            onPrimaryTitleChange = { sanitized ->
-                                                primaryTitleText = sanitized
-                                                persistDualTitle(sanitized, secondaryTitleText)
-                                            },
-                                            onSecondaryTitleChange = { sanitized ->
-                                                secondaryTitleText = sanitized
-                                                persistDualTitle(primaryTitleText, sanitized)
-                                            },
-                                            onOrnamentClick = { showOrnamentPicker = true },
-                                            onMoveToSecondaryTitle = {
-                                                showSecondaryTitle = true
-                                            },
-                                            onDone = {
-                                                soraEditorRef?.let { ed ->
-                                                    ed.setSelection(0, 0)
-                                                    unifiedCanvasRef?.resetScroll()
-                                                    ed.requestFocus()
-                                                }
-                                            },
-                                            onBackspaceEmptySecondary = {
-                                                showSecondaryTitle = false
-                                                persistDualTitle(primaryTitleText, "")
-                                            },
-                                            onEnterInSecondary = {
-                                                soraEditorRef?.let { ed ->
-                                                    ed.setSelection(0, 0)
-                                                    unifiedCanvasRef?.resetScroll()
-                                                    ed.requestFocus()
-                                                }
-                                            },
-                                            isEditable = true
-                                        )
-                                    }
-                                }
                                 editor.apply {
                                     setBackgroundColor(bgArgb)
                                     setTextSize(editorTextSizeSp)
@@ -1000,6 +938,83 @@ fun MainEditorScreen(
                                     popup?.setBackgroundDrawable(popupBgDrawable)
                                 } catch (_: Exception) { }
                             }
+
+                            // Synchronize Header inside ComposeView with active note and theme
+                            layout.headerView.setContent {
+                                    if (!zenMode && activeNote != null) {
+                                        val titleKey = activeTheme?.titleFontFamily ?: activeTheme?.fontFamily ?: "default"
+                                        val resolvedTitle1Font = ScribeFontManager.resolveFontFamily(
+                                            context = context,
+                                            fontKey = titleKey,
+                                            weight = activeTheme?.title1FontWeight ?: 600
+                                        )
+                                        val resolvedTitle2Font = ScribeFontManager.resolveFontFamily(
+                                            context = context,
+                                            fontKey = titleKey,
+                                            weight = activeTheme?.title2FontWeight ?: 700
+                                        )
+                                        val pTitleSize = (activeTheme?.title1FontSize ?: 18).sp
+                                        val sTitleSize = (activeTheme?.title2FontSize ?: 24).sp
+                                        val pTitleWeight = FontWeight(activeTheme?.title1FontWeight ?: 600)
+                                        val sTitleWeight = FontWeight(activeTheme?.title2FontWeight ?: 700)
+                                        val pTitleLineHeight = ((activeTheme?.title1LineHeight ?: 1.35f) * (activeTheme?.title1FontSize ?: 18)).sp
+                                        val sTitleLineHeight = ((activeTheme?.title2LineHeight ?: 1.30f) * (activeTheme?.title2FontSize ?: 24)).sp
+                                        val pTitleColor = activeTheme?.primaryTitleColor?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() }
+                                            ?: activeTheme?.colors?.headingText?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() }
+                                        val sTitleColor = activeTheme?.secondaryTitleColor?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() }
+                                            ?: activeTheme?.colors?.text?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() }
+
+                                        ManuscriptHeader(
+                                            primaryTitleText = primaryTitleText,
+                                            secondaryTitleText = secondaryTitleText,
+                                            selectedOrnamentId = selectedOrnamentId,
+                                            showSecondaryTitle = showSecondaryTitle,
+                                            titleAlignment = activeTheme?.titleAlignment ?: "center",
+                                            horizontalPadding = (activeTheme?.paddingHorizontal ?: 10).dp,
+                                            primaryTitleColor = pTitleColor,
+                                            secondaryTitleColor = sTitleColor,
+                                            title1FontFamily = resolvedTitle1Font,
+                                            title2FontFamily = resolvedTitle2Font,
+                                            primaryTitleFontSize = pTitleSize,
+                                            secondaryTitleFontSize = sTitleSize,
+                                            primaryTitleFontWeight = pTitleWeight,
+                                            secondaryTitleFontWeight = sTitleWeight,
+                                            primaryTitleLineHeight = pTitleLineHeight,
+                                            secondaryTitleLineHeight = sTitleLineHeight,
+                                            onPrimaryTitleChange = { sanitized ->
+                                                primaryTitleText = sanitized
+                                                persistDualTitle(sanitized, secondaryTitleText)
+                                            },
+                                            onSecondaryTitleChange = { sanitized ->
+                                                secondaryTitleText = sanitized
+                                                persistDualTitle(primaryTitleText, sanitized)
+                                            },
+                                            onOrnamentClick = { showOrnamentPicker = true },
+                                            onMoveToSecondaryTitle = {
+                                                showSecondaryTitle = true
+                                            },
+                                            onDone = {
+                                                soraEditorRef?.let { ed ->
+                                                    ed.setSelection(0, 0)
+                                                    unifiedCanvasRef?.resetScroll()
+                                                    ed.requestFocus()
+                                                }
+                                            },
+                                            onBackspaceEmptySecondary = {
+                                                showSecondaryTitle = false
+                                                persistDualTitle(primaryTitleText, "")
+                                            },
+                                            onEnterInSecondary = {
+                                                soraEditorRef?.let { ed ->
+                                                    ed.setSelection(0, 0)
+                                                    unifiedCanvasRef?.resetScroll()
+                                                    ed.requestFocus()
+                                                }
+                                            },
+                                            isEditable = true
+                                        )
+                                    }
+                                }
 
 
                         },
