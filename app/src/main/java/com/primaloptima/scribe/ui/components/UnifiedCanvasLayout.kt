@@ -574,43 +574,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     scrollCanvasBy(dy)
                     return true
                 }
-
-                val totalDx = ev.x - initialDownX
-                val totalDy = initialDownY - ev.y
-
-                // If user is dragging vertically:
-                if (abs(totalDy) > touchSlop && abs(totalDy) > abs(totalDx)) {
-                    if (scrollD < headerHeight) {
-                        isDraggingCanvas = true
-                        parent?.requestDisallowInterceptTouchEvent(true)
-                        val cancelEvent = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
-                        editor.dispatchTouchEvent(cancelEvent)
-                        cancelEvent.recycle()
-                        scrollCanvasBy(dy)
-                        return true
-                    } else if (editor.offsetY <= 0 && (totalDy < 0f || dy < 0f)) {
-                        isDraggingCanvas = true
-                        parent?.requestDisallowInterceptTouchEvent(true)
-                        val cancelEvent = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
-                        editor.dispatchTouchEvent(cancelEvent)
-                        cancelEvent.recycle()
-                        scrollCanvasBy(dy)
-                        return true
-                    }
-                }
-
-                // If editor is at top and user drags downwards even slightly after scrolling:
-                if (editor.offsetY <= 0 && dy < 0f) {
-                    isDraggingCanvas = true
-                    parent?.requestDisallowInterceptTouchEvent(true)
-                    val cancelEvent = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
-                    editor.dispatchTouchEvent(cancelEvent)
-                    cancelEvent.recycle()
-                    scrollCanvasBy(dy)
-                    return true
-                }
             }
-
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 isUserTouching = false
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null && !topEdgeEffect.isFinished) {
