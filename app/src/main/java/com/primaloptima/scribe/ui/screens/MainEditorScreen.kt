@@ -594,7 +594,7 @@ fun MainEditorScreen(
                         AnimatedVisibility(
                             visible = isKeyboardVisible,
                             enter   = slideInVertically(initialOffsetY = { it }),
-                            exit    = slideOutVertically(targetOffsetY = { it })
+                            exit    = androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.snap())
                         ) {
                             Row(
                                 modifier = Modifier
@@ -801,10 +801,8 @@ fun MainEditorScreen(
                                             editorVm.onContentChanged(current)
                                         unifiedCanvasRef?.ensureCursorVisibleAboveKeyboard()
                                     }
-                                    setOnFocusChangeListener { _, hasFocus ->
-                                        if (hasFocus) {
-                                            unifiedCanvasRef?.ensureCursorVisibleAboveKeyboard()
-                                        }
+                                    setOnFocusChangeListener { _, _ ->
+                                        // Focus change intentionally does not scroll to stale cursor positions
                                     }
                                     try {
                                         setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->

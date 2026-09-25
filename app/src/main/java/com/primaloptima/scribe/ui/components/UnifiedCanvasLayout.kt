@@ -283,6 +283,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (editor.offsetY > 0) {
             scrollD = headerHeight
             scrollDFloat = headerHeight.toFloat()
+        } else {
+            val totalContentHeight = headerHeight + (editor.layout?.layoutHeight ?: 0)
+            if (totalContentHeight <= viewportHeight && scrollD > 0) {
+                scrollD = 0
+                scrollDFloat = 0f
+                onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
+            }
         }
 
         applyTranslations()

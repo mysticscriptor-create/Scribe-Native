@@ -659,22 +659,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        val parentCanvas = parent as? UnifiedCanvasLayout
-        if (parentCanvas?.isImeClosing == true) {
-            val savedOffsetY = offsetY
-            val savedOffsetX = offsetX
-            super.onSizeChanged(w, h, oldw, oldh)
-            if (offsetY != savedOffsetY || offsetX != savedOffsetX) {
-                try {
-                    scroller?.let { s ->
-                        s.startScroll(savedOffsetX, savedOffsetY, 0, 0, 0)
-                        s.abortAnimation()
-                    }
-                } catch (_: Throwable) {}
-            }
-            return
-        }
         super.onSizeChanged(w, h, oldw, oldh)
+        try {
+            renderContext.invalidateRenderNodes()
+        } catch (_: Throwable) {}
+        invalidate()
 
         if (w > 0 && isAwaitingLayoutReady) {
             post {
@@ -694,14 +683,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) {
         super.onFocusChanged(gainFocus, direction, previouslyFocusedRect)
-        if (gainFocus) {
-            postDelayed({
-                if (isFocused) {
-                    ensureSelectionVisible()
-                    (parent as? UnifiedCanvasLayout)?.ensureCursorVisibleAboveKeyboard()
-                }
-            }, 100)
-        }
     }
 
     override fun ensureSelectionVisible() {
