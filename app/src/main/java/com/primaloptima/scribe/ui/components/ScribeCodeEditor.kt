@@ -40,6 +40,28 @@ class ScribeCodeEditor @JvmOverloads constructor(
     var isHandleDragging: Boolean = false
         private set
 
+    var horizontalPaddingDp: Float = 10f
+        set(value) {
+            val clamped = value.coerceIn(8f, 72f)
+            if (field != clamped) {
+                field = clamped
+                try {
+                    renderContext.invalidateRenderNodes()
+                } catch (_: Throwable) {}
+                createLayout()
+                invalidate()
+            }
+        }
+
+    override fun measureTextRegionOffset(): Float {
+        val padPx = horizontalPaddingDp * context.resources.displayMetrics.density
+        return if (isLineNumberEnabled) {
+            super.measureTextRegionOffset() + padPx
+        } else {
+            padPx
+        }
+    }
+
     init {
         props.autoIndent = false
         props.deleteEmptyLineFast = false
@@ -663,10 +685,26 @@ class ScribeCodeEditor @JvmOverloads constructor(
      * emptied while background tasks recompute breaks. This guarantees zero flashing into single-line
      * mode and zero disappearing text during interactive sliders.
      */
+    private var isInsideCreateLayout: Boolean = false
+
+    override fun getWidth(): Int {
+        val actualWidth = super.getWidth()
+        if (isInsideCreateLayout && actualWidth > 0) {
+            val padPx = (horizontalPaddingDp * context.resources.displayMetrics.density).roundToInt()
+            return (actualWidth - padPx).coerceAtLeast(0)
+        }
+        return actualWidth
+    }
+
     override fun createLayout() {
-        val shouldClear = isAwaitingLayoutReady || layout == null || forceNextLayoutClear
-        forceNextLayoutClear = false
-        super.createLayout(shouldClear)
+        isInsideCreateLayout = true
+        try {
+            val shouldClear = isAwaitingLayoutReady || layout == null || forceNextLayoutClear
+            forceNextLayoutClear = false
+            super.createLayout(shouldClear)
+        } finally {
+            isInsideCreateLayout = false
+        }
     }
 
     val isPinchScaling: Boolean

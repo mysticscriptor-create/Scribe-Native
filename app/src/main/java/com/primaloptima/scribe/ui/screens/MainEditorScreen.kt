@@ -719,6 +719,7 @@ fun MainEditorScreen(
                                     ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool
                                 )
                                 editor.apply {
+                                    horizontalPaddingDp = initialPadH
                                     setBackgroundColor(bgArgb)
                                     setTextSize(editorTextSizeSp)
                                     editorTypeface?.let { typefaceText = it }
@@ -820,6 +821,7 @@ fun MainEditorScreen(
                             if (kotlin.math.abs(lastAppliedPadding - padH) > 0.5f) {
                                 lastAppliedPadding = padH
                                 layout.horizontalPaddingDp = padH
+                                scribeEditor?.horizontalPaddingDp = padH
                             }
                             val editor = layout.editor
                             val scribeEditor = editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor

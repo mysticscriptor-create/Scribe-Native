@@ -62,8 +62,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     init {
         addView(headerView)
         addView(editor)
-        clipChildren = true
-        clipToPadding = true
+        clipChildren = false
+        clipToPadding = false
+        editor.horizontalPaddingDp = horizontalPaddingDp
         outlineProvider = android.view.ViewOutlineProvider.BOUNDS
         clipToOutline = true
 
@@ -111,6 +112,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val clamped = value.coerceIn(8f, 72f)
             if (field != clamped) {
                 field = clamped
+                editor.horizontalPaddingDp = clamped
                 requestLayout()
                 invalidate()
             }
@@ -295,12 +297,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             scrollDFloat = headerHeight.toFloat()
         }
 
-        val padPx = (horizontalPaddingDp * context.resources.displayMetrics.density).roundToInt()
-        val contentWidth = (width - 2 * padPx).coerceAtLeast(0)
-
-        // Measure CodeEditor with symmetric margins to fill the viewport height
+        // Measure CodeEditor to fill the full viewport width and height
         editor.measure(
-            MeasureSpec.makeMeasureSpec(contentWidth, MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
             MeasureSpec.makeMeasureSpec(viewportHeight, MeasureSpec.EXACTLY)
         )
 
@@ -310,11 +309,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
         val width = r - l
         val viewportHeight = b - t
-        val padPx = (horizontalPaddingDp * context.resources.displayMetrics.density).roundToInt()
-        val contentWidth = (width - 2 * padPx).coerceAtLeast(0)
 
         headerView.layout(0, 0, width, headerHeight)
-        editor.layout(padPx, headerHeight, padPx + contentWidth, headerHeight + viewportHeight)
+        editor.layout(0, headerHeight, width, headerHeight + viewportHeight)
 
         val totalContentHeight = headerHeight + (editor.layout?.layoutHeight ?: 0)
         if (totalContentHeight <= viewportHeight) {
