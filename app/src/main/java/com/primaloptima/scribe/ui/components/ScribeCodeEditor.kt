@@ -36,6 +36,107 @@ class ScribeCodeEditor @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : CodeEditor(context, attrs, defStyleAttr) {
 
+    init {
+        props.autoIndent = false
+        props.deleteEmptyLineFast = false
+    }
+
+    var firstLineIndentSpaces: Int = 0
+
+    override fun commitText(text: CharSequence, applyAutoIndent: Boolean, applySymbolCompletion: Boolean) {
+        if (text == "\n" || text == "\r\n" || text == "\r") {
+            handleProseNewline()
+            return
+        }
+        super.commitText(text, applyAutoIndent, applySymbolCompletion)
+    }
+
+    private fun handleProseNewline() {
+        val cur = cursor
+        if (cur.isSelected) {
+            text.delete(cur.leftLine, cur.leftColumn, cur.rightLine, cur.rightColumn)
+        }
+
+        val line = cur.leftLine
+        val col = cur.leftColumn
+        val lineStr = text.getLineString(line)
+
+        val isWhitespaceOnly = lineStr.isNotEmpty() && lineStr.all { it == ' ' || it == '\t' }
+
+        if (isWhitespaceOnly) {
+            // Consecutive Enter on empty indented line:
+            // Strip whitespace on current line and insert clean blank line
+            text.delete(line, 0, line, lineStr.length)
+            text.insert(line, 0, "\n")
+            setSelection(line + 1, 0)
+            ensureSelectionVisible()
+            notifyIMEExternalCursorChange()
+            return
+        }
+
+        val indentToInsert = if (lineStr.isEmpty()) {
+            ""
+        } else if (firstLineIndentSpaces > 0) {
+            " ".repeat(firstLineIndentSpaces)
+        } else {
+            var p = 0
+            val maxCheck = minOf(col, lineStr.length)
+            while (p < maxCheck && (lineStr[p] == ' ' || lineStr[p] == '\t')) {
+                p++
+            }
+            if (p > 0) lineStr.substring(0, p) else ""
+        }
+
+        val insertStr = "\n$indentToInsert"
+        text.insert(line, col, insertStr)
+        setSelection(line + 1, indentToInsert.length)
+        ensureSelectionVisible()
+        notifyIMEExternalCursorChange()
+    }
+
+    override fun deleteText() {
+        val cur = cursor
+        if (cur.isSelected) {
+            super.deleteText()
+            return
+        }
+        val line = cur.leftLine
+        val col = cur.leftColumn
+        val lineStr = text.getLineString(line)
+        val isWhitespaceOnly = lineStr.isNotEmpty() && lineStr.all { it == ' ' || it == '\t' }
+
+        if (isWhitespaceOnly) {
+            if (firstLineIndentSpaces > 0) {
+                // First-line indent mode: delete empty indented line and return to previous line
+                if (line > 0) {
+                    text.delete(line - 1, text.getColumnCount(line - 1), line, lineStr.length)
+                } else {
+                    text.delete(line, 0, line, col)
+                }
+                ensureSelectionVisible()
+                notifyIMEExternalCursorChange()
+                return
+            } else {
+                if (col > 0) {
+                    // Manual indent mode: delete spaces on this line, keep cursor on this line at column 0
+                    text.delete(line, 0, line, lineStr.length)
+                    setSelection(line, 0)
+                    ensureSelectionVisible()
+                    notifyIMEExternalCursorChange()
+                    return
+                } else if (line > 0) {
+                    // Already at column 0: backspace joins with previous line
+                    text.delete(line - 1, text.getColumnCount(line - 1), line, lineStr.length)
+                    ensureSelectionVisible()
+                    notifyIMEExternalCursorChange()
+                    return
+                }
+            }
+        }
+
+        super.deleteText()
+    }
+
     private var lastMakeVisibleTime: Long = 0L
     private var isFlingActive = false
     private var forceNextLayoutClear = false

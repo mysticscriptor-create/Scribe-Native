@@ -422,6 +422,7 @@ class ThemeManager(private val context: Context) {
                 lineHeight = theme.lineHeight.coerceIn(1.0f, 3.0f),
                 letterSpacing = theme.letterSpacing.coerceIn(-1.0f, 2.0f),
                 paragraphSpacing = theme.paragraphSpacing.coerceIn(0, 60),
+                firstLineIndent = theme.firstLineIndent.coerceIn(0, 8),
                 paddingHorizontal = theme.paddingHorizontal.coerceIn(0, 120),
                 paddingVertical = theme.paddingVertical.coerceIn(0, 120),
                 maxWidth = theme.maxWidth.coerceIn(320, 2560),

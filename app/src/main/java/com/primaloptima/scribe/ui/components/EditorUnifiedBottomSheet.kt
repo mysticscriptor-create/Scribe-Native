@@ -1102,8 +1102,8 @@ private fun TypographyMasterCard(
                         "${activeTheme.fontSize} sp • Title: ${tSize} sp"
                     }
                     TypographyTool.PARAGRAPH -> {
-                        val p = activeTheme.paragraphSpacing ?: 0
-                        if (p > 0) "Spacing • ${p}px" else "Compact • 0px"
+                        val indent = activeTheme.firstLineIndent ?: 0
+                        if (indent > 0) "Indent • $indent spaces" else "Indent • Off"
                     }
                     TypographyTool.ALIGNMENT -> {
                         val align = when (activeTheme.textAlignment.lowercase()) {
@@ -1679,20 +1679,20 @@ private fun TypographyParagraphControl(
     activeTheme: AppTheme,
     onUpdateTheme: ((AppTheme) -> AppTheme) -> Unit
 ) {
-    val currentVal = (activeTheme.paragraphSpacing ?: 1).toFloat().coerceIn(0f, 40f)
+    val currentVal = (activeTheme.firstLineIndent ?: 0).toFloat().coerceIn(0f, 8f)
 
     ScribeSettingSlider(
-        label = "Paragraph Block Spacing",
+        label = "First-Line Indent",
         value = currentVal,
         onValueChange = { newVal ->
-            val rounded = newVal.roundToInt()
-            if (rounded != (activeTheme.paragraphSpacing ?: 1)) {
-                onUpdateTheme { it.copy(paragraphSpacing = rounded) }
+            val rounded = (newVal / 2f).roundToInt() * 2
+            if (rounded != (activeTheme.firstLineIndent ?: 0)) {
+                onUpdateTheme { it.copy(firstLineIndent = rounded) }
             }
         },
-        valueRange = 0f..40f,
+        valueRange = 0f..8f,
         step = 2f,
-        unit = "dp"
+        unit = " spaces"
     )
 }
 

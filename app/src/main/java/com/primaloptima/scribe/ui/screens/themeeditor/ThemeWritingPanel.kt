@@ -40,6 +40,7 @@ fun ThemeWritingPanel(
     onFontSizeChange: (Float) -> Unit,
     onLineHeightChange: (Float) -> Unit,
     onParagraphSpacingChange: (Float) -> Unit,
+    onFirstLineIndentChange: (Float) -> Unit = onParagraphSpacingChange,
     onDocumentFontWeightChange: (Int) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -349,14 +350,14 @@ fun ThemeWritingPanel(
                     decimalPlaces = 2
                 )
 
-                // Paragraph Spacing
+                // Paragraph First-Line Indent
                 ScribeSettingSlider(
-                    label = "Paragraph Spacing",
-                    value = draft.paragraphSpacing,
-                    onValueChange = onParagraphSpacingChange,
-                    valueRange = 0f..40f,
+                    label = "First-Line Indent",
+                    value = draft.firstLineIndent,
+                    onValueChange = onFirstLineIndentChange,
+                    valueRange = 0f..8f,
                     step = 2f,
-                    unit = "dp"
+                    unit = " spaces"
                 )
             }
         }

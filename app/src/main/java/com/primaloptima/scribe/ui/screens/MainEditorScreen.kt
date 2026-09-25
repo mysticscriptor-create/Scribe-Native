@@ -746,7 +746,8 @@ fun MainEditorScreen(
                                     setBackgroundColor(bgArgb)
                                     setTextSize(editorTextSizeSp)
                                     editorTypeface?.let { typefaceText = it }
-                                    setLineSpacing(initialParaSpacingPx, initialLineHeight)
+                                    firstLineIndentSpaces = activeTheme?.firstLineIndent ?: 0
+                                    setLineSpacing(0f, initialLineHeight)
                                     activeTheme?.let { theme ->
                                         val scheme = ScribeColorScheme(theme)
                                         scheme.setColor(EditorColorScheme.WHOLE_BACKGROUND,       bgArgb)
@@ -861,13 +862,9 @@ fun MainEditorScreen(
                                 }
                             }
                             val newLineHeight = activeTheme?.lineHeight ?: 1.00f
-                            val newParaSpacing = (activeTheme?.paragraphSpacing ?: 1).toFloat()
-                            val paraSpacingPx = newParaSpacing * density * 0.35f
-                            if (kotlin.math.abs(lastAppliedLineSpacing - newLineHeight) > 0.005f ||
-                                kotlin.math.abs(lastAppliedParaSpacing - newParaSpacing) > 0.5f) {
+                            if (kotlin.math.abs(lastAppliedLineSpacing - newLineHeight) > 0.005f) {
                                 lastAppliedLineSpacing = newLineHeight
-                                lastAppliedParaSpacing = newParaSpacing
-                                editor.setLineSpacing(paraSpacingPx, newLineHeight)
+                                editor.setLineSpacing(0f, newLineHeight)
                                 try {
                                     editor.renderContext.invalidateRenderNodes()
                                 } catch (_: Throwable) {}
@@ -880,6 +877,10 @@ fun MainEditorScreen(
                                         }
                                     } catch (_: Throwable) {}
                                 }
+                            }
+                            val newFirstLineIndent = activeTheme?.firstLineIndent ?: 0
+                            if (editor.firstLineIndentSpaces != newFirstLineIndent) {
+                                editor.firstLineIndentSpaces = newFirstLineIndent
                             }
                             if (lastAppliedBgArgb != bgArgb) {
                                 lastAppliedBgArgb = bgArgb

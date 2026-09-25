@@ -92,6 +92,7 @@ data class ThemeEditorDraft(
     val fontSize: Float,
     val lineHeight: Float,
     val paragraphSpacing: Float,
+    val firstLineIndent: Float = 0f,
     val sideMargins: Float,
     val documentFontWeight: Int = 500,
 
@@ -255,6 +256,7 @@ data class ThemeEditorDraft(
         if (fontSize.toInt() != original.fontSize) return true
         if (lineHeight != original.lineHeight) return true
         if (paragraphSpacing.toInt() != original.paragraphSpacing) return true
+        if (firstLineIndent.toInt() != original.firstLineIndent) return true
         if (sideMargins.toInt() != original.paddingHorizontal) return true
         if (textAlignment != original.textAlignment) return true
         if (themeScope != original.themeScope) return true
@@ -485,6 +487,7 @@ data class ThemeEditorDraft(
             fontSize = fontSize.toInt(),
             lineHeight = lineHeight,
             paragraphSpacing = paragraphSpacing.toInt(),
+            firstLineIndent = firstLineIndent.toInt(),
             paddingHorizontal = sideMargins.toInt(),
             textAlignment = textAlignment,
             themeScope = themeScope,
@@ -537,6 +540,7 @@ data class ThemeEditorDraft(
                 fontSize = theme.fontSize.toFloat(),
                 lineHeight = theme.lineHeight,
                 paragraphSpacing = theme.paragraphSpacing.toFloat(),
+                firstLineIndent = theme.firstLineIndent.toFloat(),
                 sideMargins = theme.paddingHorizontal.toFloat(),
                 textAlignment = theme.textAlignment,
                 themeScope = theme.themeScope,

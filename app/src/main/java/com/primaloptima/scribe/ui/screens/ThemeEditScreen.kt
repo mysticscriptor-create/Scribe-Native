@@ -727,6 +727,7 @@ private fun ActiveInspectorContent(
                 onFontSizeChange = { onDraftChange(draft.copy(fontSize = it)) },
                 onLineHeightChange = { onDraftChange(draft.copy(lineHeight = it)) },
                 onParagraphSpacingChange = { onDraftChange(draft.copy(paragraphSpacing = it)) },
+                onFirstLineIndentChange = { onDraftChange(draft.copy(firstLineIndent = it)) },
                 onDocumentFontWeightChange = { onDraftChange(draft.copy(documentFontWeight = it)) }
             )
         }

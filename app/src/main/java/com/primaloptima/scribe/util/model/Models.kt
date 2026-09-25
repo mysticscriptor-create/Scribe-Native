@@ -312,6 +312,7 @@ data class AppTheme(
     val lineHeight: Float = 1.00f,
     val letterSpacing: Float = 0.1f,
     val paragraphSpacing: Int = 1,
+    val firstLineIndent: Int = 0,
     val paddingHorizontal: Int = 10,
     val paddingVertical: Int = 20,
     val maxWidth: Int = 720,
