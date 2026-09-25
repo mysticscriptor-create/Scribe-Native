@@ -150,15 +150,16 @@ enum class EditorSheetPage {
 enum class TypographyTool(val key: String, val label: String, val icon: ImageVector) {
     FONT("font", "Font", Icons.Default.TextFields),
     WEIGHT("weight", "Weight", Icons.Default.FormatBold),
-    MARGINS("margins", "Margins", Icons.Default.FormatIndentIncrease),
+    MARGINS("margins", "Margins", Icons.Default.DensityMedium),
     LINE_SPACING("line", "Line Spacing", Icons.Default.FormatLineSpacing),
     SIZE("size", "Size", Icons.Default.FormatSize),
-    PARAGRAPH("para", "Paragraph", Icons.Default.DensityMedium),
+    INDENT("indent", "First-Line Indent", Icons.Default.FormatIndentIncrease),
     ALIGNMENT("align", "Alignment", Icons.Default.FormatAlignLeft);
 
     companion object {
         fun fromKey(key: String): TypographyTool =
-            entries.find { it.key.equals(key, ignoreCase = true) } ?: FONT
+            if (key.equals("para", ignoreCase = true)) INDENT
+            else entries.find { it.key.equals(key, ignoreCase = true) } ?: FONT
     }
 }
 
@@ -1019,8 +1020,8 @@ private fun TypographyDetailPage(
                         onUpdateTheme = onUpdateTheme
                     )
                 }
-                TypographyTool.PARAGRAPH -> {
-                    TypographyParagraphControl(
+                TypographyTool.INDENT -> {
+                    TypographyIndentControl(
                         activeTheme = activeTheme,
                         onUpdateTheme = onUpdateTheme
                     )
@@ -1101,9 +1102,9 @@ private fun TypographyMasterCard(
                         val tSize = activeTheme.title1FontSize ?: 18
                         "${activeTheme.fontSize} sp • Title: ${tSize} sp"
                     }
-                    TypographyTool.PARAGRAPH -> {
+                    TypographyTool.INDENT -> {
                         val indent = activeTheme.firstLineIndent ?: 0
-                        if (indent > 0) "Indent • $indent spaces" else "Indent • Off"
+                        if (indent > 0) "First Line • $indent spaces" else "First Line • Off"
                     }
                     TypographyTool.ALIGNMENT -> {
                         val align = when (activeTheme.textAlignment.lowercase()) {
@@ -1261,12 +1262,12 @@ private fun TypographyToolGlyph(
                 color = color
             )
         }
-        TypographyTool.PARAGRAPH -> {
-            Text(
-                text = "¶",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = color
+        TypographyTool.INDENT -> {
+            Icon(
+                imageVector = Icons.Default.FormatIndentIncrease,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(13.dp)
             )
         }
         TypographyTool.ALIGNMENT -> {
@@ -1675,7 +1676,7 @@ private fun TypographyLineSpacingControl(
  * Paragraph Spacing Control: Reusable ScribeSettingSlider (0..40 dp, step 2).
  */
 @Composable
-private fun TypographyParagraphControl(
+private fun TypographyIndentControl(
     activeTheme: AppTheme,
     onUpdateTheme: ((AppTheme) -> AppTheme) -> Unit
 ) {

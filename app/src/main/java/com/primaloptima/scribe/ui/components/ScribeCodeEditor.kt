@@ -39,6 +39,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
     init {
         props.autoIndent = false
         props.deleteEmptyLineFast = false
+        props.deleteMultiSpaces = 1
     }
 
     var firstLineIndentSpaces: Int = 0
@@ -60,9 +61,32 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val line = cur.leftLine
         val col = cur.leftColumn
         val lineStr = text.getLineString(line)
-
         val isWhitespaceOnly = lineStr.isNotEmpty() && lineStr.all { it == ' ' || it == '\t' }
 
+        if (firstLineIndentSpaces > 0) {
+            // Indent is ON: every new paragraph starts with the configured spaces (never 0 spaces)
+            val indent = " ".repeat(firstLineIndentSpaces)
+            if (isWhitespaceOnly) {
+                // Consecutive Enter on empty line:
+                // Clean the current line so it becomes an empty blank line, and start the next line with set spaces!
+                text.delete(line, 0, line, lineStr.length)
+                text.insert(line, 0, "\n$indent")
+                setSelection(line + 1, indent.length)
+            } else if (lineStr.isEmpty()) {
+                // Enter on a blank line: next paragraph starts with set spaces!
+                text.insert(line, 0, "\n$indent")
+                setSelection(line + 1, indent.length)
+            } else {
+                // Normal Enter after text:
+                text.insert(line, col, "\n$indent")
+                setSelection(line + 1, indent.length)
+            }
+            ensureSelectionVisible()
+            notifyIMEExternalCursorChange()
+            return
+        }
+
+        // Indent is OFF (Manual mode):
         if (isWhitespaceOnly) {
             // Consecutive Enter on empty indented line:
             // Strip whitespace on current line and insert clean blank line
@@ -76,8 +100,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
         val indentToInsert = if (lineStr.isEmpty()) {
             ""
-        } else if (firstLineIndentSpaces > 0) {
-            " ".repeat(firstLineIndentSpaces)
         } else {
             var p = 0
             val maxCheck = minOf(col, lineStr.length)
@@ -105,36 +127,88 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val lineStr = text.getLineString(line)
         val isWhitespaceOnly = lineStr.isNotEmpty() && lineStr.all { it == ' ' || it == '\t' }
 
-        if (isWhitespaceOnly) {
-            if (firstLineIndentSpaces > 0) {
-                // First-line indent mode: delete empty indented line and return to previous line
-                if (line > 0) {
-                    text.delete(line - 1, text.getColumnCount(line - 1), line, lineStr.length)
-                } else {
-                    text.delete(line, 0, line, col)
-                }
-                ensureSelectionVisible()
-                notifyIMEExternalCursorChange()
-                return
+        if (firstLineIndentSpaces > 0 && (isWhitespaceOnly || lineStr.isEmpty())) {
+            // ONLY when indent is turned ON: clicking delete or backspace on empty line takes user to previous paragraph
+            if (line > 0) {
+                text.delete(line - 1, text.getColumnCount(line - 1), line, lineStr.length)
             } else {
-                if (col > 0) {
-                    // Manual indent mode: delete spaces on this line, keep cursor on this line at column 0
-                    text.delete(line, 0, line, lineStr.length)
-                    setSelection(line, 0)
-                    ensureSelectionVisible()
-                    notifyIMEExternalCursorChange()
-                    return
-                } else if (line > 0) {
-                    // Already at column 0: backspace joins with previous line
-                    text.delete(line - 1, text.getColumnCount(line - 1), line, lineStr.length)
-                    ensureSelectionVisible()
-                    notifyIMEExternalCursorChange()
-                    return
-                }
+                text.delete(line, 0, line, col)
             }
+            ensureSelectionVisible()
+            notifyIMEExternalCursorChange()
+            return
         }
 
+        // When indent is OFF: normal delete behavior (deletes one character/space at a time)
         super.deleteText()
+    }
+
+    /**
+     * Live updates all paragraphs in the document when First-Line Indent slider is changed.
+     * Preserves blank lines, Markdown headings, and scene breaks.
+     */
+    fun applyFirstLineIndentToDocument(oldIndent: Int, newIndent: Int) {
+        firstLineIndentSpaces = newIndent
+        val content = text ?: return
+        val count = content.lineCount
+        if (count == 0) return
+
+        content.beginBatchEdit()
+        try {
+            val newIndentStr = if (newIndent > 0) " ".repeat(newIndent) else ""
+            for (i in 0 until count) {
+                val lineStr = content.getLineString(i)
+                val trimmed = lineStr.trimStart()
+
+                // Skip blank lines
+                if (trimmed.isEmpty()) continue
+
+                // Skip Markdown headings and scene breaks
+                if (trimmed.startsWith("#") || trimmed.startsWith("---") ||
+                    trimmed.startsWith("***") || trimmed.startsWith("* * *") ||
+                    trimmed.startsWith("###") || trimmed.startsWith("___")) {
+                    continue
+                }
+
+                // Count existing leading spaces
+                var leadingSpaceCount = 0
+                while (leadingSpaceCount < lineStr.length && lineStr[leadingSpaceCount] == ' ') {
+                    leadingSpaceCount++
+                }
+
+                if (newIndent > 0) {
+                    if (oldIndent == 0) {
+                        // Turning indent ON
+                        if (leadingSpaceCount == 0) {
+                            content.insert(i, 0, newIndentStr)
+                        } else if (leadingSpaceCount in 2..8) {
+                            content.replace(i, 0, i, leadingSpaceCount, newIndentStr)
+                        }
+                    } else {
+                        // Adjusting indent between non-zero values (e.g. 2 -> 4 or 4 -> 6)
+                        if (leadingSpaceCount == oldIndent || leadingSpaceCount in 2..8) {
+                            content.replace(i, 0, i, leadingSpaceCount, newIndentStr)
+                        } else if (leadingSpaceCount == 0) {
+                            content.insert(i, 0, newIndentStr)
+                        }
+                    }
+                } else {
+                    // Turning indent OFF (newIndent == 0)
+                    if (oldIndent > 0 && leadingSpaceCount == oldIndent) {
+                        content.delete(i, 0, i, oldIndent)
+                    } else if (leadingSpaceCount in 2..8) {
+                        content.delete(i, 0, i, leadingSpaceCount)
+                    }
+                }
+            }
+        } finally {
+            content.endBatchEdit()
+        }
+
+        try {
+            renderContext.invalidateRenderNodes()
+        } catch (_: Throwable) {}
+        invalidate()
     }
 
     private var lastMakeVisibleTime: Long = 0L

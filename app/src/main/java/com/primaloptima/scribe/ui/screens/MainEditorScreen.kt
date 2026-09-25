@@ -692,6 +692,7 @@ fun MainEditorScreen(
                     var lastAppliedParaSpacing by remember { mutableFloatStateOf(-1f) }
                     var lastAppliedBgArgb by remember { mutableIntStateOf(0) }
                     var lastAppliedThemeId by remember { mutableStateOf<String?>(null) }
+                    var lastAppliedFirstLineIndent by remember { mutableIntStateOf(activeTheme?.firstLineIndent ?: 0) }
 
                     AndroidView(
                         factory = { ctx ->
@@ -879,8 +880,15 @@ fun MainEditorScreen(
                                 }
                             }
                             val newFirstLineIndent = activeTheme?.firstLineIndent ?: 0
-                            if (editor.firstLineIndentSpaces != newFirstLineIndent) {
-                                editor.firstLineIndentSpaces = newFirstLineIndent
+                            if (lastAppliedFirstLineIndent != newFirstLineIndent) {
+                                val oldIndent = lastAppliedFirstLineIndent
+                                lastAppliedFirstLineIndent = newFirstLineIndent
+                                scribeEditor?.applyFirstLineIndentToDocument(oldIndent, newFirstLineIndent)
+                                val current = editor.text.toString()
+                                editorCurrentText = current
+                                if (loadedNoteId != null) {
+                                    editorVm.onContentChanged(current)
+                                }
                             }
                             if (lastAppliedBgArgb != bgArgb) {
                                 lastAppliedBgArgb = bgArgb
