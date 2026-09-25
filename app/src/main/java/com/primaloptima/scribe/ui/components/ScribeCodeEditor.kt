@@ -43,13 +43,132 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
 
     var firstLineIndentSpaces: Int = 0
+    private var isInternalPasting: Boolean = false
+
+    override fun pasteText() {
+        super.pasteText()
+    }
+
+    override fun pasteText(text: CharSequence?) {
+        if (text == null) return
+        isInternalPasting = true
+        try {
+            val processed = if (firstLineIndentSpaces > 0) formatPastedText(text) else text
+            super.pasteText(processed)
+        } finally {
+            isInternalPasting = false
+        }
+    }
 
     override fun commitText(text: CharSequence, applyAutoIndent: Boolean, applySymbolCompletion: Boolean) {
         if (text == "\n" || text == "\r\n" || text == "\r") {
             handleProseNewline()
             return
         }
+
+        if (!isInternalPasting && firstLineIndentSpaces > 0) {
+            val cur = cursor
+            if (!cur.isSelected) {
+                val line = cur.leftLine
+                val col = cur.leftColumn
+                val lineStr = if (line < this.text.lineCount) this.text.getLineString(line) else ""
+                val indent = " ".repeat(firstLineIndentSpaces)
+
+                if (lineStr.isEmpty()) {
+                    // Line is completely empty: ensure it starts with indent
+                    val processed = if (text.contains('\n') || text.contains('\r') || text.length > 1) {
+                        formatPastedText(text)
+                    } else {
+                        "$indent$text"
+                    }
+                    this.text.insert(line, 0, processed)
+                    setSelection(line, processed.length)
+                    ensureSelectionVisible()
+                    notifyIMEExternalCursorChange()
+                    return
+                }
+
+                if (text.contains('\n') || text.contains('\r') || isPastedOrMultiLineText(text)) {
+                    val processed = formatPastedText(text)
+                    super.commitText(processed, applyAutoIndent, applySymbolCompletion)
+                    return
+                }
+            } else {
+                if (text.contains('\n') || text.contains('\r') || text.length > 1) {
+                    val processed = formatPastedText(text)
+                    super.commitText(processed, applyAutoIndent, applySymbolCompletion)
+                    return
+                }
+            }
+        }
+
         super.commitText(text, applyAutoIndent, applySymbolCompletion)
+    }
+
+    private fun isPastedOrMultiLineText(text: CharSequence): Boolean {
+        if (text.contains('\n') || text.contains('\r')) {
+            return true
+        }
+        val cur = cursor
+        val line = cur.leftLine
+        val col = cur.leftColumn
+        val lineStr = if (line < this.text.lineCount) this.text.getLineString(line) else ""
+        val isAtLineStart = col == 0 || (col <= firstLineIndentSpaces && lineStr.trim().isEmpty())
+        return isAtLineStart && text.length > 1
+    }
+
+    private fun formatPastedText(rawText: CharSequence): String {
+        if (firstLineIndentSpaces <= 0) return rawText.toString()
+        val indent = " ".repeat(firstLineIndentSpaces)
+        val cur = cursor
+        val line = cur.leftLine
+        val col = cur.leftColumn
+        val lineStr = if (line < text.lineCount) text.getLineString(line) else ""
+        val isCursorAtStart = col == 0 || (col <= firstLineIndentSpaces && lineStr.trim().isEmpty())
+        val lineAlreadyHasIndent = lineStr.startsWith(indent) && col >= indent.length
+
+        // If current line has unselected whitespace only and cursor is at start without full indent,
+        // clear it before paste so leading spaces are not duplicated.
+        if (!cur.isSelected && isCursorAtStart && !lineAlreadyHasIndent && lineStr.isNotEmpty() && lineStr.all { it == ' ' || it == '\t' }) {
+            text.delete(line, 0, line, lineStr.length)
+        }
+
+        val splitLines = rawText.toString().lines()
+        val result = StringBuilder()
+
+        for (i in splitLines.indices) {
+            val rawLine = splitLines[i]
+            val trimmed = rawLine.trimStart()
+
+            val isMarkdownNonProse = trimmed.startsWith("#") ||
+                trimmed.startsWith("---") ||
+                trimmed.startsWith("***") ||
+                trimmed.startsWith("* * *") ||
+                trimmed.startsWith("###") ||
+                trimmed.startsWith("___") ||
+                trimmed.startsWith(">") ||
+                trimmed.startsWith("```")
+
+            val indentedLine = when {
+                isMarkdownNonProse -> trimmed
+                trimmed.isEmpty() -> indent
+                else -> "$indent$trimmed"
+            }
+
+            if (i == 0) {
+                if (lineAlreadyHasIndent) {
+                    result.append(trimmed)
+                } else if (!isCursorAtStart && lineStr.trim().isNotEmpty()) {
+                    result.append(rawLine)
+                } else {
+                    result.append(indentedLine)
+                }
+            } else {
+                result.append("\n").append(indentedLine)
+            }
+        }
+
+        return result.toString()
     }
 
     private fun handleProseNewline() {
@@ -57,24 +176,27 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (cur.isSelected) {
             text.delete(cur.leftLine, cur.leftColumn, cur.rightLine, cur.rightColumn)
         }
-
         val line = cur.leftLine
         val col = cur.leftColumn
         val lineStr = text.getLineString(line)
         val isWhitespaceOnly = lineStr.isNotEmpty() && lineStr.all { it == ' ' || it == '\t' }
 
         if (firstLineIndentSpaces > 0) {
-            // Indent is ON: every new paragraph starts with the configured spaces (never 0 spaces)
+            // Indent is ON: every line starts with the configured spaces (never 0 spaces)
             val indent = " ".repeat(firstLineIndentSpaces)
-            if (isWhitespaceOnly) {
-                // Consecutive Enter on empty line:
-                // Clean the current line so it becomes an empty blank line, and start the next line with set spaces!
-                text.delete(line, 0, line, lineStr.length)
-                text.insert(line, 0, "\n$indent")
+
+            if (lineStr.isEmpty()) {
+                // If current line was completely empty, ensure it has indent spaces
+                text.insert(line, 0, indent)
+                text.insert(line, indent.length, "\n$indent")
                 setSelection(line + 1, indent.length)
-            } else if (lineStr.isEmpty()) {
-                // Enter on a blank line: next paragraph starts with set spaces!
-                text.insert(line, 0, "\n$indent")
+            } else if (isWhitespaceOnly) {
+                // Consecutive Enter to skip an empty line:
+                // Normalize current line to exactly firstLineIndentSpaces (do NOT delete its spaces!)
+                if (lineStr != indent) {
+                    text.replace(line, 0, line, lineStr.length, indent)
+                }
+                text.insert(line, indent.length, "\n$indent")
                 setSelection(line + 1, indent.length)
             } else {
                 // Normal Enter after text:
@@ -108,7 +230,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
             }
             if (p > 0) lineStr.substring(0, p) else ""
         }
-
         val insertStr = "\n$indentToInsert"
         text.insert(line, col, insertStr)
         setSelection(line + 1, indentToInsert.length)
@@ -122,21 +243,51 @@ class ScribeCodeEditor @JvmOverloads constructor(
             super.deleteText()
             return
         }
+
         val line = cur.leftLine
         val col = cur.leftColumn
         val lineStr = text.getLineString(line)
-        val isWhitespaceOnly = lineStr.isNotEmpty() && lineStr.all { it == ' ' || it == '\t' }
+        val isWhitespaceOnly = lineStr.isEmpty() || lineStr.all { it == ' ' || it == '\t' }
 
-        if (firstLineIndentSpaces > 0 && (isWhitespaceOnly || lineStr.isEmpty())) {
-            // ONLY when indent is turned ON: clicking delete or backspace on empty line takes user to previous paragraph
-            if (line > 0) {
-                text.delete(line - 1, text.getColumnCount(line - 1), line, lineStr.length)
-            } else {
-                text.delete(line, 0, line, col)
+        if (firstLineIndentSpaces > 0) {
+            val indent = " ".repeat(firstLineIndentSpaces)
+
+            if (isWhitespaceOnly) {
+                // When indent is ON and on an empty/whitespace line:
+                // Delete this entire empty line and place cursor at the end of the previous line
+                if (line > 0) {
+                    val prevLine = line - 1
+                    val prevCol = text.getColumnCount(prevLine)
+                    text.delete(prevLine, prevCol, line, lineStr.length)
+                    setSelection(prevLine, prevCol)
+                    ensureSelectionVisible()
+                    notifyIMEExternalCursorChange()
+                    return
+                } else {
+                    // On line 0 empty line: ensure it has indent spaces and cursor at indent.length
+                    if (lineStr != indent) {
+                        text.replace(0, 0, 0, lineStr.length, indent)
+                    }
+                    setSelection(0, indent.length)
+                    ensureSelectionVisible()
+                    notifyIMEExternalCursorChange()
+                    return
+                }
+            } else if (col <= firstLineIndentSpaces && lineStr.startsWith(indent)) {
+                // Cursor is at or before the indentation boundary of a line with text:
+                // (e.g. col == firstLineIndentSpaces, right in front of the text)
+                // Backspace merges this line's text with previous line!
+                if (line > 0) {
+                    val prevLine = line - 1
+                    val prevCol = text.getColumnCount(prevLine)
+                    // Delete newline and the indent of this line, merging content to prevLine
+                    text.delete(prevLine, prevCol, line, firstLineIndentSpaces)
+                    setSelection(prevLine, prevCol)
+                    ensureSelectionVisible()
+                    notifyIMEExternalCursorChange()
+                    return
+                }
             }
-            ensureSelectionVisible()
-            notifyIMEExternalCursorChange()
-            return
         }
 
         // When indent is OFF: normal delete behavior (deletes one character/space at a time)
@@ -160,13 +311,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 val lineStr = content.getLineString(i)
                 val trimmed = lineStr.trimStart()
 
-                // Skip blank lines
-                if (trimmed.isEmpty()) continue
-
-                // Skip Markdown headings and scene breaks
+                // Skip Markdown headings, scene breaks, blockquotes, code blocks
                 if (trimmed.startsWith("#") || trimmed.startsWith("---") ||
                     trimmed.startsWith("***") || trimmed.startsWith("* * *") ||
-                    trimmed.startsWith("###") || trimmed.startsWith("___")) {
+                    trimmed.startsWith("###") || trimmed.startsWith("___") ||
+                    trimmed.startsWith(">") || trimmed.startsWith("```")) {
                     continue
                 }
 
@@ -177,7 +326,16 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 }
 
                 if (newIndent > 0) {
-                    if (oldIndent == 0) {
+                    if (trimmed.isEmpty()) {
+                        // Empty / blank line: ensure it has newIndentStr
+                        if (lineStr.length != newIndent) {
+                            if (lineStr.isEmpty()) {
+                                content.insert(i, 0, newIndentStr)
+                            } else {
+                                content.replace(i, 0, i, lineStr.length, newIndentStr)
+                            }
+                        }
+                    } else if (oldIndent == 0) {
                         // Turning indent ON
                         if (leadingSpaceCount == 0) {
                             content.insert(i, 0, newIndentStr)
@@ -194,7 +352,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     }
                 } else {
                     // Turning indent OFF (newIndent == 0)
-                    if (oldIndent > 0 && leadingSpaceCount == oldIndent) {
+                    if (trimmed.isEmpty()) {
+                        if (lineStr.isNotEmpty()) {
+                            content.delete(i, 0, i, lineStr.length)
+                        }
+                    } else if (oldIndent > 0 && leadingSpaceCount == oldIndent) {
                         content.delete(i, 0, i, oldIndent)
                     } else if (leadingSpaceCount in 2..8) {
                         content.delete(i, 0, i, leadingSpaceCount)
@@ -204,7 +366,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
         } finally {
             content.endBatchEdit()
         }
-
         try {
             renderContext.invalidateRenderNodes()
         } catch (_: Throwable) {}
