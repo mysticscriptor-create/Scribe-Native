@@ -594,7 +594,10 @@ fun MainEditorScreen(
                         AnimatedVisibility(
                             visible = isKeyboardVisible,
                             enter   = slideInVertically(initialOffsetY = { it }),
-                            exit    = androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.snap())
+                            exit    = slideOutVertically(
+                                targetOffsetY = { it },
+                                animationSpec = androidx.compose.animation.core.tween(durationMillis = 200)
+                            )
                         ) {
                             Row(
                                 modifier = Modifier

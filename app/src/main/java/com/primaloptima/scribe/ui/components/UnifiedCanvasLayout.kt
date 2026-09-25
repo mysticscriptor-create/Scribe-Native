@@ -147,6 +147,38 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var isUserTouching: Boolean = false
         private set
 
+    private var canvasScrollAnimator: android.animation.ValueAnimator? = null
+    private var keyboardDisplacement = 0f
+
+    fun smoothScrollCanvasBy(dy: Float, durationMs: Long = 250, onEnd: (() -> Unit)? = null) {
+        if (kotlin.math.abs(dy) < 1f) {
+            onEnd?.invoke()
+            return
+        }
+        canvasScrollAnimator?.cancel()
+        var lastAnimatedValue = 0f
+        canvasScrollAnimator = android.animation.ValueAnimator.ofFloat(0f, dy).apply {
+            duration = durationMs
+            interpolator = android.view.animation.DecelerateInterpolator(1.5f)
+            addUpdateListener { anim ->
+                val curr = anim.animatedValue as Float
+                val delta = curr - lastAnimatedValue
+                lastAnimatedValue = curr
+                scrollCanvasBy(delta)
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    canvasScrollAnimator = null
+                    onEnd?.invoke()
+                }
+                override fun onAnimationCancel(animation: android.animation.Animator) {
+                    canvasScrollAnimator = null
+                }
+            })
+            start()
+        }
+    }
+
     fun resetScroll() {
         if (!scroller.isFinished) {
             scroller.abortAnimation()
@@ -210,10 +242,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (visibleHeight > 0) {
             if (screenBottom > visibleHeight - marginPx) {
                 val overflow = screenBottom - (visibleHeight - marginPx)
-                scrollCanvasBy(overflow.toFloat())
+                smoothScrollCanvasBy(overflow.toFloat(), durationMs = 150)
             } else if (screenTop < 0 && (scrollD > 0 || editor.offsetY > 0)) {
                 val underflow = screenTop
-                scrollCanvasBy(underflow.toFloat())
+                smoothScrollCanvasBy(underflow.toFloat(), durationMs = 150)
             }
         }
     }
@@ -298,6 +330,39 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         topEdgeEffect?.setSize(w, h)
+        if (oldh > 0 && h != oldh) {
+            val dh = oldh - h
+            if (dh > 0) {
+                // Viewport shrinking (keyboard appearing)
+                if (editor.isFocused) {
+                    val cursor = try { editor.cursor } catch (_: Throwable) { null }
+                    if (cursor != null) {
+                        val layout = try { editor.layout } catch (_: Throwable) { null }
+                        val offset = layout?.getCharLayoutOffset(cursor.leftLine, cursor.leftColumn)
+                        if (offset != null) {
+                            val yOffset = offset[0]
+                            val headerRemaining = headerHeight - scrollD
+                            val cursorBottom = headerRemaining + yOffset - editor.offsetY
+                            val marginPx = (16 * resources.displayMetrics.density).roundToInt()
+                            val overflow = cursorBottom - (h - marginPx)
+                            if (overflow > 0) {
+                                val scrollStep = minOf(overflow.toFloat(), dh.toFloat())
+                                keyboardDisplacement += scrollStep
+                                scrollCanvasBy(scrollStep)
+                            }
+                        }
+                    }
+                }
+            } else if (dh < 0) {
+                // Viewport expanding (keyboard dismissing)
+                val expandAmount = (-dh).toFloat()
+                if (keyboardDisplacement > 0f) {
+                    val returnStep = minOf(keyboardDisplacement, expandAmount)
+                    keyboardDisplacement -= returnStep
+                    scrollCanvasBy(-returnStep)
+                }
+            }
+        }
     }
 
     override fun dispatchDraw(canvas: Canvas) {
@@ -483,6 +548,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 isUserTouching = true
+                canvasScrollAnimator?.cancel()
+                keyboardDisplacement = 0f
                 if (!scroller.isFinished) {
                     scroller.abortAnimation()
                 }

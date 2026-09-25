@@ -56,7 +56,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
             val processed = if (firstLineIndentSpaces > 0) formatPastedText(text) else text
             super.pasteText(processed)
         } finally {
-            isInternalPasting = false
+            postDelayed({ isInternalPasting = false }, 500)
         }
     }
 
@@ -182,26 +182,17 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val isWhitespaceOnly = lineStr.isNotEmpty() && lineStr.all { it == ' ' || it == '\t' }
 
         if (firstLineIndentSpaces > 0) {
-            // Indent is ON: every line starts with the configured spaces (never 0 spaces)
             val indent = " ".repeat(firstLineIndentSpaces)
-
             if (lineStr.isEmpty()) {
-                // If current line was completely empty, ensure it has indent spaces
-                text.insert(line, 0, indent)
-                text.insert(line, indent.length, "\n$indent")
-                setSelection(line + 1, indent.length)
+                text.insert(line, 0, "$indent\n$indent")
             } else if (isWhitespaceOnly) {
-                // Consecutive Enter to skip an empty line:
-                // Normalize current line to exactly firstLineIndentSpaces (do NOT delete its spaces!)
                 if (lineStr != indent) {
-                    text.replace(line, 0, line, lineStr.length, indent)
+                    text.replace(line, 0, line, lineStr.length, "$indent\n$indent")
+                } else {
+                    text.insert(line, indent.length, "\n$indent")
                 }
-                text.insert(line, indent.length, "\n$indent")
-                setSelection(line + 1, indent.length)
             } else {
-                // Normal Enter after text:
                 text.insert(line, col, "\n$indent")
-                setSelection(line + 1, indent.length)
             }
             ensureSelectionVisible()
             notifyIMEExternalCursorChange()
@@ -210,11 +201,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
         // Indent is OFF (Manual mode):
         if (isWhitespaceOnly) {
-            // Consecutive Enter on empty indented line:
-            // Strip whitespace on current line and insert clean blank line
-            text.delete(line, 0, line, lineStr.length)
-            text.insert(line, 0, "\n")
-            setSelection(line + 1, 0)
+            text.replace(line, 0, line, lineStr.length, "\n")
             ensureSelectionVisible()
             notifyIMEExternalCursorChange()
             return
@@ -232,11 +219,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
         }
         val insertStr = "\n$indentToInsert"
         text.insert(line, col, insertStr)
-        setSelection(line + 1, indentToInsert.length)
         ensureSelectionVisible()
         notifyIMEExternalCursorChange()
     }
-
     override fun deleteText() {
         val cur = cursor
         if (cur.isSelected) {
@@ -764,10 +749,16 @@ class ScribeCodeEditor @JvmOverloads constructor(
             if (visibleHeight > 0) {
                 if (screenYBottom > visibleHeight - bottomMargin) {
                     val deltaY = screenYBottom - (visibleHeight - bottomMargin)
-                    parentCanvas.scrollCanvasBy(deltaY)
+                    if (isInternalPasting) {
+                        parentCanvas.smoothScrollCanvasBy(deltaY, durationMs = 280)
+                    } else if (kotlin.math.abs(deltaY) > rowHeight * 1.5f) {
+                        parentCanvas.smoothScrollCanvasBy(deltaY, durationMs = 180)
+                    } else {
+                        parentCanvas.smoothScrollCanvasBy(deltaY, durationMs = 120)
+                    }
                 } else if (screenYTop < 0 && (parentCanvas.scrollD > 0 || offsetY > 0)) {
                     val deltaY = screenYTop
-                    parentCanvas.scrollCanvasBy(deltaY)
+                    parentCanvas.smoothScrollCanvasBy(deltaY, durationMs = 120)
                 }
             }
             invalidate()
