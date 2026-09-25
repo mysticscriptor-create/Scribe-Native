@@ -592,6 +592,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
     var onPinchScaleEndListener: ((finalSizeSp: Int) -> Unit)? = null
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        val parentCanvas = parent as? UnifiedCanvasLayout
         val wasScaling = eventHandler?.isScaling == true
         val result = super.onTouchEvent(event)
         val isScalingNow = eventHandler?.isScaling == true
@@ -600,10 +601,43 @@ class ScribeCodeEditor @JvmOverloads constructor(
             val currentSp = (textSizePx / context.resources.displayMetrics.density).roundToInt().coerceIn(12, 36)
             onPinchScaleEndListener?.invoke(currentSp)
         }
+        if (parentCanvas != null && parentCanvas.scrollD < parentCanvas.headerHeight && offsetY > 0) {
+            val strayY = offsetY
+            try {
+                scroller?.let { s ->
+                    s.startScroll(s.currX, 0, 0, 0, 0)
+                    s.abortAnimation()
+                }
+            } catch (_: Throwable) {}
+            parentCanvas.scrollCanvasBy(strayY.toFloat())
+        }
         return result
     }
 
+    override fun scrollTo(x: Int, y: Int) {
+        val parentCanvas = parent as? UnifiedCanvasLayout
+        if (parentCanvas != null && parentCanvas.scrollD < parentCanvas.headerHeight) {
+            if (y > 0) {
+                parentCanvas.scrollCanvasBy(y.toFloat())
+                super.scrollTo(x, 0)
+                return
+            }
+        }
+        super.scrollTo(x, y)
+    }
+
     override fun onDraw(canvas: Canvas) {
+        val parentCanvas = parent as? UnifiedCanvasLayout
+        if (parentCanvas != null && parentCanvas.scrollD < parentCanvas.headerHeight && offsetY > 0) {
+            val strayY = offsetY
+            try {
+                scroller?.let { s ->
+                    s.startScroll(s.currX, 0, 0, 0, 0)
+                    s.abortAnimation()
+                }
+            } catch (_: Throwable) {}
+            parentCanvas.scrollCanvasBy(strayY.toFloat())
+        }
         if (isAwaitingLayoutReady && isWordwrap && !isWordwrapReady()) {
             // Layout computation for initial document load in progress. Paint only background
             // color to completely eliminate flashing of un-wrapped single-line fallback text.
@@ -677,16 +711,25 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
 
     override fun computeScroll() {
+        val parentCanvas = parent as? UnifiedCanvasLayout
+        if (parentCanvas != null && parentCanvas.scrollD < parentCanvas.headerHeight && offsetY > 0) {
+            val strayY = offsetY
+            try {
+                scroller?.let { s ->
+                    s.startScroll(s.currX, 0, 0, 0, 0)
+                    s.abortAnimation()
+                }
+            } catch (_: Throwable) {}
+            parentCanvas.scrollCanvasBy(strayY.toFloat())
+        }
         val scroller = scroller
         val wasFinished = scroller?.isFinished ?: true
         val prevY = scroller?.currY ?: 0
-
         super.computeScroll()
 
         // When flinging towards the top of the text (offsetY reaching 0):
         // Only transfer fling to canvas header if this is a genuine fling and user is not holding finger down
         if (!wasFinished && scroller != null && scroller.currY <= 0 && prevY > 0) {
-            val parentCanvas = parent as? UnifiedCanvasLayout
             val velocity = scroller.currVelocity
             if (velocity > 0f && isFlingActive && parentCanvas?.isUserTouching != true) {
                 isFlingActive = false
@@ -706,28 +749,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val xOffset = layoutOffset[1] + measureTextRegionOffset()
         val yOffset = layoutOffset[0] // Bottom of current row in doc coordinates
 
-        val currFinalY = if (scroller.isFinished) offsetY.toFloat() else scroller.finalY.toFloat()
+        // 1. Horizontal cursor visibility:
         val currFinalX = if (scroller.isFinished) offsetX.toFloat() else scroller.finalX.toFloat()
-        var targetY = currFinalY
         var targetX = currFinalX
-
-        val parentCanvas = parent as? UnifiedCanvasLayout
-        val headerRemaining = parentCanvas?.let { it.headerHeight - it.scrollD } ?: 0
-        val effectiveHeight = (height - headerRemaining).coerceAtLeast(rowHeight)
-
-        val topLines = if (props.stickyScroll) props.stickyScrollMaxLines else 2
-        if (yOffset - rowHeight * topLines < currFinalY) {
-            targetY = yOffset - rowHeight * topLines
-        }
-
-        // Bottom boundary:
-        // Keep active typing line just above the shortcut bar (with 4dp margin for descenders)
-        // instead of Sora's default + getRowHeight() * 1f which pushed the line 2 rows up.
-        val bottomMargin = 4f * dpUnit
-        if (yOffset > effectiveHeight + currFinalY - bottomMargin) {
-            targetY = yOffset - effectiveHeight + bottomMargin
-        }
-
         val charWidth = if (column == 0) 0f else textPaint.measureText("a")
         if (xOffset < currFinalX + (if (isLineNumberPinned) measureTextRegionOffset() else 0f)) {
             val backupX = targetX
@@ -740,19 +764,55 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (xOffset + charWidth > currFinalX + width) {
             targetX = xOffset + charWidth * 0.8f - width
         }
-
         targetX = targetX.coerceIn(0f, scrollMaxX.toFloat())
-        targetY = targetY.coerceIn(0f, scrollMaxY.toFloat())
+        if (abs(targetX - offsetX.toFloat()) >= 1f) {
+            scroller.startScroll(offsetX, offsetY, (targetX - offsetX).toInt(), 0, 0)
+            scroller.abortAnimation()
+        }
 
-        if (abs(targetX - offsetX.toFloat()) < 1f && abs(targetY - offsetY.toFloat()) < 1f) {
+        // 2. Vertical cursor visibility through UnifiedCanvasLayout:
+        val parentCanvas = parent as? UnifiedCanvasLayout
+        if (parentCanvas != null) {
+            val headerRemaining = parentCanvas.headerHeight - parentCanvas.scrollD
+            val screenYBottom = headerRemaining + yOffset - offsetY
+            val screenYTop = screenYBottom - rowHeight
+
+            val visibleHeight = parentCanvas.height
+            val bottomMargin = 4f * dpUnit
+
+            if (visibleHeight > 0) {
+                if (screenYBottom > visibleHeight - bottomMargin) {
+                    val deltaY = screenYBottom - (visibleHeight - bottomMargin)
+                    parentCanvas.scrollCanvasBy(deltaY)
+                } else if (screenYTop < 0 && (parentCanvas.scrollD > 0 || offsetY > 0)) {
+                    val deltaY = screenYTop
+                    parentCanvas.scrollCanvasBy(deltaY)
+                }
+            }
             invalidate()
             return
         }
 
+        // Fallback when not hosted in UnifiedCanvasLayout:
+        val currFinalY = if (scroller.isFinished) offsetY.toFloat() else scroller.finalY.toFloat()
+        var targetY = currFinalY
+        val effectiveHeight = height.coerceAtLeast(rowHeight)
+        val topLines = if (props.stickyScroll) props.stickyScrollMaxLines else 2
+        if (yOffset - rowHeight * topLines < currFinalY) {
+            targetY = yOffset - rowHeight * topLines
+        }
+        val bottomMargin = 4f * dpUnit
+        if (yOffset > effectiveHeight + currFinalY - bottomMargin) {
+            targetY = yOffset - effectiveHeight + bottomMargin
+        }
+        targetY = targetY.coerceIn(0f, scrollMaxY.toFloat())
+        if (abs(targetX - offsetX.toFloat()) < 1f && abs(targetY - offsetY.toFloat()) < 1f) {
+            invalidate()
+            return
+        }
         val now = System.currentTimeMillis()
         val animation = now - lastMakeVisibleTime >= 100
         lastMakeVisibleTime = now
-
         if (animation && !noAnimation) {
             scroller.forceFinished(true)
             scroller.startScroll(offsetX, offsetY, (targetX - offsetX).toInt(), (targetY - offsetY).toInt())
@@ -763,7 +823,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
             scroller.startScroll(offsetX, offsetY, (targetX - offsetX).toInt(), (targetY - offsetY).toInt(), 0)
             scroller.abortAnimation()
         }
-
         dispatchEvent(ScrollEvent(this, offsetX, offsetY, targetX.toInt(), targetY.toInt(), ScrollEvent.CAUSE_MAKE_POSITION_VISIBLE))
         invalidate()
     }
