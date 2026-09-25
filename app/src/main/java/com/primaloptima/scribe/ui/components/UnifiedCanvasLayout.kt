@@ -312,18 +312,25 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         headerView.layout(0, 0, width, headerHeight)
         editor.layout(padPx, headerHeight, padPx + contentWidth, headerHeight + viewportHeight)
 
-        if (editor.offsetY > 0) {
-            scrollD = headerHeight
-            scrollDFloat = headerHeight.toFloat()
-        } else {
-            val totalContentHeight = headerHeight + (editor.layout?.layoutHeight ?: 0)
-            if (totalContentHeight <= viewportHeight && scrollD > 0) {
+        val totalContentHeight = headerHeight + (editor.layout?.layoutHeight ?: 0)
+        if (totalContentHeight <= viewportHeight) {
+            if (editor.offsetY > 0) {
+                try {
+                    editor.scroller?.let { s ->
+                        s.startScroll(s.currX, 0, 0, 0, 0)
+                        s.abortAnimation()
+                    }
+                } catch (_: Throwable) {}
+            }
+            if (scrollD > 0) {
                 scrollD = 0
                 scrollDFloat = 0f
                 onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
             }
+        } else if (editor.offsetY > 0) {
+            scrollD = headerHeight
+            scrollDFloat = headerHeight.toFloat()
         }
-
         applyTranslations()
     }
 
@@ -360,6 +367,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     val returnStep = minOf(keyboardDisplacement, expandAmount)
                     keyboardDisplacement -= returnStep
                     scrollCanvasBy(-returnStep)
+                }
+                // When viewport expands, ensure editor.offsetY is immediately clamped to editor.scrollMaxY:
+                if (editor.offsetY > editor.scrollMaxY && editor.scrollMaxY >= 0) {
+                    val excess = (editor.offsetY - editor.scrollMaxY).toFloat()
+                    scrollCanvasBy(-excess)
                 }
             }
         }

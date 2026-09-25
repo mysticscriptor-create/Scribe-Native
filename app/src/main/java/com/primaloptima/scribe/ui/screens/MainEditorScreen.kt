@@ -596,50 +596,7 @@ fun MainEditorScreen(
         ) -> Unit = { onNavClick, onOpenRightPanel, isLeftDrawerOpen ->
             Scaffold(
                 containerColor      = Color.Transparent,
-                contentWindowInsets = WindowInsets(0, 0, 0, 0),
-                bottomBar = {
-                    CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
-                        val registerBounds = LocalInteractiveBoundsRegistry.current
-                        DisposableEffect(isKeyboardVisible) {
-                            onDispose { registerBounds("shortcut_bar", null) }
-                        }
-
-                        AnimatedVisibility(
-                            visible = isKeyboardVisible,
-                            enter   = slideInVertically(initialOffsetY = { it }),
-                            exit    = slideOutVertically(
-                                targetOffsetY = { it },
-                                animationSpec = androidx.compose.animation.core.tween(durationMillis = 200)
-                            )
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .frostedBar(hazeState)
-                                    .imePadding()
-                                    .onGloballyPositioned { coords ->
-                                        if (isKeyboardVisible) {
-                                            registerBounds("shortcut_bar", coords.boundsInRoot())
-                                        }
-                                    }
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment     = Alignment.CenterVertically
-                            ) {
-                                shortcuts.forEach { shortcut ->
-                                    FormatButton(label = shortcut.label) {
-                                        when (shortcut.kind) {
-                                            "wrap" -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: shortcut.payload)
-                                            "pair" -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: "")
-                                            else   -> soraEditorRef?.insertAtCursor(shortcut.payload)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                contentWindowInsets = WindowInsets(0, 0, 0, 0)
             ) { padding ->
                 Box(
                     Modifier
@@ -699,7 +656,8 @@ fun MainEditorScreen(
                     // ── Unified Continuous Document Canvas ─────────────────────────
                     val docTopInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
                     val docBottomNavInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-                    val docBottomPadding = if (isKeyboardVisible) 0.dp else docBottomNavInset
+                    val shortcutBarHeight = 44.dp
+                    val docBottomPadding = if (isKeyboardVisible) shortcutBarHeight else docBottomNavInset
 
                     var lastAppliedPadding by remember { mutableFloatStateOf(-1f) }
                     var lastAppliedTextSize by remember { mutableFloatStateOf(-1f) }
@@ -1027,6 +985,7 @@ fun MainEditorScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(top = docTopInset, bottom = docBottomPadding)
+                            .imePadding()
                             .clipToBounds()
                     )
 
@@ -1039,6 +998,40 @@ fun MainEditorScreen(
                                 modifier           = Modifier.align(Alignment.BottomEnd).padding(16.dp),
                                 onClick            = { editorVm.setZen(false) }
                             )
+                        }
+                    }
+
+                    // ── Shortcut Bar (Floating Keyboard Accessory) ────────────
+                    if (isKeyboardVisible) {
+                        CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
+                            val registerBounds = LocalInteractiveBoundsRegistry.current
+                            DisposableEffect(Unit) {
+                                onDispose { registerBounds("shortcut_bar", null) }
+                            }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .align(Alignment.BottomCenter)
+                                    .imePadding()
+                                    .frostedBar(hazeState)
+                                    .onGloballyPositioned { coords ->
+                                        registerBounds("shortcut_bar", coords.boundsInRoot())
+                                    }
+                                    .horizontalScroll(rememberScrollState())
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment     = Alignment.CenterVertically
+                            ) {
+                                shortcuts.forEach { shortcut ->
+                                    FormatButton(label = shortcut.label) {
+                                        when (shortcut.kind) {
+                                            "wrap" -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: shortcut.payload)
+                                            "pair" -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: "")
+                                            else   -> soraEditorRef?.insertAtCursor(shortcut.payload)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
 

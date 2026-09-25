@@ -649,6 +649,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
             renderContext.invalidateRenderNodes()
         } catch (_: Throwable) {}
         invalidate()
+        postInvalidateOnAnimation()
 
         if (w > 0 && isAwaitingLayoutReady) {
             post {
