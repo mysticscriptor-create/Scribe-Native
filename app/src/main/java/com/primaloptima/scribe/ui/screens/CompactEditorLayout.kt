@@ -58,6 +58,13 @@ import kotlin.math.sign
 
 private fun isTouchOnSelectionHandle(editor: CodeEditor?, touchX: Float, touchY: Float, density: Float): Boolean {
     if (editor == null || !editor.isAttachedToWindow) return false
+    if (editor is com.primaloptima.scribe.ui.components.ScribeCodeEditor) {
+        val location = IntArray(2)
+        editor.getLocationInWindow(location)
+        val editorTouchX = touchX - location[0]
+        val editorTouchY = touchY - location[1]
+        return editor.isTouchOnHandle(editorTouchX, editorTouchY)
+    }
     return try {
         // Translate root/window touch coordinates into CodeEditor local coordinates
         val location = IntArray(2)

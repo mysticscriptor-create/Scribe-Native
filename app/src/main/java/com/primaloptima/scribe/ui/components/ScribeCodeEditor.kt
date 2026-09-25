@@ -11,6 +11,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.MotionEvent
 import kotlin.math.roundToInt
 import android.view.inputmethod.InputConnection
+import io.github.rosemoe.sora.event.HandleStateChangeEvent
 import io.github.rosemoe.sora.event.LayoutStateChangeEvent
 import io.github.rosemoe.sora.event.ScrollEvent
 import io.github.rosemoe.sora.widget.CodeEditor
@@ -36,10 +37,107 @@ class ScribeCodeEditor @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : CodeEditor(context, attrs, defStyleAttr) {
 
+    var isHandleDragging: Boolean = false
+        private set
+
     init {
         props.autoIndent = false
         props.deleteEmptyLineFast = false
         props.deleteMultiSpaces = 1
+        try {
+            subscribeEvent(HandleStateChangeEvent::class.java) { event, _ ->
+                isHandleDragging = event.isHeld
+            }
+        } catch (_: Throwable) { }
+    }
+
+    /**
+     * Hit tests whether local (touchX, touchY) falls within the bounds of any active selection
+     * handle or single-cursor insertion handle.
+     */
+    fun isTouchOnHandle(touchX: Float, touchY: Float): Boolean {
+        if (!isAttachedToWindow) return false
+        return try {
+            if (touchX < 0f || touchY < 0f || touchX > width.toFloat() || touchY > height.toFloat()) {
+                return false
+            }
+            val cur = cursor ?: return false
+            val lay = layout ?: return false
+            val textRegionOffset = measureTextRegionOffset()
+            val scrollX = offsetX.toFloat()
+            val scrollY = offsetY.toFloat()
+            val rHeight = rowHeight.toFloat()
+            val density = context.resources.displayMetrics.density
+
+            fun checkHandleHit(anchorX: Float, anchorY: Float, handleType: Int): Boolean {
+                val bulbOffsetX = when (handleType) {
+                    -1 -> -9f * density
+                    1 -> 9f * density
+                    else -> 0f
+                }
+                val bulbCenterY = anchorY + (9f * density)
+                val bulbCenterX = anchorX + bulbOffsetX
+                val bulbRadius = 16f * density
+                val dxBulb = touchX - bulbCenterX
+                val dyBulb = touchY - bulbCenterY
+                if ((dxBulb * dxBulb + dyBulb * dyBulb) <= (bulbRadius * bulbRadius)) {
+                    return true
+                }
+                val anchorRadius = 10f * density
+                val dxAnchor = touchX - anchorX
+                val dyAnchor = touchY - anchorY
+                if (dyAnchor >= -4f * density && (dxAnchor * dxAnchor + dyAnchor * dyAnchor) <= (anchorRadius * anchorRadius)) {
+                    return true
+                }
+                val minX = when (handleType) {
+                    -1 -> anchorX - (22f * density)
+                    1 -> anchorX - (4f * density)
+                    else -> anchorX - (12f * density)
+                }
+                val maxX = when (handleType) {
+                    -1 -> anchorX + (4f * density)
+                    1 -> anchorX + (22f * density)
+                    else -> anchorX + (12f * density)
+                }
+                val minY = anchorY - (4f * density)
+                val maxY = anchorY + (20f * density)
+                return touchX in minX..maxX && touchY in minY..maxY
+            }
+
+            if (cur.isSelected) {
+                val leftOffset = lay.getCharLayoutOffset(cur.leftLine, cur.leftColumn)
+                if (leftOffset != null && leftOffset.size >= 2) {
+                    val leftCharX = leftOffset[1] + textRegionOffset - scrollX
+                    val leftCharY = leftOffset[0] - scrollY
+                    val anchorY = leftCharY + rHeight
+                    if (checkHandleHit(leftCharX, anchorY, handleType = -1)) {
+                        return true
+                    }
+                }
+                val rightOffset = lay.getCharLayoutOffset(cur.rightLine, cur.rightColumn)
+                if (rightOffset != null && rightOffset.size >= 2) {
+                    val rightCharX = rightOffset[1] + textRegionOffset - scrollX
+                    val rightCharY = rightOffset[0] - scrollY
+                    val anchorY = rightCharY + rHeight
+                    if (checkHandleHit(rightCharX, anchorY, handleType = 1)) {
+                        return true
+                    }
+                }
+            } else {
+                val curOffset = lay.getCharLayoutOffset(cur.leftLine, cur.leftColumn)
+                if (curOffset != null && curOffset.size >= 2) {
+                    val curCharX = curOffset[1] + textRegionOffset - scrollX
+                    val curCharY = curOffset[0] - scrollY
+                    val anchorY = curCharY + rHeight
+                    if (checkHandleHit(curCharX, anchorY, handleType = 0)) {
+                        return true
+                    }
+                }
+            }
+            false
+        } catch (_: Throwable) {
+            false
+        }
     }
 
     var firstLineIndentSpaces: Int = 0
@@ -577,6 +675,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
     var onPinchScaleEndListener: ((finalSizeSp: Int) -> Unit)? = null
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+            val cur = try { cursor } catch (_: Throwable) { null }
+            if (cur?.isSelected != true) {
+                isHandleDragging = false
+            }
+        }
         val parentCanvas = parent as? UnifiedCanvasLayout
         val wasScaling = eventHandler?.isScaling == true
         val result = super.onTouchEvent(event)

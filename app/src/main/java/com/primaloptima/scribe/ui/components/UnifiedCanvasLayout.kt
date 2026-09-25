@@ -137,6 +137,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     private var lastTouchX = 0f
     private var lastTouchY = 0f
     private var isDraggingCanvas = false
+    private var isTouchOnHandleActive = false
+
+    val isAnyHandleActive: Boolean
+        get() = editor.isHandleDragging || isTouchOnHandleActive
 
     private val topEdgeEffect: EdgeEffect? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         EdgeEffectCompat.create(context, null)
@@ -439,6 +443,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     override fun requestDisallowInterceptTouchEvent(disallowIntercept: Boolean) {
+        if (isAnyHandleActive) {
+            super.requestDisallowInterceptTouchEvent(disallowIntercept)
+            return
+        }
         if (disallowIntercept && (scrollD < headerHeight || editor.offsetY <= 0)) {
             return
         }
@@ -573,11 +581,17 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 lastTouchX = ev.x
                 lastTouchY = ev.y
                 isDraggingCanvas = false
+                val editorX = ev.x - editor.left
+                val editorY = ev.y - (headerHeight - scrollD)
+                isTouchOnHandleActive = editor.isHandleDragging || editor.isTouchOnHandle(editorX, editorY)
                 velocityTracker?.clear() ?: run { velocityTracker = VelocityTracker.obtain() }
                 velocityTracker?.addMovement(ev)
             }
 
             MotionEvent.ACTION_MOVE -> {
+                if (!isTouchOnHandleActive && editor.isHandleDragging) {
+                    isTouchOnHandleActive = true
+                }
                 val dy = lastTouchY - ev.y
                 lastTouchX = ev.x
                 lastTouchY = ev.y
@@ -588,6 +602,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                isTouchOnHandleActive = false
                 isUserTouching = false
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null && !topEdgeEffect.isFinished) {
                     topEdgeEffect.onRelease()
@@ -614,6 +629,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        if (isAnyHandleActive) return false
         if (isDraggingCanvas) return true
 
         when (ev.actionMasked) {
@@ -623,12 +639,16 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 lastTouchX = ev.x
                 lastTouchY = ev.y
                 isDraggingCanvas = false
+                val editorX = ev.x - editor.left
+                val editorY = ev.y - (headerHeight - scrollD)
+                isTouchOnHandleActive = editor.isHandleDragging || editor.isTouchOnHandle(editorX, editorY)
                 velocityTracker?.clear() ?: run { velocityTracker = VelocityTracker.obtain() }
                 velocityTracker?.addMovement(ev)
                 return false
             }
 
             MotionEvent.ACTION_MOVE -> {
+                if (isAnyHandleActive) return false
                 velocityTracker?.addMovement(ev)
                 val totalDx = ev.x - initialDownX
                 val totalDy = initialDownY - ev.y
@@ -652,6 +672,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 isDraggingCanvas = false
+                isTouchOnHandleActive = false
             }
         }
         return isDraggingCanvas
