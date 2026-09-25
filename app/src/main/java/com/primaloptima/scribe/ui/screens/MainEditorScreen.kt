@@ -1010,6 +1010,7 @@ fun MainEditorScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(top = docTopInset, bottom = docBottomPadding)
+                            .clipToBounds()
                     )
 
                     // ── Zen Mode Exit FAB ──────────────────────────────────────────

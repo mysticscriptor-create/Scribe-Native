@@ -64,6 +64,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         addView(editor)
         clipChildren = true
         clipToPadding = true
+        outlineProvider = android.view.ViewOutlineProvider.BOUNDS
+        clipToOutline = true
 
         ViewCompat.setWindowInsetsAnimationCallback(
             this,
@@ -292,12 +294,15 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     override fun dispatchDraw(canvas: Canvas) {
+        val save = canvas.save()
+        canvas.clipRect(0, 0, width, height)
         super.dispatchDraw(canvas)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null && !topEdgeEffect.isFinished) {
             if (topEdgeEffect.draw(canvas)) {
                 postInvalidateOnAnimation()
             }
         }
+        canvas.restoreToCount(save)
     }
 
     /**
