@@ -59,6 +59,17 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var isImeClosing: Boolean = false
         private set
 
+    var horizontalPaddingDp: Float = 28f
+        set(value) {
+            val clamped = value.coerceIn(8f, 72f)
+            if (field != clamped) {
+                field = clamped
+                editor.horizontalPaddingDp = clamped
+                requestLayout()
+                invalidate()
+            }
+        }
+
     init {
         addView(headerView)
         addView(editor)
@@ -107,17 +118,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var headerHeight: Int = 0
         private set
 
-    var horizontalPaddingDp: Float = 28f
-        set(value) {
-            val clamped = value.coerceIn(8f, 72f)
-            if (field != clamped) {
-                field = clamped
-                editor.horizontalPaddingDp = clamped
-                requestLayout()
-                invalidate()
-            }
-        }
-
+    
     var scrollD: Int = 0
         private set
 

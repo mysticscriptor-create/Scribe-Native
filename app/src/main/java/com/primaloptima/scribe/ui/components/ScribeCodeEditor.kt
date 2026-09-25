@@ -685,26 +685,10 @@ class ScribeCodeEditor @JvmOverloads constructor(
      * emptied while background tasks recompute breaks. This guarantees zero flashing into single-line
      * mode and zero disappearing text during interactive sliders.
      */
-    private var isInsideCreateLayout: Boolean = false
-
-    override fun getWidth(): Int {
-        val actualWidth = super.getWidth()
-        if (isInsideCreateLayout && actualWidth > 0) {
-            val padPx = (horizontalPaddingDp * context.resources.displayMetrics.density).roundToInt()
-            return (actualWidth - padPx).coerceAtLeast(0)
-        }
-        return actualWidth
-    }
-
     override fun createLayout() {
-        isInsideCreateLayout = true
-        try {
-            val shouldClear = isAwaitingLayoutReady || layout == null || forceNextLayoutClear
-            forceNextLayoutClear = false
-            super.createLayout(shouldClear)
-        } finally {
-            isInsideCreateLayout = false
-        }
+        val shouldClear = isAwaitingLayoutReady || layout == null || forceNextLayoutClear
+        forceNextLayoutClear = false
+        super.createLayout(shouldClear)
     }
 
     val isPinchScaling: Boolean

@@ -817,14 +817,14 @@ fun MainEditorScreen(
                         },
                         update = { layout ->
                             val density = layout.context.resources.displayMetrics.density
+                            val editor = layout.editor
+                            val scribeEditor = editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor
                             val padH = (activeTheme?.paddingHorizontal ?: 10).toFloat()
                             if (kotlin.math.abs(lastAppliedPadding - padH) > 0.5f) {
                                 lastAppliedPadding = padH
                                 layout.horizontalPaddingDp = padH
                                 scribeEditor?.horizontalPaddingDp = padH
                             }
-                            val editor = layout.editor
-                            val scribeEditor = editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor
                             if (scribeEditor?.isPinchScaling != true && kotlin.math.abs(lastAppliedTextSize - editorTextSizeSp) > 0.1f) {
                                 lastAppliedTextSize = editorTextSizeSp
                                 editor.setTextSize(editorTextSizeSp)
