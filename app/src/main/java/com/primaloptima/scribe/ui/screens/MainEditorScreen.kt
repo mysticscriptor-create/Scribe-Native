@@ -474,7 +474,17 @@ fun MainEditorScreen(
                 editor.alpha = 0f
             }
 
-            editor.setText(note.content)
+            val initialIndent = activeTheme?.firstLineIndent ?: 0
+            if (note.content.isEmpty() && initialIndent > 0) {
+                val indentStr = " ".repeat(initialIndent)
+                editor.setText(indentStr)
+                try {
+                    editor.setSelection(0, initialIndent)
+                } catch (_: Throwable) {}
+                editorCurrentText = indentStr
+            } else {
+                editor.setText(note.content)
+            }
             editor.setInlayHints(hints)
 
             if (note.content.isEmpty()) {
@@ -770,6 +780,9 @@ fun MainEditorScreen(
                                     } catch (_: Exception) { }
 
                                     subscribeEvent(ContentChangeEvent::class.java) { _, _ ->
+                                        if (editor is ScribeCodeEditor && editor.isBatchApplyingIndent) {
+                                            return@subscribeEvent
+                                        }
                                         val current = text.toString()
                                         editorCurrentText = current
                                         if (loadedNoteId != null)

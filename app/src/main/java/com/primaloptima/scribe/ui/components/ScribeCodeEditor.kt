@@ -210,10 +210,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     } else {
                         "$indent$text"
                     }
-                    this.text.insert(line, 0, processed)
-                    setSelection(line, processed.length)
-                    ensureSelectionVisible()
-                    notifyIMEExternalCursorChange()
+                    super.commitText(processed, applyAutoIndent, applySymbolCompletion)
                     return
                 }
 
@@ -408,6 +405,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
         super.deleteText()
     }
 
+    var isBatchApplyingIndent: Boolean = false
+        private set
+
     /**
      * Live updates all paragraphs in the document when First-Line Indent slider is changed.
      * Preserves blank lines, Markdown headings, and scene breaks.
@@ -418,6 +418,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val count = content.lineCount
         if (count == 0) return
 
+        isBatchApplyingIndent = true
         content.beginBatchEdit()
         try {
             val newIndentStr = if (newIndent > 0) " ".repeat(newIndent) else ""
@@ -479,7 +480,17 @@ class ScribeCodeEditor @JvmOverloads constructor(
             }
         } finally {
             content.endBatchEdit()
+            isBatchApplyingIndent = false
         }
+
+        if (cursor.leftLine == 0 && cursor.leftColumn == 0 && newIndent > 0) {
+            try {
+                setSelection(0, newIndent)
+                ensureSelectionVisible()
+                notifyIMEExternalCursorChange()
+            } catch (_: Throwable) {}
+        }
+
         try {
             renderContext.invalidateRenderNodes()
         } catch (_: Throwable) {}

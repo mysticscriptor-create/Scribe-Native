@@ -1715,16 +1715,32 @@ private fun TypographyIndentControl(
     activeTheme: AppTheme,
     onUpdateTheme: ((AppTheme) -> AppTheme) -> Unit
 ) {
-    val currentVal = (activeTheme.firstLineIndent ?: 0).toFloat().coerceIn(0f, 8f)
+    val themeVal = (activeTheme.firstLineIndent ?: 0).toFloat().coerceIn(0f, 8f)
+    var localVal by remember(themeVal) { mutableFloatStateOf(themeVal) }
+    val scope = rememberCoroutineScope()
+    var debounceJob by remember { mutableStateOf<Job?>(null) }
+
+    fun commitIndent(v: Float) {
+        val rounded = (v / 2f).roundToInt() * 2
+        if (rounded != (activeTheme.firstLineIndent ?: 0)) {
+            onUpdateTheme { it.copy(firstLineIndent = rounded) }
+        }
+    }
 
     ScribeSettingSlider(
         label = "First-Line Indent",
-        value = currentVal,
+        value = localVal,
         onValueChange = { newVal ->
-            val rounded = (newVal / 2f).roundToInt() * 2
-            if (rounded != (activeTheme.firstLineIndent ?: 0)) {
-                onUpdateTheme { it.copy(firstLineIndent = rounded) }
+            localVal = newVal
+            debounceJob?.cancel()
+            debounceJob = scope.launch {
+                delay(60L)
+                commitIndent(localVal)
             }
+        },
+        onValueChangeFinished = {
+            debounceJob?.cancel()
+            commitIndent(localVal)
         },
         valueRange = 0f..8f,
         step = 2f,
