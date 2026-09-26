@@ -49,22 +49,22 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     var isProcessingIndent: Boolean = false
 
-    private var pendingCopyAction: (() -> Boolean)? = null
+    private var pendingCopyAction: (() -> Unit)? = null
 
-    override fun copyText(): Boolean {
+    override fun copyText() {
         if (isProcessingIndent) {
             pendingCopyAction = { super.copyText() }
-            return false
+            return
         }
-        return super.copyText()
+        super.copyText()
     }
 
-    override fun copyText(clearSelection: Boolean): Boolean {
+    override fun copyText(clearSelection: Boolean) {
         if (isProcessingIndent) {
             pendingCopyAction = { super.copyText(clearSelection) }
-            return false
+            return
         }
-        return super.copyText(clearSelection)
+        super.copyText(clearSelection)
     }
 
 

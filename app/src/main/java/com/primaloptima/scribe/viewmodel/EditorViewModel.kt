@@ -752,10 +752,15 @@ class EditorViewModel(
      */
     fun onIndentContentUpdated(content: String) {
         pendingContent = content
-        _activeNote.value = _activeNote.value?.copy(content = content)
+        lastSavedContent = content
+        val note = _activeNote.value ?: return
+        _activeNote.value = note.copy(content = content)
         viewModelScope.launch(Dispatchers.IO) {
-            val note = _activeNote.value ?: return@launch
-            noteRepository.updateNote(note)
+            if (note.externalUri != null) {
+                try { SAFHelper.writeFile(getApplication(), Uri.parse(note.externalUri), content) }
+                catch (_: Exception) {}
+            }
+            db.noteDao().updateContent(note.id, content, System.currentTimeMillis())
         }
     }
 
