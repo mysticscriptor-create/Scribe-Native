@@ -53,12 +53,21 @@ class ScribeCodeEditor @JvmOverloads constructor(
             }
         }
 
+    private var isInsideWordwrapLayoutCreation: Boolean = false
+
     override fun measureTextRegionOffset(): Float {
-        val padPx = horizontalPaddingDp * context.resources.displayMetrics.density
+        val density = context.resources.displayMetrics.density
+        val leftPadPx = horizontalPaddingDp * density
+        // When WordwrapLayout calculates line-wrapping width, it calculates:
+        // width = editor.getWidth() - (editor.measureTextRegionOffset() + measureText("a"))
+        // By adding right padding during layout construction, text wraps at (width - rightPadPx),
+        // giving symmetrical left and right page margins while drawing starts at leftPadPx.
+        val rightPadPx = if (isInsideWordwrapLayoutCreation) horizontalPaddingDp * density else 0f
+        val totalPadPx = leftPadPx + rightPadPx
         return if (isLineNumberEnabled) {
-            super.measureTextRegionOffset() + padPx
+            super.measureTextRegionOffset() + totalPadPx
         } else {
-            padPx
+            totalPadPx
         }
     }
 
@@ -686,8 +695,26 @@ class ScribeCodeEditor @JvmOverloads constructor(
      * mode and zero disappearing text during interactive sliders.
      */
     override fun createLayout() {
-        val shouldClear = isAwaitingLayoutReady || layout == null || forceNextLayoutClear
+        createLayout(isAwaitingLayoutReady || layout == null || forceNextLayoutClear)
         forceNextLayoutClear = false
+    }
+
+    override fun createLayout(clearWordwrapCache: Boolean) {
+        val shouldClear = clearWordwrapCache || isAwaitingLayoutReady || layout == null || forceNextLayoutClear
+        forceNextLayoutClear = false
+        if (isWordwrap && text != null) {
+            val currentLayout = layout
+            val oldWordwrap = currentLayout as? WordwrapLayout
+            isInsideWordwrapLayoutCreation = true
+            val newLayout = try {
+                WordwrapLayout(this, text, isAntiWordBreaking, isWordwrapRtlDisplaySupport, oldWordwrap, shouldClear)
+            } finally {
+                isInsideWordwrapLayoutCreation = false
+            }
+            currentLayout?.destroyLayout()
+            layout = newLayout
+            return
+        }
         super.createLayout(shouldClear)
     }
 
