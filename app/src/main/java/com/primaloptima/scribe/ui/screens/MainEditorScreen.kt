@@ -428,6 +428,8 @@ fun MainEditorScreen(
         else if (currentBookNotes.isNotEmpty()) editorVm.loadNote(currentBookNotes.first().id, currentBookNotes.first())
     }
 
+    var editorCurrentText by remember { mutableStateOf("") }
+
     // FIX 3: Removed activeNote?.content from the LaunchedEffect key.
     // The guard condition `editor.text.length == 0 && note.content.isNotEmpty()` already
     // handles the edge case of an editor that exists but hasn't been filled yet.
@@ -511,7 +513,6 @@ fun MainEditorScreen(
     }
 
     // Debounced analysis for Inlay Hints (Scene word counts, POV tags, Paragraph Indents) and Diagnostics
-    var editorCurrentText by remember { mutableStateOf("") }
     LaunchedEffect(editorCurrentText, worldEntries, activeTheme?.paragraphSpacing) {
         if (editorCurrentText.isEmpty()) return@LaunchedEffect
         val editor = soraEditorRef ?: return@LaunchedEffect
