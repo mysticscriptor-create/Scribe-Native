@@ -248,6 +248,7 @@ fun EditorUnifiedBottomSheet(
     onGuide: () -> Unit,
     onOpenThemes: () -> Unit,
     onSettings: () -> Unit,
+    onVisualIndentChange: ((Int) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -1025,6 +1026,7 @@ private fun TypographyDetailPage(
                 TypographyTool.INDENT -> {
                     TypographyIndentControl(
                         activeTheme = activeTheme,
+                        onVisualIndentChange = onVisualIndentChange,
                         onUpdateTheme = onUpdateTheme
                     )
                 }
@@ -1713,15 +1715,15 @@ private fun TypographyLineSpacingControl(
 @Composable
 private fun TypographyIndentControl(
     activeTheme: AppTheme,
+    onVisualIndentChange: ((Int) -> Unit)? = null,
     onUpdateTheme: ((AppTheme) -> AppTheme) -> Unit
 ) {
     val themeVal = (activeTheme.firstLineIndent ?: 0).toFloat().coerceIn(0f, 8f)
     var localVal by remember(themeVal) { mutableFloatStateOf(themeVal) }
-    val scope = rememberCoroutineScope()
-    var debounceJob by remember { mutableStateOf<Job?>(null) }
 
     fun commitIndent(v: Float) {
         val rounded = (v / 2f).roundToInt() * 2
+        localVal = rounded.toFloat()
         if (rounded != (activeTheme.firstLineIndent ?: 0)) {
             onUpdateTheme { it.copy(firstLineIndent = rounded) }
         }
@@ -1731,15 +1733,13 @@ private fun TypographyIndentControl(
         label = "First-Line Indent",
         value = localVal,
         onValueChange = { newVal ->
+            val rounded = (newVal / 2f).roundToInt() * 2
             localVal = newVal
-            debounceJob?.cancel()
-            debounceJob = scope.launch {
-                delay(60L)
-                commitIndent(localVal)
-            }
+            // Requirement 1: Instant visual feedback on the canvas at 120fps with zero document mutation
+            onVisualIndentChange?.invoke(rounded)
         },
         onValueChangeFinished = {
-            debounceJob?.cancel()
+            // Requirement 2: Background processing starts only on slider release or +/- button click
             commitIndent(localVal)
         },
         valueRange = 0f..8f,

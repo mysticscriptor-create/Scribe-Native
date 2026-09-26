@@ -743,7 +743,21 @@ class EditorViewModel(
         viewModelScope.launch { dataStore.setActiveNoteId(null) }
     }
 
-    // ── Content change ────────────────────────────────────────────────────────
+// ── Content change ────────────────────────────────────────────────────────
+
+    /**
+     * Requirement 3: Suppress Post-Indent Analysis Cascade.
+     * Silently updates the note content in memory and writes to database in background
+     * without triggering stats calculation (word count, reading time, outline) or prose analysis.
+     */
+    fun onIndentContentUpdated(content: String) {
+        pendingContent = content
+        _activeNote.value = _activeNote.value?.copy(content = content)
+        viewModelScope.launch(Dispatchers.IO) {
+            val note = _activeNote.value ?: return@launch
+            noteRepository.updateNote(note)
+        }
+    }
 
     fun onContentChanged(content: String) {
         // Bug 1: track latest content so flushPendingContent() can flush without

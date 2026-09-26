@@ -1,4 +1,7 @@
 package com.primaloptima.scribe.ui.screens
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.primaloptima.scribe.engine.ScribeIndentEngine
 import com.primaloptima.scribe.util.font.ScribeFontManager
 import com.primaloptima.scribe.ui.components.EditorUnifiedBottomSheet
 import com.primaloptima.scribe.ui.components.EditorSheetPage
@@ -679,6 +682,7 @@ fun MainEditorScreen(
                     var lastAppliedBgArgb by remember { mutableIntStateOf(0) }
                     var lastAppliedThemeId by remember { mutableStateOf<String?>(null) }
                     var lastAppliedFirstLineIndent by remember { mutableIntStateOf(activeTheme?.firstLineIndent ?: 0) }
+                    var isApplyingIndent by remember { mutableStateOf(false) }
 
                     AndroidView(
                         factory = { ctx ->
@@ -872,11 +876,40 @@ fun MainEditorScreen(
                             if (lastAppliedFirstLineIndent != newFirstLineIndent) {
                                 val oldIndent = lastAppliedFirstLineIndent
                                 lastAppliedFirstLineIndent = newFirstLineIndent
-                                scribeEditor?.applyFirstLineIndentToDocument(oldIndent, newFirstLineIndent)
-                                val current = editor.text.toString()
-                                editorCurrentText = current
-                                if (loadedNoteId != null) {
-                                    editorVm.onContentChanged(current)
+                                if (scribeEditor != null) {
+                                    scope.launch {
+                                        isApplyingIndent = true
+                                        scribeEditor.isProcessingIndent = true
+                                        val rawText = scribeEditor.text?.toString() ?: ""
+                                        val curLine = scribeEditor.cursor?.leftLine ?: 0
+                                        val curCol = scribeEditor.cursor?.leftColumn ?: 0
+                                        val scrollX = scribeEditor.offsetX
+                                        val scrollY = scribeEditor.offsetY
+
+                                        // Requirement 2: Background text processing with single-pass StringBuilder
+                                        val formattedText = withContext(Dispatchers.Default) {
+                                            ScribeIndentEngine.processDocumentIndent(rawText, oldIndent, newFirstLineIndent)
+                                        }
+
+                                        // Requirements 4 & 6: Silent atomic update, bypass undo, restore cursor & scroll
+                                        scribeEditor.applyFormattedTextSilently(
+                                            newText = formattedText,
+                                            oldIndent = oldIndent,
+                                            newIndent = newFirstLineIndent,
+                                            savedLine = curLine,
+                                            savedCol = curCol,
+                                            savedScrollX = scrollX,
+                                            savedScrollY = scrollY
+                                        )
+
+                                        // Requirement 3: Silently update note content without triggering analysis/stats cascade
+                                        if (loadedNoteId != null) {
+                                            editorVm.onIndentContentUpdated(formattedText)
+                                        }
+
+                                        scribeEditor.isProcessingIndent = false
+                                        isApplyingIndent = false
+                                    }
                                 }
                             }
                             if (lastAppliedBgArgb != bgArgb) {
@@ -1174,6 +1207,40 @@ fun MainEditorScreen(
                             }
                         }
                     }
+
+                    // ── Subtle Indent Applying Progress Indicator (Requirement 5) ────────
+                    AnimatedVisibility(
+                        visible = isApplyingIndent,
+                        enter = fadeIn(tween(150)),
+                        exit = fadeOut(tween(150)),
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 16.dp, bottom = if (isKeyboardVisible) 56.dp else 24.dp)
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.88f),
+                            tonalElevation = 2.dp,
+                            shadowElevation = 2.dp
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(12.dp),
+                                    strokeWidth = 1.5.dp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                                Text(
+                                    text = "Applying…",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                    }
                 }
             } // end Scaffold
         }
@@ -1283,6 +1350,9 @@ fun MainEditorScreen(
                 noteTitle        = activeNote?.name ?: "Untitled Note",
                 activeTheme      = activeTheme,
                 onUpdateTheme    = { transform -> editorVm.updateActiveTheme(transform) },
+                onVisualIndentChange = { visualSpaces ->
+                    (soraEditorRef as? ScribeCodeEditor)?.setVisualFirstLineIndent(visualSpaces)
+                },
                 onEnterZen       = {
                     activeSheetPage = null
                     editorVm.setZen(true)
