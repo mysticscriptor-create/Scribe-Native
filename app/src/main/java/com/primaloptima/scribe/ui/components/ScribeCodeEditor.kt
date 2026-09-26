@@ -695,27 +695,20 @@ class ScribeCodeEditor @JvmOverloads constructor(
      * mode and zero disappearing text during interactive sliders.
      */
     override fun createLayout() {
-        createLayout(isAwaitingLayoutReady || layout == null || forceNextLayoutClear)
+        val shouldClear = isAwaitingLayoutReady || layout == null || forceNextLayoutClear
         forceNextLayoutClear = false
+        createLayout(shouldClear)
     }
 
     override fun createLayout(clearWordwrapCache: Boolean) {
         val shouldClear = clearWordwrapCache || isAwaitingLayoutReady || layout == null || forceNextLayoutClear
         forceNextLayoutClear = false
-        if (isWordwrap && text != null) {
-            val currentLayout = layout
-            val oldWordwrap = currentLayout as? WordwrapLayout
-            isInsideWordwrapLayoutCreation = true
-            val newLayout = try {
-                WordwrapLayout(this, text, isAntiWordBreaking, isWordwrapRtlDisplaySupport, oldWordwrap, shouldClear)
-            } finally {
-                isInsideWordwrapLayoutCreation = false
-            }
-            currentLayout?.destroyLayout()
-            layout = newLayout
-            return
+        isInsideWordwrapLayoutCreation = true
+        try {
+            super.createLayout(shouldClear)
+        } finally {
+            isInsideWordwrapLayoutCreation = false
         }
-        super.createLayout(shouldClear)
     }
 
     val isPinchScaling: Boolean
