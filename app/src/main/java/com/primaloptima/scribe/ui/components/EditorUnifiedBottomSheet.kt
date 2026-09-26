@@ -129,6 +129,8 @@ import com.primaloptima.scribe.util.font.ScribeFont
 import com.primaloptima.scribe.util.font.ScribeFontManager
 import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.util.model.AppTheme
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -1416,7 +1418,7 @@ private fun TypographySizeControl(
     activeTheme: AppTheme,
     onUpdateTheme: ((AppTheme) -> AppTheme) -> Unit
 ) {
-    val currentVal = when (activeTarget) {
+    val themeVal = when (activeTarget) {
         TypographyTarget.TITLE_1 -> (activeTheme.title1FontSize ?: 18).toFloat()
         TypographyTarget.TITLE_2 -> (activeTheme.title2FontSize ?: 24).toFloat()
         else -> activeTheme.fontSize.toFloat()
@@ -1429,17 +1431,34 @@ private fun TypographySizeControl(
         else -> "Document Prose Size"
     }
 
+    var localVal by remember(activeTarget, themeVal) { mutableFloatStateOf(themeVal) }
+    val scope = rememberCoroutineScope()
+    var debounceJob by remember { mutableStateOf<Job?>(null) }
+
+    fun commitValue(v: Float) {
+        val rounded = v.roundToInt()
+        when (activeTarget) {
+            TypographyTarget.TITLE_1 -> onUpdateTheme { it.copy(title1FontSize = rounded) }
+            TypographyTarget.TITLE_2 -> onUpdateTheme { it.copy(title2FontSize = rounded) }
+            else -> onUpdateTheme { it.copy(fontSize = rounded) }
+        }
+    }
+
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         ScribeSettingSlider(
             label = label,
-            value = currentVal.coerceIn(minRange, maxRange),
+            value = localVal.coerceIn(minRange, maxRange),
             onValueChange = { newVal ->
-                val rounded = newVal.roundToInt()
-                when (activeTarget) {
-                    TypographyTarget.TITLE_1 -> onUpdateTheme { it.copy(title1FontSize = rounded) }
-                    TypographyTarget.TITLE_2 -> onUpdateTheme { it.copy(title2FontSize = rounded) }
-                    else -> onUpdateTheme { it.copy(fontSize = rounded) }
+                localVal = newVal
+                debounceJob?.cancel()
+                debounceJob = scope.launch {
+                    delay(50L)
+                    commitValue(localVal)
                 }
+            },
+            onValueChangeFinished = {
+                debounceJob?.cancel()
+                commitValue(localVal)
             },
             valueRange = minRange..maxRange,
             step = 1f,
@@ -1475,7 +1494,7 @@ private fun TypographySizeControl(
                 Text(
                     text = "The quick brown fox jumps over the lazy dog.",
                     fontFamily = fontFamily,
-                    fontSize = minOf(currentVal, 28f).sp,
+                    fontSize = minOf(localVal, 28f).sp,
                     fontWeight = FontWeight(activeTheme.documentFontWeight),
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
@@ -1617,16 +1636,32 @@ private fun TypographyMarginsControl(
     activeTheme: AppTheme,
     onUpdateTheme: ((AppTheme) -> AppTheme) -> Unit
 ) {
-    val currentVal = activeTheme.paddingHorizontal.toFloat().coerceIn(8f, 72f)
+    val themeVal = activeTheme.paddingHorizontal.toFloat().coerceIn(8f, 72f)
+    var localVal by remember(themeVal) { mutableFloatStateOf(themeVal) }
+    val scope = rememberCoroutineScope()
+    var debounceJob by remember { mutableStateOf<Job?>(null) }
+
+    fun commitMargins(v: Float) {
+        val rounded = v.roundToInt()
+        if (rounded != activeTheme.paddingHorizontal) {
+            onUpdateTheme { it.copy(paddingHorizontal = rounded) }
+        }
+    }
 
     ScribeSettingSlider(
         label = "Horizontal Page Margins",
-        value = currentVal,
+        value = localVal,
         onValueChange = { newVal ->
-            val rounded = newVal.roundToInt()
-            if (rounded != activeTheme.paddingHorizontal) {
-                onUpdateTheme { it.copy(paddingHorizontal = rounded) }
+            localVal = newVal
+            debounceJob?.cancel()
+            debounceJob = scope.launch {
+                delay(50L)
+                commitMargins(localVal)
             }
+        },
+        onValueChangeFinished = {
+            debounceJob?.cancel()
+            commitMargins(localVal)
         },
         valueRange = 8f..72f,
         step = 2f,

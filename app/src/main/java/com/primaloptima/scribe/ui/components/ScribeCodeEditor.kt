@@ -704,6 +704,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val shouldClear = clearWordwrapCache || isAwaitingLayoutReady || layout == null || forceNextLayoutClear
         forceNextLayoutClear = false
         isInsideWordwrapLayoutCreation = true
+        isLayoutBusyState = true
         try {
             super.createLayout(shouldClear)
         } finally {
@@ -776,7 +777,27 @@ class ScribeCodeEditor @JvmOverloads constructor(
             canvas.drawColor(bgColor)
             return
         }
+
+        // Layer 1 Geometry Guard: While asynchronous wordwrap recomputation is in progress
+        // (isLayoutComputing == true), lines are temporarily drawn with stale break columns.
+        // Clip text rendering strictly at the right margin line (width - rightPadPx) so text
+        // NEVER spills into the right margin during font size adjustments or slider dragging.
+        // Once layout computing finishes, isLayoutComputing becomes false, restoring uninhibited
+        // drawing bounds for selection teardrop handles into the margins.
+        val density = context.resources.displayMetrics.density
+        val rightLimit = width.toFloat() - (horizontalPaddingDp * density)
+        val shouldClipMargin = isLayoutComputing && isWordwrap && rightLimit > 0f
+
+        if (shouldClipMargin) {
+            canvas.save()
+            canvas.clipRect(0f, 0f, rightLimit, height.toFloat())
+        }
+
         super.onDraw(canvas)
+
+        if (shouldClipMargin) {
+            canvas.restore()
+        }
     }
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {

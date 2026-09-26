@@ -72,7 +72,8 @@ fun ScribeSettingSlider(
     decimalPlaces: Int = if (step < 1f) 2 else 0,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    contentDescription: String = label
+    contentDescription: String = label,
+    onValueChangeFinished: (() -> Unit)? = null
 ) {
     val clampedValue = value.coerceIn(valueRange.start, valueRange.endInclusive)
     val canDecrement = enabled && (clampedValue > valueRange.start + 0.0001f)
@@ -151,6 +152,7 @@ fun ScribeSettingSlider(
                         onClick = {
                             val next = roundToClean(clampedValue - step)
                             onValueChange(next)
+                            onValueChangeFinished?.invoke()
                         }
                     ),
                 contentAlignment = Alignment.Center
@@ -201,6 +203,7 @@ fun ScribeSettingSlider(
                         onClick = {
                             val next = roundToClean(clampedValue + step)
                             onValueChange(next)
+                            onValueChangeFinished?.invoke()
                         }
                     ),
                 contentAlignment = Alignment.Center
@@ -238,6 +241,7 @@ fun ScribeSettingSlider(
                     onValueChange(clean)
                 }
             },
+            onValueChangeFinished = onValueChangeFinished,
             valueRange = valueRange,
             interactionSource = interactionSource,
             enabled = enabled,
@@ -310,7 +314,8 @@ fun ScribeSettingSlider(
     unit: String = "",
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    contentDescription: String = label
+    contentDescription: String = label,
+    onValueChangeFinished: (() -> Unit)? = null
 ) {
     ScribeSettingSlider(
         label = label,
@@ -322,7 +327,8 @@ fun ScribeSettingSlider(
         decimalPlaces = 0,
         modifier = modifier,
         enabled = enabled,
-        contentDescription = contentDescription
+        contentDescription = contentDescription,
+        onValueChangeFinished = onValueChangeFinished
     )
 }
 
