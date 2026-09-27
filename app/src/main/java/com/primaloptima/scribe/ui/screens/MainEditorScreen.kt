@@ -518,6 +518,10 @@ fun MainEditorScreen(
     // Debounced analysis for Inlay Hints (Scene word counts, POV tags, Paragraph Indents) and Diagnostics
     LaunchedEffect(editorCurrentText, worldEntries, activeTheme?.paragraphSpacing) {
         if (editorCurrentText.isEmpty()) return@LaunchedEffect
+        if (skipNextAnalysisByIndent) {
+            skipNextAnalysisByIndent = false
+            return@LaunchedEffect
+        }
         val editor = soraEditorRef ?: return@LaunchedEffect
         delay(400) // Debounce 400ms to keep editing fluid
         val hints = withContext(Dispatchers.Default) {
@@ -683,6 +687,7 @@ fun MainEditorScreen(
                     var lastAppliedThemeId by remember { mutableStateOf<String?>(null) }
                     var lastAppliedFirstLineIndent by remember { mutableIntStateOf(activeTheme?.firstLineIndent ?: 0) }
                     var isApplyingIndent by remember { mutableStateOf(false) }
+                    var skipNextAnalysisByIndent by remember { mutableStateOf(false) }
 
                     AndroidView(
                         factory = { ctx ->
@@ -739,6 +744,12 @@ fun MainEditorScreen(
                                     setTextSize(editorTextSizeSp)
                                     editorTypeface?.let { typefaceText = it }
                                     firstLineIndentSpaces = activeTheme?.firstLineIndent ?: 0
+                                    (this as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.onRequestCommitIndentForCopy = {
+                                        val curIndent = (this as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.visualFirstLineIndentSpaces ?: 0
+                                        if (curIndent != lastAppliedFirstLineIndent) {
+                                            editorVm.updateActiveTheme { it.copy(firstLineIndent = curIndent) }
+                                        }
+                                    }
                                     setLineSpacing(0f, initialLineHeight)
                                     activeTheme?.let { theme ->
                                         val scheme = ScribeColorScheme(theme)
@@ -880,16 +891,36 @@ fun MainEditorScreen(
                                     scope.launch {
                                         isApplyingIndent = true
                                         scribeEditor.isProcessingIndent = true
-                                        val rawText = scribeEditor.text?.toString() ?: ""
-                                        val curLine = scribeEditor.cursor?.leftLine ?: 0
-                                        val curCol = scribeEditor.cursor?.leftColumn ?: 0
-                                        val scrollX = scribeEditor.offsetX
-                                        val scrollY = scribeEditor.offsetY
+                                        var rawText = scribeEditor.text?.toString() ?: ""
+                                        var versionAtStart = scribeEditor.documentVersion
+                                        var curLine = scribeEditor.cursor?.leftLine ?: 0
+                                        var curCol = scribeEditor.cursor?.leftColumn ?: 0
+                                        var scrollX = scribeEditor.offsetX
+                                        var scrollY = scribeEditor.offsetY
 
                                         // Requirement 2: Background text processing with single-pass StringBuilder
-                                        val formattedText = withContext(Dispatchers.Default) {
+                                        var formattedText = withContext(Dispatchers.Default) {
                                             ScribeIndentEngine.processDocumentIndent(rawText, oldIndent, newFirstLineIndent)
                                         }
+
+                                        // Concurrency guard: if writer typed during background processing, reprocess latest text
+                                        var retries = 0
+                                        while (scribeEditor.documentVersion != versionAtStart && retries < 3) {
+                                            versionAtStart = scribeEditor.documentVersion
+                                            rawText = scribeEditor.text?.toString() ?: ""
+                                            curLine = scribeEditor.cursor?.leftLine ?: 0
+                                            curCol = scribeEditor.cursor?.leftColumn ?: 0
+                                            scrollX = scribeEditor.offsetX
+                                            scrollY = scribeEditor.offsetY
+                                            formattedText = withContext(Dispatchers.Default) {
+                                                ScribeIndentEngine.processDocumentIndent(rawText, oldIndent, newFirstLineIndent)
+                                            }
+                                            retries++
+                                        }
+
+                                        // Suppress post-indent analysis cascade
+                                        skipNextAnalysisByIndent = true
+                                        editorCurrentText = formattedText
 
                                         // Requirements 4 & 6: Silent atomic update, bypass undo, restore cursor & scroll
                                         scribeEditor.applyFormattedTextSilently(
@@ -1209,8 +1240,9 @@ fun MainEditorScreen(
                     }
 
                     // ── Subtle Indent Applying Progress Indicator (Requirement 5) ────────
+                    val isIndentIndicatorVisible = isApplyingIndent || (soraEditorRef as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.isProcessingIndent == true
                     AnimatedVisibility(
-                        visible = isApplyingIndent,
+                        visible = isIndentIndicatorVisible,
                         enter = fadeIn(tween(150)),
                         exit = fadeOut(tween(150)),
                         modifier = Modifier

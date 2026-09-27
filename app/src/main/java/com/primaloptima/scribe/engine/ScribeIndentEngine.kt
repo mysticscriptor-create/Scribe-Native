@@ -8,11 +8,48 @@ package com.primaloptima.scribe.engine
  * 2. Edge Case handling (Requirement 8): scans and strips pre-existing manual
  *    spaces/tabs before writing new spaces to prevent double indentation.
  * 3. Preserves Markdown headings (#), scene breaks (---, ***, * * *), blockquotes (>),
- *    and code blocks (```) without adding indent.
- * 4. Cursor position calculation to keep the writer's caret at the exact word and
- *    character position after formatting.
+ *    code blocks (```), tables (|), HTML tags (<), and Markdown ordered/unordered/task lists
+ *    without adding indent (protects lists from becoming indented code blocks).
+ * 4. Normalizes blank lines to empty strings (never pollutes empty lines with trailing spaces).
+ * 5. Accurate cursor column calculation relative to pre-formatted text.
  */
 object ScribeIndentEngine {
+
+    /**
+     * Checks if a trimmed line is non-prose (Markdown formatting, headers, breaks, code, lists, tables).
+     */
+    fun isNonProseLine(trimmed: String): Boolean {
+        if (trimmed.isEmpty()) return false
+
+        // Markdown headings, scene breaks, blockquotes, code fences, tables, XML tags
+        if (trimmed.startsWith("#") || trimmed.startsWith("---") ||
+            trimmed.startsWith("***") || trimmed.startsWith("* * *") ||
+            trimmed.startsWith("###") || trimmed.startsWith("___") ||
+            trimmed.startsWith(">") || trimmed.startsWith("```") ||
+            trimmed.startsWith("|") || trimmed.startsWith("<")) {
+            return true
+        }
+
+        // Markdown unordered and task lists ("- ", "* ", "+ ", "- [", "* [", "+ [")
+        if (trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("+ ") ||
+            trimmed.startsWith("- [") || trimmed.startsWith("* [") || trimmed.startsWith("+ [")) {
+            return true
+        }
+
+        // Markdown ordered lists ("1. ", "23) ", etc.)
+        if (trimmed[0].isDigit()) {
+            var idx = 1
+            while (idx < trimmed.length && trimmed[idx].isDigit()) {
+                idx++
+            }
+            if (idx < trimmed.length && (trimmed[idx] == '.' || trimmed[idx] == ')') &&
+                idx + 1 < trimmed.length && trimmed[idx + 1] == ' ') {
+                return true
+            }
+        }
+
+        return false
+    }
 
     /**
      * Processes document indentation in a single allocation-friendly pass.
@@ -28,32 +65,26 @@ object ScribeIndentEngine {
         newIndent: Int
     ): String {
         if (originalText.isEmpty()) return ""
+
         val newIndentStr = if (newIndent > 0) " ".repeat(newIndent) else ""
-        val lines = originalText.split("\n")
+        val isCrlf = originalText.contains("\r\n")
+        val newline = if (isCrlf) "\r\n" else "\n"
+        val lines = originalText.split(if (isCrlf) "\r\n" else "\n")
         val sb = StringBuilder(originalText.length + lines.size * newIndent)
 
         for (i in lines.indices) {
             val line = lines[i]
             val trimmed = line.trimStart()
 
-            // Skip Markdown headings, scene breaks, blockquotes, code blocks
-            val isNonProse = trimmed.startsWith("#") || trimmed.startsWith("---") ||
-                trimmed.startsWith("***") || trimmed.startsWith("* * *") ||
-                trimmed.startsWith("###") || trimmed.startsWith("___") ||
-                trimmed.startsWith(">") || trimmed.startsWith("```")
-
-            if (isNonProse) {
+            if (trimmed.isEmpty()) {
+                // Empty or blank line: normalize to completely empty (never indent blank lines)
+                sb.append("")
+            } else if (isNonProseLine(trimmed)) {
+                // Non-prose elements (headings, scene breaks, lists, code blocks) retain original text
                 sb.append(line)
-            } else if (trimmed.isEmpty()) {
-                // Blank / empty line: keep empty when indent is off, or normalize if indent on
-                if (newIndent > 0 && line.isNotEmpty()) {
-                    sb.append(newIndentStr)
-                } else {
-                    sb.append("")
-                }
             } else {
                 // Prose paragraph:
-                // Scan pre-existing manual spaces or tabs (Edge Case 8)
+                // Scan pre-existing manual spaces or tabs (Requirement 8)
                 var leadingSpaces = 0
                 while (leadingSpaces < line.length && (line[leadingSpaces] == ' ' || line[leadingSpaces] == '\t')) {
                     leadingSpaces++
@@ -71,7 +102,7 @@ object ScribeIndentEngine {
             }
 
             if (i < lines.size - 1) {
-                sb.append("\n")
+                sb.append(newline)
             }
         }
 
@@ -80,6 +111,7 @@ object ScribeIndentEngine {
 
     /**
      * Calculates the adjusted column for the cursor after indentation formatting.
+     * MUST be passed the ORIGINAL (pre-formatted) text and pre-formatted cursor coordinates.
      */
     fun calculateAdjustedCursorCol(
         originalText: String,
@@ -87,17 +119,14 @@ object ScribeIndentEngine {
         originalCol: Int,
         newIndent: Int
     ): Int {
-        val lines = originalText.split("\n")
+        val isCrlf = originalText.contains("\r\n")
+        val lines = originalText.split(if (isCrlf) "\r\n" else "\n")
         if (lineIndex !in lines.indices) return originalCol
+
         val line = lines[lineIndex]
         val trimmed = line.trimStart()
 
-        val isNonProse = trimmed.startsWith("#") || trimmed.startsWith("---") ||
-            trimmed.startsWith("***") || trimmed.startsWith("* * *") ||
-            trimmed.startsWith("###") || trimmed.startsWith("___") ||
-            trimmed.startsWith(">") || trimmed.startsWith("```")
-
-        if (isNonProse || trimmed.isEmpty()) {
+        if (trimmed.isEmpty() || isNonProseLine(trimmed)) {
             return originalCol
         }
 

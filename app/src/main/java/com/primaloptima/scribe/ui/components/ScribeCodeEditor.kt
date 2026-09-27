@@ -49,19 +49,38 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     var isProcessingIndent: Boolean = false
 
+    var documentVersion: Long = 0L
+        private set
+
+    // Holds the base prose inlay hints (scene word counts, POV badges) from ProseInlayHintProvider
+    private var baseInlayHints: InlayHintsContainer? = null
+
+    // Callback when copy is attempted during visual-only indent state to trigger immediate commit
+    var onRequestCommitIndentForCopy: (() -> Unit)? = null
+
     private var pendingCopyAction: (() -> Unit)? = null
 
+    override fun setInlayHints(hints: InlayHintsContainer?) {
+        // When MainEditorScreen sets base prose hints, record them
+        if (visualFirstLineIndentSpaces <= 0) {
+            baseInlayHints = hints
+        }
+        super.setInlayHints(hints)
+    }
+
     override fun copyText() {
-        if (isProcessingIndent) {
+        if (isProcessingIndent || visualFirstLineIndentSpaces > 0) {
             pendingCopyAction = { super.copyText() }
+            onRequestCommitIndentForCopy?.invoke()
             return
         }
         super.copyText()
     }
 
     override fun copyText(clearSelection: Boolean) {
-        if (isProcessingIndent) {
+        if (isProcessingIndent || visualFirstLineIndentSpaces > 0) {
             pendingCopyAction = { super.copyText(clearSelection) }
+            onRequestCommitIndentForCopy?.invoke()
             return
         }
         super.copyText(clearSelection)
@@ -106,6 +125,13 @@ class ScribeCodeEditor @JvmOverloads constructor(
         try {
             subscribeEvent(HandleStateChangeEvent::class.java) { event, _ ->
                 isHandleDragging = event.isHeld
+            }
+        } catch (_: Throwable) { }
+        try {
+            subscribeEvent(io.github.rosemoe.sora.event.ContentChangeEvent::class.java) { _, _ ->
+                if (!isBatchApplyingIndent) {
+                    documentVersion++
+                }
             }
         } catch (_: Throwable) { }
     }
@@ -439,35 +465,50 @@ class ScribeCodeEditor @JvmOverloads constructor(
     /**
      * Requirement 1: Canvas-Level First-Line Margin (Instant Visual Feedback).
      * Renders visual indent in real-time on the canvas using Inlay Hints at column 0.
-     * Zero document text mutation, runs in <1ms at 120fps.
+     * Preserves base prose inlay hints (scene word counts and POV tags) without wiping them.
+     * Zero document text mutation, runs smoothly at 120fps.
      */
     fun setVisualFirstLineIndent(spaces: Int) {
+        if (visualFirstLineIndentSpaces == spaces) return
         visualFirstLineIndentSpaces = spaces
         val content = text ?: return
         val count = content.lineCount
         if (count == 0) return
 
-        val container = InlayHintsContainer()
-        if (spaces > 0) {
-            val indentStr = " ".repeat(spaces)
-            for (i in 0 until count) {
-                val lineStr = content.getLineString(i)
-                val trimmed = lineStr.trimStart()
-                if (trimmed.isEmpty()) continue
-                // Skip Markdown headings, scene breaks, blockquotes, code blocks
-                if (trimmed.startsWith("#") || trimmed.startsWith("---") ||
-                    trimmed.startsWith("***") || trimmed.startsWith("* * *") ||
-                    trimmed.startsWith("###") || trimmed.startsWith("___") ||
-                    trimmed.startsWith(">") || trimmed.startsWith("```")) {
-                    continue
-                }
-                // If it already has manual leading spaces, don't overlay
-                if (lineStr.startsWith(" ") || lineStr.startsWith("	")) continue
-
-                container.add(TextInlayHint(i, 0, indentStr))
-            }
+        if (spaces <= 0) {
+            super.setInlayHints(baseInlayHints ?: InlayHintsContainer())
+            try {
+                renderContext.invalidateRenderNodes()
+            } catch (_: Throwable) {}
+            invalidate()
+            return
         }
-        setInlayHints(container)
+
+        val container = InlayHintsContainer()
+
+        // 1. Preserve existing base prose hints (scene word counts, POV tags)
+        baseInlayHints?.let { base ->
+            try {
+                for (hint in base) {
+                    container.add(hint)
+                }
+            } catch (_: Throwable) {}
+        }
+
+        // 2. Add visual first-line indent overlay to prose paragraphs
+        val indentStr = " ".repeat(spaces)
+        for (i in 0 until count) {
+            val lineStr = content.getLineString(i)
+            val trimmed = lineStr.trimStart()
+            if (trimmed.isEmpty()) continue
+            if (ScribeIndentEngine.isNonProseLine(trimmed)) continue
+            // If paragraph already has manual leading spaces, do not add overlay
+            if (lineStr.startsWith(" ") || lineStr.startsWith("	")) continue
+
+            container.add(TextInlayHint(i, 0, indentStr))
+        }
+
+        super.setInlayHints(container)
         try {
             renderContext.invalidateRenderNodes()
         } catch (_: Throwable) {}
@@ -476,10 +517,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     /**
      * Requirements 2, 4, 6: Applies background-processed text with real spaces.
-     * - Bypasses UndoManager so formatting changes are not logged in undo history.
+     * - Bypasses UndoManager safely by setting `ignoreModification = true` so formatting
+     *   changes are not logged in undo history and existing undo history is never wiped or corrupted.
      * - Performs a single atomic text replacement on the UI thread.
      * - Preserves exact cursor line, adjusted column, and scroll position.
-     * - Clears the visual-only inlay hints.
+     * - Restores base prose inlay hints.
      * - Executes pending copy if one was queued during processing.
      */
     fun applyFormattedTextSilently(
@@ -496,61 +538,52 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val lineCountBefore = content.lineCount
         if (lineCountBefore == 0) return
 
-        isBatchApplyingIndent = true
-        content.beginBatchEdit()
+        val originalRaw = content.toString()
 
-        // Requirement 4: Bypass Undo for Indent Settings
-        var oldUndoManager: Any? = null
-        val undoField = runCatching {
-            var cls: Class<*>? = content.javaClass
-            var f: java.lang.reflect.Field? = null
-            while (cls != null && cls != Any::class.java) {
-                try {
-                    f = cls.getDeclaredField("undoManager")
-                    break
-                } catch (_: NoSuchFieldException) {
-                    cls = cls.superclass
-                }
-            }
-            if (f != null) {
-                f.isAccessible = true
-                oldUndoManager = f.get(content)
-                f.set(content, null)
-            }
-            f
-        }.getOrNull()
-
-        try {
-            val lastLine = lineCountBefore - 1
-            val lastCol = content.getColumnCount(lastLine)
-            content.replace(0, 0, lastLine, lastCol, newText)
-        } finally {
-            // Restore UndoManager
-            if (undoField != null && oldUndoManager != null) {
-                try {
-                    undoField.set(content, oldUndoManager)
-                } catch (_: Throwable) {}
-            }
-            content.endBatchEdit()
-            isBatchApplyingIndent = false
-        }
-
-        // Clear temporary visual-only hints now that real spaces are in the text buffer
-        visualFirstLineIndentSpaces = 0
-        setInlayHints(InlayHintsContainer())
-
-        // Requirement 6: Cursor and Scroll Position Preservation
+        // Requirement 6: Calculate adjusted cursor column using PRE-FORMATTED text BEFORE replacing!
         val adjustedCol = ScribeIndentEngine.calculateAdjustedCursorCol(
-            originalText = content.toString(),
+            originalText = originalRaw,
             lineIndex = savedLine,
             originalCol = savedCol,
             newIndent = newIndent
         )
-        val targetLine = savedLine.coerceIn(0, content.lineCount - 1)
+
+        isBatchApplyingIndent = true
+        content.beginBatchEdit()
+
+        // Requirement 4: Bypass Undo for Indent Settings
+        // Set ignoreModification = true on content.undoManager to safely suppress recording
+        // without setting the field to null (which causes fatal NullPointerException in Content.java)
+        // and without calling setUndoEnabled(false) (which wipes existing undo history).
+        val undoMgr = content.undoManager
+        val ignoreField = runCatching {
+            val f = undoMgr.javaClass.getDeclaredField("ignoreModification")
+            f.isAccessible = true
+            f
+        }.getOrNull()
+
+        try {
+            ignoreField?.set(undoMgr, true)
+            val lastLine = lineCountBefore - 1
+            val lastCol = content.getColumnCount(lastLine)
+            content.replace(0, 0, lastLine, lastCol, newText)
+        } finally {
+            try {
+                ignoreField?.set(undoMgr, false)
+            } catch (_: Throwable) {}
+            content.endBatchEdit()
+            isBatchApplyingIndent = false
+        }
+
+        // Clear temporary visual-only hints and restore base prose hints (scene word counts & POV tags)
+        visualFirstLineIndentSpaces = 0
+        super.setInlayHints(baseInlayHints ?: InlayHintsContainer())
+
+        // Requirement 6: Cursor and Scroll Position Preservation
+        val targetLine = savedLine.coerceIn(0, (content.lineCount - 1).coerceAtLeast(0))
         val maxCol = content.getColumnCount(targetLine)
         try {
             setSelection(targetLine, adjustedCol.coerceIn(0, maxCol))
-            ensureSelectionVisible()
             notifyIMEExternalCursorChange()
             scrollTo(savedScrollX, savedScrollY)
         } catch (_: Throwable) {}
@@ -560,7 +593,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         } catch (_: Throwable) {}
         invalidate()
 
-        // Requirement 7: Execute pending copy if user tried to copy during processing
+        // Requirement 7: Execute pending copy if user tried to copy during visual or processing state
         pendingCopyAction?.let { action ->
             pendingCopyAction = null
             post { action.invoke() }
