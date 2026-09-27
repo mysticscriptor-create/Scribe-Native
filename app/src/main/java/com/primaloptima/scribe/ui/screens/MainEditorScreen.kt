@@ -1274,35 +1274,38 @@ fun MainEditorScreen(
                     }
 
                     // ── Subtle Indent Applying Progress Indicator (Requirement 5) ────────
+                    // Placed at TopCenter (below status bar & above bottom sheet / keyboard) so it is always 100% visible
                     val isIndentIndicatorVisible = isApplyingIndent || (soraEditorRef as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.isProcessingIndent == true
                     AnimatedVisibility(
                         visible = isIndentIndicatorVisible,
                         enter = fadeIn(tween(150)),
                         exit = fadeOut(tween(150)),
                         modifier = Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 16.dp, bottom = if (isKeyboardVisible) 56.dp else 24.dp)
+                            .align(Alignment.TopCenter)
+                            .statusBarsPadding()
+                            .padding(top = 10.dp)
                     ) {
                         Surface(
                             shape = RoundedCornerShape(16.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.88f),
-                            tonalElevation = 2.dp,
-                            shadowElevation = 2.dp
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+                            tonalElevation = 6.dp,
+                            shadowElevation = 4.dp
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 CircularProgressIndicator(
-                                    modifier = Modifier.size(12.dp),
-                                    strokeWidth = 1.5.dp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    modifier = Modifier.size(13.dp),
+                                    strokeWidth = 1.8.dp,
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                                 Text(
                                     text = "Applying…",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    fontSize = 12.5.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }

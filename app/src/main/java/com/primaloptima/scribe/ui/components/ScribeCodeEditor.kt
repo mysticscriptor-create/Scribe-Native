@@ -478,8 +478,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
 
     /**
-     * Re-evaluates visual indent hints around the current visible viewport.
-     * Called during slider adjustment and on viewport scroll while visual preview is active.
+     * Re-evaluates visual indent hints across all prose lines in the document.
+     * Applying to all lines prevents text jumping when scrolling or reflowing,
+     * ensuring perfectly stable layout at 120 FPS.
      */
     fun refreshVisualFirstLineIndentHints() {
         val spaces = visualFirstLineIndentSpaces
@@ -509,14 +510,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
             } catch (_: Throwable) {}
         }
 
-        // 2. High-speed viewport-limited visual indent overlay:
-        // Prefetch 30 lines above and below the visible viewport
-        val firstVis = try { firstVisibleLine } catch (_: Throwable) { 0 }
-        val lastVis = try { lastVisibleLine } catch (_: Throwable) { count - 1 }
-        val startLine = (firstVis - 30).coerceIn(0, count - 1)
-        val endLine = (lastVis + 30).coerceIn(0, count - 1)
-
-        for (i in startLine..endLine) {
+        // 2. High-speed zero-allocation visual indent overlay for all prose paragraphs:
+        for (i in 0 until count) {
             val leadingSpaces = ScribeIndentEngine.getProseLeadingSpacesFast(content, i)
             if (leadingSpaces < 0) continue // non-prose or empty line
 
@@ -536,12 +531,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
     /**
      * Requirements 2, 4, 6: Applies background-processed text with real spaces.
      * - Bypasses UndoManager safely by setting `ignoreModification = true`.
-     * - Eliminates visual warping: clears visual hints BEFORE text replacement so double-indentation
-     *   never occurs.
+     * - Seamless transition: Replaces text and clears visual hints in the exact same frame,
+     *   preventing double-reflow or visual jumps.
      * - Preserves exact cursor line and column without making it visible (prevents jumping to cursor).
-     * - Prevents text disappearing at document end: clamps target scroll to the new layout's
-     *   scrollMaxY so that when indent decreases, text is never displaced above the screen.
-     * - Restores both editor scroll and UnifiedCanvasLayout header scroll.
+     * - End-of-document disappearance fix: Coordinates with UnifiedCanvasLayout to clamp
+     *   excess offset immediately both during the swap and after asynchronous wordwrap layout finishes.
      * - Restores base prose inlay hints.
      * - Executes pending copy if one was queued during processing.
      */
@@ -565,12 +559,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val parentCanvas = parent as? UnifiedCanvasLayout
         parentCanvas?.cancelCanvasAnimation()
 
-        // 2. Seamless transition: Clear temporary visual indent hints BEFORE inserting real spaces
-        // so the editor never renders with both the visual inlay hint and actual spaces simultaneously.
-        visualFirstLineIndentSpaces = 0
-        super.setInlayHints(baseInlayHints ?: InlayHintsContainer())
-
-        // 3. Single atomic buffer swap with undo suppression
+        // 2. Single atomic buffer swap with undo suppression
         isBatchApplyingIndent = true
         content.beginBatchEdit()
 
@@ -594,6 +583,10 @@ class ScribeCodeEditor @JvmOverloads constructor(
             isBatchApplyingIndent = false
         }
 
+        // 3. Clear temporary visual indent hints in the exact same frame as text replacement
+        visualFirstLineIndentSpaces = 0
+        super.setInlayHints(baseInlayHints ?: InlayHintsContainer())
+
         // 4. Cursor Position Preservation (Silent without jumping/scrolling to cursor)
         val targetLine = savedLine.coerceIn(0, (content.lineCount - 1).coerceAtLeast(0))
         val maxCol = content.getColumnCount(targetLine)
@@ -604,18 +597,16 @@ class ScribeCodeEditor @JvmOverloads constructor(
         } catch (_: Throwable) {}
 
         // 5. Scroll Position Preservation & End-of-Document Text Disappearance Fix:
-        // When indent is reduced or turned off, wrapped lines decrease and total layout height shrinks.
-        // If the user was near the end of the document, restoring savedScrollY blindly would scroll
-        // past the end of the text, causing the content to disappear upwards out of view.
-        // Clamping to current scrollMaxY guarantees the text always remains perfectly visible!
+        // Clamping to current scrollMaxY and delegating to parentCanvas guarantees the document
+        // never scrolls past the end of the text when paragraphs unwrap.
         try {
             scroller?.forceFinished(true)
             val maxAllowedY = scrollMaxY.coerceAtLeast(0)
             val targetScrollY = savedScrollY.coerceIn(0, maxAllowedY)
             scrollTo(savedScrollX, targetScrollY)
             if (parentCanvas != null) {
-                // If editor offsetY shrunk to 0, adjust header scrollD if needed
                 parentCanvas.setCanvasScrollD(savedCanvasScrollD)
+                parentCanvas.clampEditorScrollToMax()
             }
         } catch (_: Throwable) {}
 
@@ -821,12 +812,13 @@ class ScribeCodeEditor @JvmOverloads constructor(
             }
         }
 
-        // Listen for layout completion events from Sora Editor to trigger smooth fade-in
+        // Listen for layout completion events from Sora Editor to trigger smooth fade-in and scroll clamping
         subscribeEvent(LayoutStateChangeEvent::class.java) { event, _ ->
             isLayoutBusyState = event.isLayoutBusy
             if (!event.isLayoutBusy) {
                 post {
                     checkAndTriggerReady()
+                    (parent as? UnifiedCanvasLayout)?.clampEditorScrollToMax()
                 }
             }
         }

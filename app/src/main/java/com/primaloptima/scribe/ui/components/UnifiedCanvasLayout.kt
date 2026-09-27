@@ -198,6 +198,20 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     /**
+     * Enforces that editor scroll and canvas scroll are within physical bounds.
+     * When document height shrinks (e.g. reducing or turning off indent), clamps
+     * excess editor.offsetY back to editor.scrollMaxY and pulls canvas smoothly
+     * so that the end of the document never disappears off-screen.
+     */
+    fun clampEditorScrollToMax() {
+        val maxScrollY = editor.scrollMaxY.coerceAtLeast(0)
+        if (editor.offsetY > maxScrollY) {
+            val excess = (editor.offsetY - maxScrollY).toFloat()
+            scrollCanvasBy(-excess)
+        }
+    }
+
+    /**
      * Directly restores the canvas header scroll offset without animation.
      */
     fun setCanvasScrollD(targetScrollD: Int) {
