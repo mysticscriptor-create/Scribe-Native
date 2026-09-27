@@ -20,6 +20,8 @@ import io.github.rosemoe.sora.widget.layout.WordwrapLayout
 import io.github.rosemoe.sora.lang.styling.inlayHint.InlayHintsContainer
 import io.github.rosemoe.sora.lang.styling.inlayHint.TextInlayHint
 import com.primaloptima.scribe.engine.ScribeIndentEngine
+import com.primaloptima.scribe.engine.IndentInlayHint
+import com.primaloptima.scribe.engine.IndentInlayHintRenderer
 
 import kotlin.math.abs
 
@@ -497,21 +499,15 @@ class ScribeCodeEditor @JvmOverloads constructor(
             } catch (_: Throwable) {}
         }
 
-        // 2. Add visual first-line indent overlay to prose paragraphs
+        // 2. High-speed zero-allocation visual first-line indent overlay directly via ContentLine
         for (i in 0 until count) {
-            val lineStr = content.getLineString(i)
-            val trimmed = lineStr.trimStart()
-            if (trimmed.isEmpty()) continue
-            if (ScribeIndentEngine.isNonProseLine(trimmed)) continue
-
-            var leadingSpaces = 0
-            while (leadingSpaces < lineStr.length && (lineStr[leadingSpaces] == ' ' || lineStr[leadingSpaces] == '	')) {
-                leadingSpaces++
-            }
+            val leadingSpaces = ScribeIndentEngine.getProseLeadingSpacesFast(content, i)
+            if (leadingSpaces < 0) continue // non-prose or empty line
 
             if (spaces > leadingSpaces) {
                 val diff = spaces - leadingSpaces
-                container.add(TextInlayHint(i, 0, " ".repeat(diff)))
+                // Use IndentInlayHint for pixel-perfect typeface advance match without padding/pills
+                container.add(IndentInlayHint(i, 0, diff))
             }
         }
         super.setInlayHints(container)
@@ -523,10 +519,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     /**
      * Requirements 2, 4, 6: Applies background-processed text with real spaces.
-     * - Bypasses UndoManager safely by setting `ignoreModification = true` so formatting
-     *   changes are not logged in undo history and existing undo history is never wiped or corrupted.
-     * - Performs a single atomic text replacement on the UI thread.
-     * - Preserves exact cursor line, adjusted column, and scroll position.
+     * - Bypasses UndoManager safely by setting `ignoreModification = true`.
+     * - Eliminates visual warping: clears visual hints BEFORE text replacement so double-indentation
+     *   never occurs.
+     * - Preserves exact cursor line and column without making it visible (prevents jumping to cursor).
+     * - Preserves both editor scroll and UnifiedCanvasLayout header scroll.
      * - Restores base prose inlay hints.
      * - Executes pending copy if one was queued during processing.
      */
@@ -536,31 +533,29 @@ class ScribeCodeEditor @JvmOverloads constructor(
         newIndent: Int,
         savedLine: Int,
         savedCol: Int,
+        adjustedCol: Int,
         savedScrollX: Int,
-        savedScrollY: Int
+        savedScrollY: Int,
+        savedCanvasScrollD: Int
     ) {
         firstLineIndentSpaces = newIndent
         val content = text ?: return
         val lineCountBefore = content.lineCount
         if (lineCountBefore == 0) return
 
-        val originalRaw = content.toString()
+        // 1. Cancel any active canvas smooth scrolling animator
+        val parentCanvas = parent as? UnifiedCanvasLayout
+        parentCanvas?.cancelCanvasAnimation()
 
-        // Requirement 6: Calculate adjusted cursor column using PRE-FORMATTED text BEFORE replacing!
-        val adjustedCol = ScribeIndentEngine.calculateAdjustedCursorCol(
-            originalText = originalRaw,
-            lineIndex = savedLine,
-            originalCol = savedCol,
-            newIndent = newIndent
-        )
+        // 2. Seamless transition: Clear temporary visual indent hints BEFORE inserting real spaces
+        // so the editor never renders with both the visual inlay hint and actual spaces simultaneously.
+        visualFirstLineIndentSpaces = 0
+        super.setInlayHints(baseInlayHints ?: InlayHintsContainer())
 
+        // 3. Single atomic buffer swap with undo suppression
         isBatchApplyingIndent = true
         content.beginBatchEdit()
 
-        // Requirement 4: Bypass Undo for Indent Settings
-        // Set ignoreModification = true on content.undoManager to safely suppress recording
-        // without setting the field to null (which causes fatal NullPointerException in Content.java)
-        // and without calling setUndoEnabled(false) (which wipes existing undo history).
         val undoMgr = content.undoManager
         val ignoreField = runCatching {
             val f = undoMgr.javaClass.getDeclaredField("ignoreModification")
@@ -581,17 +576,22 @@ class ScribeCodeEditor @JvmOverloads constructor(
             isBatchApplyingIndent = false
         }
 
-        // Clear temporary visual-only hints and restore base prose hints (scene word counts & POV tags)
-        visualFirstLineIndentSpaces = 0
-        super.setInlayHints(baseInlayHints ?: InlayHintsContainer())
-
-        // Requirement 6: Cursor and Scroll Position Preservation
+        // 4. Cursor Position Preservation (Silent without jumping/scrolling to cursor)
         val targetLine = savedLine.coerceIn(0, (content.lineCount - 1).coerceAtLeast(0))
         val maxCol = content.getColumnCount(targetLine)
         try {
-            setSelection(targetLine, adjustedCol.coerceIn(0, maxCol))
+            // makeItVisible = false ensures Sora Editor NEVER triggers ensurePositionVisible or scroller animation!
+            setSelection(targetLine, adjustedCol.coerceIn(0, maxCol), false)
             notifyIMEExternalCursorChange()
+        } catch (_: Throwable) {}
+
+        // 5. Scroll Position Preservation (Restores exact canvas header and editor positions)
+        try {
+            scroller?.forceFinished(true)
             scrollTo(savedScrollX, savedScrollY)
+            if (parentCanvas != null) {
+                parentCanvas.setCanvasScrollD(savedCanvasScrollD)
+            }
         } catch (_: Throwable) {}
 
         try {
@@ -599,13 +599,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
         } catch (_: Throwable) {}
         invalidate()
 
-        // Requirement 7: Execute pending copy if user tried to copy during visual or processing state
+        // 6. Execute pending copy if user tried to copy during visual or processing state
         pendingCopyAction?.let { action ->
             pendingCopyAction = null
             post { action.invoke() }
         }
     }
-
     private var lastMakeVisibleTime: Long = 0L
     private var isFlingActive = false
     private var forceNextLayoutClear = false

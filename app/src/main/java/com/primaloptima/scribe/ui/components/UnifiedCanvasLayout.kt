@@ -186,6 +186,30 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
     }
 
+    /**
+     * Cancels any in-progress smooth scroll animators and scroller flings.
+     */
+    fun cancelCanvasAnimation() {
+        canvasScrollAnimator?.cancel()
+        canvasScrollAnimator = null
+        if (!scroller.isFinished) {
+            scroller.abortAnimation()
+        }
+    }
+
+    /**
+     * Directly restores the canvas header scroll offset without animation.
+     */
+    fun setCanvasScrollD(targetScrollD: Int) {
+        cancelCanvasAnimation()
+        val clamped = targetScrollD.coerceIn(0, headerHeight)
+        scrollD = clamped
+        scrollDFloat = clamped.toFloat()
+        applyTranslations()
+        onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
+        invalidate()
+    }
+
     fun resetScroll() {
         if (!scroller.isFinished) {
             scroller.abortAnimation()

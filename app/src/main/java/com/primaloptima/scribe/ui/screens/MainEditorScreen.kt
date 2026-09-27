@@ -2,6 +2,7 @@ package com.primaloptima.scribe.ui.screens
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.primaloptima.scribe.engine.ScribeIndentEngine
+import com.primaloptima.scribe.engine.IndentInlayHintRenderer
 import com.primaloptima.scribe.util.font.ScribeFontManager
 import com.primaloptima.scribe.ui.components.EditorUnifiedBottomSheet
 import com.primaloptima.scribe.ui.components.EditorSheetPage
@@ -783,6 +784,9 @@ fun MainEditorScreen(
                                     registerInlayHintRenderer(
                                         io.github.rosemoe.sora.graphics.inlayHint.TextInlayHintRenderer()
                                     )
+                                    registerInlayHintRenderer(
+                                        IndentInlayHintRenderer.Instance
+                                    )
                                     setEditorLanguage(ScribeProseLanguage(activeTheme?.documentFontWeight ?: 500))
                                     isNestedScrollingEnabled = true
                                     try {
@@ -902,10 +906,19 @@ fun MainEditorScreen(
                                             var curCol = scribeEditor.cursor?.leftColumn ?: 0
                                             var scrollX = scribeEditor.offsetX
                                             var scrollY = scribeEditor.offsetY
+                                            val parentCanvas = layout
+                                            var canvasScrollD = parentCanvas.scrollD
 
-                                            // Requirement 2: Background text processing with single-pass StringBuilder
-                                            var formattedText = withContext(Dispatchers.Default) {
-                                                ScribeIndentEngine.processDocumentIndent(rawText, oldIndent, newFirstLineIndent)
+                                            // Requirement 2: Background text processing and cursor adjustment off-thread
+                                            var (formattedText, adjustedCol) = withContext(Dispatchers.Default) {
+                                                val text = ScribeIndentEngine.processDocumentIndent(rawText, oldIndent, newFirstLineIndent)
+                                                val col = ScribeIndentEngine.calculateAdjustedCursorCol(
+                                                    originalText = rawText,
+                                                    lineIndex = curLine,
+                                                    originalCol = curCol,
+                                                    newIndent = newFirstLineIndent
+                                                )
+                                                Pair(text, col)
                                             }
 
                                             // Concurrency guard: if writer typed during background processing, reprocess latest text
@@ -917,9 +930,19 @@ fun MainEditorScreen(
                                                 curCol = scribeEditor.cursor?.leftColumn ?: 0
                                                 scrollX = scribeEditor.offsetX
                                                 scrollY = scribeEditor.offsetY
-                                                formattedText = withContext(Dispatchers.Default) {
-                                                    ScribeIndentEngine.processDocumentIndent(rawText, oldIndent, newFirstLineIndent)
+                                                canvasScrollD = parentCanvas.scrollD
+                                                val res = withContext(Dispatchers.Default) {
+                                                    val text = ScribeIndentEngine.processDocumentIndent(rawText, oldIndent, newFirstLineIndent)
+                                                    val col = ScribeIndentEngine.calculateAdjustedCursorCol(
+                                                        originalText = rawText,
+                                                        lineIndex = curLine,
+                                                        originalCol = curCol,
+                                                        newIndent = newFirstLineIndent
+                                                    )
+                                                    Pair(text, col)
                                                 }
+                                                formattedText = res.first
+                                                adjustedCol = res.second
                                                 retries++
                                             }
 
@@ -937,8 +960,10 @@ fun MainEditorScreen(
                                                 newIndent = newFirstLineIndent,
                                                 savedLine = curLine,
                                                 savedCol = curCol,
+                                                adjustedCol = adjustedCol,
                                                 savedScrollX = scrollX,
-                                                savedScrollY = scrollY
+                                                savedScrollY = scrollY,
+                                                savedCanvasScrollD = canvasScrollD
                                             )
 
                                             // Requirement 3: Silently update note content without triggering analysis/stats cascade

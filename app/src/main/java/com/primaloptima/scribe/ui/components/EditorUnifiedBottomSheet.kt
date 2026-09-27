@@ -1733,17 +1733,25 @@ private fun TypographyIndentControl(
         }
     }
 
+    var lastVisualIndentTime by remember { mutableLongStateOf(0L) }
+
     ScribeSettingSlider(
         label = "First-Line Indent",
         value = localVal,
         onValueChange = { newVal ->
             val rounded = (newVal / 2f).roundToInt() * 2
             localVal = newVal
-            // Requirement 1: Instant visual feedback on the canvas at 120fps with zero document mutation
-            onVisualIndentChange?.invoke(rounded)
+            // Requirement 1: Instant visual feedback throttled to ~30ms to keep slider completely responsive
+            val now = System.currentTimeMillis()
+            if (now - lastVisualIndentTime >= 32L) {
+                lastVisualIndentTime = now
+                onVisualIndentChange?.invoke(rounded)
+            }
         },
         onValueChangeFinished = {
-            // Requirement 2: Background processing starts only on slider release or +/- button click
+            // Final visual sync and commit background processing on slider release or +/- tap
+            val rounded = (localVal / 2f).roundToInt() * 2
+            onVisualIndentChange?.invoke(rounded)
             commitIndent(localVal)
         },
         valueRange = 0f..8f,
