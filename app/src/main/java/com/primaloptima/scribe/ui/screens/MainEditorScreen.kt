@@ -432,6 +432,7 @@ fun MainEditorScreen(
     }
 
     var editorCurrentText by remember { mutableStateOf("") }
+    var skipNextAnalysisByIndent by remember { mutableStateOf(false) }
 
     // FIX 3: Removed activeNote?.content from the LaunchedEffect key.
     // The guard condition `editor.text.length == 0 && note.content.isNotEmpty()` already
@@ -688,7 +689,6 @@ fun MainEditorScreen(
                     var lastAppliedThemeId by remember { mutableStateOf<String?>(null) }
                     var lastAppliedFirstLineIndent by remember { mutableIntStateOf(activeTheme?.firstLineIndent ?: 0) }
                     var isApplyingIndent by remember { mutableStateOf(false) }
-                    var skipNextAnalysisByIndent by remember { mutableStateOf(false) }
                     var indentJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
                     AndroidView(

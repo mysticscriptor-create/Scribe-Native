@@ -489,7 +489,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
         // 1. Preserve existing base prose hints (scene word counts, POV tags)
         baseInlayHints?.let { base ->
             try {
-                container.addAll(base)
+                for (lineNo in base.getLineNumbers()) {
+                    for (hint in base.getForLine(lineNo)) {
+                        container.add(hint)
+                    }
+                }
             } catch (_: Throwable) {}
         }
 
