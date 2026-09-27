@@ -489,25 +489,27 @@ class ScribeCodeEditor @JvmOverloads constructor(
         // 1. Preserve existing base prose hints (scene word counts, POV tags)
         baseInlayHints?.let { base ->
             try {
-                for (hint in base) {
-                    container.add(hint)
-                }
+                container.addAll(base)
             } catch (_: Throwable) {}
         }
 
         // 2. Add visual first-line indent overlay to prose paragraphs
-        val indentStr = " ".repeat(spaces)
         for (i in 0 until count) {
             val lineStr = content.getLineString(i)
             val trimmed = lineStr.trimStart()
             if (trimmed.isEmpty()) continue
             if (ScribeIndentEngine.isNonProseLine(trimmed)) continue
-            // If paragraph already has manual leading spaces, do not add overlay
-            if (lineStr.startsWith(" ") || lineStr.startsWith("	")) continue
 
-            container.add(TextInlayHint(i, 0, indentStr))
+            var leadingSpaces = 0
+            while (leadingSpaces < lineStr.length && (lineStr[leadingSpaces] == ' ' || lineStr[leadingSpaces] == '	')) {
+                leadingSpaces++
+            }
+
+            if (spaces > leadingSpaces) {
+                val diff = spaces - leadingSpaces
+                container.add(TextInlayHint(i, 0, " ".repeat(diff)))
+            }
         }
-
         super.setInlayHints(container)
         try {
             renderContext.invalidateRenderNodes()

@@ -12,6 +12,7 @@ package com.primaloptima.scribe.engine
  *    without adding indent (protects lists from becoming indented code blocks).
  * 4. Normalizes blank lines to empty strings (never pollutes empty lines with trailing spaces).
  * 5. Accurate cursor column calculation relative to pre-formatted text.
+ * 6. Flawless line-ending handling across LF, CRLF, and mixed files.
  */
 object ScribeIndentEngine {
 
@@ -69,11 +70,12 @@ object ScribeIndentEngine {
         val newIndentStr = if (newIndent > 0) " ".repeat(newIndent) else ""
         val isCrlf = originalText.contains("\r\n")
         val newline = if (isCrlf) "\r\n" else "\n"
-        val lines = originalText.split(if (isCrlf) "\r\n" else "\n")
-        val sb = StringBuilder(originalText.length + lines.size * newIndent)
+        val rawLines = originalText.split("\n")
+        val sb = StringBuilder(originalText.length + rawLines.size * newIndent)
 
-        for (i in lines.indices) {
-            val line = lines[i]
+        for (i in rawLines.indices) {
+            val rawLine = rawLines[i]
+            val line = if (rawLine.endsWith("\r")) rawLine.substring(0, rawLine.length - 1) else rawLine
             val trimmed = line.trimStart()
 
             if (trimmed.isEmpty()) {
@@ -101,7 +103,7 @@ object ScribeIndentEngine {
                 }
             }
 
-            if (i < lines.size - 1) {
+            if (i < rawLines.size - 1) {
                 sb.append(newline)
             }
         }
@@ -119,11 +121,11 @@ object ScribeIndentEngine {
         originalCol: Int,
         newIndent: Int
     ): Int {
-        val isCrlf = originalText.contains("\r\n")
-        val lines = originalText.split(if (isCrlf) "\r\n" else "\n")
-        if (lineIndex !in lines.indices) return originalCol
+        val rawLines = originalText.split("\n")
+        if (lineIndex !in rawLines.indices) return originalCol
 
-        val line = lines[lineIndex]
+        val rawLine = rawLines[lineIndex]
+        val line = if (rawLine.endsWith("\r")) rawLine.substring(0, rawLine.length - 1) else rawLine
         val trimmed = line.trimStart()
 
         if (trimmed.isEmpty() || isNonProseLine(trimmed)) {

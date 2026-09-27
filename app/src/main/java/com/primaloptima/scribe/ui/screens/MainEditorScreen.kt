@@ -480,6 +480,7 @@ fun MainEditorScreen(
             }
 
             val initialIndent = activeTheme?.firstLineIndent ?: 0
+            (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.firstLineIndentSpaces = initialIndent
             if (note.content.isEmpty() && initialIndent > 0) {
                 val indentStr = " ".repeat(initialIndent)
                 editor.setText(indentStr)
@@ -688,6 +689,7 @@ fun MainEditorScreen(
                     var lastAppliedFirstLineIndent by remember { mutableIntStateOf(activeTheme?.firstLineIndent ?: 0) }
                     var isApplyingIndent by remember { mutableStateOf(false) }
                     var skipNextAnalysisByIndent by remember { mutableStateOf(false) }
+                    var indentJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
                     AndroidView(
                         factory = { ctx ->
@@ -888,58 +890,65 @@ fun MainEditorScreen(
                                 val oldIndent = lastAppliedFirstLineIndent
                                 lastAppliedFirstLineIndent = newFirstLineIndent
                                 if (scribeEditor != null) {
-                                    scope.launch {
+                                    val targetNoteId = loadedNoteId
+                                    indentJob?.cancel()
+                                    indentJob = scope.launch {
                                         isApplyingIndent = true
                                         scribeEditor.isProcessingIndent = true
-                                        var rawText = scribeEditor.text?.toString() ?: ""
-                                        var versionAtStart = scribeEditor.documentVersion
-                                        var curLine = scribeEditor.cursor?.leftLine ?: 0
-                                        var curCol = scribeEditor.cursor?.leftColumn ?: 0
-                                        var scrollX = scribeEditor.offsetX
-                                        var scrollY = scribeEditor.offsetY
+                                        try {
+                                            var rawText = scribeEditor.text?.toString() ?: ""
+                                            var versionAtStart = scribeEditor.documentVersion
+                                            var curLine = scribeEditor.cursor?.leftLine ?: 0
+                                            var curCol = scribeEditor.cursor?.leftColumn ?: 0
+                                            var scrollX = scribeEditor.offsetX
+                                            var scrollY = scribeEditor.offsetY
 
-                                        // Requirement 2: Background text processing with single-pass StringBuilder
-                                        var formattedText = withContext(Dispatchers.Default) {
-                                            ScribeIndentEngine.processDocumentIndent(rawText, oldIndent, newFirstLineIndent)
-                                        }
-
-                                        // Concurrency guard: if writer typed during background processing, reprocess latest text
-                                        var retries = 0
-                                        while (scribeEditor.documentVersion != versionAtStart && retries < 3) {
-                                            versionAtStart = scribeEditor.documentVersion
-                                            rawText = scribeEditor.text?.toString() ?: ""
-                                            curLine = scribeEditor.cursor?.leftLine ?: 0
-                                            curCol = scribeEditor.cursor?.leftColumn ?: 0
-                                            scrollX = scribeEditor.offsetX
-                                            scrollY = scribeEditor.offsetY
-                                            formattedText = withContext(Dispatchers.Default) {
+                                            // Requirement 2: Background text processing with single-pass StringBuilder
+                                            var formattedText = withContext(Dispatchers.Default) {
                                                 ScribeIndentEngine.processDocumentIndent(rawText, oldIndent, newFirstLineIndent)
                                             }
-                                            retries++
+
+                                            // Concurrency guard: if writer typed during background processing, reprocess latest text
+                                            var retries = 0
+                                            while (scribeEditor.documentVersion != versionAtStart && retries < 3) {
+                                                versionAtStart = scribeEditor.documentVersion
+                                                rawText = scribeEditor.text?.toString() ?: ""
+                                                curLine = scribeEditor.cursor?.leftLine ?: 0
+                                                curCol = scribeEditor.cursor?.leftColumn ?: 0
+                                                scrollX = scribeEditor.offsetX
+                                                scrollY = scribeEditor.offsetY
+                                                formattedText = withContext(Dispatchers.Default) {
+                                                    ScribeIndentEngine.processDocumentIndent(rawText, oldIndent, newFirstLineIndent)
+                                                }
+                                                retries++
+                                            }
+
+                                            // Discard if user switched notes during background processing
+                                            if (loadedNoteId != targetNoteId) return@launch
+
+                                            // Suppress post-indent analysis cascade
+                                            skipNextAnalysisByIndent = true
+                                            editorCurrentText = formattedText
+
+                                            // Requirements 4 & 6: Silent atomic update, bypass undo, restore cursor & scroll
+                                            scribeEditor.applyFormattedTextSilently(
+                                                newText = formattedText,
+                                                oldIndent = oldIndent,
+                                                newIndent = newFirstLineIndent,
+                                                savedLine = curLine,
+                                                savedCol = curCol,
+                                                savedScrollX = scrollX,
+                                                savedScrollY = scrollY
+                                            )
+
+                                            // Requirement 3: Silently update note content without triggering analysis/stats cascade
+                                            if (loadedNoteId != null && loadedNoteId == targetNoteId) {
+                                                editorVm.onIndentContentUpdated(formattedText)
+                                            }
+                                        } finally {
+                                            scribeEditor.isProcessingIndent = false
+                                            isApplyingIndent = false
                                         }
-
-                                        // Suppress post-indent analysis cascade
-                                        skipNextAnalysisByIndent = true
-                                        editorCurrentText = formattedText
-
-                                        // Requirements 4 & 6: Silent atomic update, bypass undo, restore cursor & scroll
-                                        scribeEditor.applyFormattedTextSilently(
-                                            newText = formattedText,
-                                            oldIndent = oldIndent,
-                                            newIndent = newFirstLineIndent,
-                                            savedLine = curLine,
-                                            savedCol = curCol,
-                                            savedScrollX = scrollX,
-                                            savedScrollY = scrollY
-                                        )
-
-                                        // Requirement 3: Silently update note content without triggering analysis/stats cascade
-                                        if (loadedNoteId != null) {
-                                            editorVm.onIndentContentUpdated(formattedText)
-                                        }
-
-                                        scribeEditor.isProcessingIndent = false
-                                        isApplyingIndent = false
                                     }
                                 }
                             }
