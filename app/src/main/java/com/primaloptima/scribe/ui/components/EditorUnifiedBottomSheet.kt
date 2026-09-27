@@ -1733,7 +1733,8 @@ private fun TypographyIndentControl(
         }
     }
 
-    var lastVisualIndentTime by remember { mutableStateOf(0L) }
+    val coroutineScope = rememberCoroutineScope()
+    var debounceCommitJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     ScribeSettingSlider(
         label = "First-Line Indent",
@@ -1741,18 +1742,19 @@ private fun TypographyIndentControl(
         onValueChange = { newVal ->
             val rounded = (newVal / 2f).roundToInt() * 2
             localVal = newVal
-            // Requirement 1: Instant visual feedback throttled to ~30ms to keep slider completely responsive
-            val now = System.currentTimeMillis()
-            if (now - lastVisualIndentTime >= 32L) {
-                lastVisualIndentTime = now
-                onVisualIndentChange?.invoke(rounded)
-            }
+            // Instant, non-blocking visual feedback on the visible canvas
+            onVisualIndentChange?.invoke(rounded)
         },
         onValueChangeFinished = {
-            // Final visual sync and commit background processing on slider release or +/- tap
+            // Instant visual sync on touch release or +/- tap
             val rounded = (localVal / 2f).roundToInt() * 2
             onVisualIndentChange?.invoke(rounded)
-            commitIndent(localVal)
+            // Debounce background processing commit slightly (100ms) to allow rapid +/- taps without blocking
+            debounceCommitJob?.cancel()
+            debounceCommitJob = coroutineScope.launch {
+                kotlinx.coroutines.delay(100L)
+                commitIndent(localVal)
+            }
         },
         valueRange = 0f..8f,
         step = 2f,

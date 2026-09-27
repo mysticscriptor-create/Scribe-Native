@@ -1,12 +1,13 @@
 package com.primaloptima.scribe.engine
 
 import io.github.rosemoe.sora.text.Content
+import kotlinx.coroutines.yield
 
 /**
  * High-performance background text processor for the Scribe Indent System.
  *
  * Implements:
- * 1. Single-pass StringBuilder document processing on Dispatchers.Default.
+ * 1. Single-pass StringBuilder document processing on Dispatchers.Default with cooperative yield().
  * 2. Edge Case handling (Requirement 8): scans and strips pre-existing manual
  *    spaces/tabs before writing new spaces to prevent double indentation.
  * 3. Preserves Markdown headings (#), scene breaks (---, ***, * * *), blockquotes (>),
@@ -98,14 +99,14 @@ object ScribeIndentEngine {
     }
 
     /**
-     * Processes document indentation in a single allocation-friendly pass.
+     * Processes document indentation in a single allocation-friendly pass with cooperative yielding.
      *
      * @param originalText The document content before formatting.
      * @param oldIndent The previous first-line indent setting.
      * @param newIndent The new first-line indent setting in spaces (0 = off).
      * @return The fully formatted document string with real spaces.
      */
-    fun processDocumentIndent(
+    suspend fun processDocumentIndent(
         originalText: String,
         oldIndent: Int,
         newIndent: Int
@@ -118,6 +119,11 @@ object ScribeIndentEngine {
         val sb = StringBuilder(originalText.length + rawLines.size * newIndent)
 
         for (i in rawLines.indices) {
+            // Cooperative multitasking: periodically yield every 100 lines to let other coroutines breathe
+            if (i % 100 == 0 && i > 0) {
+                yield()
+            }
+
             val rawLine = rawLines[i]
             val line = if (rawLine.endsWith("\r")) rawLine.substring(0, rawLine.length - 1) else rawLine
             val trimmed = line.trimStart()
