@@ -15,7 +15,7 @@ import io.github.rosemoe.sora.text.Content
  * 4. Normalizes blank lines to empty strings (never pollutes empty lines with trailing spaces).
  * 5. Accurate cursor column calculation relative to pre-formatted text.
  * 6. Flawless line-ending handling across LF, CRLF, and mixed files.
- * 7. Zero-allocation fast checks for line-level visual hints directly on ContentLine.
+ * 7. Zero-allocation fast checks for line-level visual hints directly on Content buffer.
  */
 object ScribeIndentEngine {
 
@@ -60,20 +60,19 @@ object ScribeIndentEngine {
      *   >= 0 the count of existing leading whitespace characters (spaces or tabs).
      */
     fun getProseLeadingSpacesFast(content: Content, lineIndex: Int): Int {
-        val line = content.getLine(lineIndex) ?: return -1
-        val len = line.length()
+        val len = content.getColumnCount(lineIndex)
         if (len == 0) return -1
 
         var idx = 0
         while (idx < len) {
-            val c = line.charAt(idx)
+            val c = content.charAt(lineIndex, idx)
             if (c != ' ' && c != '\t') break
             idx++
         }
 
         if (idx == len) return -1 // Whitespace only line -> no indent
 
-        val firstChar = line.charAt(idx)
+        val firstChar = content.charAt(lineIndex, idx)
 
         // Quick non-prose checks
         if (firstChar == '#' || firstChar == '>' || firstChar == '`' || firstChar == '|' || firstChar == '<') {
@@ -86,11 +85,11 @@ object ScribeIndentEngine {
         // Ordered lists starting with digit
         if (firstChar in '0'..'9') {
             var dIdx = idx + 1
-            while (dIdx < len && line.charAt(dIdx) in '0'..'9') {
+            while (dIdx < len && content.charAt(lineIndex, dIdx) in '0'..'9') {
                 dIdx++
             }
-            if (dIdx < len && (line.charAt(dIdx) == '.' || line.charAt(dIdx) == ')') &&
-                dIdx + 1 < len && line.charAt(dIdx + 1) == ' ') {
+            if (dIdx < len && (content.charAt(lineIndex, dIdx) == '.' || content.charAt(lineIndex, dIdx) == ')') &&
+                dIdx + 1 < len && content.charAt(lineIndex, dIdx + 1) == ' ') {
                 return -1
             }
         }

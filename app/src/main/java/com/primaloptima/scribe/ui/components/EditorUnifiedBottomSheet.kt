@@ -1733,7 +1733,7 @@ private fun TypographyIndentControl(
         }
     }
 
-    var lastVisualIndentTime by remember { mutableLongStateOf(0L) }
+    var lastVisualIndentTime by remember { mutableStateOf(0L) }
 
     ScribeSettingSlider(
         label = "First-Line Indent",
