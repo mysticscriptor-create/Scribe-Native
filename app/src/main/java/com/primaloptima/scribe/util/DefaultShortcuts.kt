@@ -16,8 +16,10 @@ object DefaultShortcuts {
         ShortcutAction(id = "paren",      label = "( )",     kind = "pair",   payload = "(",   closing = ")"),
         ShortcutAction(id = "bracket",    label = "[ ]",     kind = "pair",   payload = "[",   closing = "]"),
         ShortcutAction(id = "brace",      label = "{ }",     kind = "pair",   payload = "{",   closing = "}"),
-        ShortcutAction(id = "blockquote", label = "Quote",   kind = "insert", payload = "\n> "),
-        ShortcutAction(id = "list",       label = "•",       kind = "insert", payload = "\n- "),
+        ShortcutAction(id = "blockquote", label = "Quote",   kind = "prefix", payload = "> "),
+        ShortcutAction(id = "list",       label = "•",       kind = "prefix", payload = "- "),
+        ShortcutAction(id = "numlist",    label = "1.",      kind = "prefix", payload = "1. "),
+        ShortcutAction(id = "tasklist",   label = "[✓]",     kind = "prefix", payload = "- [ ] "),
         ShortcutAction(id = "hr",         label = "—",       kind = "insert", payload = "\n\n---\n\n"),
         ShortcutAction(id = "emdash",     label = "—",       kind = "insert", payload = " \u2014 "),
         ShortcutAction(id = "ellipsis",   label = "…",       kind = "insert", payload = "\u2026")

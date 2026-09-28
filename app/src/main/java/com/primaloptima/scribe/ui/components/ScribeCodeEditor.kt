@@ -20,6 +20,7 @@ import io.github.rosemoe.sora.widget.layout.WordwrapLayout
 import io.github.rosemoe.sora.lang.styling.inlayHint.InlayHintsContainer
 import io.github.rosemoe.sora.lang.styling.inlayHint.TextInlayHint
 import com.primaloptima.scribe.engine.ScribeIndentEngine
+import com.primaloptima.scribe.engine.ScribeListEngine
 import com.primaloptima.scribe.engine.IndentInlayHint
 import com.primaloptima.scribe.engine.IndentInlayHintRenderer
 
@@ -361,27 +362,82 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val line = cur.leftLine
         val col = cur.leftColumn
         val lineStr = text.getLineString(line)
-        val isWhitespaceOnly = lineStr.isNotEmpty() && lineStr.all { it == ' ' || it == '\t' }
+        val isWhitespaceOnly = lineStr.isEmpty() || lineStr.all { it == ' ' || it == '\t' }
 
-        if (firstLineIndentSpaces > 0) {
-            val indent = " ".repeat(firstLineIndentSpaces)
-            if (lineStr.isEmpty()) {
-                text.insert(line, 0, "$indent\n$indent")
-            } else if (isWhitespaceOnly) {
-                if (lineStr != indent) {
-                    text.replace(line, 0, line, lineStr.length, "$indent\n$indent")
-                } else {
-                    text.insert(line, indent.length, "\n$indent")
-                }
+        // ── Phase 2: Smart List Continuation / Termination ───────────────────
+        val listMatch = ScribeListEngine.parseListLine(lineStr)
+        if (listMatch != null) {
+            val prefix = listMatch.fullPrefix
+            val hasContentAfterPrefix = lineStr.length > prefix.length && lineStr.substring(prefix.length).trim().isNotEmpty()
+
+            if (!hasContentAfterPrefix) {
+                // List termination (Double Enter on an empty list item):
+                // Break out of the list and reset line to base indent (or empty if indent is 0)
+                val baseIndent = if (firstLineIndentSpaces > 0) " ".repeat(firstLineIndentSpaces) else ""
+                text.replace(line, 0, line, lineStr.length, baseIndent)
+                setSelection(line, baseIndent.length)
+                ensureSelectionVisible()
+                notifyIMEExternalCursorChange()
+                return
             } else {
-                text.insert(line, col, "\n$indent")
+                // Line has content after list marker:
+                val nextPrefix = ScribeListEngine.nextSequencePrefix(listMatch)
+                if (col >= prefix.length) {
+                    // Cursor is after or at marker: split line and continue list sequence
+                    val insertStr = "\n$nextPrefix"
+                    text.insert(line, col, insertStr)
+                    ensureSelectionVisible()
+                    notifyIMEExternalCursorChange()
+                    return
+                }
+                // If cursor is before marker (in leading whitespace), fall through to standard newline logic
             }
-            ensureSelectionVisible()
-            notifyIMEExternalCursorChange()
-            return
         }
 
-        // Indent is OFF (Manual mode):
+        // ── Phase 1: Indent Hierarchy & Preserved Spacing ─────────────────────
+        if (firstLineIndentSpaces > 0) {
+            val baseIndent = " ".repeat(firstLineIndentSpaces)
+            if (isWhitespaceOnly) {
+                val currentSpaceCount = lineStr.length
+                if (currentSpaceCount > firstLineIndentSpaces) {
+                    // Chain breaking: User pressed enter on an empty hierarchical indent line.
+                    // Collapse the current line's extra spaces back to the set indent,
+                    // and start the next line cleanly at the set indent.
+                    text.replace(line, 0, line, currentSpaceCount, baseIndent)
+                    text.insert(line, baseIndent.length, "\n$baseIndent")
+                    setSelection(line + 1, baseIndent.length)
+                } else {
+                    // Line is already at base indent (or completely blank):
+                    // Normal paragraph break at base indent. Cursor never retreats behind base indent.
+                    if (lineStr != baseIndent) {
+                        text.replace(line, 0, line, lineStr.length, baseIndent)
+                    }
+                    text.insert(line, baseIndent.length, "\n$baseIndent")
+                    setSelection(line + 1, baseIndent.length)
+                }
+                ensureSelectionVisible()
+                notifyIMEExternalCursorChange()
+                return
+            } else {
+                // Line has text: Measure user's total leading spaces (base indent + hierarchy spaces)
+                var p = 0
+                val maxCheck = minOf(col, lineStr.length)
+                while (p < maxCheck && (lineStr[p] == ' ' || lineStr[p] == '\t')) {
+                    p++
+                }
+                val totalLeading = if (p >= firstLineIndentSpaces) {
+                    lineStr.substring(0, p)
+                } else {
+                    baseIndent
+                }
+                text.insert(line, col, "\n$totalLeading")
+                ensureSelectionVisible()
+                notifyIMEExternalCursorChange()
+                return
+            }
+        }
+
+        // ── Manual Mode (firstLineIndentSpaces == 0) ─────────────────────────
         if (isWhitespaceOnly) {
             text.replace(line, 0, line, lineStr.length, "\n")
             ensureSelectionVisible()
@@ -404,6 +460,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         ensureSelectionVisible()
         notifyIMEExternalCursorChange()
     }
+
     override fun deleteText() {
         val cur = cursor
         if (cur.isSelected) {
@@ -414,14 +471,38 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val line = cur.leftLine
         val col = cur.leftColumn
         val lineStr = text.getLineString(line)
-        val isWhitespaceOnly = lineStr.isEmpty() || lineStr.all { it == ' ' || it == '\t' }
 
+        // ── Phase 2: Single-stroke Backspace on List Marker ──────────────────
+        val listMatch = ScribeListEngine.parseListLine(lineStr)
+        if (listMatch != null) {
+            val prefix = listMatch.fullPrefix
+            // If cursor is positioned at the end of the empty list prefix, delete prefix in one keystroke
+            if (col == prefix.length && lineStr.substring(prefix.length).trim().isEmpty()) {
+                val replacement = if (firstLineIndentSpaces > 0) " ".repeat(firstLineIndentSpaces) else listMatch.leadingWhitespace
+                text.replace(line, 0, line, lineStr.length, replacement)
+                setSelection(line, replacement.length)
+                ensureSelectionVisible()
+                notifyIMEExternalCursorChange()
+                return
+            }
+        }
+
+        // ── Phase 1: Indent Hierarchy & Step-down Backspace ──────────────────
+        val isWhitespaceOnly = lineStr.isEmpty() || lineStr.all { it == ' ' || it == '\t' }
         if (firstLineIndentSpaces > 0) {
             val indent = " ".repeat(firstLineIndentSpaces)
-
             if (isWhitespaceOnly) {
-                // When indent is ON and on an empty/whitespace line:
-                // Delete this entire empty line and place cursor at the end of the previous line
+                // If the empty line has extra hierarchical spaces (> firstLineIndentSpaces):
+                // Step-down backspace: Reduce extra hierarchy spaces back down to set indent first!
+                if (lineStr.length > firstLineIndentSpaces) {
+                    text.replace(line, 0, line, lineStr.length, indent)
+                    setSelection(line, indent.length)
+                    ensureSelectionVisible()
+                    notifyIMEExternalCursorChange()
+                    return
+                }
+
+                // If line is at base indent (or empty), delete line and merge into previous line
                 if (line > 0) {
                     val prevLine = line - 1
                     val prevCol = text.getColumnCount(prevLine)
@@ -447,7 +528,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 if (line > 0) {
                     val prevLine = line - 1
                     val prevCol = text.getColumnCount(prevLine)
-                    // Delete newline and the indent of this line, merging content to prevLine
                     text.delete(prevLine, prevCol, line, firstLineIndentSpaces)
                     setSelection(prevLine, prevCol)
                     ensureSelectionVisible()
@@ -457,10 +537,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
             }
         }
 
-        // When indent is OFF: normal delete behavior (deletes one character/space at a time)
+        // Standard delete behavior (when indent is OFF or normal character deletion)
         super.deleteText()
     }
-
     var isBatchApplyingIndent: Boolean = false
         private set
 

@@ -33,9 +33,9 @@ object ScribeIndentEngine {
             trimmed.startsWith("|") || trimmed.startsWith("<")) {
             return true
         }
-        // Markdown unordered and task lists ("- ", "* ", "+ ", "- [", "* [", "+ [")
-        if (trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("+ ") ||
-            trimmed.startsWith("- [") || trimmed.startsWith("* [") || trimmed.startsWith("+ [")) {
+        // Markdown unordered, bullet, and task lists ("- ", "* ", "+ ", "• ", "- [", "* [", "+ [")
+        if (trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("+ ") || trimmed.startsWith("• ") ||
+            trimmed.startsWith("- [") || trimmed.startsWith("* [") || trimmed.startsWith("+ [") || trimmed.startsWith("• [")) {
             return true
         }
         // Markdown ordered lists ("1. ", "23) ", etc.)
@@ -79,8 +79,8 @@ object ScribeIndentEngine {
         if (firstChar == '#' || firstChar == '>' || firstChar == '`' || firstChar == '|' || firstChar == '<') {
             return -1
         }
-        // Scene breaks or lists starting with '-', '*', '+', '_'
-        if (firstChar == '-' || firstChar == '*' || firstChar == '+' || firstChar == '_') {
+        // Scene breaks or lists starting with '-', '*', '+', '_', '•'
+        if (firstChar == '-' || firstChar == '*' || firstChar == '+' || firstChar == '_' || firstChar == '•') {
             return -1
         }
         // Ordered lists starting with digit

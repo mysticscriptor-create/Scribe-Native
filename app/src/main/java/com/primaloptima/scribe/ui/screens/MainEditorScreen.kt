@@ -1139,9 +1139,10 @@ fun MainEditorScreen(
                                 shortcuts.forEach { shortcut ->
                                     FormatButton(label = shortcut.label) {
                                         when (shortcut.kind) {
-                                            "wrap" -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: shortcut.payload)
-                                            "pair" -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: "")
-                                            else   -> soraEditorRef?.insertAtCursor(shortcut.payload)
+                                            "wrap"   -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: shortcut.payload)
+                                            "pair"   -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: "")
+                                            "prefix" -> soraEditorRef?.applySmartPrefix(shortcut.payload)
+                                            else     -> soraEditorRef?.insertAtCursor(shortcut.payload)
                                         }
                                     }
                                 }
@@ -2190,6 +2191,46 @@ private fun CodeEditor.applyLinePrefix(prefix: String) {
     val line = cursor.leftLine
     text.insert(line, 0, prefix)
     cursor.set(line, cursor.leftColumn + prefix.length)
+}
+
+private fun CodeEditor.applySmartPrefix(prefix: String) {
+    val cur = cursor
+    if (cur.isSelected) {
+        val startLine = cur.leftLine
+        val endLine = cur.rightLine
+        text.beginBatchEdit()
+        try {
+            for (l in startLine..endLine) {
+                text.insert(l, 0, prefix)
+            }
+        } finally {
+            text.endBatchEdit()
+        }
+        setSelectionRegion(startLine, 0, endLine, text.getColumnCount(endLine))
+    } else {
+        val line = cur.leftLine
+        val lineStr = text.getLineString(line)
+        val trimmed = lineStr.trimStart()
+        if (lineStr.isEmpty() || lineStr.all { it == ' ' || it == '\t' }) {
+            // Empty or whitespace-only line: replace with prefix directly
+            text.replace(line, 0, line, lineStr.length, prefix)
+            setSelection(line, prefix.length)
+        } else if (trimmed.startsWith(prefix.trim())) {
+            // Already starts with this prefix: toggle it off
+            val pIdx = lineStr.indexOf(prefix.trim())
+            val endIdx = (pIdx + prefix.length).coerceAtMost(lineStr.length)
+            text.delete(line, pIdx, line, endIdx)
+        } else {
+            // Insert prefix right before current content
+            var leadingWs = 0
+            while (leadingWs < lineStr.length && (lineStr[leadingWs] == ' ' || lineStr[leadingWs] == '\t')) {
+                leadingWs++
+            }
+            text.insert(line, leadingWs, prefix)
+            setSelection(line, cur.leftColumn + prefix.length)
+        }
+    }
+    ensureSelectionVisible()
 }
 
 private fun CodeEditor.insertAtCursor(str: String) {
