@@ -271,6 +271,25 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     return
                 }
 
+                // If user taps behind the set indent (col < firstLineIndentSpaces):
+                // Enforce the invariant that no text may exist or be typed behind the set indent.
+                if (col < firstLineIndentSpaces) {
+                    if (lineStr.startsWith(indent)) {
+                        // The line already has the set indent, but user tapped in the indent whitespace.
+                        // Automatically advance cursor to the set indent boundary before committing text.
+                        setSelection(line, firstLineIndentSpaces)
+                    } else {
+                        // The line lacks the full set indent (e.g. fewer leading spaces):
+                        // Ensure leading whitespace is brought up to full set indent before typing.
+                        var leadingWs = 0
+                        while (leadingWs < lineStr.length && (lineStr[leadingWs] == ' ' || lineStr[leadingWs] == '\t')) {
+                            leadingWs++
+                        }
+                        this.text.replace(line, 0, line, leadingWs, indent)
+                        setSelection(line, firstLineIndentSpaces)
+                    }
+                }
+
                 if (text.contains('\n') || text.contains('\r') || isPastedOrMultiLineText(text)) {
                     val processed = formatPastedText(text)
                     super.commitText(processed, applyAutoIndent, applySymbolCompletion)
