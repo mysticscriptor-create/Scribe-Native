@@ -2194,40 +2194,138 @@ private fun CodeEditor.applyLinePrefix(prefix: String) {
 }
 
 private fun CodeEditor.applySmartPrefix(prefix: String) {
+    val scribeEditor = this as? com.primaloptima.scribe.ui.components.ScribeCodeEditor
+    val indentSpaces = scribeEditor?.firstLineIndentSpaces ?: 0
+    val baseIndent = if (indentSpaces > 0) " ".repeat(indentSpaces) else ""
+    val isOrderedRequested = prefix.trim().firstOrNull()?.isDigit() == true
+
     val cur = cursor
     if (cur.isSelected) {
         val startLine = cur.leftLine
         val endLine = cur.rightLine
+
+        // Determine if all selected lines already have this EXACT prefix type
+        var allMatch = true
+        var hasNonEmptyLine = false
+        for (l in startLine..endLine) {
+            val lineStr = text.getLineString(l)
+            if (lineStr.trim().isEmpty()) continue
+            hasNonEmptyLine = true
+            val match = com.primaloptima.scribe.engine.ScribeListEngine.parseListLine(lineStr)
+            val matchesThisType = when {
+                prefix.startsWith(">") -> match?.isBlockquote == true
+                prefix.startsWith("- [ ]") -> match?.isTask == true
+                isOrderedRequested -> match?.isOrdered == true
+                else -> match != null && !match.isOrdered && !match.isTask && !match.isBlockquote && match.marker.trim() == prefix.trim()
+            }
+            if (!matchesThisType) {
+                allMatch = false
+                break
+            }
+        }
+
+        val shouldToggleOff = hasNonEmptyLine && allMatch
+
         text.beginBatchEdit()
         try {
+            var orderCounter = 1L
             for (l in startLine..endLine) {
-                text.insert(l, 0, prefix)
+                val lineStr = text.getLineString(l)
+                if (lineStr.trim().isEmpty()) {
+                    continue
+                }
+
+                val existingMatch = com.primaloptima.scribe.engine.ScribeListEngine.parseListLine(lineStr)
+                if (shouldToggleOff) {
+                    // Remove existing prefix, preserving set indent floor and extra hierarchy whitespace
+                    if (existingMatch != null) {
+                        val leading = existingMatch.leadingWhitespace
+                        val effLeading = if (indentSpaces > 0 && leading.length < indentSpaces) baseIndent else leading
+                        val afterMarker = lineStr.substring(existingMatch.fullPrefix.length)
+                        text.replace(l, 0, l, lineStr.length, effLeading + afterMarker)
+                    }
+                } else {
+                    // Determine leading whitespace: must respect set indent floor
+                    val leading = if (existingMatch != null) {
+                        val ws = existingMatch.leadingWhitespace
+                        if (indentSpaces > 0 && ws.length < indentSpaces) baseIndent else ws
+                    } else {
+                        var p = 0
+                        while (p < lineStr.length && (lineStr[p] == ' ' || lineStr[p] == '\t')) {
+                            p++
+                        }
+                        val ws = lineStr.substring(0, p)
+                        if (indentSpaces > 0 && ws.length < indentSpaces) baseIndent else ws
+                    }
+
+                    // Content without existing list prefix or leading spaces
+                    val contentOnly = if (existingMatch != null) {
+                        lineStr.substring(existingMatch.fullPrefix.length)
+                    } else {
+                        lineStr.trimStart()
+                    }
+
+                    val linePrefix = if (isOrderedRequested) {
+                        val num = orderCounter++
+                        "$num. "
+                    } else {
+                        prefix
+                    }
+
+                    val newLineStr = leading + linePrefix + contentOnly
+                    text.replace(l, 0, l, lineStr.length, newLineStr)
+                }
             }
         } finally {
             text.endBatchEdit()
         }
         setSelectionRegion(startLine, 0, endLine, text.getColumnCount(endLine))
     } else {
+        // Single cursor line
         val line = cur.leftLine
         val lineStr = text.getLineString(line)
-        val trimmed = lineStr.trimStart()
-        if (lineStr.isEmpty() || lineStr.all { it == ' ' || it == '\t' }) {
-            // Empty or whitespace-only line: replace with prefix directly
-            text.replace(line, 0, line, lineStr.length, prefix)
-            setSelection(line, prefix.length)
-        } else if (trimmed.startsWith(prefix.trim())) {
-            // Already starts with this prefix: toggle it off
-            val pIdx = lineStr.indexOf(prefix.trim())
-            val endIdx = (pIdx + prefix.length).coerceAtMost(lineStr.length)
-            text.delete(line, pIdx, line, endIdx)
+        val existingMatch = com.primaloptima.scribe.engine.ScribeListEngine.parseListLine(lineStr)
+
+        val isSameType = when {
+            existingMatch == null -> false
+            prefix.startsWith(">") -> existingMatch.isBlockquote
+            prefix.startsWith("- [ ]") -> existingMatch.isTask
+            isOrderedRequested -> existingMatch.isOrdered
+            else -> !existingMatch.isOrdered && !existingMatch.isTask && !existingMatch.isBlockquote && existingMatch.marker.trim() == prefix.trim()
+        }
+
+        if (isSameType && existingMatch != null) {
+            // Clicking the same list item toggles it off
+            val leading = existingMatch.leadingWhitespace
+            val effLeading = if (indentSpaces > 0 && leading.length < indentSpaces) baseIndent else leading
+            val afterMarker = lineStr.substring(existingMatch.fullPrefix.length)
+            val newLineStr = effLeading + afterMarker
+            text.replace(line, 0, line, lineStr.length, newLineStr)
+            setSelection(line, effLeading.length)
+        } else if (existingMatch != null) {
+            // Switching from one list type to another (e.g. bullet -> number or number -> task):
+            // Replace the previous list item marker instead of adding on top!
+            val leading = existingMatch.leadingWhitespace
+            val effLeading = if (indentSpaces > 0 && leading.length < indentSpaces) baseIndent else leading
+            val afterMarker = lineStr.substring(existingMatch.fullPrefix.length)
+            val linePrefix = if (isOrderedRequested) "1. " else prefix
+            val newLineStr = effLeading + linePrefix + afterMarker
+            text.replace(line, 0, line, lineStr.length, newLineStr)
+            setSelection(line, (effLeading + linePrefix).length)
         } else {
-            // Insert prefix right before current content
-            var leadingWs = 0
-            while (leadingWs < lineStr.length && (lineStr[leadingWs] == ' ' || lineStr[leadingWs] == '\t')) {
-                leadingWs++
+            // Line has no list prefix currently:
+            // Determine leading spaces, enforcing set indent floor
+            var p = 0
+            while (p < lineStr.length && (lineStr[p] == ' ' || lineStr[p] == '\t')) {
+                p++
             }
-            text.insert(line, leadingWs, prefix)
-            setSelection(line, cur.leftColumn + prefix.length)
+            val ws = lineStr.substring(0, p)
+            val effLeading = if (indentSpaces > 0 && ws.length < indentSpaces) baseIndent else ws
+            val contentOnly = lineStr.trimStart()
+            val linePrefix = if (isOrderedRequested) "1. " else prefix
+            val newLineStr = effLeading + linePrefix + contentOnly
+            text.replace(line, 0, line, lineStr.length, newLineStr)
+            setSelection(line, (effLeading + linePrefix).length)
         }
     }
     ensureSelectionVisible()

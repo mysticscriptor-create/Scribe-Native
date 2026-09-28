@@ -400,7 +400,19 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 return
             } else {
                 // Line has content after list marker:
-                val nextPrefix = ScribeListEngine.nextSequencePrefix(listMatch)
+                // Ensure the next prefix strictly honors the set indent floor
+                val rawNextPrefix = ScribeListEngine.nextSequencePrefix(listMatch)
+                val nextPrefix = if (firstLineIndentSpaces > 0) {
+                    val baseIndent = " ".repeat(firstLineIndentSpaces)
+                    if (listMatch.leadingWhitespace.length < firstLineIndentSpaces) {
+                        baseIndent + rawNextPrefix.substring(listMatch.leadingWhitespace.length)
+                    } else {
+                        rawNextPrefix
+                    }
+                } else {
+                    rawNextPrefix
+                }
+
                 if (col >= prefix.length) {
                     // Cursor is after or at marker: split line and continue list sequence
                     val insertStr = "\n$nextPrefix"
