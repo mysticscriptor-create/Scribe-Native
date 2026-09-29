@@ -1509,8 +1509,7 @@ private fun CreateOrEditShortcutSheet(
                         .background(contentSecondary.copy(alpha = 0.35f), CircleShape)
                 )
             }
-        },
-        windowInsets = WindowInsets(0, 0, 0, 0)
+        }
     ) {
         Column(
             modifier = Modifier
