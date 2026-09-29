@@ -18,10 +18,12 @@ data class ShortcutAction(
     val payload: String,
     /** Non-null for wrap/pair */
     val closing: String? = null,
-    /** Category: "dialogue" | "symbols" | "punctuation" | "structure" | "formatting" | "custom" */
+    /** Category: "dialogue" | "brackets" | "punctuation" | "scene_breaks" | "structure" | "formatting" | "arrows" | "math" | "currency" | "custom" */
     val category: String = "custom",
     /** Whether enabled for display in the shortcut bar */
-    val isEnabled: Boolean = true
+    val isEnabled: Boolean = true,
+    /** Optional discovery keywords / aliases for real-time search */
+    val keywords: List<String> = emptyList()
 )
 
 // ── Pinned item ───────────────────────────────────────────────────────────────

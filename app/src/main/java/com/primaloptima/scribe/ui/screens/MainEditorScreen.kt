@@ -2499,7 +2499,7 @@ private fun ShortcutBarChip(
     onLongClick: () -> Unit
 ) {
     val accentColor = ScribeTheme.colors.interaction.primary
-    val isDialogueOrSymbol = shortcut.category == "dialogue" || shortcut.category == "symbols"
+    val isDialogueOrSymbol = shortcut.category == "dialogue" || shortcut.category == "symbols" || shortcut.category == "brackets" || shortcut.category == "scene_breaks"
     val chipBg = if (isDialogueOrSymbol) {
         accentColor.copy(alpha = 0.12f)
     } else {

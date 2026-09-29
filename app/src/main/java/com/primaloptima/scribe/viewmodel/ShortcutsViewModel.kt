@@ -36,8 +36,26 @@ class ShortcutsViewModel(application: Application) : AndroidViewModel(applicatio
 
     init {
         viewModelScope.launch {
-            _shortcuts.value = dataStore.getShortcuts()
-            _disabledCategories.value = dataStore.getDisabledCategories()
+            val loadedShortcuts = dataStore.getShortcuts()
+            val rawDisabledCats = dataStore.getDisabledCategories()
+
+            // Defensively migrate disabled categories:
+            // If legacy "symbols" category was disabled by the user, inherit disable state
+            // to the newly split categories (brackets, scene_breaks) so migrated items don't suddenly appear uninvited.
+            val migratedDisabledCats = rawDisabledCats.toMutableSet()
+            if (rawDisabledCats.contains("symbols")) {
+                migratedDisabledCats.add(DefaultShortcuts.CAT_BRACKETS)
+                migratedDisabledCats.add(DefaultShortcuts.CAT_SCENE_BREAKS)
+            }
+
+            _shortcuts.value = loadedShortcuts
+            _disabledCategories.value = migratedDisabledCats
+
+            // Persist the migrated states quietly
+            save(loadedShortcuts)
+            if (migratedDisabledCats != rawDisabledCats) {
+                dataStore.setDisabledCategoriesJson(AppJson.encodeToString(migratedDisabledCats))
+            }
         }
     }
 

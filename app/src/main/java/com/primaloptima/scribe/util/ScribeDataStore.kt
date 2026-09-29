@@ -179,13 +179,33 @@ class ScribeDataStore(private val context: Context) {
         val json = store.data.first()[SHORTCUTS_JSON] ?: return DefaultShortcuts.all
         return try {
             val list = AppJson.decodeFromString<List<ShortcutAction>>(json)
-            // If saved list has old legacy defaults (missing new categories), merge newly available defaults
-            val existingIds = list.map { it.id }.toSet()
+            val defaultMap = DefaultShortcuts.all.associateBy { it.id }
+
+            // Migration step 1: Migrate legacy category IDs and fill missing keywords
+            val migratedList = list.map { action ->
+                val def = defaultMap[action.id]
+                var cat = action.category
+                if (action.id in setOf("paren", "bracket", "brace", "sym_status_bracket", "sym_lenticular", "sym_white_square", "sym_angle_bracket", "sym_double_angle", "sym_floor")) {
+                    cat = DefaultShortcuts.CAT_BRACKETS
+                } else if (action.id in setOf("hr", "sym_asterism", "sym_three_stars", "sym_sparkle", "sym_black_star", "sym_section", "sym_fleuron")) {
+                    cat = DefaultShortcuts.CAT_SCENE_BREAKS
+                } else if (action.id == "ellipsis") {
+                    cat = DefaultShortcuts.CAT_PUNCTUATION
+                }
+
+                action.copy(
+                    category = cat,
+                    keywords = if (action.keywords.isEmpty() && def != null) def.keywords else action.keywords
+                )
+            }
+
+            // Migration step 2: Merge any newly available default shortcuts
+            val existingIds = migratedList.map { it.id }.toSet()
             val missingDefaults = DefaultShortcuts.all.filter { it.id !in existingIds }
             if (missingDefaults.isNotEmpty()) {
-                list + missingDefaults
+                migratedList + missingDefaults
             } else {
-                list
+                migratedList
             }
         } catch (_: Exception) { DefaultShortcuts.all }
     }
