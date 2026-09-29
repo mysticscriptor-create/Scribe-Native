@@ -381,6 +381,37 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val line = cur.leftLine
         val col = cur.leftColumn
         val lineStr = text.getLineString(line)
+
+        // ── Auto-Pair Deletion (Novelist QoL) ─────────────────────────────────
+        // If cursor is sitting directly between an open and close pair, delete both characters!
+        if (col > 0 && col < lineStr.length) {
+            val beforeChar = lineStr[col - 1]
+            val afterChar = lineStr[col]
+            val isPair = (beforeChar == '“' && afterChar == '”') ||
+                (beforeChar == '‘' && afterChar == '’') ||
+                (beforeChar == '"' && afterChar == '"') ||
+                (beforeChar == ''' && afterChar == ''') ||
+                (beforeChar == '❝' && afterChar == '❞') ||
+                (beforeChar == '❛' && afterChar == '❜') ||
+                (beforeChar == '「' && afterChar == '」') ||
+                (beforeChar == '『' && afterChar == '』') ||
+                (beforeChar == '«' && afterChar == '»') ||
+                (beforeChar == '【' && afterChar == '】') ||
+                (beforeChar == '〔' && afterChar == '〕') ||
+                (beforeChar == '⟦' && afterChar == '⟧') ||
+                (beforeChar == '⟨' && afterChar == '⟩') ||
+                (beforeChar == '(' && afterChar == ')') ||
+                (beforeChar == '[' && afterChar == ']') ||
+                (beforeChar == '{' && afterChar == '}')
+
+            if (isPair) {
+                text.delete(line, col - 1, line, col + 1)
+                setSelection(line, col - 1)
+                ensureSelectionVisible()
+                notifyIMEExternalCursorChange()
+                return
+            }
+        }
         val isWhitespaceOnly = lineStr.isEmpty() || lineStr.all { it == ' ' || it == '\t' }
 
         // ── Phase 2: Smart List Continuation / Termination ───────────────────

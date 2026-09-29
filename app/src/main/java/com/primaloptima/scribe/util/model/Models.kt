@@ -13,11 +13,15 @@ import kotlinx.serialization.Serializable
 data class ShortcutAction(
     val id: String,
     val label: String,
-    /** "insert" | "wrap" | "pair" */
+    /** "insert" | "wrap" | "pair" | "prefix" */
     val kind: String,
     val payload: String,
     /** Non-null for wrap/pair */
-    val closing: String? = null
+    val closing: String? = null,
+    /** Category: "dialogue" | "symbols" | "punctuation" | "structure" | "formatting" | "custom" */
+    val category: String = "custom",
+    /** Whether enabled for display in the shortcut bar */
+    val isEnabled: Boolean = true
 )
 
 // ── Pinned item ───────────────────────────────────────────────────────────────

@@ -71,6 +71,7 @@ class ScribeDataStore(private val context: Context) {
 
         // Shortcuts & Pinned
         val SHORTCUTS_JSON     = stringPreferencesKey("shortcuts_json")
+        val DISABLED_CATEGORIES_JSON = stringPreferencesKey("disabled_categories_json")
         val PINNED_JSON        = stringPreferencesKey("pinned_json")
 
         // Companion panel — pinned notes slots (persisted as JSON list of note IDs)
@@ -177,8 +178,27 @@ class ScribeDataStore(private val context: Context) {
     suspend fun getShortcuts(): List<ShortcutAction> {
         val json = store.data.first()[SHORTCUTS_JSON] ?: return DefaultShortcuts.all
         return try {
-            AppJson.decodeFromString<List<ShortcutAction>>(json)
+            val list = AppJson.decodeFromString<List<ShortcutAction>>(json)
+            // If saved list has old legacy defaults (missing new categories), merge newly available defaults
+            val existingIds = list.map { it.id }.toSet()
+            val missingDefaults = DefaultShortcuts.all.filter { it.id !in existingIds }
+            if (missingDefaults.isNotEmpty()) {
+                list + missingDefaults
+            } else {
+                list
+            }
         } catch (_: Exception) { DefaultShortcuts.all }
+    }
+
+    suspend fun getDisabledCategories(): Set<String> {
+        val json = store.data.first()[DISABLED_CATEGORIES_JSON] ?: return emptySet()
+        return try {
+            AppJson.decodeFromString<Set<String>>(json)
+        } catch (_: Exception) { emptySet() }
+    }
+
+    suspend fun setDisabledCategoriesJson(json: String) {
+        store.edit { it[DISABLED_CATEGORIES_JSON] = json }
     }
 
     suspend fun getBookGoal(bookId: String): BookGoal {

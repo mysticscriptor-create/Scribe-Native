@@ -175,12 +175,20 @@ class ScribeProseLanguage(private val documentWeight: Int = 400) : EmptyLanguage
                 while (i < len) {
                     val c = line[i]
 
-                    // 1. Spoken dialogue quotes: " “ ” « »
-                    if (c == '"' || c == '\u201C' || c == '\u201D' || c == '\u00AB' || c == '\u00BB') {
+                    // 1. Spoken dialogue quotes & novel/LitRPG symbols (Item 6 & 7):
+                    // " “ ” « » ❝ ❞ 「 」 『 』 【 】 ⟦ ⟧
+                    val isDialogueChar = c == '"' || c == '“' || c == '”' ||
+                        c == '«' || c == '»' ||
+                        c == '❝' || c == '❞' ||
+                        c == '「' || c == '」' ||
+                        c == '『' || c == '』' ||
+                        c == '【' || c == '】' ||
+                        c == '⟦' || c == '⟧'
+                    if (isDialogueChar) {
                         when (c) {
-                            '"', '\u00AB', '\u00BB' -> inDialogue = !inDialogue
-                            '\u201C' -> inDialogue = true
-                            '\u201D' -> inDialogue = false
+                            '"', '«', '»' -> inDialogue = !inDialogue
+                            '“', '❝', '「', '『', '【', '⟦' -> inDialogue = true
+                            '”', '❞', '」', '』', '】', '⟧' -> inDialogue = false
                         }
                         addSpan(i, TextStyle.makeStyle(ScribeProseTokens.DIALOGUE, 0, isBaseBold, false, false))
                         if (!inDialogue && i + 1 < len) {
@@ -189,8 +197,6 @@ class ScribeProseLanguage(private val documentWeight: Int = 400) : EmptyLanguage
                         i++
                         continue
                     }
-
-                    // 2. Bold markdown: **bold**  (must come before single-* check)
                     if (c == '*' && i + 1 < len && line[i + 1] == '*' && !inDialogue) {
                         val closingIndex = line.indexOf("**", i + 2)
                         if (closingIndex != -1) {

@@ -1,3 +1,7 @@
+import dev.chrisbanes.haze.hazeEffect
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.foundation.combinedClickable
 package com.primaloptima.scribe.ui.screens
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -251,7 +255,7 @@ fun MainEditorScreen(
 
     val allNotes   by noteListVm.notes.collectAsStateWithLifecycle()
     val allFolders by noteListVm.folders.collectAsStateWithLifecycle()
-    val shortcuts  by shortcutsVm.shortcuts.collectAsStateWithLifecycle()
+    val shortcuts  by shortcutsVm.activeBarShortcuts.collectAsStateWithLifecycle()
 
     val floatingWindows    by editorVm.floatingWindows.collectAsStateWithLifecycle()
     val workbenchState     by editorVm.workbenchState.collectAsStateWithLifecycle()
@@ -1116,36 +1120,114 @@ fun MainEditorScreen(
                     }
 
                     // ── Shortcut Bar (Floating Keyboard Accessory) ────────────
-                    if (isKeyboardVisible) {
+                    if (isKeyboardVisible && shortcuts.isNotEmpty()) {
                         CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
                             val registerBounds = LocalInteractiveBoundsRegistry.current
                             DisposableEffect(Unit) {
                                 onDispose { registerBounds("shortcut_bar", null) }
                             }
-                            Row(
+                            var longPressedShortcut by remember { mutableStateOf<ShortcutAction?>(null) }
+                            val haptic = LocalHapticFeedback.current
+
+                            Surface(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .padding(horizontal = 6.dp)
                                     .align(Alignment.BottomCenter)
                                     .imePadding()
-                                    .frostedBar(hazeState)
                                     .onGloballyPositioned { coords ->
                                         registerBounds("shortcut_bar", coords.boundsInRoot())
-                                    }
-                                    .horizontalScroll(rememberScrollState())
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                verticalAlignment     = Alignment.CenterVertically
+                                    },
+                                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                                tonalElevation = 4.dp,
+                                shadowElevation = 3.dp,
+                                border = androidx.compose.foundation.BorderStroke(
+                                    width = 0.6.dp,
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                                )
                             ) {
-                                shortcuts.forEach { shortcut ->
-                                    FormatButton(label = shortcut.label) {
-                                        when (shortcut.kind) {
-                                            "wrap"   -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: shortcut.payload)
-                                            "pair"   -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: "")
-                                            "prefix" -> soraEditorRef?.applySmartPrefix(shortcut.payload)
-                                            else     -> soraEditorRef?.insertAtCursor(shortcut.payload)
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .then(if (hazeState != null) Modifier.hazeEffect(hazeState) else Modifier)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState())
+                                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment     = Alignment.CenterVertically
+                                    ) {
+                                        var lastCategory: String? = null
+                                        shortcuts.forEach { shortcut ->
+                                            if (lastCategory != null && lastCategory != shortcut.category) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .height(18.dp)
+                                                        .width(1.dp)
+                                                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                                                )
+                                            }
+                                            lastCategory = shortcut.category
+
+                                            ShortcutBarChip(
+                                                shortcut = shortcut,
+                                                onClick = {
+                                                    when (shortcut.kind) {
+                                                        "wrap"   -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: shortcut.payload)
+                                                        "pair"   -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: "")
+                                                        "prefix" -> soraEditorRef?.applySmartPrefix(shortcut.payload)
+                                                        else     -> soraEditorRef?.insertAtCursor(shortcut.payload)
+                                                    }
+                                                },
+                                                onLongClick = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                    longPressedShortcut = shortcut
+                                                }
+                                            )
                                         }
                                     }
                                 }
+                            }
+
+                            longPressedShortcut?.let { target ->
+                                FrostedDialog(
+                                    onDismissRequest = { longPressedShortcut = null },
+                                    title = { Text("Shortcut: ${target.label}") },
+                                    text = {
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text(
+                                                "Kind: ${target.kind.replaceFirstChar { it.uppercase() }} • Category: ${target.category.replaceFirstChar { it.uppercase() }}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Text(
+                                                "Payload: ${target.payload.replace("
+", "\n")}${if (!target.closing.isNullOrEmpty()) " ... " + target.closing else ""}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    },
+                                    confirmButton = {
+                                        TextButton(onClick = {
+                                            longPressedShortcut = null
+                                            onOpenShortcuts()
+                                        }) {
+                                            Text("Customize in Studio")
+                                        }
+                                    },
+                                    dismissButton = {
+                                        TextButton(onClick = {
+                                            shortcutsVm.setShortcutEnabled(target.id, false)
+                                            longPressedShortcut = null
+                                        }) {
+                                            Text("Hide from Bar")
+                                        }
+                                    }
+                                )
                             }
                         }
                     }
@@ -2339,3 +2421,52 @@ private fun parseComposeColor(hex: String, fallback: Color): Color = try {
     Color(android.graphics.Color.parseColor(hex))
 } catch (_: Exception) { fallback }
 
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun ShortcutBarChip(
+    shortcut: ShortcutAction,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
+    val accentColor = ScribeTheme.colors.interaction.primary
+    val isDialogueOrSymbol = shortcut.category == "dialogue" || shortcut.category == "symbols"
+    val chipBg = if (isDialogueOrSymbol) {
+        accentColor.copy(alpha = 0.12f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+    }
+    val contentColor = if (isDialogueOrSymbol) {
+        accentColor
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Surface(
+        shape = CircleShape,
+        color = chipBg,
+        contentColor = contentColor,
+        border = androidx.compose.foundation.BorderStroke(
+            0.5.dp,
+            if (isDialogueOrSymbol) accentColor.copy(alpha = 0.3f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+        ),
+        modifier = Modifier
+            .height(ScribeTheme.metrics.chipHeight)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.padding(horizontal = ScribeTheme.spacing.medium, vertical = ScribeTheme.spacing.micro)
+        ) {
+            Text(
+                text = shortcut.label,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1
+            )
+        }
+    }
+}
