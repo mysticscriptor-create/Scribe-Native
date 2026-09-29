@@ -862,6 +862,7 @@ fun MainEditorScreen(
                             val density = layout.context.resources.displayMetrics.density
                             val editor = layout.editor
                             val scribeEditor = editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor
+                            scribeEditor?.activeShortcuts = shortcuts
                             val padH = (activeTheme?.paddingHorizontal ?: 10).toFloat()
                             if (kotlin.math.abs(lastAppliedPadding - padH) > 0.5f) {
                                 lastAppliedPadding = padH
@@ -1244,9 +1245,12 @@ fun MainEditorScreen(
                                                 shortcut = shortcut,
                                                 onClick = {
                                                     when (shortcut.kind) {
-                                                        "wrap"   -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: shortcut.payload)
-                                                        "pair"   -> soraEditorRef?.applyFormat(shortcut.payload, shortcut.closing ?: "")
-                                                        "prefix" -> soraEditorRef?.applySmartPrefix(shortcut.payload)
+                                                        "wrap", "pair" -> {
+                                                            val open = shortcut.payload
+                                                            val close = shortcut.closing?.ifBlank { null } ?: shortcut.payload
+                                                            soraEditorRef?.applyFormat(open, close)
+                                                        }
+                                                        "prefix" -> soraEditorRef?.applySmartPrefix(shortcut.payload, shortcuts)
                                                         else     -> soraEditorRef?.insertAtCursor(shortcut.payload)
                                                     }
                                                 },
@@ -2344,7 +2348,7 @@ private fun CodeEditor.applyLinePrefix(prefix: String) {
     cursor.set(line, cursor.leftColumn + prefix.length)
 }
 
-private fun CodeEditor.applySmartPrefix(prefix: String) {
+private fun CodeEditor.applySmartPrefix(prefix: String, activeShortcuts: List<com.primaloptima.scribe.util.model.ShortcutAction> = emptyList()) {
     val scribeEditor = this as? com.primaloptima.scribe.ui.components.ScribeCodeEditor
     val indentSpaces = scribeEditor?.firstLineIndentSpaces ?: 0
     val baseIndent = if (indentSpaces > 0) " ".repeat(indentSpaces) else ""
@@ -2362,7 +2366,7 @@ private fun CodeEditor.applySmartPrefix(prefix: String) {
             val lineStr = text.getLineString(l)
             if (lineStr.trim().isEmpty()) continue
             hasNonEmptyLine = true
-            val match = com.primaloptima.scribe.engine.ScribeListEngine.parseListLine(lineStr)
+            val match = com.primaloptima.scribe.engine.ScribeSmartEnterEngine.parsePrefix(lineStr, activeShortcuts)
             val matchesThisType = when {
                 prefix.startsWith(">") -> match?.isBlockquote == true
                 prefix.startsWith("- [ ]") -> match?.isTask == true
@@ -2386,7 +2390,7 @@ private fun CodeEditor.applySmartPrefix(prefix: String) {
                     continue
                 }
 
-                val existingMatch = com.primaloptima.scribe.engine.ScribeListEngine.parseListLine(lineStr)
+                val existingMatch = com.primaloptima.scribe.engine.ScribeSmartEnterEngine.parsePrefix(lineStr, activeShortcuts)
                 if (shouldToggleOff) {
                     // Remove existing prefix, preserving set indent floor and extra hierarchy whitespace
                     if (existingMatch != null) {
@@ -2435,7 +2439,7 @@ private fun CodeEditor.applySmartPrefix(prefix: String) {
         // Single cursor line
         val line = cur.leftLine
         val lineStr = text.getLineString(line)
-        val existingMatch = com.primaloptima.scribe.engine.ScribeListEngine.parseListLine(lineStr)
+        val existingMatch = com.primaloptima.scribe.engine.ScribeSmartEnterEngine.parsePrefix(lineStr, activeShortcuts)
 
         val isSameType = when {
             existingMatch == null -> false

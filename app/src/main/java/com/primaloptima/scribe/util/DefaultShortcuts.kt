@@ -425,7 +425,7 @@ object DefaultShortcuts {
         ShortcutAction(
             id = "bold",
             label = "B",
-            kind = "wrap",
+            kind = "pair",
             payload = "**",
             closing = "**",
             category = CAT_FORMATTING,
@@ -435,7 +435,7 @@ object DefaultShortcuts {
         ShortcutAction(
             id = "italic",
             label = "I",
-            kind = "wrap",
+            kind = "pair",
             payload = "*",
             closing = "*",
             category = CAT_FORMATTING,
@@ -445,7 +445,7 @@ object DefaultShortcuts {
         ShortcutAction(
             id = "strikethrough",
             label = "S",
-            kind = "wrap",
+            kind = "pair",
             payload = "~~",
             closing = "~~",
             category = CAT_FORMATTING,
@@ -455,7 +455,7 @@ object DefaultShortcuts {
         ShortcutAction(
             id = "code",
             label = "‹›",
-            kind = "wrap",
+            kind = "pair",
             payload = "`",
             closing = "`",
             category = CAT_FORMATTING,

@@ -21,6 +21,8 @@ import io.github.rosemoe.sora.lang.styling.inlayHint.InlayHintsContainer
 import io.github.rosemoe.sora.lang.styling.inlayHint.TextInlayHint
 import com.primaloptima.scribe.engine.ScribeIndentEngine
 import com.primaloptima.scribe.engine.ScribeListEngine
+import com.primaloptima.scribe.engine.ScribeSmartEnterEngine
+import com.primaloptima.scribe.util.model.ShortcutAction
 import com.primaloptima.scribe.engine.IndentInlayHint
 import com.primaloptima.scribe.engine.IndentInlayHintRenderer
 
@@ -229,6 +231,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
 
     var firstLineIndentSpaces: Int = 0
+    var activeShortcuts: List<ShortcutAction> = emptyList()
     private var isInternalPasting: Boolean = false
 
     override fun pasteText() {
@@ -381,41 +384,33 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val line = cur.leftLine
         val col = cur.leftColumn
         val lineStr = text.getLineString(line)
+        // ── Phase 0: Smart Pair Exit (Novelist & Dialogue QoL) ────────────────
+        // When typing inside quotes, brackets, or markdown wrap, pressing Enter before
+        // the closing delimiter jumps cleanly past it, starting a fresh line outside the pair!
+        val pairExit = ScribeSmartEnterEngine.checkPairExit(lineStr, col, activeShortcuts)
+        if (pairExit != null) {
+            val exitCol = pairExit.jumpPastCol
+            val remainingAfter = lineStr.substring(exitCol).trim()
+            val baseIndent = if (firstLineIndentSpaces > 0) " ".repeat(firstLineIndentSpaces) else ""
 
-        // ── Auto-Pair Deletion (Novelist QoL) ─────────────────────────────────
-        // If cursor is sitting directly between an open and close pair, delete both characters!
-        if (col > 0 && col < lineStr.length) {
-            val beforeChar = lineStr[col - 1]
-            val afterChar = lineStr[col]
-            val isPair = (beforeChar == '“' && afterChar == '”') ||
-                (beforeChar == '‘' && afterChar == '’') ||
-                (beforeChar == '"' && afterChar == '"') ||
-                (beforeChar == '\'' && afterChar == '\'') ||
-                (beforeChar == '❝' && afterChar == '❞') ||
-                (beforeChar == '❛' && afterChar == '❜') ||
-                (beforeChar == '「' && afterChar == '」') ||
-                (beforeChar == '『' && afterChar == '』') ||
-                (beforeChar == '«' && afterChar == '»') ||
-                (beforeChar == '【' && afterChar == '】') ||
-                (beforeChar == '〔' && afterChar == '〕') ||
-                (beforeChar == '⟦' && afterChar == '⟧') ||
-                (beforeChar == '⟨' && afterChar == '⟩') ||
-                (beforeChar == '(' && afterChar == ')') ||
-                (beforeChar == '[' && afterChar == ']') ||
-                (beforeChar == '{' && afterChar == '}')
+            // Advance cursor outside the closing delimiter
+            setSelection(line, exitCol)
 
-            if (isPair) {
-                text.delete(line, col - 1, line, col + 1)
-                setSelection(line, col - 1)
-                ensureSelectionVisible()
-                notifyIMEExternalCursorChange()
-                return
+            // If at end of line (e.g. “Dialogue|” or “|”), create the new line cleanly outside the pair
+            if (remainingAfter.isEmpty()) {
+                val insertStr = "\n$baseIndent"
+                text.insert(line, exitCol, insertStr)
+                setSelection(line + 1, baseIndent.length)
             }
+            ensureSelectionVisible()
+            notifyIMEExternalCursorChange()
+            return
         }
+
         val isWhitespaceOnly = lineStr.isEmpty() || lineStr.all { it == ' ' || it == '\t' }
 
         // ── Phase 2: Smart List Continuation / Termination ───────────────────
-        val listMatch = ScribeListEngine.parseListLine(lineStr)
+        val listMatch = ScribeSmartEnterEngine.parsePrefix(lineStr, activeShortcuts)
         if (listMatch != null) {
             val prefix = listMatch.fullPrefix
             val hasContentAfterPrefix = lineStr.length > prefix.length && lineStr.substring(prefix.length).trim().isNotEmpty()
@@ -534,8 +529,20 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val col = cur.leftColumn
         val lineStr = text.getLineString(line)
 
+        // ── Phase 0: Auto-Pair Deletion (Dynamic from Shortcuts) ──────────────
+        val pairDeleteLens = ScribeSmartEnterEngine.checkPairBackspace(lineStr, col, activeShortcuts)
+        if (pairDeleteLens != null) {
+            val openLen = pairDeleteLens.first
+            val closeLen = pairDeleteLens.second
+            text.delete(line, col - openLen, line, col + closeLen)
+            setSelection(line, col - openLen)
+            ensureSelectionVisible()
+            notifyIMEExternalCursorChange()
+            return
+        }
+
         // ── Phase 2: Single-stroke Backspace on List Marker ──────────────────
-        val listMatch = ScribeListEngine.parseListLine(lineStr)
+        val listMatch = ScribeSmartEnterEngine.parsePrefix(lineStr, activeShortcuts)
         if (listMatch != null) {
             val prefix = listMatch.fullPrefix
             // If cursor is positioned at the end of the empty list prefix, delete prefix in one keystroke

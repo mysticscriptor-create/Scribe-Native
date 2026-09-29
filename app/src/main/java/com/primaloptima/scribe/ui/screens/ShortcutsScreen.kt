@@ -1296,11 +1296,15 @@ private fun ShortcutCompactRow(
                     overflow = TextOverflow.Ellipsis
                 )
                 val formatDetail = when (shortcut.kind) {
-                    "pair", "wrap" -> "${shortcut.payload} ${shortcut.closing ?: ""}".trim()
+                    "pair", "wrap" -> {
+                        val close = shortcut.closing?.ifBlank { null } ?: shortcut.payload
+                        "${shortcut.payload} $close".trim()
+                    }
                     else -> shortcut.payload.replace("\n", " ").trim()
                 }
+                val displayKind = if (shortcut.kind == "wrap") "Pair" else shortcut.kind.replaceFirstChar { it.uppercase() }
                 Text(
-                    text = "${shortcut.kind.replaceFirstChar { it.uppercase() }} • $formatDetail",
+                    text = "$displayKind • $formatDetail",
                     fontSize = 11.sp,
                     color = contentSecondary,
                     maxLines = 1,
@@ -1444,14 +1448,20 @@ private fun CreateOrEditShortcutSheet(
     val colors = ScribeTheme.colors
     val accentPrimary = colors.interaction.primary
     val contentPrimary = colors.content.primary
+    val contentSecondary = colors.content.secondary
     val glyphBoxBg = colors.surfaces.surfaceLowest
 
     var label by remember { mutableStateOf(existing?.label ?: "") }
-    var kind by remember { mutableStateOf(existing?.kind ?: "insert") }
+    var kind by remember {
+        mutableStateOf(
+            if (existing?.kind == "wrap") "pair" else (existing?.kind ?: "pair")
+        )
+    }
     var payload by remember { mutableStateOf(existing?.payload ?: "") }
     var closing by remember { mutableStateOf(existing?.closing ?: "") }
     var category by remember { mutableStateOf(existing?.category ?: DefaultShortcuts.CAT_CUSTOM) }
     var keywordsText by remember { mutableStateOf(existing?.keywords?.joinToString(", ") ?: "") }
+    var isHintExpanded by remember { mutableStateOf(false) }
 
     FrostedDialog(
         onDismissRequest = onDismiss,
@@ -1481,8 +1491,10 @@ private fun CreateOrEditShortcutSheet(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         val previewText = when (kind) {
-                            "wrap" -> "$payload selected text $closing"
-                            "pair" -> "$payload |cursor| $closing"
+                            "pair", "wrap" -> {
+                                val closeText = closing.ifBlank { payload }
+                                "$payload selected text $closeText"
+                            }
                             "prefix" -> "$payload line content"
                             else -> "text $payload text"
                         }
@@ -1498,7 +1510,7 @@ private fun CreateOrEditShortcutSheet(
                 OutlinedTextField(
                     value = label,
                     onValueChange = { label = it },
-                    label = { Text("Button Label (e.g. “ ”, B, H1)") },
+                    label = { Text("Button Label (e.g. “ ”, B, H1, TODO)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -1506,16 +1518,32 @@ private fun CreateOrEditShortcutSheet(
                 OutlinedTextField(
                     value = payload,
                     onValueChange = { payload = it },
-                    label = { Text("Payload / Opening") },
+                    label = {
+                        Text(
+                            when (kind) {
+                                "pair", "wrap" -> "Opening Delimiter"
+                                "prefix" -> "Line Prefix (e.g. - , 1. , // )"
+                                else -> "Payload / Text"
+                            }
+                        )
+                    },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                if (kind == "wrap" || kind == "pair") {
+                if (kind == "pair" || kind == "wrap") {
                     OutlinedTextField(
                         value = closing,
                         onValueChange = { closing = it },
-                        label = { Text("Closing Suffix") },
+                        label = { Text("Closing Delimiter (optional)") },
+                        placeholder = { Text(if (payload.isNotBlank()) payload else "Mirrors opening") },
+                        supportingText = {
+                            Text(
+                                "Leave blank to mirror opening (e.g. **bold** or /* */)",
+                                fontSize = 11.sp,
+                                color = contentSecondary
+                            )
+                        },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -1527,14 +1555,18 @@ private fun CreateOrEditShortcutSheet(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    listOf("pair", "insert", "prefix", "wrap").forEach { itemKind ->
+                    listOf(
+                        "pair" to "Pair / Enclose",
+                        "prefix" to "Line Prefix",
+                        "insert" to "Insert"
+                    ).forEach { (itemKind, itemLabel) ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             RadioButton(
-                                selected = kind == itemKind,
+                                selected = (kind == itemKind) || (itemKind == "pair" && kind == "wrap"),
                                 onClick = { kind = itemKind }
                             )
                             Text(
-                                text = itemKind.replaceFirstChar { it.uppercase() },
+                                text = itemLabel,
                                 style = MaterialTheme.typography.bodySmall
                             )
                         }
@@ -1548,6 +1580,140 @@ private fun CreateOrEditShortcutSheet(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                // ── Helper Hint: Tiny bold bulb icon expanding to corner card ───
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = when (kind) {
+                            "pair", "wrap" -> "Wraps text. Smart Enter exits outside quotes/tags."
+                            "prefix" -> "Adds line marker. Smart Enter continues or terminates."
+                            else -> "Inserts plain text or symbol at cursor."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = contentSecondary,
+                        fontSize = 11.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Surface(
+                        onClick = { isHintExpanded = !isHintExpanded },
+                        shape = CircleShape,
+                        color = if (isHintExpanded) accentPrimary else colors.surfaces.surfaceElevated,
+                        border = BorderStroke(1.dp, if (isHintExpanded) accentPrimary else colors.borders.outlineSubtle),
+                        modifier = Modifier.size(30.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Default.Lightbulb,
+                                contentDescription = "Smart Enter & Types Guide",
+                                tint = if (isHintExpanded) colors.surfaces.surfaceLowest else accentPrimary,
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+                    }
+                }
+
+                AnimatedVisibility(
+                    visible = isHintExpanded,
+                    enter = fadeIn(tween(180)) + expandVertically(tween(220)),
+                    exit = fadeOut(tween(120)) + shrinkVertically(tween(180))
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = colors.surfaces.surfaceElevated,
+                        border = BorderStroke(1.dp, colors.borders.outlineSubtle),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Lightbulb,
+                                        contentDescription = null,
+                                        tint = accentPrimary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Text(
+                                        text = "Types & Smart Enter Guide",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = contentPrimary
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { isHintExpanded = false },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Close guide",
+                                        tint = contentSecondary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = "• Pair / Enclose",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = accentPrimary
+                                    )
+                                    Text(
+                                        text = "Encloses selection or places cursor between delimiters. Smart Enter: Pressing Enter before closing delimiter jumps outside cleanly to a new line without stranding quotes/symbols.",
+                                        fontSize = 11.sp,
+                                        color = contentSecondary,
+                                        lineHeight = 15.sp
+                                    )
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = "• Line Prefix",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = accentPrimary
+                                    )
+                                    Text(
+                                        text = "Prepends marker to line(s) (e.g. bullets, numbers, tasks, notes). Smart Enter: Enter continues or increments sequence (1. → 2.), and pressing Enter on empty prefix terminates the list.",
+                                        fontSize = 11.sp,
+                                        color = contentSecondary,
+                                        lineHeight = 15.sp
+                                    )
+                                }
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(
+                                        text = "• Insert",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp,
+                                        color = accentPrimary
+                                    )
+                                    Text(
+                                        text = "Pastes symbols, phrases, or snippets at the cursor. Standard Enter behavior.",
+                                        fontSize = 11.sp,
+                                        color = contentSecondary,
+                                        lineHeight = 15.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
@@ -1557,7 +1723,6 @@ private fun CreateOrEditShortcutSheet(
                         val parsedKeywords = keywordsText.split(",")
                             .map { it.trim() }
                             .filter { it.isNotBlank() }
-
                         onSave(
                             ShortcutAction(
                                 id = existing?.id ?: (System.currentTimeMillis().toString() + Math.random().toString().takeLast(4)),
