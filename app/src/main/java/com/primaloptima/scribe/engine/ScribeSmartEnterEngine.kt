@@ -36,7 +36,7 @@ object ScribeSmartEnterEngine {
      * - “|” + Enter -> cursor jumps past ” or starts new line!
      * - **emphasized|** + Enter -> cursor jumps past ** to new line!
      * - [citation|] + Enter -> cursor jumps past ] to new line!
-     * - /* custom| */ + Enter -> cursor jumps past */ to new line!
+     * - custom pair (e.g. {{ custom| }}) + Enter -> cursor jumps past closing delimiter to new line!
      */
     fun checkPairExit(
         lineStr: String,

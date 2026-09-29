@@ -7,6 +7,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
@@ -1602,8 +1603,8 @@ private fun CreateOrEditShortcutSheet(
                     Surface(
                         onClick = { isHintExpanded = !isHintExpanded },
                         shape = CircleShape,
-                        color = if (isHintExpanded) accentPrimary else colors.surfaces.surfaceElevated,
-                        border = BorderStroke(1.dp, if (isHintExpanded) accentPrimary else colors.borders.outlineSubtle),
+                        color = if (isHintExpanded) accentPrimary else colors.surfaces.surfaceRaised,
+                        border = BorderStroke(1.dp, if (isHintExpanded) accentPrimary else colors.borders.subtle),
                         modifier = Modifier.size(30.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -1624,8 +1625,8 @@ private fun CreateOrEditShortcutSheet(
                 ) {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
-                        color = colors.surfaces.surfaceElevated,
-                        border = BorderStroke(1.dp, colors.borders.outlineSubtle),
+                        color = colors.surfaces.surfaceRaised,
+                        border = BorderStroke(1.dp, colors.borders.subtle),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
