@@ -595,7 +595,7 @@ fun ShortcutsScreen(
         FrostedDialog(
             onDismissRequest = { deleteCandidate = null },
             title = { Text("Delete Shortcut?") },
-            text = { Text("Delete "" + candidate.label + ""? This custom shortcut cannot be undone.") },
+            text = { Text("Delete \"" + candidate.label + "\"? This custom shortcut cannot be undone.") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -1297,8 +1297,7 @@ private fun ShortcutCompactRow(
                 )
                 val formatDetail = when (shortcut.kind) {
                     "pair", "wrap" -> "${shortcut.payload} ${shortcut.closing ?: ""}".trim()
-                    else -> shortcut.payload.replace("
-", " ").trim()
+                    else -> shortcut.payload.replace("\n", " ").trim()
                 }
                 Text(
                     text = "${shortcut.kind.replaceFirstChar { it.uppercase() }} • $formatDetail",
