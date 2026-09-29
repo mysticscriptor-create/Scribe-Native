@@ -11,6 +11,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -25,6 +26,8 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -1438,7 +1441,18 @@ private fun EmptyCustomCategoryNotice(
     }
 }
 
-// ── Create / Edit Shortcut Sheet / Dialog ─────────────────────────────────────
+// ── Create / Edit Shortcut Preset Model ───────────────────────────────────────
+private data class ShortcutPreset(
+    val display: String,
+    val label: String,
+    val open: String,
+    val close: String,
+    val kind: String,
+    val keywords: String,
+    val category: String
+)
+
+// ── Create / Edit Shortcut Bottom Sheet ───────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CreateOrEditShortcutSheet(
@@ -1448,9 +1462,14 @@ private fun CreateOrEditShortcutSheet(
 ) {
     val colors = ScribeTheme.colors
     val accentPrimary = colors.interaction.primary
+    val onAccent = colors.interaction.onPrimary
     val contentPrimary = colors.content.primary
     val contentSecondary = colors.content.secondary
-    val glyphBoxBg = colors.surfaces.surfaceLowest
+    val contentTertiary = colors.content.tertiary
+    val surfaceLowest = colors.surfaces.surfaceLowest
+    val surfaceRaised = colors.surfaces.surfaceRaised
+    val surfaceContainer = colors.surfaces.surface
+    val subtleBorder = colors.borders.subtle
 
     var label by remember { mutableStateOf(existing?.label ?: "") }
     var kind by remember {
@@ -1463,24 +1482,158 @@ private fun CreateOrEditShortcutSheet(
     var category by remember { mutableStateOf(existing?.category ?: DefaultShortcuts.CAT_CUSTOM) }
     var keywordsText by remember { mutableStateOf(existing?.keywords?.joinToString(", ") ?: "") }
     var isHintExpanded by remember { mutableStateOf(false) }
+    var showCategoryMenu by remember { mutableStateOf(false) }
 
-    FrostedDialog(
+    val isValid = label.trim().isNotBlank() && payload.trim().isNotBlank()
+    val isEditMode = existing != null
+
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    ModalBottomSheet(
         onDismissRequest = onDismiss,
-        title = { Text(if (existing == null) "New Shortcut" else "Edit Shortcut") },
-        text = {
+        sheetState = sheetState,
+        shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        containerColor = surfaceContainer,
+        contentColor = contentPrimary,
+        tonalElevation = 2.dp,
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 10.dp, bottom = 4.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 36.dp, height = 4.dp)
+                        .background(contentSecondary.copy(alpha = 0.35f), CircleShape)
+                )
+            }
+        },
+        windowInsets = WindowInsets(0, 0, 0, 0)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .imePadding()
+                .navigationBarsPadding()
+        ) {
+            // Header (Requirement 4: Title + Close Button)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (isEditMode) "Edit Shortcut" else "Create Shortcut",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = contentPrimary
+                )
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = contentSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            HorizontalDivider(
+                modifier = Modifier.fillMaxWidth(),
+                thickness = 0.8.dp,
+                color = subtleBorder.copy(alpha = 0.5f)
+            )
+
+            // Scrollable Content
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+                // Quick Start Presets (Requirement 14)
+                if (!isEditMode) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "QUICK START",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = contentSecondary,
+                            letterSpacing = 0.8.sp
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val presets = listOf(
+                                ShortcutPreset("“ ”", "Curly quotes", "“", "”", "pair", "quote, dialogue, curly", DefaultShortcuts.CAT_DIALOGUE),
+                                ShortcutPreset("‘ ’", "Single quotes", "‘", "’", "pair", "quote, thought, monologue", DefaultShortcuts.CAT_DIALOGUE),
+                                ShortcutPreset("( )", "Parentheses", "(", ")", "pair", "parentheses, parens, wrap", DefaultShortcuts.CAT_BRACKETS),
+                                ShortcutPreset("[ ]", "Square brackets", "[", "]", "pair", "brackets, citation, square", DefaultShortcuts.CAT_BRACKETS),
+                                ShortcutPreset("{ }", "Curly braces", "{", "}", "pair", "braces, code, curly", DefaultShortcuts.CAT_BRACKETS),
+                                ShortcutPreset("** **", "Bold text", "**", "**", "pair", "bold, strong, formatting", DefaultShortcuts.CAT_FORMATTING),
+                                ShortcutPreset("* *", "Italic text", "*", "*", "pair", "italic, emphasis, formatting", DefaultShortcuts.CAT_FORMATTING),
+                                ShortcutPreset("…", "Ellipsis", "…", "", "insert", "ellipsis, dots, pause", DefaultShortcuts.CAT_PUNCTUATION),
+                                ShortcutPreset("—", "Em dash", "—", "", "insert", "em dash, dash, cadence", DefaultShortcuts.CAT_PUNCTUATION),
+                                ShortcutPreset("- [ ]", "Task item", "- [ ] ", "", "prefix", "task, todo, checklist", DefaultShortcuts.CAT_STRUCTURE),
+                                ShortcutPreset("•", "Bullet list", "• ", "", "prefix", "bullet, list, item", DefaultShortcuts.CAT_STRUCTURE),
+                                ShortcutPreset(">", "Blockquote", "> ", "", "prefix", "quote, callout, blockquote", DefaultShortcuts.CAT_STRUCTURE)
+                            )
+                            presets.forEach { preset ->
+                                Surface(
+                                    onClick = {
+                                        label = preset.label
+                                        payload = preset.open
+                                        closing = preset.close
+                                        kind = preset.kind
+                                        keywordsText = preset.keywords
+                                        category = preset.category
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = surfaceLowest,
+                                    border = BorderStroke(1.dp, subtleBorder),
+                                    modifier = Modifier.height(30.dp)
+                                ) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.padding(horizontal = 10.dp)
+                                    ) {
+                                        Text(
+                                            text = preset.display,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = contentPrimary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Dynamic Live Preview (Requirement 9)
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = glyphBoxBg,
+                    shape = RoundedCornerShape(10.dp),
+                    color = surfaceLowest,
+                    border = BorderStroke(1.dp, subtleBorder),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier = Modifier.padding(10.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 10.dp, horizontal = 12.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
@@ -1488,262 +1641,455 @@ private fun CreateOrEditShortcutSheet(
                             style = MaterialTheme.typography.labelSmall,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = accentPrimary
+                            color = accentPrimary,
+                            letterSpacing = 1.sp
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         val previewText = when (kind) {
                             "pair", "wrap" -> {
-                                val closeText = closing.ifBlank { payload }
-                                "$payload selected text $closeText"
+                                val open = payload.ifBlank { "“" }
+                                val close = closing.ifBlank { payload.ifBlank { "”" } }
+                                "$open selected text $close"
                             }
-                            "prefix" -> "$payload line content"
-                            else -> "text $payload text"
+                            "prefix" -> {
+                                val p = payload.ifBlank { "• " }
+                                "$p selected text"
+                            }
+                            else -> {
+                                val ins = payload.ifBlank { "…" }
+                                "selected text$ins"
+                            }
                         }
                         Text(
                             text = previewText,
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold,
-                            color = contentPrimary
+                            color = contentPrimary,
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
 
+                // Type Selector (Requirement 5 - Compact equal-width segmented control, zero overflow at 320dp)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "TYPE",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = contentSecondary,
+                        letterSpacing = 0.8.sp
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(38.dp)
+                            .background(surfaceLowest, RoundedCornerShape(9.dp))
+                            .border(BorderStroke(1.dp, subtleBorder), RoundedCornerShape(9.dp))
+                            .padding(2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        val types = listOf(
+                            "pair" to "Enclose",
+                            "prefix" to "Prefix",
+                            "insert" to "Insert"
+                        )
+                        types.forEach { (typeKey, typeTitle) ->
+                            val isSelected = (kind == typeKey) || (typeKey == "pair" && kind == "wrap")
+                            Surface(
+                                onClick = { kind = typeKey },
+                                shape = RoundedCornerShape(7.dp),
+                                color = if (isSelected) accentPrimary else Color.Transparent,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Text(
+                                        text = typeTitle,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) onAccent else contentSecondary,
+                                        fontSize = 12.5.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Compact 1-sentence explanation (Requirement 10)
+                    Text(
+                        text = when (kind) {
+                            "pair", "wrap" -> "Wraps selected text or creates an opening/closing pair."
+                            "prefix" -> "Inserts at the beginning of the line with smart continuation."
+                            else -> "Inserts text directly at the cursor position."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 11.5.sp,
+                        color = contentSecondary,
+                        lineHeight = 15.sp
+                    )
+                }
+
+                // Field: Label (Requirement 15, 16)
                 OutlinedTextField(
                     value = label,
                     onValueChange = { label = it },
-                    label = { Text("Button Label (e.g. “ ”, B, H1, TODO)") },
+                    label = { Text("Label", fontSize = 12.sp) },
+                    placeholder = { Text("e.g. Curly quotes, Bold, Task", fontSize = 12.sp) },
                     singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = accentPrimary,
+                        unfocusedBorderColor = subtleBorder,
+                        focusedLabelColor = accentPrimary,
+                        unfocusedLabelColor = contentSecondary
+                    ),
+                    shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                OutlinedTextField(
-                    value = payload,
-                    onValueChange = { payload = it },
-                    label = {
-                        Text(
-                            when (kind) {
-                                "pair", "wrap" -> "Opening Delimiter"
-                                "prefix" -> "Line Prefix (e.g. - , 1. , // )"
-                                else -> "Payload / Text"
-                            }
+                // Dynamic Field based on Type (Requirements 6, 7, 8)
+                when (kind) {
+                    "pair", "wrap" -> {
+                        OutlinedTextField(
+                            value = payload,
+                            onValueChange = { payload = it },
+                            label = { Text("Opening Delimiter", fontSize = 12.sp) },
+                            placeholder = { Text("e.g. “, **, [, /*", fontSize = 12.sp) },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = accentPrimary,
+                                unfocusedBorderColor = subtleBorder,
+                                focusedLabelColor = accentPrimary,
+                                unfocusedLabelColor = contentSecondary
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
                         )
-                    },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
 
-                if (kind == "pair" || kind == "wrap") {
-                    OutlinedTextField(
-                        value = closing,
-                        onValueChange = { closing = it },
-                        label = { Text("Closing Delimiter (optional)") },
-                        placeholder = { Text(if (payload.isNotBlank()) payload else "Mirrors opening") },
-                        supportingText = {
-                            Text(
-                                "Leave blank to mirror opening (e.g. **bold** or /* */)",
-                                fontSize = 11.sp,
-                                color = contentSecondary
-                            )
-                        },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-
-                Text("Action Type", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    listOf(
-                        "pair" to "Pair / Enclose",
-                        "prefix" to "Line Prefix",
-                        "insert" to "Insert"
-                    ).forEach { (itemKind, itemLabel) ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(
-                                selected = (kind == itemKind) || (itemKind == "pair" && kind == "wrap"),
-                                onClick = { kind = itemKind }
-                            )
-                            Text(
-                                text = itemLabel,
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
+                        OutlinedTextField(
+                            value = closing,
+                            onValueChange = { closing = it },
+                            label = { Text("Closing Delimiter (optional)", fontSize = 12.sp) },
+                            placeholder = { Text(if (payload.isNotBlank()) payload else "Mirrors opening", fontSize = 12.sp) },
+                            supportingText = {
+                                Text(
+                                    "Leave blank to mirror opening (e.g. ** → **text**)",
+                                    fontSize = 11.sp,
+                                    color = contentSecondary
+                                )
+                            },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = accentPrimary,
+                                unfocusedBorderColor = subtleBorder,
+                                focusedLabelColor = accentPrimary,
+                                unfocusedLabelColor = contentSecondary
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    "prefix" -> {
+                        OutlinedTextField(
+                            value = payload,
+                            onValueChange = { payload = it },
+                            label = { Text("Line Prefix", fontSize = 12.sp) },
+                            placeholder = { Text("e.g. - [ ] , 1. , • , > ", fontSize = 12.sp) },
+                            supportingText = {
+                                Text(
+                                    "Inserted at start of line. Smart continuation & indentation are handled automatically.",
+                                    fontSize = 11.sp,
+                                    color = contentSecondary
+                                )
+                            },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = accentPrimary,
+                                unfocusedBorderColor = subtleBorder,
+                                focusedLabelColor = accentPrimary,
+                                unfocusedLabelColor = contentSecondary
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    else -> { // insert
+                        OutlinedTextField(
+                            value = payload,
+                            onValueChange = { payload = it },
+                            label = { Text("Text to insert", fontSize = 12.sp) },
+                            placeholder = { Text("e.g. …, —, ©", fontSize = 12.sp) },
+                            supportingText = {
+                                Text(
+                                    "Places text directly at the cursor position.",
+                                    fontSize = 11.sp,
+                                    color = contentSecondary
+                                )
+                            },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = accentPrimary,
+                                unfocusedBorderColor = subtleBorder,
+                                focusedLabelColor = accentPrimary,
+                                unfocusedLabelColor = contentSecondary
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
 
+                // Secondary Keywords Field (Requirement 12)
                 OutlinedTextField(
                     value = keywordsText,
                     onValueChange = { keywordsText = it },
-                    label = { Text("Search Keywords (comma separated)") },
+                    label = { Text("Keywords (optional)", fontSize = 12.sp) },
+                    placeholder = { Text("e.g. quote, dialogue, curly", fontSize = 12.sp) },
+                    supportingText = {
+                        Text(
+                            "Used when searching Shortcut Studio.",
+                            fontSize = 10.5.sp,
+                            color = contentTertiary
+                        )
+                    },
                     singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = accentPrimary,
+                        unfocusedBorderColor = subtleBorder,
+                        focusedLabelColor = accentPrimary,
+                        unfocusedLabelColor = contentSecondary
+                    ),
+                    shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                // ── Helper Hint: Tiny bold bulb icon expanding to corner card ───
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                // Category Selector (Requirement 13)
+                val categoryName = when (category) {
+                    DefaultShortcuts.CAT_DIALOGUE -> "Dialogue & Monologue"
+                    DefaultShortcuts.CAT_BRACKETS -> "Enclosures & Brackets"
+                    DefaultShortcuts.CAT_PUNCTUATION -> "Punctuation & Cadence"
+                    DefaultShortcuts.CAT_STRUCTURE -> "Structure & Lists"
+                    DefaultShortcuts.CAT_FORMATTING -> "Typography & Formatting"
+                    DefaultShortcuts.CAT_SCENE_BREAKS -> "Scene Breaks"
+                    DefaultShortcuts.CAT_ARROWS -> "Arrows & Flow"
+                    DefaultShortcuts.CAT_MATH -> "Math & Logic"
+                    DefaultShortcuts.CAT_CURRENCY -> "Currency & Symbols"
+                    else -> "Custom & Snippets"
+                }
+
+                Surface(
+                    onClick = { showCategoryMenu = true },
+                    shape = RoundedCornerShape(8.dp),
+                    color = surfaceLowest,
+                    border = BorderStroke(1.dp, subtleBorder),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text = when (kind) {
-                            "pair", "wrap" -> "Wraps text. Smart Enter moves smoothly outside pair."
-                            "prefix" -> "Adds line marker. Smart Enter continues or terminates."
-                            else -> "Inserts plain text or symbol at cursor."
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = contentSecondary,
-                        fontSize = 11.sp,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Surface(
-                        onClick = { isHintExpanded = !isHintExpanded },
-                        shape = CircleShape,
-                        color = if (isHintExpanded) accentPrimary else colors.surfaces.surfaceRaised,
-                        border = BorderStroke(1.dp, if (isHintExpanded) accentPrimary else colors.borders.subtle),
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                Text(
+                                    text = "Category",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 10.sp,
+                                    color = contentSecondary
+                                )
+                                Text(
+                                    text = categoryName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = contentPrimary
+                                )
+                            }
                             Icon(
-                                imageVector = Icons.Default.Lightbulb,
-                                contentDescription = "Smart Enter & Types Guide",
-                                tint = if (isHintExpanded) colors.surfaces.surfaceLowest else accentPrimary,
-                                modifier = Modifier.size(17.dp)
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = "Select category",
+                                tint = contentSecondary,
+                                modifier = Modifier.size(18.dp)
                             )
+                        }
+
+                        DropdownMenu(
+                            expanded = showCategoryMenu,
+                            onDismissRequest = { showCategoryMenu = false },
+                            modifier = Modifier.background(surfaceRaised)
+                        ) {
+                            val allCategories = listOf(
+                                DefaultShortcuts.CAT_CUSTOM to "Custom & Snippets",
+                                DefaultShortcuts.CAT_DIALOGUE to "Dialogue & Monologue",
+                                DefaultShortcuts.CAT_BRACKETS to "Enclosures & Brackets",
+                                DefaultShortcuts.CAT_PUNCTUATION to "Punctuation & Cadence",
+                                DefaultShortcuts.CAT_STRUCTURE to "Structure & Lists",
+                                DefaultShortcuts.CAT_FORMATTING to "Typography & Formatting",
+                                DefaultShortcuts.CAT_SCENE_BREAKS to "Scene Breaks",
+                                DefaultShortcuts.CAT_ARROWS to "Arrows & Flow",
+                                DefaultShortcuts.CAT_MATH to "Math & Logic",
+                                DefaultShortcuts.CAT_CURRENCY to "Currency & Symbols"
+                            )
+                            allCategories.forEach { (catId, catLabel) ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = catLabel,
+                                            fontWeight = if (category == catId) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (category == catId) accentPrimary else contentPrimary,
+                                            fontSize = 13.sp
+                                        )
+                                    },
+                                    onClick = {
+                                        category = catId
+                                        showCategoryMenu = false
+                                    }
+                                )
+                            }
                         }
                     }
                 }
 
-                AnimatedVisibility(
-                    visible = isHintExpanded,
-                    enter = fadeIn(tween(180)) + expandVertically(tween(220)),
-                    exit = fadeOut(tween(120)) + shrinkVertically(tween(180))
+                // Compact Lightbulb Guide (Requirement 11)
+                Surface(
+                    onClick = { isHintExpanded = !isHintExpanded },
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isHintExpanded) surfaceRaised else surfaceLowest,
+                    border = BorderStroke(1.dp, subtleBorder),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = colors.surfaces.surfaceRaised,
-                        border = BorderStroke(1.dp, colors.borders.subtle),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Lightbulb,
-                                        contentDescription = null,
-                                        tint = accentPrimary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Text(
-                                        text = "Types & Smart Enter Guide",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = contentPrimary
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { isHintExpanded = false },
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Close,
-                                        contentDescription = "Close guide",
-                                        tint = contentSecondary,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
+                                Icon(
+                                    imageVector = Icons.Default.Lightbulb,
+                                    contentDescription = null,
+                                    tint = accentPrimary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Text(
+                                    text = "How shortcuts work",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = contentPrimary
+                                )
                             }
+                            Icon(
+                                imageVector = if (isHintExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null,
+                                tint = contentSecondary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
 
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text(
-                                        text = "• Pair / Enclose",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp,
-                                        color = accentPrimary
-                                    )
-                                    Text(
-                                        text = "Encloses selection or places cursor between delimiters. Smart Enter: Pressing Enter before closing delimiter moves the cursor smoothly outside the pair on the same line.",
-                                        fontSize = 11.sp,
-                                        color = contentSecondary,
-                                        lineHeight = 15.sp
-                                    )
-                                }
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text(
-                                        text = "• Line Prefix",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp,
-                                        color = accentPrimary
-                                    )
-                                    Text(
-                                        text = "Prepends marker to line(s) (e.g. bullets, numbers, tasks, notes). Smart Enter: Enter continues or increments sequence (1. → 2.), and pressing Enter on empty prefix terminates the list.",
-                                        fontSize = 11.sp,
-                                        color = contentSecondary,
-                                        lineHeight = 15.sp
-                                    )
-                                }
-                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text(
-                                        text = "• Insert",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp,
-                                        color = accentPrimary
-                                    )
-                                    Text(
-                                        text = "Pastes symbols, phrases, or snippets at the cursor. Standard Enter behavior.",
-                                        fontSize = 11.sp,
-                                        color = contentSecondary,
-                                        lineHeight = 15.sp
-                                    )
+                        AnimatedVisibility(
+                            visible = isHintExpanded,
+                            enter = fadeIn(tween(160)) + expandVertically(tween(200)),
+                            exit = fadeOut(tween(100)) + shrinkVertically(tween(160))
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(top = 8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "• Enclose: Wraps selected text with opening + closing delimiters. Smart Enter moves smoothly outside the pair on the same line.",
+                                    fontSize = 11.sp,
+                                    color = contentSecondary,
+                                    lineHeight = 15.sp
+                                )
+                                Text(
+                                    text = "• Prefix: Adds text at the line start. Smart Enter automatically continues sequence (1. → 2.) and double-Enter terminates list.",
+                                    fontSize = 11.sp,
+                                    color = contentSecondary,
+                                    lineHeight = 15.sp
+                                )
+                                Text(
+                                    text = "• Insert: Places text or symbol directly at the cursor.",
+                                    fontSize = 11.sp,
+                                    color = contentSecondary,
+                                    lineHeight = 15.sp
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.End
+                                ) {
+                                    TextButton(
+                                        onClick = { isHintExpanded = false },
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                        modifier = Modifier.height(28.dp)
+                                    ) {
+                                        Text("Got it", fontSize = 11.5.sp, color = accentPrimary, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    if (label.isNotBlank() && payload.isNotBlank()) {
-                        val parsedKeywords = keywordsText.split(",")
-                            .map { it.trim() }
-                            .filter { it.isNotBlank() }
-                        onSave(
-                            ShortcutAction(
-                                id = existing?.id ?: (System.currentTimeMillis().toString() + Math.random().toString().takeLast(4)),
-                                label = label.trim(),
-                                kind = kind,
-                                payload = payload,
-                                closing = closing.ifBlank { null },
-                                category = category,
-                                isEnabled = existing?.isEnabled ?: true,
-                                keywords = parsedKeywords
-                            )
-                        )
-                    }
-                }
+
+            // Pinned Bottom Action Bar (Requirements 17, 18)
+            HorizontalDivider(
+                modifier = Modifier.fillMaxWidth(),
+                thickness = 0.8.dp,
+                color = subtleBorder.copy(alpha = 0.5f)
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Save", color = accentPrimary, fontWeight = FontWeight.Bold)
+                TextButton(
+                    onClick = onDismiss
+                ) {
+                    Text("Cancel", color = contentSecondary)
+                }
+
+                Button(
+                    onClick = {
+                        if (isValid) {
+                            val parsedKeywords = keywordsText.split(",")
+                                .map { it.trim() }
+                                .filter { it.isNotBlank() }
+                            onSave(
+                                ShortcutAction(
+                                    id = existing?.id ?: (System.currentTimeMillis().toString() + Math.random().toString().takeLast(4)),
+                                    label = label.trim(),
+                                    kind = kind,
+                                    payload = payload,
+                                    closing = if (kind == "pair" || kind == "wrap") closing.ifBlank { null } else null,
+                                    category = category,
+                                    isEnabled = existing?.isEnabled ?: true,
+                                    keywords = parsedKeywords
+                                )
+                            )
+                        }
+                    },
+                    enabled = isValid,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = accentPrimary,
+                        contentColor = onAccent,
+                        disabledContainerColor = accentPrimary.copy(alpha = 0.35f),
+                        disabledContentColor = onAccent.copy(alpha = 0.6f)
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 22.dp, vertical = 10.dp)
+                ) {
+                    Text("Save", fontWeight = FontWeight.Bold)
+                }
             }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
         }
-    )
+    }
 }
