@@ -1,8 +1,12 @@
-import dev.chrisbanes.haze.hazeEffect
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.foundation.combinedClickable
 package com.primaloptima.scribe.ui.screens
+
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import dev.chrisbanes.haze.hazeEffect
+import com.primaloptima.scribe.util.model.ShortcutAction
+import androidx.compose.material.icons.automirrored.filled.Undo
+import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.primaloptima.scribe.engine.ScribeIndentEngine
@@ -1160,6 +1164,70 @@ fun MainEditorScreen(
                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                         verticalAlignment     = Alignment.CenterVertically
                                     ) {
+                                        // ── Undo / Redo Actions (Sora Editor Native Engine) ──────
+                                        val canUndo = soraEditorRef?.canUndo() == true
+                                        val canRedo = soraEditorRef?.canRedo() == true
+                                        val accentColor = ScribeTheme.colors.interaction.primary
+
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = if (canUndo) accentColor.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                            contentColor = if (canUndo) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                0.5.dp,
+                                                if (canUndo) accentColor.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                                            ),
+                                            modifier = Modifier
+                                                .height(ScribeTheme.metrics.chipHeight)
+                                                .clickable(enabled = canUndo) {
+                                                    soraEditorRef?.undo()
+                                                }
+                                        ) {
+                                            Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = ScribeTheme.spacing.micro)
+                                            ) {
+                                                Icon(
+                                                    Icons.AutoMirrored.Filled.Undo,
+                                                    contentDescription = "Undo",
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = if (canRedo) accentColor.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                            contentColor = if (canRedo) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                0.5.dp,
+                                                if (canRedo) accentColor.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                                            ),
+                                            modifier = Modifier
+                                                .height(ScribeTheme.metrics.chipHeight)
+                                                .clickable(enabled = canRedo) {
+                                                    soraEditorRef?.redo()
+                                                }
+                                        ) {
+                                            Box(
+                                                contentAlignment = Alignment.Center,
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = ScribeTheme.spacing.micro)
+                                            ) {
+                                                Icon(
+                                                    Icons.AutoMirrored.Filled.Redo,
+                                                    contentDescription = "Redo",
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Box(
+                                            modifier = Modifier
+                                                .height(18.dp)
+                                                .width(1.dp)
+                                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                                        )
+
                                         var lastCategory: String? = null
                                         shortcuts.forEach { shortcut ->
                                             if (lastCategory != null && lastCategory != shortcut.category) {
@@ -1195,17 +1263,18 @@ fun MainEditorScreen(
                             longPressedShortcut?.let { target ->
                                 FrostedDialog(
                                     onDismissRequest = { longPressedShortcut = null },
-                                    title = { Text("Shortcut: ${target.label}") },
+                                    title = { Text("Shortcut: " + target.label) },
                                     text = {
                                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                             Text(
-                                                "Kind: ${target.kind.replaceFirstChar { it.uppercase() }} • Category: ${target.category.replaceFirstChar { it.uppercase() }}",
+                                                "Kind: " + target.kind.replaceFirstChar { it.uppercase() } + " • Category: " + target.category.replaceFirstChar { it.uppercase() },
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
+                                            val displayPayload = target.payload.replace('\n', ' ')
+                                            val displayClosing = if (!target.closing.isNullOrEmpty()) " ... " + target.closing else ""
                                             Text(
-                                                "Payload: ${target.payload.replace("
-", "\n")}${if (!target.closing.isNullOrEmpty()) " ... " + target.closing else ""}",
+                                                "Payload: $displayPayload$displayClosing",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
@@ -2422,7 +2491,7 @@ private fun parseComposeColor(hex: String, fallback: Color): Color = try {
 } catch (_: Exception) { fallback }
 
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ShortcutBarChip(
     shortcut: ShortcutAction,

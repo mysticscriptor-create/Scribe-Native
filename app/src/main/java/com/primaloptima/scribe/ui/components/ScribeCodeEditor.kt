@@ -390,7 +390,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
             val isPair = (beforeChar == '“' && afterChar == '”') ||
                 (beforeChar == '‘' && afterChar == '’') ||
                 (beforeChar == '"' && afterChar == '"') ||
-                (beforeChar == ''' && afterChar == ''') ||
+                (beforeChar == '\'' && afterChar == '\'') ||
                 (beforeChar == '❝' && afterChar == '❞') ||
                 (beforeChar == '❛' && afterChar == '❜') ||
                 (beforeChar == '「' && afterChar == '」') ||
