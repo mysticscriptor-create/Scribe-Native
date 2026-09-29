@@ -384,24 +384,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val line = cur.leftLine
         val col = cur.leftColumn
         val lineStr = text.getLineString(line)
-        // ── Phase 0: Smart Pair Exit (Novelist & Dialogue QoL) ────────────────
+        // ── Phase 0: Smart Pair Exit (Smooth Exit Outside Pair) ───────────────
         // When typing inside quotes, brackets, or markdown wrap, pressing Enter before
-        // the closing delimiter jumps cleanly past it, starting a fresh line outside the pair!
+        // the closing delimiter smoothly moves the cursor outside the pair on the same line!
         val pairExit = ScribeSmartEnterEngine.checkPairExit(lineStr, col, activeShortcuts)
         if (pairExit != null) {
-            val exitCol = pairExit.jumpPastCol
-            val remainingAfter = lineStr.substring(exitCol).trim()
-            val baseIndent = if (firstLineIndentSpaces > 0) " ".repeat(firstLineIndentSpaces) else ""
-
-            // Advance cursor outside the closing delimiter
-            setSelection(line, exitCol)
-
-            // If at end of line (e.g. “Dialogue|” or “|”), create the new line cleanly outside the pair
-            if (remainingAfter.isEmpty()) {
-                val insertStr = "\n$baseIndent"
-                text.insert(line, exitCol, insertStr)
-                setSelection(line + 1, baseIndent.length)
-            }
+            setSelection(line, pairExit.jumpPastCol)
             ensureSelectionVisible()
             notifyIMEExternalCursorChange()
             return

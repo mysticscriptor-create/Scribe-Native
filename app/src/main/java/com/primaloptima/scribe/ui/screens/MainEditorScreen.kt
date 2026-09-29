@@ -844,11 +844,11 @@ fun MainEditorScreen(
                                         if (event.keyCode != android.view.KeyEvent.KEYCODE_ENTER) return@subscribeEvent
                                         val cur = this.cursor
                                         if (cur.isSelected) return@subscribeEvent
-                                        val line = this.text.getLine(cur.leftLine)
+                                        val lineStr = this.text.getLineString(cur.leftLine)
                                         val col  = cur.leftColumn
-                                        val closeChars = setOf(')', ']', '}', '`', '"', '\'', '\u201D', '\u2019', '\u00BB')
-                                        if (col < line.length && line[col] in closeChars) {
-                                            setSelection(cur.leftLine, col + 1)
+                                        val pairExit = com.primaloptima.scribe.engine.ScribeSmartEnterEngine.checkPairExit(lineStr, col, shortcuts)
+                                        if (pairExit != null) {
+                                            setSelection(cur.leftLine, pairExit.jumpPastCol)
                                             event.intercept()
                                         }
                                     }

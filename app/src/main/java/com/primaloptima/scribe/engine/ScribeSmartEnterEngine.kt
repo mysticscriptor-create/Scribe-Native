@@ -23,8 +23,7 @@ import com.primaloptima.scribe.util.model.ShortcutAction
 object ScribeSmartEnterEngine {
 
     data class PairExitResult(
-        val jumpPastCol: Int,
-        val createNewline: Boolean = true
+        val jumpPastCol: Int
     )
 
     /**

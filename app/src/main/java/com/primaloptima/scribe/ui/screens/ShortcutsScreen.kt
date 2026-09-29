@@ -1590,7 +1590,7 @@ private fun CreateOrEditShortcutSheet(
                 ) {
                     Text(
                         text = when (kind) {
-                            "pair", "wrap" -> "Wraps text. Smart Enter exits outside quotes/tags."
+                            "pair", "wrap" -> "Wraps text. Smart Enter moves smoothly outside pair."
                             "prefix" -> "Adds line marker. Smart Enter continues or terminates."
                             else -> "Inserts plain text or symbol at cursor."
                         },
@@ -1677,7 +1677,7 @@ private fun CreateOrEditShortcutSheet(
                                         color = accentPrimary
                                     )
                                     Text(
-                                        text = "Encloses selection or places cursor between delimiters. Smart Enter: Pressing Enter before closing delimiter jumps outside cleanly to a new line without stranding quotes/symbols.",
+                                        text = "Encloses selection or places cursor between delimiters. Smart Enter: Pressing Enter before closing delimiter moves the cursor smoothly outside the pair on the same line.",
                                         fontSize = 11.sp,
                                         color = contentSecondary,
                                         lineHeight = 15.sp
