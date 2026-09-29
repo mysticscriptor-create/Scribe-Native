@@ -9,11 +9,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -34,8 +32,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -43,20 +39,19 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.primaloptima.scribe.ui.components.ScribeCardTokens
-import com.primaloptima.scribe.ui.components.ScribeSingleFab
 import com.primaloptima.scribe.ui.components.ScribeTopBar
 import com.primaloptima.scribe.ui.theme.FrostedDialog
 import com.primaloptima.scribe.ui.theme.FrostedDropdownMenu
 import com.primaloptima.scribe.ui.theme.LocalHazeState
-import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.util.BitmapBlur
 import com.primaloptima.scribe.util.DefaultShortcuts
@@ -68,76 +63,165 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
+// ── Theme Palette Colors Matching the Reference Design ───────────────────────
+private val CanvasBackground = Color(0xFFFBF8F1)
+private val CardBackground = Color(0xFFF4F0E6)
+private val ChipUnselectedBg = Color(0xFFF7F4EB)
+private val ChipBorderColor = Color(0xFFE2DDD2)
+private val DarkForestGreen = Color(0xFF1E382B)
+private val SubtleTextColor = Color(0xFF78756F)
+private val InnerBarBackground = Color(0xFFEDE9DF)
+private val GlyphBoxBackground = Color(0xFFEAE5DB)
+private val ActiveButtonDarkBg = Color(0xFF223E30)
+private val InactiveButtonBg = Color(0xFFEBE6DC)
+
 // ── Category Metadata ────────────────────────────────────────────────────────
 data class CategoryMeta(
     val id: String,
     val title: String,
     val subtitle: String,
-    val icon: ImageVector
+    val iconGlyph: String? = null,
+    val iconVector: ImageVector? = null,
+    val filterLabel: String
 )
 
 val STUDIO_CATEGORIES: List<CategoryMeta> = listOf(
     CategoryMeta(
         id = DefaultShortcuts.CAT_DIALOGUE,
         title = "Dialogue & Monologue",
-        subtitle = "Curly • straight • East Asian • em-dash starter",
-        icon = Icons.Default.ChatBubbleOutline
-    ),
-    CategoryMeta(
-        id = DefaultShortcuts.CAT_BRACKETS,
-        title = "Brackets & Enclosures",
-        subtitle = "Standard • novel & LitRPG frames • angle brackets",
-        icon = Icons.Default.DataArray
+        subtitle = "Curly • straight • East Asian",
+        iconVector = Icons.Default.ChatBubbleOutline,
+        filterLabel = "Dialogue"
     ),
     CategoryMeta(
         id = DefaultShortcuts.CAT_PUNCTUATION,
-        title = "Punctuation & Cadence",
-        subtitle = "Dashes • ellipsis • semicolon • interrobang",
-        icon = Icons.Default.FormatQuote
+        title = "Punctuation",
+        subtitle = "Commas • periods • dashes • ellipsis",
+        iconGlyph = "’",
+        filterLabel = "Punctuation"
+    ),
+    CategoryMeta(
+        id = DefaultShortcuts.CAT_BRACKETS,
+        title = "Brackets & Parentheses",
+        subtitle = "Parentheses • braces • brackets",
+        iconGlyph = "( )",
+        filterLabel = "Brackets"
+    ),
+    CategoryMeta(
+        id = DefaultShortcuts.CAT_ARROWS,
+        title = "Arrows & Symbols",
+        subtitle = "Arrows • math • currency • misc",
+        iconVector = Icons.Default.ArrowForward,
+        filterLabel = "Symbols"
+    ),
+    CategoryMeta(
+        id = DefaultShortcuts.CAT_FORMATTING,
+        title = "Editing Shortcuts",
+        subtitle = "Select • delete • format • more",
+        iconVector = Icons.Default.AutoAwesome,
+        filterLabel = "Editing"
     ),
     CategoryMeta(
         id = DefaultShortcuts.CAT_SCENE_BREAKS,
         title = "Scene Breaks & Ornaments",
         subtitle = "Asterism • stars • dividers • thematic rule",
-        icon = Icons.Default.AutoAwesome
+        iconGlyph = "⁂",
+        filterLabel = "Ornaments"
     ),
     CategoryMeta(
         id = DefaultShortcuts.CAT_STRUCTURE,
         title = "Structure & Lists",
-        subtitle = "Bullets • numbers • checklists • blockquotes • headings",
-        icon = Icons.Default.FormatListBulleted
-    ),
-    CategoryMeta(
-        id = DefaultShortcuts.CAT_FORMATTING,
-        title = "Text Styles & Markdown",
-        subtitle = "Bold • italic • strikethrough • inline code",
-        icon = Icons.Default.FormatBold
-    ),
-    CategoryMeta(
-        id = DefaultShortcuts.CAT_ARROWS,
-        title = "Arrows & Direction",
-        subtitle = "Right • left • bidirectional • transition flows",
-        icon = Icons.Default.East
+        subtitle = "Bullets • numbers • checklists • blockquotes",
+        iconVector = Icons.Default.FormatListBulleted,
+        filterLabel = "Structure"
     ),
     CategoryMeta(
         id = DefaultShortcuts.CAT_MATH,
-        title = "Math, Logic & Units",
+        title = "Math & Logic",
         subtitle = "Arithmetic • comparisons • degrees • infinity",
-        icon = Icons.Default.Calculate
+        iconGlyph = "±",
+        filterLabel = "Math"
     ),
     CategoryMeta(
         id = DefaultShortcuts.CAT_CURRENCY,
-        title = "Currency & Common Symbols",
+        title = "Currency",
         subtitle = "Dollar • Euro • Pound • Yen • percent",
-        icon = Icons.Default.AttachMoney
+        iconGlyph = "$",
+        filterLabel = "Currency"
     ),
     CategoryMeta(
         id = DefaultShortcuts.CAT_CUSTOM,
         title = "Custom & Snippets",
         subtitle = "Personal writing phrases, templates and triggers",
-        icon = Icons.Default.BookmarkBorder
+        iconVector = Icons.Default.BookmarkBorder,
+        filterLabel = "Custom"
     )
 )
+
+// Human-friendly title mapper for standard shortcut IDs to match reference UI
+private fun getHumanFriendlyTitle(shortcut: ShortcutAction): String = when (shortcut.id) {
+    "quote_curly" -> "Curly double quotes"
+    "quote_straight" -> "Straight double quotes"
+    "quote_single_curly" -> "Curly single quotes"
+    "quote_single_straight" -> "Straight single quotes"
+    "quote_heavy_double" -> "Curly quotation marks"
+    "quote_heavy_single" -> "Heavy single quotes"
+    "quote_corner" -> "Japanese corner quotes"
+    "quote_corner_double" -> "Double corner brackets"
+    "quote_guillemets" -> "French guillemets"
+    "dialogue_emdash" -> "Dialogue em dash"
+    "paren" -> "Round parentheses"
+    "bracket" -> "Square brackets"
+    "brace" -> "Curly braces"
+    "sym_status_bracket" -> "Status window brackets"
+    "sym_lenticular" -> "Lenticular brackets"
+    "sym_white_square" -> "White square brackets"
+    "sym_angle_bracket" -> "Angle brackets"
+    "sym_double_angle" -> "Double angle brackets"
+    "sym_floor" -> "Floor brackets"
+    "emdash" -> "Em dash"
+    "endash" -> "En dash"
+    "ellipsis" -> "Typographical ellipsis"
+    "semicolon" -> "Semicolon"
+    "colon" -> "Colon"
+    "interrobang" -> "Interrobang"
+    "middledot" -> "Middle dot"
+    "hr" -> "Thematic break (---)"
+    "sym_asterism" -> "Asterism flourish"
+    "sym_three_stars" -> "Three stars (* * *)"
+    "sym_sparkle" -> "Magic sparkle"
+    "sym_black_star" -> "Black star"
+    "sym_section" -> "Section symbol"
+    "sym_fleuron" -> "Fleuron leaf"
+    "list" -> "Bullet list item"
+    "numlist" -> "Numbered list item"
+    "tasklist" -> "Task list checkbox"
+    "blockquote" -> "Blockquote indent"
+    "h1" -> "Heading 1 (#)"
+    "h2" -> "Heading 2 (##)"
+    "tab" -> "Tab (4 spaces)"
+    "bold" -> "Bold format"
+    "italic" -> "Italic format"
+    "strikethrough" -> "Strikethrough format"
+    "code" -> "Inline code backticks"
+    "arrow_right" -> "Right arrow"
+    "arrow_left" -> "Left arrow"
+    "arrow_both" -> "Bidirectional arrow"
+    "arrow_double_right" -> "Double right arrow"
+    "math_plusminus" -> "Plus-minus sign"
+    "math_multiply" -> "Multiplication sign"
+    "math_divide" -> "Division sign"
+    "math_notequal" -> "Not equal to"
+    "math_approx" -> "Approximately equal"
+    "math_degree" -> "Degree symbol"
+    "math_infinity" -> "Infinity symbol"
+    "sym_dollar" -> "Dollar sign"
+    "sym_euro" -> "Euro sign"
+    "sym_pound" -> "Pound sign"
+    "sym_yen" -> "Yen sign"
+    "sym_percent" -> "Percent sign"
+    else -> shortcut.label
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -155,17 +239,22 @@ fun ShortcutsScreen(
 
     // ── Search & Filter State ────────────────────────────────────────────────
     var searchQuery by rememberSaveable { mutableStateOf("") }
-    var selectedFilterCategory by rememberSaveable { mutableStateOf<String?>("all") } // "all", "in_bar", or category ID
+    var selectedFilterCategory by rememberSaveable { mutableStateOf<String?>("all") }
 
     // ── Edit/Reorder Mode State ──────────────────────────────────────────────
     var isEditMode by rememberSaveable { mutableStateOf(false) }
 
     // ── Category Collapse State ──────────────────────────────────────────────
-    // Initial load: keep first category expanded, rest collapsed
+    // Match reference: Dialogue expanded, remaining categories collapsed
     var collapsedCategories by rememberSaveable {
         mutableStateOf(
             STUDIO_CATEGORIES.drop(1).map { it.id }.toSet()
         )
+    }
+
+    // ── Category Expanded Items Limit State (Show more (5) v) ────────────────
+    var expandedLimits by rememberSaveable {
+        mutableStateOf(mapOf<String, Int>())
     }
 
     // ── Dialog States ────────────────────────────────────────────────────────
@@ -200,7 +289,6 @@ fun ShortcutsScreen(
 
     val filteredShortcuts = remember(shortcuts, cleanQuery, selectedFilterCategory, activeBarShortcuts) {
         shortcuts.filter { action ->
-            // Category / In-Bar filtering
             val matchesFilter = when (selectedFilterCategory) {
                 "in_bar" -> action.isEnabled && action in activeBarShortcuts
                 "all", null -> true
@@ -209,10 +297,10 @@ fun ShortcutsScreen(
 
             if (!matchesFilter) return@filter false
 
-            // Query matching: label, payload, closing, kind, category, keywords
             if (cleanQuery.isBlank()) return@filter true
 
             action.label.lowercase().contains(cleanQuery) ||
+                getHumanFriendlyTitle(action).lowercase().contains(cleanQuery) ||
                 action.payload.lowercase().contains(cleanQuery) ||
                 (action.closing?.lowercase()?.contains(cleanQuery) == true) ||
                 action.kind.lowercase().contains(cleanQuery) ||
@@ -227,6 +315,16 @@ fun ShortcutsScreen(
                 title = "Shortcut Studio",
                 navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
                 onNavigationClick = onBack,
+                titleContent = { titleMod ->
+                    Text(
+                        text = "Shortcut Studio",
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 20.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = titleMod
+                    )
+                },
                 actionsContent = {
                     Box {
                         IconButton(onClick = { showTopMenu = true }) {
@@ -260,13 +358,45 @@ fun ShortcutsScreen(
             )
         },
         floatingActionButton = {
-            ScribeSingleFab(
-                icon = Icons.Default.Add,
-                contentDescription = "Create Custom Shortcut",
-                onClick = { isCreatingNew = true }
-            )
+            // Extended FAB with dark forest green pill: "+ Create Shortcut"
+            Surface(
+                onClick = { isCreatingNew = true },
+                shape = CircleShape,
+                color = DarkForestGreen,
+                shadowElevation = 6.dp,
+                modifier = Modifier.padding(bottom = 8.dp, end = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Column {
+                        Text(
+                            text = "Create",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            lineHeight = 15.sp
+                        )
+                        Text(
+                            text = "Shortcut",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            lineHeight = 15.sp
+                        )
+                    }
+                }
+            }
         },
-        containerColor = MaterialTheme.colorScheme.background,
+        containerColor = CanvasBackground,
         contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime)
     ) { paddingValues ->
         LazyColumn(
@@ -275,8 +405,8 @@ fun ShortcutsScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
                 .then(if (hazeState != null) Modifier.hazeSource(hazeState) else Modifier),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // ── 1. YOUR WRITING BAR (Hero Section) ───────────────────────────
             item(key = "hero_writing_bar") {
@@ -303,26 +433,24 @@ fun ShortcutsScreen(
                 )
             }
 
-            // ── 2. SEARCH & DISCOVERY BAR ────────────────────────────────────
+            // ── 2. SEARCH & PILL FILTERS ─────────────────────────────────────
             item(key = "search_and_filters") {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    // Search Bar
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    // Search Bar (Rounded pill shape)
                     ShortcutSearchField(
                         query = searchQuery,
                         onQueryChange = { searchQuery = it }
                     )
 
-                    // Horizontal Category Filter Row
+                    // Horizontal Filter Chips Row: [All] [Punctuation] [Dialogue] [Editing] [Symbols] ...
                     ShortcutCategoryFilters(
                         selectedCategory = selectedFilterCategory,
-                        activeBarCount = activeBarShortcuts.size,
                         onSelectCategory = { selectedFilterCategory = it }
                     )
                 }
             }
 
             // ── 3. SHORTCUT LIBRARY SECTIONS ─────────────────────────────────
-            // When user is searching or has selected a single filter, we dynamically group matching items
             val displayedCategories = if (selectedFilterCategory != null && selectedFilterCategory != "all" && selectedFilterCategory != "in_bar") {
                 STUDIO_CATEGORIES.filter { it.id == selectedFilterCategory }
             } else {
@@ -333,78 +461,115 @@ fun ShortcutsScreen(
                 val categoryShortcuts = filteredShortcuts.filter { it.category == catMeta.id }
                 val allInThisCat = shortcuts.filter { it.category == catMeta.id }
                 val isCatDisabled = disabledCategories.contains(catMeta.id)
-                val activeInThisCat = allInThisCat.count { it.isEnabled && !isCatDisabled }
                 val totalInThisCat = allInThisCat.size
                 val isCollapsed = collapsedCategories.contains(catMeta.id) && cleanQuery.isBlank() && selectedFilterCategory == "all"
 
                 if (categoryShortcuts.isNotEmpty() || (cleanQuery.isBlank() && selectedFilterCategory in listOf("all", catMeta.id))) {
-                    item(key = "cat_header_${catMeta.id}") {
-                        ShortcutCategoryAccordionHeader(
-                            meta = catMeta,
-                            activeCount = activeInThisCat,
-                            totalCount = totalInThisCat,
-                            isCategoryDisabled = isCatDisabled,
-                            isCollapsed = isCollapsed,
-                            onToggleCollapse = {
-                                collapsedCategories = if (isCollapsed) {
-                                    collapsedCategories - catMeta.id
-                                } else {
-                                    collapsedCategories + catMeta.id
-                                }
-                            },
-                            onToggleCategoryEnabled = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                vm.toggleCategory(catMeta.id)
-                            }
-                        )
-                    }
-
-                    if (!isCollapsed) {
-                        if (categoryShortcuts.isEmpty() && catMeta.id == DefaultShortcuts.CAT_CUSTOM) {
-                            item(key = "empty_custom_notice") {
-                                EmptyCustomCategoryNotice(
-                                    onCreateClick = { isCreatingNew = true }
-                                )
-                            }
-                        } else {
-                            items(
-                                items = categoryShortcuts,
-                                key = { it.id }
-                            ) { shortcut ->
-                                val isShortcutActive = shortcut.isEnabled && !isCatDisabled
-                                ShortcutCompactRow(
-                                    shortcut = shortcut,
-                                    isActive = isShortcutActive,
+                    item(key = "cat_card_${catMeta.id}") {
+                        // Enclosed Elegant Card Container
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            color = CardBackground,
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, ChipBorderColor.copy(alpha = 0.6f))
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 12.dp, horizontal = 14.dp)
+                            ) {
+                                // Accordion Header Row
+                                ShortcutCategoryAccordionHeader(
+                                    meta = catMeta,
+                                    totalCount = totalInThisCat,
                                     isCategoryDisabled = isCatDisabled,
-                                    onToggle = {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        vm.toggleShortcutEnabled(shortcut.id)
-                                    },
-                                    onEdit = { editingShortcut = shortcut },
-                                    onDelete = if (shortcut.category == DefaultShortcuts.CAT_CUSTOM) {
-                                        { deleteCandidate = shortcut }
-                                    } else null
+                                    isCollapsed = isCollapsed,
+                                    onToggleCollapse = {
+                                        collapsedCategories = if (isCollapsed) {
+                                            collapsedCategories - catMeta.id
+                                        } else {
+                                            collapsedCategories + catMeta.id
+                                        }
+                                    }
                                 )
-                                HorizontalDivider(
-                                    modifier = Modifier.padding(start = 54.dp),
-                                    thickness = 0.5.dp,
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-                                )
+
+                                // Expanded Shortcut List
+                                if (!isCollapsed) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    if (categoryShortcuts.isEmpty() && catMeta.id == DefaultShortcuts.CAT_CUSTOM) {
+                                        EmptyCustomCategoryNotice(
+                                            onCreateClick = { isCreatingNew = true }
+                                        )
+                                    } else {
+                                        val displayLimit = expandedLimits[catMeta.id] ?: 5
+                                        val visibleShortcuts = if (cleanQuery.isNotBlank() || selectedFilterCategory != "all") {
+                                            categoryShortcuts
+                                        } else {
+                                            categoryShortcuts.take(displayLimit)
+                                        }
+
+                                        visibleShortcuts.forEach { shortcut ->
+                                            val isShortcutActive = shortcut.isEnabled && !isCatDisabled
+                                            ShortcutCompactRow(
+                                                shortcut = shortcut,
+                                                isActive = isShortcutActive,
+                                                onToggle = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    vm.toggleShortcutEnabled(shortcut.id)
+                                                },
+                                                onEdit = { editingShortcut = shortcut },
+                                                onDelete = if (shortcut.category == DefaultShortcuts.CAT_CUSTOM) {
+                                                    { deleteCandidate = shortcut }
+                                                } else null
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                        }
+
+                                        // "Show more (N) v" Expand Toggle if more items exist
+                                        if (cleanQuery.isBlank() && selectedFilterCategory == "all" && categoryShortcuts.size > displayLimit) {
+                                            val remaining = categoryShortcuts.size - displayLimit
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        expandedLimits = expandedLimits + (catMeta.id to (displayLimit + 10))
+                                                    }
+                                                    .padding(vertical = 8.dp),
+                                                horizontalArrangement = Arrangement.Center,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "Show more ($remaining)",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = SubtleTextColor
+                                                )
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Icon(
+                                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = SubtleTextColor
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
 
-            // Bottom spacing
+            // Bottom spacing for extended FAB
             item(key = "bottom_spacer") {
-                Spacer(modifier = Modifier.height(72.dp))
+                Spacer(modifier = Modifier.height(84.dp))
             }
         }
     }
 
     // ── Dialogs ──────────────────────────────────────────────────────────────
-    // 1. Create / Edit Shortcut Dialog
     if (editingShortcut != null || isCreatingNew) {
         val target = editingShortcut
         CreateOrEditShortcutSheet(
@@ -427,12 +592,11 @@ fun ShortcutsScreen(
         )
     }
 
-    // 2. Delete Confirmation Dialog
     deleteCandidate?.let { candidate ->
         FrostedDialog(
             onDismissRequest = { deleteCandidate = null },
             title = { Text("Delete Shortcut?") },
-            text = { Text("Delete \"" + candidate.label + "\"? This custom shortcut cannot be undone.") },
+            text = { Text("Delete "" + candidate.label + ""? This custom shortcut cannot be undone.") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -452,7 +616,6 @@ fun ShortcutsScreen(
         )
     }
 
-    // 3. Reset Confirmation Dialog
     if (showResetDialog) {
         FrostedDialog(
             onDismissRequest = { showResetDialog = false },
@@ -490,172 +653,219 @@ private fun WritingBarHeroSection(
     onMoveShortcut: (from: Int, to: Int) -> Unit,
     onScrollToLibrary: () -> Unit
 ) {
-    val accentColor = ScribeTheme.colors.interaction.primary
-
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-        border = androidx.compose.foundation.BorderStroke(
-            0.6.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-        )
+        color = CardBackground,
+        border = androidx.compose.foundation.BorderStroke(0.5.dp, ChipBorderColor.copy(alpha = 0.6f))
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Header Row: Title, Count & Edit/Done Toggle
+            // Header Row: Leading Rounded Icon + Title & Count + Trailing "Edit" Pill
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Text(
-                        text = "YOUR WRITING BAR",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.8.sp,
-                        color = accentColor
-                    )
-                    Text(
-                        text = if (activeShortcuts.isNotEmpty()) "${activeShortcuts.size} shortcuts" else "0 shortcuts",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Rounded icon box matching reference
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(GlyphBoxBackground),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ViewCompact,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = Color(0xFF2C3E35)
+                        )
+                    }
+
+                    Column {
+                        Text(
+                            text = "Your Writing Bar",
+                            fontFamily = FontFamily.Serif,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (activeShortcuts.isNotEmpty()) "${activeShortcuts.size} shortcuts" else "0 shortcuts",
+                            fontSize = 12.sp,
+                            color = SubtleTextColor
+                        )
+                    }
                 }
 
                 if (activeShortcuts.isNotEmpty()) {
-                    FilledTonalButton(
+                    Surface(
                         onClick = onToggleEditMode,
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
                         shape = CircleShape,
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = if (isEditMode) accentColor else MaterialTheme.colorScheme.surfaceVariant,
-                            contentColor = if (isEditMode) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                        color = if (isEditMode) DarkForestGreen else Color(0xFFE5E0D5),
+                        border = androidx.compose.foundation.BorderStroke(
+                            0.5.dp,
+                            if (isEditMode) DarkForestGreen else ChipBorderColor
                         ),
-                        modifier = Modifier.height(28.dp)
+                        modifier = Modifier.height(32.dp)
                     ) {
-                        Text(
-                            text = if (isEditMode) "Done" else "Edit",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(13.dp),
+                                tint = if (isEditMode) Color.White else Color(0xFF2B3A32)
+                            )
+                            Text(
+                                text = if (isEditMode) "Done" else "Edit",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isEditMode) Color.White else Color(0xFF2B3A32)
+                            )
+                        }
                     }
                 }
             }
 
-            // Live Preview Surface
+            // Live Preview Enclosed Surface
             if (activeShortcuts.isEmpty()) {
-                // Empty state
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 14.dp),
+                        .padding(vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
                         text = "No shortcuts currently active",
-                        style = MaterialTheme.typography.bodyMedium,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    Text(
-                        text = "Add shortcuts from the library below to populate your writing bar.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                     TextButton(onClick = onScrollToLibrary) {
-                        Text("Browse shortcuts", color = accentColor, fontWeight = FontWeight.SemiBold)
+                        Text("Browse shortcuts", color = DarkForestGreen, fontWeight = FontWeight.SemiBold)
                     }
                 }
             } else {
                 Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                    border = androidx.compose.foundation.BorderStroke(
-                        0.5.dp,
-                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    color = InnerBarBackground,
+                    border = androidx.compose.foundation.BorderStroke(0.5.dp, ChipBorderColor),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                            .padding(horizontal = 8.dp, vertical = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Fixed Undo & Redo Pills (Mirroring actual Editor bar)
+                        // Undo Pill (Circular)
                         Surface(
                             shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.height(ScribeTheme.metrics.chipHeight)
+                            color = GlyphBoxBackground,
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, ChipBorderColor),
+                            modifier = Modifier.size(34.dp)
                         ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
+                            Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.Undo,
-                                    contentDescription = "Undo (Editor Action)",
-                                    modifier = Modifier.size(15.dp)
+                                    contentDescription = "Undo",
+                                    modifier = Modifier.size(15.dp),
+                                    tint = Color(0xFF2B3A32)
                                 )
                             }
                         }
 
+                        // Redo Pill (Circular)
                         Surface(
                             shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.height(ScribeTheme.metrics.chipHeight)
+                            color = GlyphBoxBackground,
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, ChipBorderColor),
+                            modifier = Modifier.size(34.dp)
                         ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            ) {
+                            Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.Redo,
-                                    contentDescription = "Redo (Editor Action)",
-                                    modifier = Modifier.size(15.dp)
+                                    contentDescription = "Redo",
+                                    modifier = Modifier.size(15.dp),
+                                    tint = Color(0xFF2B3A32)
                                 )
                             }
                         }
-
-                        // Vertical Hairline Separator between fixed actions and user shortcuts
-                        Box(
-                            modifier = Modifier
-                                .height(18.dp)
-                                .width(1.dp)
-                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
-                        )
 
                         // Active Shortcuts
                         activeShortcuts.forEachIndexed { index, shortcut ->
                             if (!isEditMode) {
-                                // Normal Mode: Authentic Bar Chip
-                                ActiveBarChipItem(
-                                    shortcut = shortcut,
-                                    accentColor = accentColor
-                                )
+                                // Rounded pill chip
+                                Surface(
+                                    shape = CircleShape,
+                                    color = GlyphBoxBackground,
+                                    border = androidx.compose.foundation.BorderStroke(0.5.dp, ChipBorderColor),
+                                    modifier = Modifier.height(34.dp)
+                                ) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.padding(horizontal = 10.dp)
+                                    ) {
+                                        Text(
+                                            text = shortcut.label,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = Color(0xFF2B3A32),
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
                             } else {
-                                // Edit/Reorder Mode Chip
+                                // Reorderable Chip Item
                                 ReorderableBarChipItem(
                                     shortcut = shortcut,
                                     index = index,
                                     totalCount = activeShortcuts.size,
-                                    accentColor = accentColor,
-                                    onMove = { from, to -> onMoveShortcut(from, to) },
+                                    onMove = onMoveShortcut,
                                     onRemove = { onRemoveShortcut(shortcut) }
                                 )
                             }
                         }
+
+                        // Trailing overflow pill (...) & forward indicator (›)
+                        Surface(
+                            shape = CircleShape,
+                            color = GlyphBoxBackground,
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, ChipBorderColor),
+                            modifier = Modifier.size(34.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreHoriz,
+                                    contentDescription = "More shortcuts",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = Color(0xFF2B3A32)
+                                )
+                            }
+                        }
+
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = SubtleTextColor
+                        )
                     }
                 }
             }
@@ -663,55 +873,12 @@ private fun WritingBarHeroSection(
     }
 }
 
-// ── Normal Mode Authentic Bar Chip Item ───────────────────────────────────────
-@Composable
-private fun ActiveBarChipItem(
-    shortcut: ShortcutAction,
-    accentColor: Color
-) {
-    val isDialogueOrSymbol = shortcut.category == DefaultShortcuts.CAT_DIALOGUE ||
-        shortcut.category == DefaultShortcuts.CAT_BRACKETS ||
-        shortcut.category == DefaultShortcuts.CAT_SCENE_BREAKS
-
-    val chipBg = if (isDialogueOrSymbol) {
-        accentColor.copy(alpha = 0.12f)
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
-    }
-
-    val contentColor = if (isDialogueOrSymbol) accentColor else MaterialTheme.colorScheme.onSurfaceVariant
-
-    Surface(
-        shape = CircleShape,
-        color = chipBg,
-        contentColor = contentColor,
-        border = androidx.compose.foundation.BorderStroke(
-            0.5.dp,
-            if (isDialogueOrSymbol) accentColor.copy(alpha = 0.3f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-        ),
-        modifier = Modifier.height(ScribeTheme.metrics.chipHeight)
-    ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.padding(horizontal = ScribeTheme.spacing.medium, vertical = ScribeTheme.spacing.micro)
-        ) {
-            Text(
-                text = shortcut.label,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1
-            )
-        }
-    }
-}
-
-// ── Edit/Reorder Mode Bar Chip Item with Drag & Context Controls ───────────────
+// ── Edit/Reorder Mode Bar Chip Item with Drag Gestures ────────────────────────
 @Composable
 private fun ReorderableBarChipItem(
     shortcut: ShortcutAction,
     index: Int,
     totalCount: Int,
-    accentColor: Color,
     onMove: (from: Int, to: Int) -> Unit,
     onRemove: () -> Unit
 ) {
@@ -721,29 +888,21 @@ private fun ReorderableBarChipItem(
     val haptic = LocalHapticFeedback.current
 
     val animatedElevation by animateDpAsState(
-        targetValue = if (isDragging) 8.dp else 2.dp,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        targetValue = if (isDragging) 6.dp else 1.dp,
         label = "dragElevation"
     )
 
-    val animatedScale by animateFloatAsState(
-        targetValue = if (isDragging) 1.05f else 1.0f,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-        label = "dragScale"
-    )
-
     Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = MaterialTheme.colorScheme.surface,
+        shape = CircleShape,
+        color = if (isDragging) CardBackground else GlyphBoxBackground,
         tonalElevation = animatedElevation,
         shadowElevation = animatedElevation,
         border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            if (isDragging) accentColor else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+            0.5.dp,
+            if (isDragging) DarkForestGreen else ChipBorderColor
         ),
         modifier = Modifier
             .offset { IntOffset(offsetX.roundToInt(), 0) }
-            .scale(animatedScale)
             .height(34.dp)
             .zIndex(if (isDragging) 10f else 1f)
             .pointerInput(shortcut.id, index, totalCount) {
@@ -753,7 +912,6 @@ private fun ReorderableBarChipItem(
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     },
                     onDragEnd = {
-                        // Check if dragged enough to shift index
                         val threshold = 40.dp.toPx()
                         if (offsetX > threshold && index < totalCount - 1) {
                             onMove(index, index + 1)
@@ -779,103 +937,36 @@ private fun ReorderableBarChipItem(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            // Drag affordance / Label
             Icon(
                 imageVector = Icons.Default.DragHandle,
                 contentDescription = "Drag to reorder",
-                modifier = Modifier.size(14.dp),
-                tint = accentColor
+                modifier = Modifier.size(13.dp),
+                tint = DarkForestGreen
             )
 
             Text(
                 text = shortcut.label,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = Color(0xFF2B3A32)
             )
 
-            // Contextual Menu Trigger (For accessibility, shift to start/end)
-            Box {
-                IconButton(
-                    onClick = { showMenu = true },
-                    modifier = Modifier.size(22.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "Reorder options",
-                        modifier = Modifier.size(13.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                FrostedDropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false }
-                ) {
-                    if (index > 0) {
-                        DropdownMenuItem(
-                            text = { Text("Move left") },
-                            onClick = {
-                                showMenu = false
-                                onMove(index, index - 1)
-                            },
-                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, contentDescription = null) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Move to beginning") },
-                            onClick = {
-                                showMenu = false
-                                onMove(index, 0)
-                            },
-                            leadingIcon = { Icon(Icons.Default.FirstPage, contentDescription = null) }
-                        )
-                    }
-                    if (index < totalCount - 1) {
-                        DropdownMenuItem(
-                            text = { Text("Move right") },
-                            onClick = {
-                                showMenu = false
-                                onMove(index, index + 1)
-                            },
-                            leadingIcon = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Move to end") },
-                            onClick = {
-                                showMenu = false
-                                onMove(index, totalCount - 1)
-                            },
-                            leadingIcon = { Icon(Icons.Default.LastPage, contentDescription = null) }
-                        )
-                    }
-                    DropdownMenuItem(
-                        text = { Text("Remove from bar", color = MaterialTheme.colorScheme.error) },
-                        onClick = {
-                            showMenu = false
-                            onRemove()
-                        },
-                        leadingIcon = { Icon(Icons.Default.Close, contentDescription = null, tint = MaterialTheme.colorScheme.error) }
-                    )
-                }
-            }
-
-            // Remove Button (✕)
             IconButton(
                 onClick = onRemove,
                 modifier = Modifier.size(20.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
-                    contentDescription = "Remove from writing bar",
-                    modifier = Modifier.size(13.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    contentDescription = "Remove",
+                    modifier = Modifier.size(12.dp),
+                    tint = SubtleTextColor
                 )
             }
         }
     }
 }
 
-// ── Search Field ──────────────────────────────────────────────────────────────
+// ── Search Field (Pill Shape) ─────────────────────────────────────────────────
 @Composable
 private fun ShortcutSearchField(
     query: String,
@@ -884,20 +975,22 @@ private fun ShortcutSearchField(
     OutlinedTextField(
         value = query,
         onValueChange = onQueryChange,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(50.dp),
         placeholder = {
             Text(
-                "Search shortcuts, quotes, brackets, symbols...",
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                "Search shortcuts...",
+                fontSize = 14.sp,
+                color = SubtleTextColor.copy(alpha = 0.85f)
             )
         },
         leadingIcon = {
             Icon(
                 imageVector = Icons.Default.Search,
                 contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                modifier = Modifier.size(19.dp),
+                tint = Color(0xFF333333)
             )
         },
         trailingIcon = {
@@ -906,17 +999,18 @@ private fun ShortcutSearchField(
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Clear search",
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(16.dp),
+                        tint = SubtleTextColor
                     )
                 }
             }
         },
-        shape = RoundedCornerShape(12.dp),
+        shape = CircleShape,
         colors = OutlinedTextFieldDefaults.colors(
-            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-            focusedContainerColor = MaterialTheme.colorScheme.surface,
-            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-            focusedBorderColor = ScribeTheme.colors.interaction.primary
+            unfocusedContainerColor = CardBackground,
+            focusedContainerColor = CardBackground,
+            unfocusedBorderColor = ChipBorderColor,
+            focusedBorderColor = DarkForestGreen
         ),
         singleLine = true
     )
@@ -926,54 +1020,73 @@ private fun ShortcutSearchField(
 @Composable
 private fun ShortcutCategoryFilters(
     selectedCategory: String?,
-    activeBarCount: Int,
     onSelectCategory: (String?) -> Unit
 ) {
-    val accentColor = ScribeTheme.colors.interaction.primary
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // "All" Filter
-        FilterChip(
-            selected = selectedCategory == "all",
+        // "All" Filter (Dark green when selected)
+        val isAllSelected = selectedCategory == "all"
+        Surface(
             onClick = { onSelectCategory("all") },
-            label = { Text("All", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
             shape = CircleShape,
-            colors = FilterChipDefaults.filterChipColors(
-                selectedContainerColor = accentColor.copy(alpha = 0.15f),
-                selectedLabelColor = accentColor
-            )
-        )
-
-        // "In Bar" Filter
-        FilterChip(
-            selected = selectedCategory == "in_bar",
-            onClick = { onSelectCategory("in_bar") },
-            label = { Text("In Bar ($activeBarCount)", fontSize = 12.sp, fontWeight = FontWeight.Medium) },
-            shape = CircleShape,
-            colors = FilterChipDefaults.filterChipColors(
-                selectedContainerColor = accentColor.copy(alpha = 0.15f),
-                selectedLabelColor = accentColor
-            )
-        )
-
-        // Categories Filters
-        STUDIO_CATEGORIES.forEach { cat ->
-            FilterChip(
-                selected = selectedCategory == cat.id,
-                onClick = { onSelectCategory(if (selectedCategory == cat.id) "all" else cat.id) },
-                label = { Text(cat.title, fontSize = 12.sp, fontWeight = FontWeight.Medium) },
-                shape = CircleShape,
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = accentColor.copy(alpha = 0.15f),
-                    selectedLabelColor = accentColor
+            color = if (isAllSelected) DarkForestGreen else ChipUnselectedBg,
+            border = androidx.compose.foundation.BorderStroke(
+                0.8.dp,
+                if (isAllSelected) DarkForestGreen else ChipBorderColor
+            ),
+            modifier = Modifier.height(36.dp)
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.padding(horizontal = 18.dp)
+            ) {
+                Text(
+                    text = "All",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (isAllSelected) Color.White else Color(0xFF2E3D35)
                 )
-            )
+            }
+        }
+
+        // Specific Taxonomy Filters matching Goal UI: Punctuation, Dialogue, Editing, Symbols...
+        listOf(
+            DefaultShortcuts.CAT_PUNCTUATION to "Punctuation",
+            DefaultShortcuts.CAT_DIALOGUE to "Dialogue",
+            DefaultShortcuts.CAT_FORMATTING to "Editing",
+            DefaultShortcuts.CAT_ARROWS to "Symbols",
+            DefaultShortcuts.CAT_BRACKETS to "Brackets",
+            DefaultShortcuts.CAT_STRUCTURE to "Structure",
+            DefaultShortcuts.CAT_CUSTOM to "Custom"
+        ).forEach { (catId, label) ->
+            val isSelected = selectedCategory == catId
+            Surface(
+                onClick = { onSelectCategory(if (isSelected) "all" else catId) },
+                shape = CircleShape,
+                color = if (isSelected) DarkForestGreen else ChipUnselectedBg,
+                border = androidx.compose.foundation.BorderStroke(
+                    0.8.dp,
+                    if (isSelected) DarkForestGreen else ChipBorderColor
+                ),
+                modifier = Modifier.height(36.dp)
+            ) {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier.padding(horizontal = 16.dp)
+                ) {
+                    Text(
+                        text = label,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (isSelected) Color.White else Color(0xFF2E3D35)
+                    )
+                }
+            }
         }
     }
 }
@@ -982,16 +1095,13 @@ private fun ShortcutCategoryFilters(
 @Composable
 private fun ShortcutCategoryAccordionHeader(
     meta: CategoryMeta,
-    activeCount: Int,
     totalCount: Int,
     isCategoryDisabled: Boolean,
     isCollapsed: Boolean,
-    onToggleCollapse: () -> Unit,
-    onToggleCategoryEnabled: () -> Unit
+    onToggleCollapse: () -> Unit
 ) {
-    val accentColor = ScribeTheme.colors.interaction.primary
     val chevronRotation by animateFloatAsState(
-        targetValue = if (isCollapsed) -90f else 0f,
+        targetValue = if (isCollapsed) 0f else 180f,
         animationSpec = tween(200),
         label = "chevronRot"
     )
@@ -1001,109 +1111,105 @@ private fun ShortcutCategoryAccordionHeader(
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onToggleCollapse)
-            .padding(vertical = 6.dp, horizontal = 4.dp),
+            .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
             modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = meta.icon,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = if (!isCategoryDisabled) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-            )
+            // Category Icon (Glyph text or Vector icon)
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(GlyphBoxBackground),
+                contentAlignment = Alignment.Center
+            ) {
+                if (meta.iconVector != null) {
+                    Icon(
+                        imageVector = meta.iconVector,
+                        contentDescription = null,
+                        modifier = Modifier.size(19.dp),
+                        tint = Color(0xFF2C3E35)
+                    )
+                } else if (meta.iconGlyph != null) {
+                    Text(
+                        text = meta.iconGlyph,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF2C3E35)
+                    )
+                }
+            }
 
             Column {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = meta.title.uppercase(),
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.5.sp,
-                        color = if (!isCategoryDisabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        text = meta.title,
+                        fontFamily = FontFamily.Serif,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 15.sp,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
 
-                    // Active / Total Count Badge
+                    // Pill count badge (e.g. [ 10 ])
                     Surface(
                         shape = CircleShape,
-                        color = if (isCategoryDisabled) {
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                        } else if (activeCount > 0) {
-                            accentColor.copy(alpha = 0.12f)
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                        }
+                        color = GlyphBoxBackground,
+                        border = androidx.compose.foundation.BorderStroke(0.5.dp, ChipBorderColor)
                     ) {
                         Text(
-                            text = if (isCategoryDisabled) "Off" else "$activeCount / $totalCount",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (isCategoryDisabled) {
-                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                            } else if (activeCount > 0) {
-                                accentColor
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            text = "$totalCount",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = SubtleTextColor,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
                         )
                     }
                 }
 
                 Text(
                     text = meta.subtitle,
-                    style = MaterialTheme.typography.bodySmall,
                     fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    color = SubtleTextColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
         }
 
-        // Action Controls: Category Switch + Collapse Chevron
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically
+        // Chevron Arrow
+        IconButton(
+            onClick = onToggleCollapse,
+            modifier = Modifier.size(32.dp)
         ) {
-            // Category Master Switch (Subtle scale for tight layouts)
-            Switch(
-                checked = !isCategoryDisabled,
-                onCheckedChange = { onToggleCategoryEnabled() },
-                modifier = Modifier.scale(0.75f)
-            )
-
-            // Chevron
             Icon(
                 imageVector = Icons.Default.KeyboardArrowDown,
-                contentDescription = if (isCollapsed) "Expand category" else "Collapse category",
+                contentDescription = if (isCollapsed) "Expand" else "Collapse",
                 modifier = Modifier
                     .size(22.dp)
                     .rotate(chevronRotation),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                tint = Color(0xFF333333)
             )
         }
     }
 }
 
-// ── Compact Shortcut Row ──────────────────────────────────────────────────────
+// ── Compact Shortcut Row Matching the Reference Image ─────────────────────────
 @Composable
 private fun ShortcutCompactRow(
     shortcut: ShortcutAction,
     isActive: Boolean,
-    isCategoryDisabled: Boolean,
     onToggle: () -> Unit,
     onEdit: () -> Unit,
     onDelete: (() -> Unit)?
 ) {
-    val accentColor = ScribeTheme.colors.interaction.primary
     var showMenu by remember { mutableStateOf(false) }
 
     Row(
@@ -1111,77 +1217,70 @@ private fun ShortcutCompactRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onToggle)
-            .padding(vertical = 7.dp, horizontal = 4.dp),
+            .padding(vertical = 4.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Leading Glyph Box + Label & Kind Description
         Row(
             modifier = Modifier.weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Glyph Badge (Prominent visual reference)
+            // Glyph Box (~40dp, subtle rounded corners, neutral fill)
             Box(
                 modifier = Modifier
-                    .size(36.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(
-                        if (isActive) accentColor.copy(alpha = 0.12f)
-                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-                    ),
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(GlyphBoxBackground),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = shortcut.label,
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
-                    color = if (isActive) accentColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = Color(0xFF2C3E35),
                     maxLines = 1
                 )
             }
 
-            // Texts
+            // Title & Subtitle (Pair • “ ”)
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = shortcut.label,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (isCategoryDisabled) {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    },
+                    text = getHumanFriendlyTitle(shortcut),
+                    fontFamily = FontFamily.Serif,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                val closingStr = if (!shortcut.closing.isNullOrEmpty()) " " + shortcut.closing else ""
                 Text(
-                    text = "${shortcut.kind.replaceFirstChar { it.uppercase() }} • ${shortcut.payload.replace("\n", "↵")}",
-                    style = MaterialTheme.typography.labelSmall,
+                    text = "${shortcut.kind.replaceFirstChar { it.uppercase() }} • ${shortcut.payload}$closingStr".replace("\n", "↵"),
                     fontSize = 11.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    color = SubtleTextColor,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
         }
 
-        // Trailing Controls: Three-dot menu + State Toggle Button (✓ / +)
+        // Trailing Controls: Options Menu + Circular Action Button (✓ / +)
         Row(
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Three-dot options menu
             Box {
                 IconButton(
                     onClick = { showMenu = true },
-                    modifier = Modifier.size(30.dp)
+                    modifier = Modifier.size(28.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.MoreVert,
                         contentDescription = "Options",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        modifier = Modifier.size(15.dp),
+                        tint = SubtleTextColor
                     )
                 }
 
@@ -1212,31 +1311,31 @@ private fun ShortcutCompactRow(
                 }
             }
 
-            // Compact State Control (✓ when active, + when inactive)
+            // State Button: Solid dark circle with white check (✓) when active; light circle with plus (+) when inactive
             Surface(
                 onClick = onToggle,
                 shape = CircleShape,
-                color = if (isActive) accentColor.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                color = if (isActive) ActiveButtonDarkBg else InactiveButtonBg,
                 border = androidx.compose.foundation.BorderStroke(
                     0.5.dp,
-                    if (isActive) accentColor.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                    if (isActive) ActiveButtonDarkBg else ChipBorderColor
                 ),
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(28.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     if (isActive) {
                         Icon(
                             imageVector = Icons.Default.Check,
                             contentDescription = "In Bar",
-                            modifier = Modifier.size(16.dp),
-                            tint = accentColor
+                            modifier = Modifier.size(14.dp),
+                            tint = Color.White
                         )
                     } else {
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "Add to Bar",
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            modifier = Modifier.size(14.dp),
+                            tint = Color(0xFF333333)
                         )
                     }
                 }
@@ -1252,36 +1351,32 @@ private fun EmptyCustomCategoryNotice(
 ) {
     Surface(
         shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-        border = androidx.compose.foundation.BorderStroke(
-            0.5.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-        ),
+        color = GlyphBoxBackground.copy(alpha = 0.5f),
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier.padding(14.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
                 text = "No custom shortcuts yet",
-                style = MaterialTheme.typography.bodyMedium,
+                fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = "Create a custom shortcut for a phrase, symbol or writing action you use often.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontSize = 12.sp
+                fontSize = 11.sp,
+                color = SubtleTextColor,
+                textAlign = TextAlign.Center
             )
             TextButton(onClick = onCreateClick) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(15.dp), tint = DarkForestGreen)
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Create shortcut", fontWeight = FontWeight.SemiBold)
+                Text("Create shortcut", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = DarkForestGreen)
             }
         }
     }
@@ -1301,11 +1396,16 @@ private fun CreateOrEditShortcutSheet(
     var closing by remember { mutableStateOf(existing?.closing ?: "") }
     var category by remember { mutableStateOf(existing?.category ?: DefaultShortcuts.CAT_CUSTOM) }
     var keywordsText by remember { mutableStateOf(existing?.keywords?.joinToString(", ") ?: "") }
-    val accentColor = ScribeTheme.colors.interaction.primary
 
     FrostedDialog(
         onDismissRequest = onDismiss,
-        title = { Text(if (existing == null) "New Shortcut" else "Edit Shortcut") },
+        title = {
+            Text(
+                if (existing == null) "New Shortcut" else "Edit Shortcut",
+                fontFamily = FontFamily.Serif,
+                fontWeight = FontWeight.Medium
+            )
+        },
         text = {
             Column(
                 modifier = Modifier
@@ -1315,8 +1415,9 @@ private fun CreateOrEditShortcutSheet(
             ) {
                 // Interactive Live Preview Box
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(10.dp),
+                    color = InnerBarBackground,
+                    border = androidx.compose.foundation.BorderStroke(0.5.dp, ChipBorderColor),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
@@ -1325,10 +1426,10 @@ private fun CreateOrEditShortcutSheet(
                     ) {
                         Text(
                             text = "PREVIEW",
-                            style = MaterialTheme.typography.labelSmall,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = accentColor
+                            color = DarkForestGreen,
+                            letterSpacing = 0.5.sp
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         val previewText = when (kind) {
@@ -1339,7 +1440,7 @@ private fun CreateOrEditShortcutSheet(
                         }
                         Text(
                             text = previewText,
-                            style = MaterialTheme.typography.bodyMedium,
+                            fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -1351,7 +1452,8 @@ private fun CreateOrEditShortcutSheet(
                     onValueChange = { label = it },
                     label = { Text("Button Label (e.g. “ ”, B, H1)") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
                 )
 
                 OutlinedTextField(
@@ -1359,7 +1461,8 @@ private fun CreateOrEditShortcutSheet(
                     onValueChange = { payload = it },
                     label = { Text("Payload / Opening") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
                 )
 
                 if (kind == "wrap" || kind == "pair") {
@@ -1368,12 +1471,12 @@ private fun CreateOrEditShortcutSheet(
                         onValueChange = { closing = it },
                         label = { Text("Closing Suffix") },
                         singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
                     )
                 }
 
-                // Action Kind Selector
-                Text("Action Type", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold)
+                Text("Action Type", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = SubtleTextColor)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1387,7 +1490,7 @@ private fun CreateOrEditShortcutSheet(
                             )
                             Text(
                                 text = itemKind.replaceFirstChar { it.uppercase() },
-                                style = MaterialTheme.typography.bodySmall
+                                fontSize = 12.sp
                             )
                         }
                     }
@@ -1398,7 +1501,8 @@ private fun CreateOrEditShortcutSheet(
                     onValueChange = { keywordsText = it },
                     label = { Text("Search Keywords (comma separated)") },
                     singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
                 )
             }
         },
@@ -1425,7 +1529,7 @@ private fun CreateOrEditShortcutSheet(
                     }
                 }
             ) {
-                Text("Save", color = accentColor, fontWeight = FontWeight.Bold)
+                Text("Save", color = DarkForestGreen, fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {
