@@ -187,7 +187,7 @@ fun ShortcutsScreen(
                     val w = view.width.takeIf { it > 0 } ?: 1080
                     val h = view.height.takeIf { it > 0 } ?: 1920
                     val bmp = Bitmap.createBitmap(w / 4, h / 4, Bitmap.Config.ARGB_8888)
-                    barBlurBitmap = BitmapBlur.blur(bmp, 20)
+                    barBlurBitmap = BitmapBlur.blurBitmap(bmp, 20)
                 } catch (_: Throwable) {}
             }
         }
@@ -225,16 +225,9 @@ fun ShortcutsScreen(
         topBar = {
             ScribeTopBar(
                 title = "Shortcut Studio",
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                },
-                actions = {
+                navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
+                onNavigationClick = onBack,
+                actionsContent = {
                     Box {
                         IconButton(onClick = { showTopMenu = true }) {
                             Icon(
@@ -439,7 +432,7 @@ fun ShortcutsScreen(
         FrostedDialog(
             onDismissRequest = { deleteCandidate = null },
             title = { Text("Delete Shortcut?") },
-            text = { Text("Delete "${candidate.label}"? This custom shortcut cannot be undone.") },
+            text = { Text("Delete \"" + candidate.label + "\"? This custom shortcut cannot be undone.") },
             confirmButton = {
                 TextButton(
                     onClick = {

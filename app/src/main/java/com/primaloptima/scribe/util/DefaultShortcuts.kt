@@ -46,10 +46,10 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "quote_straight",
-            label = "" "",
+            label = "\" \"",
             kind = "pair",
-            payload = """,
-            closing = """,
+            payload = "\"",
+            closing = "\"",
             category = CAT_DIALOGUE,
             isEnabled = true,
             keywords = listOf("quote", "quotes", "straight", "double", "normal", "speech")
