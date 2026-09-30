@@ -5,6 +5,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import dev.chrisbanes.haze.hazeEffect
 import com.primaloptima.scribe.util.model.ShortcutAction
+import com.primaloptima.scribe.util.resolvedIcon
+import com.primaloptima.scribe.util.resolvedLabel
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material3.CircularProgressIndicator
@@ -1267,7 +1269,7 @@ fun MainEditorScreen(
                             longPressedShortcut?.let { target ->
                                 FrostedDialog(
                                     onDismissRequest = { longPressedShortcut = null },
-                                    title = { Text("Shortcut: " + target.label) },
+                                    title = { Text("Shortcut: " + target.resolvedLabel()) },
                                     text = {
                                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                             Text(
@@ -2535,7 +2537,7 @@ private fun ShortcutBarChip(
             modifier = Modifier.padding(horizontal = ScribeTheme.spacing.medium, vertical = ScribeTheme.spacing.micro)
         ) {
             Text(
-                text = shortcut.label,
+                text = shortcut.resolvedIcon(),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1

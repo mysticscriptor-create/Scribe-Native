@@ -92,6 +92,8 @@ import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.util.BitmapBlur
 import com.primaloptima.scribe.util.DefaultShortcuts
 import com.primaloptima.scribe.util.model.ShortcutAction
+import com.primaloptima.scribe.util.resolvedIcon
+import com.primaloptima.scribe.util.resolvedLabel
 import com.primaloptima.scribe.viewmodel.ShortcutsViewModel
 import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.Dispatchers
@@ -185,70 +187,8 @@ val STUDIO_CATEGORIES: List<CategoryMeta> = listOf(
     )
 )
 
-// Human-friendly title mapper for standard shortcut IDs to match reference UI
-private fun getHumanFriendlyTitle(shortcut: ShortcutAction): String = when (shortcut.id) {
-    "quote_curly" -> "Curly double quotes"
-    "quote_straight" -> "Straight double quotes"
-    "quote_single_curly" -> "Curly single quotes"
-    "quote_single_straight" -> "Straight single quotes"
-    "quote_heavy_double" -> "Curly quotation marks"
-    "quote_heavy_single" -> "Heavy single quotes"
-    "quote_corner" -> "Japanese corner quotes"
-    "quote_corner_double" -> "Double corner brackets"
-    "quote_guillemets" -> "French guillemets"
-    "dialogue_emdash" -> "Dialogue em dash"
-    "paren" -> "Round parentheses"
-    "bracket" -> "Square brackets"
-    "brace" -> "Curly braces"
-    "sym_status_bracket" -> "Status window brackets"
-    "sym_lenticular" -> "Lenticular brackets"
-    "sym_white_square" -> "White square brackets"
-    "sym_angle_bracket" -> "Angle brackets"
-    "sym_double_angle" -> "Double angle brackets"
-    "sym_floor" -> "Floor brackets"
-    "emdash" -> "Em dash"
-    "endash" -> "En dash"
-    "ellipsis" -> "Typographical ellipsis"
-    "semicolon" -> "Semicolon"
-    "colon" -> "Colon"
-    "interrobang" -> "Interrobang"
-    "middledot" -> "Middle dot"
-    "hr" -> "Thematic break (---)"
-    "sym_asterism" -> "Asterism flourish"
-    "sym_three_stars" -> "Three stars (* * *)"
-    "sym_sparkle" -> "Magic sparkle"
-    "sym_black_star" -> "Black star"
-    "sym_section" -> "Section symbol"
-    "sym_fleuron" -> "Fleuron leaf"
-    "list" -> "Bullet list item"
-    "numlist" -> "Numbered list item"
-    "tasklist" -> "Task list checkbox"
-    "blockquote" -> "Blockquote indent"
-    "h1" -> "Heading 1 (#)"
-    "h2" -> "Heading 2 (##)"
-    "tab" -> "Tab (4 spaces)"
-    "bold" -> "Bold format"
-    "italic" -> "Italic format"
-    "strikethrough" -> "Strikethrough format"
-    "code" -> "Inline code backticks"
-    "arrow_right" -> "Right arrow"
-    "arrow_left" -> "Left arrow"
-    "arrow_both" -> "Bidirectional arrow"
-    "arrow_double_right" -> "Double right arrow"
-    "math_plusminus" -> "Plus-minus sign"
-    "math_multiply" -> "Multiplication sign"
-    "math_divide" -> "Division sign"
-    "math_notequal" -> "Not equal to"
-    "math_approx" -> "Approximately equal"
-    "math_degree" -> "Degree symbol"
-    "math_infinity" -> "Infinity symbol"
-    "sym_dollar" -> "Dollar sign"
-    "sym_euro" -> "Euro sign"
-    "sym_pound" -> "Pound sign"
-    "sym_yen" -> "Yen sign"
-    "sym_percent" -> "Percent sign"
-    else -> shortcut.label
-}
+// Human-friendly title mapper delegating to resolvedLabel()
+private fun getHumanFriendlyTitle(shortcut: ShortcutAction): String = shortcut.resolvedLabel()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -336,8 +276,8 @@ fun ShortcutsScreen(
 
             if (cleanQuery.isBlank()) return@filter true
 
-            action.label.lowercase().contains(cleanQuery) ||
-                getHumanFriendlyTitle(action).lowercase().contains(cleanQuery) ||
+            action.resolvedLabel().lowercase().contains(cleanQuery) ||
+                action.resolvedIcon().lowercase().contains(cleanQuery) ||
                 action.payload.lowercase().contains(cleanQuery) ||
                 (action.closing?.lowercase()?.contains(cleanQuery) == true) ||
                 action.kind.lowercase().contains(cleanQuery) ||
@@ -635,7 +575,7 @@ fun ShortcutsScreen(
         FrostedDialog(
             onDismissRequest = { deleteCandidate = null },
             title = { Text("Delete Shortcut?") },
-            text = { Text("Delete \"" + candidate.label + "\"? This custom shortcut cannot be undone.") },
+            text = { Text("Delete \"" + candidate.resolvedLabel() + "\"? This custom shortcut cannot be undone.") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -872,7 +812,7 @@ private fun WritingBarHeroSection(
                                         modifier = Modifier.padding(horizontal = 10.dp)
                                     ) {
                                         Text(
-                                            text = shortcut.label,
+                                            text = shortcut.resolvedIcon(),
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.Medium,
                                             color = contentPrimary,
@@ -1001,7 +941,7 @@ private fun ReorderableBarChipItem(
             )
 
             Text(
-                text = shortcut.label,
+                text = shortcut.resolvedIcon(),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
                 color = contentPrimary
@@ -1306,7 +1246,7 @@ private fun ShortcutCompactRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Glyph Badge (Prominent rounded box ~40dp)
+            // Glyph Badge (Prominent rounded box ~40dp) — displays the shortcut's icon symbol, never the label description
             Box(
                 modifier = Modifier
                     .size(40.dp)
@@ -1315,7 +1255,7 @@ private fun ShortcutCompactRow(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = shortcut.label,
+                    text = shortcut.resolvedIcon(),
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp,
                     color = contentPrimary,
@@ -1327,7 +1267,7 @@ private fun ShortcutCompactRow(
             // Title & Subtitle (Matching reference e.g., "Curly double quotes", "Pair • “ ”")
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = getHumanFriendlyTitle(shortcut),
+                    text = shortcut.resolvedLabel(),
                     fontFamily = FontFamily.Serif,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Normal,
@@ -1337,10 +1277,12 @@ private fun ShortcutCompactRow(
                 )
                 val formatDetail = when (shortcut.kind) {
                     "pair", "wrap" -> {
-                        val close = shortcut.closing?.ifBlank { null } ?: shortcut.payload
-                        "${shortcut.payload} $close".trim()
+                        val openClean = shortcut.payload.replace("\r\n", "↵").replace("\n", "↵").replace("\r", "↵")
+                        val closeRaw = shortcut.closing?.ifBlank { null } ?: shortcut.payload
+                        val closeClean = closeRaw.replace("\r\n", "↵").replace("\n", "↵").replace("\r", "↵")
+                        "$openClean $closeClean".trim()
                     }
-                    else -> shortcut.payload.replace("\n", " ").trim()
+                    else -> shortcut.payload.replace("\r\n", "↵").replace("\n", "↵").replace("\r", "↵").trim()
                 }
                 val displayKind = if (shortcut.kind == "wrap") "Pair" else shortcut.kind.replaceFirstChar { it.uppercase() }
                 Text(
@@ -1477,16 +1419,85 @@ private fun EmptyCustomCategoryNotice(
     }
 }
 
-// ── Create / Edit Shortcut Preset Model ───────────────────────────────────────
-private data class ShortcutPreset(
-    val display: String,
-    val label: String,
-    val open: String,
-    val close: String,
-    val kind: String,
-    val keywords: List<String>,
-    val category: String
-)
+// ── Format Preview Token (replaces line breaks with ↵ symbol so Preview height never changes) ──
+private fun formatPreviewDisplay(raw: String, fallback: String): String {
+    if (raw.isEmpty()) return fallback
+    return raw
+        .replace("\r\n", "↵")
+        .replace("\n", "↵")
+        .replace("\r", "↵")
+}
+
+// ── Animated Type Selector Option Card (120fps Spring Physics) ────────────────
+@Composable
+private fun AnimatedShortcutTypeCard(
+    title: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    iconContent: @Composable (tint: Color) -> Unit
+) {
+    val colors = ScribeTheme.colors
+    val bgColor by animateColorAsState(
+        targetValue = if (isSelected) colors.interaction.primaryContainer else colors.surfaces.surfaceRaised,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "typeCardBg"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isSelected) colors.interaction.primary else colors.borders.normal,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "typeCardBorder"
+    )
+    val iconTint by animateColorAsState(
+        targetValue = if (isSelected) colors.interaction.primary else colors.content.secondary,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "typeCardIcon"
+    )
+    val titleColor by animateColorAsState(
+        targetValue = if (isSelected) colors.interaction.primary else colors.content.primary,
+        animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+        label = "typeCardTitle"
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (isSelected) 1.0f else 0.985f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "typeCardScale"
+    )
+
+    Surface(
+        onClick = onClick,
+        shape = ScribeShapeTokens.CardSmall,
+        color = bgColor,
+        border = BorderStroke(if (isSelected) 1.5.dp else 1.dp, borderColor),
+        modifier = modifier
+            .height(44.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 6.dp, vertical = 3.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            iconContent(iconTint)
+            Text(
+                text = title,
+                fontSize = 11.5.sp,
+                lineHeight = 13.5.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                color = titleColor,
+                maxLines = 1
+            )
+        }
+    }
+}
 
 // ── Compact Semantic Field Input ──────────────────────────────────────────────
 @Composable
@@ -1494,6 +1505,7 @@ private fun ShortcutFieldInput(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String = "",
+    textAlign: TextAlign = TextAlign.Start,
     trailingContent: @Composable (() -> Unit)? = null
 ) {
     val colors = ScribeTheme.colors
@@ -1501,7 +1513,11 @@ private fun ShortcutFieldInput(
     val isFocused by interactionSource.collectIsFocusedAsState()
 
     val bgColor = colors.surfaces.surfaceRaised
-    val borderColor = if (isFocused) colors.interaction.primary else colors.borders.normal
+    val borderColor by animateColorAsState(
+        targetValue = if (isFocused) colors.interaction.primary else colors.borders.normal,
+        animationSpec = spring(stiffness = Spring.StiffnessMedium),
+        label = "fieldBorderColor"
+    )
     val borderWidth = if (isFocused) 1.2.dp else 1.dp
     val textColor = colors.content.primary
     val placeholderColor = colors.content.tertiary
@@ -1516,32 +1532,34 @@ private fun ShortcutFieldInput(
             fontSize = 13.5.sp,
             lineHeight = 18.sp,
             color = textColor,
-            fontWeight = FontWeight.Normal
+            fontWeight = FontWeight.Normal,
+            textAlign = textAlign
         ),
         cursorBrush = SolidColor(colors.interaction.primary),
         decorationBox = { innerTextField ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 40.dp)
+                    .heightIn(min = 38.dp)
                     .background(bgColor, fieldShape)
                     .border(borderWidth, borderColor, fieldShape)
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .padding(horizontal = 11.dp, vertical = 5.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Box(
                     modifier = Modifier.weight(1f),
-                    contentAlignment = Alignment.CenterStart
+                    contentAlignment = if (textAlign == TextAlign.Center) Alignment.Center else Alignment.CenterStart
                 ) {
                     if (value.isEmpty() && placeholder.isNotEmpty()) {
                         Text(
                             text = placeholder,
-                            fontSize = 13.5.sp,
-                            lineHeight = 18.sp,
+                            fontSize = 13.sp,
+                            lineHeight = 17.sp,
                             color = placeholderColor,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = textAlign
                         )
                     }
                     innerTextField()
@@ -1563,26 +1581,27 @@ private fun SheetSectionLabelRow(
     val colors = ScribeTheme.colors
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(7.dp)
     ) {
         Text(
             text = title,
             style = MaterialTheme.typography.labelSmall,
-            fontSize = 10.5.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
             color = colors.content.secondary,
-            letterSpacing = 1.sp
+            letterSpacing = 0.9.sp,
+            maxLines = 1
         )
         if (!inlineHint.isNullOrBlank()) {
             Box(
                 modifier = Modifier
                     .width(1.dp)
-                    .height(11.dp)
+                    .height(10.dp)
                     .background(colors.borders.normal)
             )
             Text(
                 text = inlineHint,
-                fontSize = 11.sp,
+                fontSize = 10.5.sp,
                 color = colors.content.tertiary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -1599,7 +1618,8 @@ private fun CreateOrEditShortcutSheet(
     onDismiss: () -> Unit,
     onSave: (ShortcutAction) -> Unit
 ) {
-    var label by remember(existing) { mutableStateOf(existing?.label ?: "") }
+    // 2: Separate `label` (description in Shortcut Studio) from `icon` (actual shortcut symbol)
+    var label by remember(existing) { mutableStateOf(existing?.resolvedLabel() ?: "") }
     var kind by remember(existing) {
         mutableStateOf(
             if (existing?.kind == "wrap") "pair" else (existing?.kind ?: "pair")
@@ -1609,6 +1629,32 @@ private fun CreateOrEditShortcutSheet(
     var closing by remember(existing) { mutableStateOf(existing?.closing ?: "") }
     var category by remember(existing) { mutableStateOf(existing?.category ?: DefaultShortcuts.CAT_CUSTOM) }
 
+    // 2: Auto-detect icon from user's inserted text across all three types ("pair", "prefix", "insert")
+    val autoDetectedIcon = remember(kind, payload, closing) {
+        DefaultShortcuts.autoDetectIcon(kind, payload, closing)
+    }
+    var iconText by remember(existing) {
+        mutableStateOf(existing?.resolvedIcon() ?: "")
+    }
+    var isIconManuallyOverridden by remember(existing) {
+        mutableStateOf(false)
+    }
+
+    // Keep iconText synchronized with autoDetectedIcon unless the user manually edited the ICON field
+    LaunchedEffect(kind, payload, closing) {
+        if (!isIconManuallyOverridden) {
+            val existingDefaultMatches = existing != null &&
+                existing.payload == payload &&
+                (existing.closing ?: "") == closing &&
+                (if (existing.kind == "wrap") "pair" else existing.kind) == kind
+            iconText = if (existingDefaultMatches) {
+                existing!!.resolvedIcon()
+            } else {
+                autoDetectedIcon
+            }
+        }
+    }
+
     // 2G: Remove hardcoded keywords; only populate if editing an existing shortcut
     val initialKeywords = remember(existing) {
         existing?.keywords ?: emptyList()
@@ -1617,8 +1663,10 @@ private fun CreateOrEditShortcutSheet(
     var newKeywordText by remember(existing) { mutableStateOf("") }
     var showCategoryMenu by remember { mutableStateOf(false) }
 
-    val isValid = label.trim().isNotBlank() && payload.trim().isNotBlank()
+    val effectiveIcon = iconText.trim().ifBlank { autoDetectedIcon.ifBlank { "•" } }
+    val isValid = label.trim().isNotBlank() && payload.isNotEmpty()
     val isEditMode = existing != null
+    val isEnclose = (kind == "pair" || kind == "wrap")
 
     // 1: Semantic Color Tokens from ScribeTheme
     val colors = ScribeTheme.colors
@@ -1640,15 +1688,21 @@ private fun CreateOrEditShortcutSheet(
     val litBulbContainer = colors.semantic.warningContainer
     val barShadowColor = colors.content.primary.copy(alpha = if (colors.isDark) 0.22f else 0.06f)
 
+    // 1: Responsive layout detection (side-by-side fields in landscape or wide tablet screens)
     val configuration = LocalConfiguration.current
-    val maxSheetHeight = (configuration.screenHeightDp.dp * 0.88f)
+    val isWideLayout = configuration.screenWidthDp >= 520 ||
+        configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
 
-    // 3: Smooth Rubber-Band Overscroll State & Connection (eliminates overscroll shadow & jump)
+    // 1 & 3: Only enable scrolling when the screen is too short / landscape so all components expand first
     val scrollState = rememberScrollState()
+    val isScrollNeeded by remember {
+        derivedStateOf { scrollState.maxValue > 0 }
+    }
     val rawOverscrollY = remember { Animatable(0f) }
-    val maxRubberBandPx = with(density) { 52.dp.toPx() }
+    val maxRubberBandPx = with(density) { 48.dp.toPx() }
     val dampedOverscrollY = remember(rawOverscrollY.value, maxRubberBandPx) {
         val raw = rawOverscrollY.value
         if (abs(raw) < 0.5f) {
@@ -1685,8 +1739,6 @@ private fun CreateOrEditShortcutSheet(
                             .coerceIn(-maxRubberBandPx * 3.5f, maxRubberBandPx * 3.5f)
                         coroutineScope.launch { rawOverscrollY.snapTo(next) }
                     }
-                    // Consume 100% of leftover delta so Android's EdgeEffect overscroll shadow never activates
-                    // and body scrolling never prematurely drags or jumps the parent bottom sheet.
                     return Offset(0f, available.y)
                 }
                 return Offset.Zero
@@ -1720,13 +1772,11 @@ private fun CreateOrEditShortcutSheet(
                         )
                     }
                 }
-                // Consume remaining velocity so EdgeEffect.onAbsorb never triggers an overscroll shadow
                 return available
             }
         }
     }
 
-    // Horizontal overscroll consumer for Keywords row (prevents horizontal EdgeEffect glow)
     val horizontalOverscrollBlocker = remember {
         object : NestedScrollConnection {
             override fun onPostScroll(
@@ -1759,13 +1809,15 @@ private fun CreateOrEditShortcutSheet(
     FrostedBottomSheet(
         onDismissRequest = onDismiss,
         dragHandle = null,
-        modifier = Modifier.heightIn(max = maxSheetHeight)
+        modifier = Modifier.wrapContentHeight()
     ) {
         val dismissSheet = LocalFrostedSheetDismiss.current ?: onDismiss
 
         CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
         Column(
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
+                .wrapContentHeight()
         ) {
             // ── 2A & 2D: Compact Top Bar with Smaller Title & Subtle Semantic Elevation Shadow ──
             Surface(
@@ -1780,7 +1832,7 @@ private fun CreateOrEditShortcutSheet(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 6.dp, bottom = 2.dp),
+                            .padding(top = 5.dp, bottom = 1.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Box(
@@ -1794,13 +1846,13 @@ private fun CreateOrEditShortcutSheet(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 5.dp),
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = if (isEditMode) "Edit Shortcut" else "Create Shortcut",
-                            fontSize = 15.5.sp,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = textPrimary
                         )
@@ -1809,14 +1861,14 @@ private fun CreateOrEditShortcutSheet(
                             shape = CircleShape,
                             color = surfaceLowest,
                             border = BorderStroke(metrics.borderHairline, borderSubtle),
-                            modifier = Modifier.size(26.dp)
+                            modifier = Modifier.size(25.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Close",
                                     tint = textSecondary,
-                                    modifier = Modifier.size(14.dp)
+                                    modifier = Modifier.size(13.5.dp)
                                 )
                             }
                         }
@@ -1829,7 +1881,7 @@ private fun CreateOrEditShortcutSheet(
                 }
             }
 
-            // Middle Scrollable Body with Top/Bottom Subtle Semantic Elevation Shadow Overlays
+            // Middle Body: Expands to show all components; only scrolls if screen is too short / landscape
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1839,663 +1891,831 @@ private fun CreateOrEditShortcutSheet(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .nestedScroll(rubberBandScrollConnection)
-                        .verticalScroll(scrollState)
+                        .then(
+                            if (isScrollNeeded) Modifier.nestedScroll(rubberBandScrollConnection) else Modifier
+                        )
+                        .verticalScroll(scrollState, enabled = isScrollNeeded)
                         .graphicsLayer {
-                            translationY = dampedOverscrollY
+                            translationY = if (isScrollNeeded) dampedOverscrollY else 0f
                         }
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                        .animateContentSize(
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        )
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
-                    // ── PREVIEW Card (Compact & Semantic) ─────────────────────────────
+                    // ── 3: Fixed-Height PREVIEW Card (Line Breaks Shown as ↵ Symbol) ──────────
                     Surface(
                         shape = ScribeShapeTokens.CardSmall,
                         color = surfaceLowest,
                         border = BorderStroke(1.dp, borderSubtle),
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(54.dp)
                     ) {
-                        Column(
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
                             Text(
                                 text = "PREVIEW",
                                 style = MaterialTheme.typography.labelSmall,
-                                fontSize = 10.sp,
+                                fontSize = 9.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = textSecondary,
-                                letterSpacing = 1.sp
+                                letterSpacing = 1.sp,
+                                modifier = Modifier.align(Alignment.TopStart)
                             )
 
-                            Box(
-                                modifier = Modifier.fillMaxWidth(),
-                                contentAlignment = Alignment.Center
+                            Surface(
+                                shape = ScribeShapeTokens.Pill,
+                                color = cardBg,
+                                border = BorderStroke(1.dp, borderNormal),
+                                shadowElevation = metrics.elevationLow,
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .height(28.dp)
+                                    .widthIn(max = 260.dp)
                             ) {
-                                Surface(
-                                    shape = ScribeShapeTokens.Pill,
-                                    color = cardBg,
-                                    border = BorderStroke(1.dp, borderNormal),
-                                    shadowElevation = metrics.elevationLow
-                                ) {
+                                AnimatedContent(
+                                    targetState = kind,
+                                    transitionSpec = {
+                                        (fadeIn(animationSpec = tween(150)) + scaleIn(
+                                            initialScale = 0.94f,
+                                            animationSpec = spring(stiffness = Spring.StiffnessMedium)
+                                        )) togetherWith (fadeOut(animationSpec = tween(100)) + scaleOut(
+                                            targetScale = 0.94f,
+                                            animationSpec = tween(100)
+                                        ))
+                                    },
+                                    contentAlignment = Alignment.Center,
+                                    label = "previewKindAnim"
+                                ) { previewKind ->
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 5.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.padding(horizontal = 12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        when (kind) {
+                                        when (previewKind) {
                                             "pair", "wrap" -> {
-                                                val open = payload.ifBlank { "“" }
-                                                val close = closing.ifBlank { payload.ifBlank { "”" } }
-                                                Text(open, fontWeight = FontWeight.Bold, fontSize = 13.5.sp, color = accentPrimary)
-                                                Text("selected text", fontWeight = FontWeight.Normal, fontSize = 12.5.sp, color = textSecondary)
-                                                Text(close, fontWeight = FontWeight.Bold, fontSize = 13.5.sp, color = accentPrimary)
+                                                val open = formatPreviewDisplay(payload, "“")
+                                                val closeFallback = if (payload.isNotEmpty()) formatPreviewDisplay(payload, "”") else "”"
+                                                val close = if (closing.isNotEmpty()) formatPreviewDisplay(closing, closeFallback) else closeFallback
+                                                Text(
+                                                    text = open,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp,
+                                                    color = accentPrimary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.widthIn(max = 64.dp)
+                                                )
+                                                Text(
+                                                    text = "selected text",
+                                                    fontWeight = FontWeight.Normal,
+                                                    fontSize = 12.sp,
+                                                    color = textSecondary,
+                                                    maxLines = 1
+                                                )
+                                                Text(
+                                                    text = close,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp,
+                                                    color = accentPrimary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.widthIn(max = 64.dp)
+                                                )
                                             }
                                             "prefix" -> {
-                                                val p = payload.ifBlank { "• " }
-                                                Text(p, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = accentPrimary)
-                                                Text("selected text", fontWeight = FontWeight.Normal, fontSize = 12.5.sp, color = textSecondary)
+                                                val p = formatPreviewDisplay(payload, "• ")
+                                                Text(
+                                                    text = p,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp,
+                                                    color = accentPrimary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.widthIn(max = 90.dp)
+                                                )
+                                                Text(
+                                                    text = "selected text",
+                                                    fontWeight = FontWeight.Normal,
+                                                    fontSize = 12.sp,
+                                                    color = textSecondary,
+                                                    maxLines = 1
+                                                )
                                             }
                                             else -> {
-                                                val ins = payload.ifBlank { "…" }
-                                                Text("selected text", fontWeight = FontWeight.Normal, fontSize = 12.5.sp, color = textSecondary)
-                                                Text(ins, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = accentPrimary)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // ── 2B & 2H: Compact TYPE Selector + Lit-Up Bulb Hint ─────────────
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        SheetSectionLabelRow(title = "TYPE")
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            // Card 1: Enclose
-                            val isEncloseSelected = (kind == "pair" || kind == "wrap")
-                            Surface(
-                                onClick = { kind = "pair" },
-                                shape = ScribeShapeTokens.CardSmall,
-                                color = if (isEncloseSelected) accentContainer else cardBg,
-                                border = BorderStroke(
-                                    if (isEncloseSelected) 1.5.dp else 1.dp,
-                                    if (isEncloseSelected) accentPrimary else borderNormal
-                                ),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Text(
-                                        text = "“ ”",
-                                        fontSize = 14.sp,
-                                        lineHeight = 15.sp,
-                                        fontWeight = FontWeight.Black,
-                                        color = if (isEncloseSelected) accentPrimary else textSecondary
-                                    )
-                                    Text(
-                                        text = "Enclose",
-                                        fontSize = 12.sp,
-                                        lineHeight = 14.sp,
-                                        fontWeight = if (isEncloseSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isEncloseSelected) accentPrimary else textPrimary,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-
-                            // Card 2: Prefix
-                            val isPrefixSelected = (kind == "prefix")
-                            Surface(
-                                onClick = { kind = "prefix" },
-                                shape = ScribeShapeTokens.CardSmall,
-                                color = if (isPrefixSelected) accentContainer else cardBg,
-                                border = BorderStroke(
-                                    if (isPrefixSelected) 1.5.dp else 1.dp,
-                                    if (isPrefixSelected) accentPrimary else borderNormal
-                                ),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.FormatListBulleted,
-                                        contentDescription = null,
-                                        tint = if (isPrefixSelected) accentPrimary else textSecondary,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                    Text(
-                                        text = "Prefix",
-                                        fontSize = 12.sp,
-                                        lineHeight = 14.sp,
-                                        fontWeight = if (isPrefixSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isPrefixSelected) accentPrimary else textPrimary,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-
-                            // Card 3: Insert
-                            val isInsertSelected = (kind == "insert")
-                            Surface(
-                                onClick = { kind = "insert" },
-                                shape = ScribeShapeTokens.CardSmall,
-                                color = if (isInsertSelected) accentContainer else cardBg,
-                                border = BorderStroke(
-                                    if (isInsertSelected) 1.5.dp else 1.dp,
-                                    if (isInsertSelected) accentPrimary else borderNormal
-                                ),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(48.dp)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Text(
-                                        text = "I",
-                                        fontFamily = FontFamily.Serif,
-                                        fontSize = 14.sp,
-                                        lineHeight = 15.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = if (isInsertSelected) accentPrimary else textSecondary
-                                    )
-                                    Text(
-                                        text = "Insert",
-                                        fontSize = 12.sp,
-                                        lineHeight = 14.sp,
-                                        fontWeight = if (isInsertSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isInsertSelected) accentPrimary else textPrimary,
-                                        maxLines = 1
-                                    )
-                                }
-                            }
-                        }
-
-                        // 2H: Small lit-up bulb icon next to hint + "Smart" removed before "Enter"
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 2.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(18.dp)
-                                    .background(litBulbContainer.copy(alpha = 0.55f), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Lightbulb,
-                                    contentDescription = null,
-                                    tint = litBulbColor,
-                                    modifier = Modifier.size(12.dp)
-                                )
-                            }
-                            Text(
-                                text = when (kind) {
-                                    "pair", "wrap" -> "Wraps selected text and creates an opening/closing pair. Enter exits the pair automatically."
-                                    "prefix" -> "Adds text at the start of the line. Enter continues sequence automatically."
-                                    else -> "Inserts text directly at the cursor position."
-                                },
-                                fontSize = 11.5.sp,
-                                color = textSecondary,
-                                lineHeight = 15.sp,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-
-                    // ── LABEL Field ───────────────────────────────────────────────────
-                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        SheetSectionLabelRow(title = "LABEL")
-
-                        ShortcutFieldInput(
-                            value = label,
-                            onValueChange = { if (it.length <= 30) label = it },
-                            placeholder = "e.g. Curly double quotes",
-                            trailingContent = {
-                                Text(
-                                    text = "${label.length}/30",
-                                    fontSize = 11.sp,
-                                    color = textTertiary
-                                )
-                            }
-                        )
-                    }
-
-                    // ── 2E: OPENING & CLOSING / PREFIX / INSERT Fields ────────────────
-                    when (kind) {
-                        "pair", "wrap" -> {
-                            // OPENING (bottom hint removed per 2E)
-                            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                SheetSectionLabelRow(title = "OPENING")
-
-                                ShortcutFieldInput(
-                                    value = payload,
-                                    onValueChange = { payload = it },
-                                    placeholder = "e.g. “",
-                                    trailingContent = {
-                                        if (payload.isNotEmpty()) {
-                                            Surface(
-                                                onClick = { payload = "" },
-                                                shape = CircleShape,
-                                                color = surfaceLowest,
-                                                modifier = Modifier.size(18.dp)
-                                            ) {
-                                                Box(contentAlignment = Alignment.Center) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Close,
-                                                        contentDescription = "Clear",
-                                                        tint = textSecondary,
-                                                        modifier = Modifier.size(11.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-
-                            // CLOSING with inline divider & "Will Mirror Opening if left blank" (2E)
-                            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                SheetSectionLabelRow(
-                                    title = "CLOSING",
-                                    inlineHint = "Will Mirror Opening if left blank"
-                                )
-
-                                ShortcutFieldInput(
-                                    value = closing,
-                                    onValueChange = { closing = it },
-                                    placeholder = if (payload.isNotBlank()) payload else "Mirrors opening",
-                                    trailingContent = {
-                                        if (closing.isNotEmpty()) {
-                                            Surface(
-                                                onClick = { closing = "" },
-                                                shape = CircleShape,
-                                                color = surfaceLowest,
-                                                modifier = Modifier.size(18.dp)
-                                            ) {
-                                                Box(contentAlignment = Alignment.Center) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Close,
-                                                        contentDescription = "Clear",
-                                                        tint = textSecondary,
-                                                        modifier = Modifier.size(11.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                        "prefix" -> {
-                            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                SheetSectionLabelRow(title = "PREFIX")
-
-                                ShortcutFieldInput(
-                                    value = payload,
-                                    onValueChange = { payload = it },
-                                    placeholder = "e.g. - [ ] , 1. , • ",
-                                    trailingContent = {
-                                        if (payload.isNotEmpty()) {
-                                            Surface(
-                                                onClick = { payload = "" },
-                                                shape = CircleShape,
-                                                color = surfaceLowest,
-                                                modifier = Modifier.size(18.dp)
-                                            ) {
-                                                Box(contentAlignment = Alignment.Center) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Close,
-                                                        contentDescription = "Clear",
-                                                        tint = textSecondary,
-                                                        modifier = Modifier.size(11.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                        else -> { // insert
-                            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                                SheetSectionLabelRow(title = "TEXT TO INSERT")
-
-                                ShortcutFieldInput(
-                                    value = payload,
-                                    onValueChange = { payload = it },
-                                    placeholder = "e.g. …, —, ©",
-                                    trailingContent = {
-                                        if (payload.isNotEmpty()) {
-                                            Surface(
-                                                onClick = { payload = "" },
-                                                shape = CircleShape,
-                                                color = surfaceLowest,
-                                                modifier = Modifier.size(18.dp)
-                                            ) {
-                                                Box(contentAlignment = Alignment.Center) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Close,
-                                                        contentDescription = "Clear",
-                                                        tint = textSecondary,
-                                                        modifier = Modifier.size(11.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-
-                    // ── 2F & 2G: KEYWORDS Title with Inline Hint + Enter-to-Pill Field ─
-                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        SheetSectionLabelRow(
-                            title = "KEYWORDS",
-                            inlineHint = "Used when searching"
-                        )
-
-                        val kwBorderColor = if (isKeywordFocused) accentPrimary else borderNormal
-                        val kwBorderWidth = if (isKeywordFocused) 1.2.dp else 1.dp
-
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 40.dp)
-                                .background(cardBg, ScribeShapeTokens.Field)
-                                .border(kwBorderWidth, kwBorderColor, ScribeShapeTokens.Field)
-                                .clickable(
-                                    indication = null,
-                                    interactionSource = remember { MutableInteractionSource() }
-                                ) {
-                                    keywordFocusRequester.requestFocus()
-                                    coroutineScope.launch {
-                                        keywordScrollState.animateScrollTo(keywordScrollState.maxValue)
-                                    }
-                                }
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                                .nestedScroll(horizontalOverscrollBlocker)
-                                .horizontalScroll(keywordScrollState),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            keywordsList.forEachIndexed { index, kw ->
-                                Surface(
-                                    shape = ScribeShapeTokens.Pill,
-                                    color = selectedPillBg,
-                                    border = BorderStroke(0.5.dp, borderSubtle)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                                    ) {
-                                        Text(
-                                            text = kw,
-                                            fontSize = 12.sp,
-                                            lineHeight = 15.sp,
-                                            color = textPrimary,
-                                            fontWeight = FontWeight.Medium,
-                                            maxLines = 1
-                                        )
-                                        Icon(
-                                            imageVector = Icons.Default.Close,
-                                            contentDescription = "Remove keyword",
-                                            tint = textSecondary,
-                                            modifier = Modifier
-                                                .size(12.dp)
-                                                .clickable { keywordsList.removeAt(index) }
-                                        )
-                                    }
-                                }
-                            }
-
-                            // Trailing inline input space — scrolling left when pills overflow reveals this area
-                            BasicTextField(
-                                value = newKeywordText,
-                                onValueChange = { incoming ->
-                                    if (incoming.contains("\n")) {
-                                        val parts = incoming.split("\n")
-                                        parts.dropLast(1).forEach { part ->
-                                            val trimmed = part.trim()
-                                            if (trimmed.isNotEmpty() && !keywordsList.contains(trimmed)) {
-                                                keywordsList.add(trimmed)
-                                            }
-                                        }
-                                        newKeywordText = parts.last()
-                                        coroutineScope.launch {
-                                            keywordScrollState.animateScrollTo(keywordScrollState.maxValue)
-                                        }
-                                    } else {
-                                        newKeywordText = incoming
-                                    }
-                                },
-                                singleLine = true,
-                                interactionSource = keywordInteractionSource,
-                                textStyle = TextStyle(
-                                    fontSize = 13.sp,
-                                    lineHeight = 18.sp,
-                                    color = textPrimary
-                                ),
-                                cursorBrush = SolidColor(accentPrimary),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                                keyboardActions = KeyboardActions(
-                                    onDone = { commitKeyword() }
-                                ),
-                                modifier = Modifier
-                                    .widthIn(min = 128.dp)
-                                    .focusRequester(keywordFocusRequester)
-                                    .onPreviewKeyEvent { event ->
-                                        if (event.type == KeyEventType.KeyDown) {
-                                            when (event.key) {
-                                                Key.Enter, Key.NumPadEnter -> {
-                                                    commitKeyword()
-                                                    true
-                                                }
-                                                Key.Backspace -> {
-                                                    if (newKeywordText.isEmpty() && keywordsList.isNotEmpty()) {
-                                                        keywordsList.removeAt(keywordsList.lastIndex)
-                                                        true
-                                                    } else {
-                                                        false
-                                                    }
-                                                }
-                                                else -> false
-                                            }
-                                        } else {
-                                            false
-                                        }
-                                    },
-                                decorationBox = { inner ->
-                                    Box(
-                                        modifier = Modifier.padding(vertical = 2.dp),
-                                        contentAlignment = Alignment.CenterStart
-                                    ) {
-                                        if (newKeywordText.isEmpty()) {
-                                            Text(
-                                                text = if (keywordsList.isEmpty()) "Type keyword & press Enter…" else "Add more…",
-                                                fontSize = 12.5.sp,
-                                                lineHeight = 16.sp,
-                                                color = textTertiary,
-                                                maxLines = 1
-                                            )
-                                        }
-                                        inner()
-                                    }
-                                }
-                            )
-                        }
-                    }
-
-                    // ── 2I: CATEGORY Selector with Right-Aligned Dropdown List ────────
-                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        SheetSectionLabelRow(title = "CATEGORY")
-
-                        val categoryName = when (category) {
-                            DefaultShortcuts.CAT_DIALOGUE -> "Dialogue & Monologue"
-                            DefaultShortcuts.CAT_BRACKETS -> "Enclosures & Brackets"
-                            DefaultShortcuts.CAT_PUNCTUATION -> "Punctuation & Cadence"
-                            DefaultShortcuts.CAT_STRUCTURE -> "Structure & Lists"
-                            DefaultShortcuts.CAT_FORMATTING -> "Typography & Formatting"
-                            DefaultShortcuts.CAT_SCENE_BREAKS -> "Scene Breaks"
-                            DefaultShortcuts.CAT_ARROWS -> "Arrows & Flow"
-                            DefaultShortcuts.CAT_MATH -> "Math & Logic"
-                            DefaultShortcuts.CAT_CURRENCY -> "Currency & Symbols"
-                            else -> "Custom & Snippets"
-                        }
-
-                        Surface(
-                            onClick = { showCategoryMenu = true },
-                            shape = ScribeShapeTokens.Field,
-                            color = cardBg,
-                            border = BorderStroke(1.dp, borderNormal),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Box(modifier = Modifier.fillMaxWidth()) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        Surface(
-                                            shape = RoundedCornerShape(6.dp),
-                                            color = accentContainer,
-                                            modifier = Modifier.size(28.dp)
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center) {
-                                                val catMeta = STUDIO_CATEGORIES.find { it.id == category }
-                                                if (catMeta?.iconVector != null) {
-                                                    Icon(
-                                                        imageVector = catMeta.iconVector,
-                                                        contentDescription = null,
-                                                        tint = accentPrimary,
-                                                        modifier = Modifier.size(15.dp)
-                                                    )
-                                                } else if (catMeta?.iconGlyph != null) {
-                                                    Text(
-                                                        text = catMeta.iconGlyph,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontSize = 11.5.sp,
-                                                        color = accentPrimary
-                                                    )
-                                                } else {
-                                                    Icon(
-                                                        imageVector = Icons.Default.ChatBubbleOutline,
-                                                        contentDescription = null,
-                                                        tint = accentPrimary,
-                                                        modifier = Modifier.size(15.dp)
-                                                    )
-                                                }
-                                            }
-                                        }
-                                        Text(
-                                            text = categoryName,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = textPrimary,
-                                            fontSize = 13.5.sp,
-                                            lineHeight = 18.sp
-                                        )
-                                    }
-
-                                    // 2I: Anchor Box on the right so the Category DropdownMenu opens on the right side
-                                    Box(contentAlignment = Alignment.CenterEnd) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                            contentDescription = "Select category",
-                                            tint = textTertiary,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-
-                                        DropdownMenu(
-                                            expanded = showCategoryMenu,
-                                            onDismissRequest = { showCategoryMenu = false },
-                                            offset = DpOffset(0.dp, 4.dp),
-                                            shape = ScribeShapeTokens.Menu,
-                                            containerColor = menuSurface,
-                                            border = BorderStroke(1.dp, borderSubtle)
-                                        ) {
-                                            val allCategories = listOf(
-                                                DefaultShortcuts.CAT_CUSTOM to "Custom & Snippets",
-                                                DefaultShortcuts.CAT_DIALOGUE to "Dialogue & Monologue",
-                                                DefaultShortcuts.CAT_BRACKETS to "Enclosures & Brackets",
-                                                DefaultShortcuts.CAT_PUNCTUATION to "Punctuation & Cadence",
-                                                DefaultShortcuts.CAT_STRUCTURE to "Structure & Lists",
-                                                DefaultShortcuts.CAT_FORMATTING to "Typography & Formatting",
-                                                DefaultShortcuts.CAT_SCENE_BREAKS to "Scene Breaks",
-                                                DefaultShortcuts.CAT_ARROWS to "Arrows & Flow",
-                                                DefaultShortcuts.CAT_MATH to "Math & Logic",
-                                                DefaultShortcuts.CAT_CURRENCY to "Currency & Symbols"
-                                            )
-                                            allCategories.forEach { (catId, catLabel) ->
-                                                val isSelectedCat = category == catId
-                                                DropdownMenuItem(
-                                                    text = {
-                                                        Text(
-                                                            text = catLabel,
-                                                            fontWeight = if (isSelectedCat) FontWeight.Bold else FontWeight.Normal,
-                                                            color = if (isSelectedCat) accentPrimary else textPrimary,
-                                                            fontSize = 13.sp
-                                                        )
-                                                    },
-                                                    trailingIcon = if (isSelectedCat) {
-                                                        {
-                                                            Icon(
-                                                                imageVector = Icons.Default.Check,
-                                                                contentDescription = null,
-                                                                tint = accentPrimary,
-                                                                modifier = Modifier.size(15.dp)
-                                                            )
-                                                        }
-                                                    } else null,
-                                                    onClick = {
-                                                        category = catId
-                                                        showCategoryMenu = false
-                                                    },
-                                                    modifier = if (isSelectedCat) {
-                                                        Modifier.background(selectedPillBg.copy(alpha = 0.55f))
-                                                    } else {
-                                                        Modifier
-                                                    }
+                                                val ins = formatPreviewDisplay(payload, "…")
+                                                Text(
+                                                    text = "selected text",
+                                                    fontWeight = FontWeight.Normal,
+                                                    fontSize = 12.sp,
+                                                    color = textSecondary,
+                                                    maxLines = 1
+                                                )
+                                                Text(
+                                                    text = ins,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 13.sp,
+                                                    color = accentPrimary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier.widthIn(max = 90.dp)
                                                 )
                                             }
                                         }
                                     }
                                 }
                             }
+                        }
+                    }
+
+                    // ── 4 & 5: Animated TYPE Selector + Narrow Hint Card ─────────────────────
+                    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        SheetSectionLabelRow(title = "TYPE")
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            AnimatedShortcutTypeCard(
+                                title = "Enclose",
+                                isSelected = isEnclose,
+                                onClick = { kind = "pair" },
+                                modifier = Modifier.weight(1f)
+                            ) { tint ->
+                                Text(
+                                    text = "“ ”",
+                                    fontSize = 13.5.sp,
+                                    lineHeight = 14.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = tint
+                                )
+                            }
+
+                            AnimatedShortcutTypeCard(
+                                title = "Prefix",
+                                isSelected = (kind == "prefix"),
+                                onClick = { kind = "prefix" },
+                                modifier = Modifier.weight(1f)
+                            ) { tint ->
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.FormatListBulleted,
+                                    contentDescription = null,
+                                    tint = tint,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+
+                            AnimatedShortcutTypeCard(
+                                title = "Insert",
+                                isSelected = (kind == "insert"),
+                                onClick = { kind = "insert" },
+                                modifier = Modifier.weight(1f)
+                            ) { tint ->
+                                Text(
+                                    text = "I",
+                                    fontFamily = FontFamily.Serif,
+                                    fontSize = 13.5.sp,
+                                    lineHeight = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = tint
+                                )
+                            }
+                        }
+
+                        // 5: Narrow Hint Card below Shortcut Types with tight border padding & lit bulb
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = surfaceLowest,
+                            border = BorderStroke(0.5.dp, borderSubtle),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .background(litBulbContainer.copy(alpha = 0.65f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Lightbulb,
+                                        contentDescription = null,
+                                        tint = litBulbColor,
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                }
+                                AnimatedContent(
+                                    targetState = kind,
+                                    transitionSpec = {
+                                        fadeIn(animationSpec = tween(150)) togetherWith fadeOut(animationSpec = tween(100))
+                                    },
+                                    label = "narrowHintAnim",
+                                    modifier = Modifier.weight(1f)
+                                ) { currentKind ->
+                                    Text(
+                                        text = when (currentKind) {
+                                            "pair", "wrap" -> "Wraps selected text in an opening/closing pair. Enter exits the pair automatically."
+                                            "prefix" -> "Adds text at the start of the line. Enter continues sequence automatically."
+                                            else -> "Inserts text directly at the cursor position."
+                                        },
+                                        fontSize = 11.sp,
+                                        color = textSecondary,
+                                        lineHeight = 13.5.sp,
+                                        maxLines = 2,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // ── 1 & 4: Smooth Animated Type Input Fields (First OPENING, then CLOSING) ──
+                    AnimatedContent(
+                        targetState = if (isEnclose) "pair" else kind,
+                        transitionSpec = {
+                            (fadeIn(animationSpec = tween(160)) + slideInVertically(
+                                initialOffsetY = { it / 6 },
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                )
+                            )) togetherWith (fadeOut(animationSpec = tween(110)) + slideOutVertically(
+                                targetOffsetY = { -it / 6 },
+                                animationSpec = tween(110)
+                            ))
+                        },
+                        label = "typeFieldsTransition"
+                    ) { targetKind ->
+                        when (targetKind) {
+                            "pair" -> {
+                                val openingField: @Composable (Modifier) -> Unit = { mod ->
+                                    Column(
+                                        modifier = mod,
+                                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        SheetSectionLabelRow(title = "OPENING")
+
+                                        ShortcutFieldInput(
+                                            value = payload,
+                                            onValueChange = { payload = it },
+                                            placeholder = "e.g. “",
+                                            trailingContent = {
+                                                if (payload.isNotEmpty()) {
+                                                    Surface(
+                                                        onClick = { payload = "" },
+                                                        shape = CircleShape,
+                                                        color = surfaceLowest,
+                                                        modifier = Modifier.size(18.dp)
+                                                    ) {
+                                                        Box(contentAlignment = Alignment.Center) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Close,
+                                                                contentDescription = "Clear",
+                                                                tint = textSecondary,
+                                                                modifier = Modifier.size(11.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+
+                                val closingField: @Composable (Modifier) -> Unit = { mod ->
+                                    Column(
+                                        modifier = mod,
+                                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                                    ) {
+                                        SheetSectionLabelRow(
+                                            title = "CLOSING",
+                                            inlineHint = "Mirrors opening if blank"
+                                        )
+
+                                        ShortcutFieldInput(
+                                            value = closing,
+                                            onValueChange = { closing = it },
+                                            placeholder = if (payload.isNotBlank()) payload else "Mirrors opening",
+                                            trailingContent = {
+                                                if (closing.isNotEmpty()) {
+                                                    Surface(
+                                                        onClick = { closing = "" },
+                                                        shape = CircleShape,
+                                                        color = surfaceLowest,
+                                                        modifier = Modifier.size(18.dp)
+                                                    ) {
+                                                        Box(contentAlignment = Alignment.Center) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Close,
+                                                                contentDescription = "Clear",
+                                                                tint = textSecondary,
+                                                                modifier = Modifier.size(11.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+
+                                if (isWideLayout) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        openingField(Modifier.weight(1f))
+                                        closingField(Modifier.weight(1f))
+                                    }
+                                } else {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalArrangement = Arrangement.spacedBy(9.dp)
+                                    ) {
+                                        openingField(Modifier.fillMaxWidth())
+                                        closingField(Modifier.fillMaxWidth())
+                                    }
+                                }
+                            }
+                            "prefix" -> {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    SheetSectionLabelRow(title = "PREFIX")
+
+                                    ShortcutFieldInput(
+                                        value = payload,
+                                        onValueChange = { payload = it },
+                                        placeholder = "e.g. - [ ] , 1. , • ",
+                                        trailingContent = {
+                                            if (payload.isNotEmpty()) {
+                                                Surface(
+                                                    onClick = { payload = "" },
+                                                    shape = CircleShape,
+                                                    color = surfaceLowest,
+                                                    modifier = Modifier.size(18.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Close,
+                                                            contentDescription = "Clear",
+                                                            tint = textSecondary,
+                                                            modifier = Modifier.size(11.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                            else -> { // insert
+                                Column(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                                ) {
+                                    SheetSectionLabelRow(title = "TEXT TO INSERT")
+
+                                    ShortcutFieldInput(
+                                        value = payload,
+                                        onValueChange = { payload = it },
+                                        placeholder = "e.g. …, —, ©",
+                                        trailingContent = {
+                                            if (payload.isNotEmpty()) {
+                                                Surface(
+                                                    onClick = { payload = "" },
+                                                    shape = CircleShape,
+                                                    color = surfaceLowest,
+                                                    modifier = Modifier.size(18.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Close,
+                                                            contentDescription = "Clear",
+                                                            tint = textSecondary,
+                                                            modifier = Modifier.size(11.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // ── 1 & 2: LABEL (Description) & KEYWORDS (Side-by-Side on Wide/Landscape) ──
+                    val labelFieldContent: @Composable (Modifier) -> Unit = { mod ->
+                        Column(
+                            modifier = mod,
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            SheetSectionLabelRow(
+                                title = "LABEL",
+                                inlineHint = "Description in studio"
+                            )
+
+                            ShortcutFieldInput(
+                                value = label,
+                                onValueChange = { if (it.length <= 30) label = it },
+                                placeholder = "e.g. Curly double quotes",
+                                trailingContent = {
+                                    Text(
+                                        text = "${label.length}/30",
+                                        fontSize = 11.sp,
+                                        color = textTertiary
+                                    )
+                                }
+                            )
+                        }
+                    }
+
+                    val keywordsFieldContent: @Composable (Modifier) -> Unit = { mod ->
+                        Column(
+                            modifier = mod,
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            SheetSectionLabelRow(
+                                title = "KEYWORDS",
+                                inlineHint = "Used when searching"
+                            )
+
+                            val kwBorderColor by animateColorAsState(
+                                targetValue = if (isKeywordFocused) accentPrimary else borderNormal,
+                                animationSpec = spring(stiffness = Spring.StiffnessMedium),
+                                label = "kwBorderColor"
+                            )
+                            val kwBorderWidth = if (isKeywordFocused) 1.2.dp else 1.dp
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 38.dp)
+                                    .background(cardBg, ScribeShapeTokens.Field)
+                                    .border(kwBorderWidth, kwBorderColor, ScribeShapeTokens.Field)
+                                    .clickable(
+                                        indication = null,
+                                        interactionSource = remember { MutableInteractionSource() }
+                                    ) {
+                                        keywordFocusRequester.requestFocus()
+                                        coroutineScope.launch {
+                                            keywordScrollState.animateScrollTo(keywordScrollState.maxValue)
+                                        }
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 5.dp)
+                                    .nestedScroll(horizontalOverscrollBlocker)
+                                    .horizontalScroll(keywordScrollState),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                keywordsList.forEachIndexed { index, kw ->
+                                    Surface(
+                                        shape = ScribeShapeTokens.Pill,
+                                        color = selectedPillBg,
+                                        border = BorderStroke(0.5.dp, borderSubtle)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.5.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                                        ) {
+                                            Text(
+                                                text = kw,
+                                                fontSize = 12.sp,
+                                                lineHeight = 15.sp,
+                                                color = textPrimary,
+                                                fontWeight = FontWeight.Medium,
+                                                maxLines = 1
+                                            )
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Remove keyword",
+                                                tint = textSecondary,
+                                                modifier = Modifier
+                                                    .size(12.dp)
+                                                    .clickable { keywordsList.removeAt(index) }
+                                            )
+                                        }
+                                    }
+                                }
+
+                                BasicTextField(
+                                    value = newKeywordText,
+                                    onValueChange = { incoming ->
+                                        if (incoming.contains("\n")) {
+                                            val parts = incoming.split("\n")
+                                            parts.dropLast(1).forEach { part ->
+                                                val trimmed = part.trim()
+                                                if (trimmed.isNotEmpty() && !keywordsList.contains(trimmed)) {
+                                                    keywordsList.add(trimmed)
+                                                }
+                                            }
+                                            newKeywordText = parts.last()
+                                            coroutineScope.launch {
+                                                keywordScrollState.animateScrollTo(keywordScrollState.maxValue)
+                                            }
+                                        } else {
+                                            newKeywordText = incoming
+                                        }
+                                    },
+                                    singleLine = true,
+                                    interactionSource = keywordInteractionSource,
+                                    textStyle = TextStyle(
+                                        fontSize = 13.sp,
+                                        lineHeight = 18.sp,
+                                        color = textPrimary
+                                    ),
+                                    cursorBrush = SolidColor(accentPrimary),
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                    keyboardActions = KeyboardActions(
+                                        onDone = { commitKeyword() }
+                                    ),
+                                    modifier = Modifier
+                                        .widthIn(min = 120.dp)
+                                        .focusRequester(keywordFocusRequester)
+                                        .onPreviewKeyEvent { event ->
+                                            if (event.type == KeyEventType.KeyDown) {
+                                                when (event.key) {
+                                                    Key.Enter, Key.NumPadEnter -> {
+                                                        commitKeyword()
+                                                        true
+                                                    }
+                                                    Key.Backspace -> {
+                                                        if (newKeywordText.isEmpty() && keywordsList.isNotEmpty()) {
+                                                            keywordsList.removeAt(keywordsList.lastIndex)
+                                                            true
+                                                        } else {
+                                                            false
+                                                        }
+                                                    }
+                                                    else -> false
+                                                }
+                                            } else {
+                                                false
+                                            }
+                                        },
+                                    decorationBox = { inner ->
+                                        Box(
+                                            modifier = Modifier.padding(vertical = 2.dp),
+                                            contentAlignment = Alignment.CenterStart
+                                        ) {
+                                            if (newKeywordText.isEmpty()) {
+                                                Text(
+                                                    text = if (keywordsList.isEmpty()) "Type keyword & press Enter…" else "Add more…",
+                                                    fontSize = 12.5.sp,
+                                                    lineHeight = 16.sp,
+                                                    color = textTertiary,
+                                                    maxLines = 1
+                                                )
+                                            }
+                                            inner()
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    if (isWideLayout) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            labelFieldContent(Modifier.weight(1f))
+                            keywordsFieldContent(Modifier.weight(1f))
+                        }
+                    } else {
+                        labelFieldContent(Modifier.fillMaxWidth())
+                        keywordsFieldContent(Modifier.fillMaxWidth())
+                    }
+
+                    // ── 2: CATEGORY Selector + Auto-Detected ICON Field Side-by-Side ────
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        // Left: CATEGORY Selector
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            SheetSectionLabelRow(title = "CATEGORY")
+
+                            val categoryName = when (category) {
+                                DefaultShortcuts.CAT_DIALOGUE -> "Dialogue & Monologue"
+                                DefaultShortcuts.CAT_BRACKETS -> "Enclosures & Brackets"
+                                DefaultShortcuts.CAT_PUNCTUATION -> "Punctuation & Cadence"
+                                DefaultShortcuts.CAT_STRUCTURE -> "Structure & Lists"
+                                DefaultShortcuts.CAT_FORMATTING -> "Typography & Formatting"
+                                DefaultShortcuts.CAT_SCENE_BREAKS -> "Scene Breaks"
+                                DefaultShortcuts.CAT_ARROWS -> "Arrows & Flow"
+                                DefaultShortcuts.CAT_MATH -> "Math & Logic"
+                                DefaultShortcuts.CAT_CURRENCY -> "Currency & Symbols"
+                                else -> "Custom & Snippets"
+                            }
+
+                            Surface(
+                                onClick = { showCategoryMenu = true },
+                                shape = ScribeShapeTokens.Field,
+                                color = cardBg,
+                                border = BorderStroke(1.dp, borderNormal),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 38.dp)
+                            ) {
+                                Box(modifier = Modifier.fillMaxWidth()) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 10.dp, vertical = 5.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.weight(1f),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Surface(
+                                                shape = RoundedCornerShape(6.dp),
+                                                color = accentContainer,
+                                                modifier = Modifier.size(26.dp)
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    val catMeta = STUDIO_CATEGORIES.find { it.id == category }
+                                                    if (catMeta?.iconVector != null) {
+                                                        Icon(
+                                                            imageVector = catMeta.iconVector,
+                                                            contentDescription = null,
+                                                            tint = accentPrimary,
+                                                            modifier = Modifier.size(14.dp)
+                                                        )
+                                                    } else if (catMeta?.iconGlyph != null) {
+                                                        Text(
+                                                            text = catMeta.iconGlyph,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 11.sp,
+                                                            color = accentPrimary
+                                                        )
+                                                    } else {
+                                                        Icon(
+                                                            imageVector = Icons.Default.ChatBubbleOutline,
+                                                            contentDescription = null,
+                                                            tint = accentPrimary,
+                                                            modifier = Modifier.size(14.dp)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            Text(
+                                                text = categoryName,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = textPrimary,
+                                                fontSize = 13.sp,
+                                                lineHeight = 17.sp,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
+
+                                        Box(contentAlignment = Alignment.CenterEnd) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                                contentDescription = "Select category",
+                                                tint = textTertiary,
+                                                modifier = Modifier.size(17.dp)
+                                            )
+
+                                            DropdownMenu(
+                                                expanded = showCategoryMenu,
+                                                onDismissRequest = { showCategoryMenu = false },
+                                                offset = DpOffset(0.dp, 4.dp),
+                                                shape = ScribeShapeTokens.Menu,
+                                                containerColor = menuSurface,
+                                                border = BorderStroke(1.dp, borderSubtle)
+                                            ) {
+                                                val allCategories = listOf(
+                                                    DefaultShortcuts.CAT_CUSTOM to "Custom & Snippets",
+                                                    DefaultShortcuts.CAT_DIALOGUE to "Dialogue & Monologue",
+                                                    DefaultShortcuts.CAT_BRACKETS to "Enclosures & Brackets",
+                                                    DefaultShortcuts.CAT_PUNCTUATION to "Punctuation & Cadence",
+                                                    DefaultShortcuts.CAT_STRUCTURE to "Structure & Lists",
+                                                    DefaultShortcuts.CAT_FORMATTING to "Typography & Formatting",
+                                                    DefaultShortcuts.CAT_SCENE_BREAKS to "Scene Breaks",
+                                                    DefaultShortcuts.CAT_ARROWS to "Arrows & Flow",
+                                                    DefaultShortcuts.CAT_MATH to "Math & Logic",
+                                                    DefaultShortcuts.CAT_CURRENCY to "Currency & Symbols"
+                                                )
+                                                allCategories.forEach { (catId, catLabel) ->
+                                                    val isSelectedCat = category == catId
+                                                    DropdownMenuItem(
+                                                        text = {
+                                                            Text(
+                                                                text = catLabel,
+                                                                fontWeight = if (isSelectedCat) FontWeight.Bold else FontWeight.Normal,
+                                                                color = if (isSelectedCat) accentPrimary else textPrimary,
+                                                                fontSize = 13.sp
+                                                            )
+                                                        },
+                                                        trailingIcon = if (isSelectedCat) {
+                                                            {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.Check,
+                                                                    contentDescription = null,
+                                                                    tint = accentPrimary,
+                                                                    modifier = Modifier.size(15.dp)
+                                                                )
+                                                            }
+                                                        } else null,
+                                                        onClick = {
+                                                            category = catId
+                                                            showCategoryMenu = false
+                                                        },
+                                                        modifier = if (isSelectedCat) {
+                                                            Modifier.background(selectedPillBg.copy(alpha = 0.55f))
+                                                        } else {
+                                                            Modifier
+                                                        }
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Right: Auto-Detected ICON Field (shows actual shortcut symbol)
+                        Column(
+                            modifier = Modifier.width(114.dp),
+                            verticalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            SheetSectionLabelRow(
+                                title = "ICON",
+                                inlineHint = if (!isIconManuallyOverridden) "Auto" else null
+                            )
+
+                            ShortcutFieldInput(
+                                value = iconText,
+                                onValueChange = { updated ->
+                                    if (updated.length <= 8) {
+                                        iconText = updated
+                                        if (updated.isBlank()) {
+                                            isIconManuallyOverridden = false
+                                        } else {
+                                            isIconManuallyOverridden = true
+                                        }
+                                    }
+                                },
+                                placeholder = autoDetectedIcon.ifBlank {
+                                    when (kind) {
+                                        "pair", "wrap" -> "“ ”"
+                                        "prefix" -> "•"
+                                        else -> "…"
+                                    }
+                                },
+                                textAlign = TextAlign.Center,
+                                trailingContent = if (isIconManuallyOverridden && iconText != autoDetectedIcon) {
+                                    {
+                                        Surface(
+                                            onClick = {
+                                                isIconManuallyOverridden = false
+                                                iconText = autoDetectedIcon
+                                            },
+                                            shape = CircleShape,
+                                            color = surfaceLowest,
+                                            modifier = Modifier.size(16.dp)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Refresh,
+                                                    contentDescription = "Reset to auto icon",
+                                                    tint = textSecondary,
+                                                    modifier = Modifier.size(10.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                } else null
+                            )
                         }
                     }
                 }
@@ -2572,6 +2792,7 @@ private fun CreateOrEditShortcutSheet(
                                         ShortcutAction(
                                             id = existing?.id ?: (System.currentTimeMillis().toString() + Math.random().toString().takeLast(4)),
                                             label = label.trim(),
+                                            icon = effectiveIcon,
                                             kind = kind,
                                             payload = payload,
                                             closing = if (kind == "pair" || kind == "wrap") closing.ifBlank { null } else null,

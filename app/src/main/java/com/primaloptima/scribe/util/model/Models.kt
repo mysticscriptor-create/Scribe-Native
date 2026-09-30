@@ -13,6 +13,8 @@ import kotlinx.serialization.Serializable
 data class ShortcutAction(
     val id: String,
     val label: String,
+    /** Short glyph/symbol displayed in the shortcut icon box and writing bar (e.g. "“ ”", "—", "•") */
+    val icon: String = "",
     /** "insert" | "wrap" | "pair" | "prefix" */
     val kind: String,
     val payload: String,

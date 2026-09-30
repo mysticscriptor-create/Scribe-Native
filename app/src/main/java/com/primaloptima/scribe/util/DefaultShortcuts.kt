@@ -32,11 +32,51 @@ object DefaultShortcuts {
     // Legacy compatibility constant for existing data migration
     const val CAT_SYMBOLS = "symbols"
 
+    /**
+     * Auto-detects the concise icon/symbol representation from the user's inserted text
+     * across all three shortcut types ("pair"/"wrap", "prefix", "insert").
+     */
+    fun autoDetectIcon(kind: String, payload: String, closing: String? = null): String {
+        if (payload.isEmpty()) return ""
+
+        fun formatToken(raw: String): String {
+            if (raw.isEmpty()) return ""
+            // If string is purely line breaks
+            if (raw.all { it == '\n' || it == '\r' }) return "↵"
+            // If string is purely spaces or tabs
+            if (raw.all { it == ' ' || it == '\t' }) return "⇥"
+            // Strip surrounding line breaks (e.g., "\n\n---\n\n" -> "---"), replace internal line breaks with ↵
+            val strippedOuterNewlines = raw.trim('\n', '\r')
+            val normalized = strippedOuterNewlines
+                .replace("\r\n", "↵")
+                .replace("\n", "↵")
+                .replace("\r", "↵")
+                .trim()
+            return normalized.ifEmpty { "↵" }
+        }
+
+        return when (kind) {
+            "pair", "wrap" -> {
+                val openToken = formatToken(payload).take(3)
+                val closeSource = if (!closing.isNullOrBlank()) closing else payload
+                val closeToken = formatToken(closeSource).take(3)
+                if (openToken.isEmpty()) "" else "$openToken $closeToken".trim()
+            }
+            "prefix" -> {
+                formatToken(payload).take(5)
+            }
+            else -> { // "insert"
+                formatToken(payload).take(5)
+            }
+        }
+    }
+
     val all: List<ShortcutAction> = listOf(
         // ── 1. Dialogue & Monologue ──────────────────────────────────────────
         ShortcutAction(
             id = "quote_curly",
-            label = "“ ”",
+            label = "Curly double quotes",
+            icon = "“ ”",
             kind = "pair",
             payload = "“",
             closing = "”",
@@ -46,7 +86,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "quote_straight",
-            label = "\" \"",
+            label = "Straight double quotes",
+            icon = "\" \"",
             kind = "pair",
             payload = "\"",
             closing = "\"",
@@ -56,7 +97,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "quote_single_curly",
-            label = "‘ ’",
+            label = "Curly single quotes",
+            icon = "‘ ’",
             kind = "pair",
             payload = "‘",
             closing = "’",
@@ -66,7 +108,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "quote_single_straight",
-            label = "' '",
+            label = "Straight single quotes",
+            icon = "' '",
             kind = "pair",
             payload = "'",
             closing = "'",
@@ -76,7 +119,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "quote_heavy_double",
-            label = "❝ ❞",
+            label = "Curly quotation marks",
+            icon = "❝ ❞",
             kind = "pair",
             payload = "❝",
             closing = "❞",
@@ -86,7 +130,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "quote_heavy_single",
-            label = "❛ ❜",
+            label = "Heavy single quotes",
+            icon = "❛ ❜",
             kind = "pair",
             payload = "❛",
             closing = "❜",
@@ -96,7 +141,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "quote_corner",
-            label = "「 」",
+            label = "Japanese corner quotes",
+            icon = "「 」",
             kind = "pair",
             payload = "「",
             closing = "」",
@@ -106,7 +152,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "quote_corner_double",
-            label = "『 』",
+            label = "Double corner brackets",
+            icon = "『 』",
             kind = "pair",
             payload = "『",
             closing = "』",
@@ -116,7 +163,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "quote_guillemets",
-            label = "« »",
+            label = "French guillemets",
+            icon = "« »",
             kind = "pair",
             payload = "«",
             closing = "»",
@@ -126,7 +174,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "dialogue_emdash",
-            label = "— ",
+            label = "Dialogue em dash",
+            icon = "— ",
             kind = "insert",
             payload = "— ",
             category = CAT_DIALOGUE,
@@ -137,7 +186,8 @@ object DefaultShortcuts {
         // ── 2. Brackets & Enclosures ─────────────────────────────────────────
         ShortcutAction(
             id = "paren",
-            label = "( )",
+            label = "Round parentheses",
+            icon = "( )",
             kind = "pair",
             payload = "(",
             closing = ")",
@@ -147,7 +197,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "bracket",
-            label = "[ ]",
+            label = "Square brackets",
+            icon = "[ ]",
             kind = "pair",
             payload = "[",
             closing = "]",
@@ -157,7 +208,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "brace",
-            label = "{ }",
+            label = "Curly braces",
+            icon = "{ }",
             kind = "pair",
             payload = "{",
             closing = "}",
@@ -167,7 +219,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "sym_status_bracket",
-            label = "【 】",
+            label = "Status window brackets",
+            icon = "【 】",
             kind = "pair",
             payload = "【",
             closing = "】",
@@ -177,7 +230,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "sym_lenticular",
-            label = "〔 〕",
+            label = "Lenticular brackets",
+            icon = "〔 〕",
             kind = "pair",
             payload = "〔",
             closing = "〕",
@@ -187,7 +241,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "sym_white_square",
-            label = "⟦ ⟧",
+            label = "White square brackets",
+            icon = "⟦ ⟧",
             kind = "pair",
             payload = "⟦",
             closing = "⟧",
@@ -197,7 +252,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "sym_angle_bracket",
-            label = "⟨ ⟩",
+            label = "Angle brackets",
+            icon = "⟨ ⟩",
             kind = "pair",
             payload = "⟨",
             closing = "⟩",
@@ -207,7 +263,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "sym_double_angle",
-            label = "⟪ ⟫",
+            label = "Double angle brackets",
+            icon = "⟪ ⟫",
             kind = "pair",
             payload = "⟪",
             closing = "⟫",
@@ -217,7 +274,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "sym_floor",
-            label = "⌊ ⌋",
+            label = "Floor brackets",
+            icon = "⌊ ⌋",
             kind = "pair",
             payload = "⌊",
             closing = "⌋",
@@ -229,7 +287,8 @@ object DefaultShortcuts {
         // ── 3. Punctuation & Cadence ─────────────────────────────────────────
         ShortcutAction(
             id = "emdash",
-            label = "—",
+            label = "Em dash",
+            icon = "—",
             kind = "insert",
             payload = "—",
             category = CAT_PUNCTUATION,
@@ -238,7 +297,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "endash",
-            label = "–",
+            label = "En dash",
+            icon = "–",
             kind = "insert",
             payload = "–",
             category = CAT_PUNCTUATION,
@@ -247,7 +307,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "ellipsis",
-            label = "…",
+            label = "Typographical ellipsis",
+            icon = "…",
             kind = "insert",
             payload = "…",
             category = CAT_PUNCTUATION,
@@ -256,7 +317,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "semicolon",
-            label = ";",
+            label = "Semicolon",
+            icon = ";",
             kind = "insert",
             payload = ";",
             category = CAT_PUNCTUATION,
@@ -265,7 +327,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "colon",
-            label = ":",
+            label = "Colon",
+            icon = ":",
             kind = "insert",
             payload = ":",
             category = CAT_PUNCTUATION,
@@ -274,7 +337,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "interrobang",
-            label = "‽",
+            label = "Interrobang",
+            icon = "‽",
             kind = "insert",
             payload = "‽",
             category = CAT_PUNCTUATION,
@@ -283,7 +347,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "middledot",
-            label = "·",
+            label = "Middle dot",
+            icon = "·",
             kind = "insert",
             payload = "·",
             category = CAT_PUNCTUATION,
@@ -294,7 +359,8 @@ object DefaultShortcuts {
         // ── 4. Scene Breaks & Ornaments ───────────────────────────────────────
         ShortcutAction(
             id = "hr",
-            label = "---",
+            label = "Thematic break (---)",
+            icon = "---",
             kind = "insert",
             payload = "\n\n---\n\n",
             category = CAT_SCENE_BREAKS,
@@ -303,7 +369,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "sym_asterism",
-            label = "⁂",
+            label = "Asterism flourish",
+            icon = "⁂",
             kind = "insert",
             payload = "\n\n⁂\n\n",
             category = CAT_SCENE_BREAKS,
@@ -312,7 +379,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "sym_three_stars",
-            label = "* * *",
+            label = "Three stars (* * *)",
+            icon = "* * *",
             kind = "insert",
             payload = "\n\n* * *\n\n",
             category = CAT_SCENE_BREAKS,
@@ -321,7 +389,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "sym_sparkle",
-            label = "✦",
+            label = "Magic sparkle",
+            icon = "✦",
             kind = "insert",
             payload = "✦",
             category = CAT_SCENE_BREAKS,
@@ -330,7 +399,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "sym_black_star",
-            label = "★",
+            label = "Black star",
+            icon = "★",
             kind = "insert",
             payload = "★",
             category = CAT_SCENE_BREAKS,
@@ -339,7 +409,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "sym_section",
-            label = "§",
+            label = "Section symbol",
+            icon = "§",
             kind = "insert",
             payload = "§",
             category = CAT_SCENE_BREAKS,
@@ -348,7 +419,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "sym_fleuron",
-            label = "❦",
+            label = "Fleuron leaf",
+            icon = "❦",
             kind = "insert",
             payload = "❦",
             category = CAT_SCENE_BREAKS,
@@ -359,7 +431,8 @@ object DefaultShortcuts {
         // ── 5. Structure & Lists ─────────────────────────────────────────────
         ShortcutAction(
             id = "list",
-            label = "•",
+            label = "Bullet list item",
+            icon = "•",
             kind = "prefix",
             payload = "- ",
             category = CAT_STRUCTURE,
@@ -368,7 +441,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "numlist",
-            label = "1.",
+            label = "Numbered list item",
+            icon = "1.",
             kind = "prefix",
             payload = "1. ",
             category = CAT_STRUCTURE,
@@ -377,7 +451,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "tasklist",
-            label = "[✓]",
+            label = "Task list checkbox",
+            icon = "[✓]",
             kind = "prefix",
             payload = "- [ ] ",
             category = CAT_STRUCTURE,
@@ -386,7 +461,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "blockquote",
-            label = ">",
+            label = "Blockquote indent",
+            icon = ">",
             kind = "prefix",
             payload = "> ",
             category = CAT_STRUCTURE,
@@ -395,7 +471,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "h1",
-            label = "H1",
+            label = "Heading 1 (#)",
+            icon = "H1",
             kind = "prefix",
             payload = "# ",
             category = CAT_STRUCTURE,
@@ -404,7 +481,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "h2",
-            label = "H2",
+            label = "Heading 2 (##)",
+            icon = "H2",
             kind = "prefix",
             payload = "## ",
             category = CAT_STRUCTURE,
@@ -413,7 +491,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "tab",
-            label = "Tab",
+            label = "Tab (4 spaces)",
+            icon = "Tab",
             kind = "insert",
             payload = "    ",
             category = CAT_STRUCTURE,
@@ -424,7 +503,8 @@ object DefaultShortcuts {
         // ── 6. Text Styles & Markdown ─────────────────────────────────────────
         ShortcutAction(
             id = "bold",
-            label = "B",
+            label = "Bold format",
+            icon = "B",
             kind = "pair",
             payload = "**",
             closing = "**",
@@ -434,7 +514,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "italic",
-            label = "I",
+            label = "Italic format",
+            icon = "I",
             kind = "pair",
             payload = "*",
             closing = "*",
@@ -444,7 +525,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "strikethrough",
-            label = "S",
+            label = "Strikethrough format",
+            icon = "S",
             kind = "pair",
             payload = "~~",
             closing = "~~",
@@ -454,7 +536,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "code",
-            label = "‹›",
+            label = "Inline code backticks",
+            icon = "‹›",
             kind = "pair",
             payload = "`",
             closing = "`",
@@ -466,7 +549,8 @@ object DefaultShortcuts {
         // ── 7. Arrows & Direction ────────────────────────────────────────────
         ShortcutAction(
             id = "arrow_right",
-            label = "→",
+            label = "Right arrow",
+            icon = "→",
             kind = "insert",
             payload = "→",
             category = CAT_ARROWS,
@@ -475,7 +559,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "arrow_left",
-            label = "←",
+            label = "Left arrow",
+            icon = "←",
             kind = "insert",
             payload = "←",
             category = CAT_ARROWS,
@@ -484,7 +569,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "arrow_both",
-            label = "↔",
+            label = "Bidirectional arrow",
+            icon = "↔",
             kind = "insert",
             payload = "↔",
             category = CAT_ARROWS,
@@ -493,7 +579,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "arrow_double_right",
-            label = "⇒",
+            label = "Double right arrow",
+            icon = "⇒",
             kind = "insert",
             payload = "⇒",
             category = CAT_ARROWS,
@@ -504,7 +591,8 @@ object DefaultShortcuts {
         // ── 8. Math, Logic & Units ───────────────────────────────────────────
         ShortcutAction(
             id = "math_plusminus",
-            label = "±",
+            label = "Plus-minus sign",
+            icon = "±",
             kind = "insert",
             payload = "±",
             category = CAT_MATH,
@@ -513,7 +601,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "math_multiply",
-            label = "×",
+            label = "Multiplication sign",
+            icon = "×",
             kind = "insert",
             payload = "×",
             category = CAT_MATH,
@@ -522,7 +611,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "math_divide",
-            label = "÷",
+            label = "Division sign",
+            icon = "÷",
             kind = "insert",
             payload = "÷",
             category = CAT_MATH,
@@ -531,7 +621,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "math_notequal",
-            label = "≠",
+            label = "Not equal to",
+            icon = "≠",
             kind = "insert",
             payload = "≠",
             category = CAT_MATH,
@@ -540,7 +631,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "math_approx",
-            label = "≈",
+            label = "Approximately equal",
+            icon = "≈",
             kind = "insert",
             payload = "≈",
             category = CAT_MATH,
@@ -549,7 +641,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "math_degree",
-            label = "°",
+            label = "Degree symbol",
+            icon = "°",
             kind = "insert",
             payload = "°",
             category = CAT_MATH,
@@ -558,7 +651,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "math_infinity",
-            label = "∞",
+            label = "Infinity symbol",
+            icon = "∞",
             kind = "insert",
             payload = "∞",
             category = CAT_MATH,
@@ -569,7 +663,8 @@ object DefaultShortcuts {
         // ── 9. Currency & Common Symbols ─────────────────────────────────────
         ShortcutAction(
             id = "sym_dollar",
-            label = "$",
+            label = "Dollar sign",
+            icon = "$",
             kind = "insert",
             payload = "$",
             category = CAT_CURRENCY,
@@ -578,7 +673,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "sym_euro",
-            label = "€",
+            label = "Euro sign",
+            icon = "€",
             kind = "insert",
             payload = "€",
             category = CAT_CURRENCY,
@@ -587,7 +683,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "sym_pound",
-            label = "£",
+            label = "Pound sign",
+            icon = "£",
             kind = "insert",
             payload = "£",
             category = CAT_CURRENCY,
@@ -596,7 +693,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "sym_yen",
-            label = "¥",
+            label = "Yen sign",
+            icon = "¥",
             kind = "insert",
             payload = "¥",
             category = CAT_CURRENCY,
@@ -605,7 +703,8 @@ object DefaultShortcuts {
         ),
         ShortcutAction(
             id = "sym_percent",
-            label = "%",
+            label = "Percent sign",
+            icon = "%",
             kind = "insert",
             payload = "%",
             category = CAT_CURRENCY,
@@ -613,4 +712,36 @@ object DefaultShortcuts {
             keywords = listOf("percent", "percentage", "rate", "symbol")
         )
     )
+
+    private val byIdMap: Map<String, ShortcutAction> by lazy {
+        all.associateBy { it.id }
+    }
+
+    fun findById(id: String): ShortcutAction? = byIdMap[id]
+}
+
+/**
+ * Resolves the short icon/glyph for a shortcut (used in the 40dp icon badge and Writing Bar).
+ * Never falls back to `label` so description text never leaks into the icon.
+ */
+fun ShortcutAction.resolvedIcon(): String {
+    if (icon.isNotBlank()) return icon
+    val def = DefaultShortcuts.findById(id)
+    if (def != null && def.icon.isNotBlank() && payload == def.payload && closing == def.closing) {
+        return def.icon
+    }
+    return DefaultShortcuts.autoDetectIcon(kind, payload, closing).ifBlank { "•" }
+}
+
+/**
+ * Resolves the human-friendly description label for a shortcut (used as the title in Shortcut Studio
+ * and inside the LABEL field when editing).
+ */
+fun ShortcutAction.resolvedLabel(): String {
+    val def = DefaultShortcuts.findById(id)
+    // If this is a legacy persisted shortcut whose `label` still stores the raw icon glyph (e.g. "“ ”")
+    if (def != null && (label.isBlank() || label.trim() == def.icon.trim())) {
+        return def.label
+    }
+    return label
 }

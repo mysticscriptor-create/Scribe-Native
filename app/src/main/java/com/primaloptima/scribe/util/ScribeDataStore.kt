@@ -193,7 +193,19 @@ class ScribeDataStore(private val context: Context) {
                     cat = DefaultShortcuts.CAT_PUNCTUATION
                 }
 
+                val resolvedIcon = when {
+                    action.icon.isNotBlank() -> action.icon
+                    def != null && action.payload == def.payload && action.closing == def.closing -> def.icon
+                    else -> DefaultShortcuts.autoDetectIcon(action.kind, action.payload, action.closing)
+                }
+                val resolvedLabel = when {
+                    def != null && (action.label.isBlank() || action.label.trim() == def.icon.trim()) -> def.label
+                    else -> action.label
+                }
+
                 action.copy(
+                    label = resolvedLabel,
+                    icon = resolvedIcon,
                     category = cat,
                     keywords = if (action.keywords.isEmpty() && def != null) def.keywords else action.keywords
                 )

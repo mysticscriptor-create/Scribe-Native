@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.LocalContentColor
@@ -277,6 +278,8 @@ fun FrostedBottomSheet(
                 Column(
                     modifier = modifier
                         .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .padding(top = 6.dp)
                         .onGloballyPositioned { coordinates ->
                             sheetHeightPx = coordinates.size.height.toFloat()
                         }
