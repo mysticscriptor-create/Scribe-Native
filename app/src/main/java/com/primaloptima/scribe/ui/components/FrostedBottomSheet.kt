@@ -74,7 +74,7 @@ import kotlin.math.roundToInt
 @Composable
 fun FrostedSheetDragHandle(
     modifier: Modifier = Modifier,
-    color: Color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.40f)
+    color: Color = ScribeTheme.colors.borders.normal
 ) {
     Box(
         modifier = modifier
@@ -120,6 +120,7 @@ fun FrostedBottomSheet(
     val animOffsetY = remember { Animatable(0f) }
     val coroutineScope = rememberCoroutineScope()
     var sheetHeightPx by remember { mutableFloatStateOf(800f) }
+    var lastDragDeltaY by remember { mutableFloatStateOf(0f) }
 
     LaunchedEffect(Unit) {
         isVisible = true
@@ -136,9 +137,17 @@ fun FrostedBottomSheet(
         }
     }
 
-    // Settle logic when drag stops
+    // Settle logic when drag stops: never dismiss if the user is moving upward
     val settleSheet: suspend (Float) -> Unit = { velocity ->
-        if (animOffsetY.value > 140f || velocity > 750f) {
+        val isMovingUp = velocity < -60f || lastDragDeltaY < -1.5f
+        val dismissDistanceThreshold = (sheetHeightPx * 0.34f).coerceAtLeast(240f)
+        val shouldDismiss = !isMovingUp && (
+            animOffsetY.value > dismissDistanceThreshold ||
+                (animOffsetY.value > 110f && velocity > 2400f)
+        )
+        lastDragDeltaY = 0f
+
+        if (shouldDismiss) {
             animOffsetY.animateTo(
                 targetValue = sheetHeightPx,
                 animationSpec = tween(durationMillis = 200)
@@ -149,7 +158,7 @@ fun FrostedBottomSheet(
             animOffsetY.animateTo(
                 targetValue = 0f,
                 animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    dampingRatio = Spring.DampingRatioNoBouncy,
                     stiffness = Spring.StiffnessMediumLow
                 )
             )
@@ -165,6 +174,7 @@ fun FrostedBottomSheet(
     }
 
     val draggableState = rememberDraggableState { delta ->
+        lastDragDeltaY = delta
         if (delta > 0 || animOffsetY.value > 0f) {
             coroutineScope.launch {
                 animOffsetY.snapTo((animOffsetY.value + delta).coerceAtLeast(0f))
@@ -177,17 +187,22 @@ fun FrostedBottomSheet(
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 val delta = available.y
                 if (delta < 0 && animOffsetY.value > 0f) {
+                    lastDragDeltaY = delta
                     val consumed = delta.coerceAtLeast(-animOffsetY.value)
-                    coroutineScope.launch { animOffsetY.snapTo(animOffsetY.value + consumed) }
+                    coroutineScope.launch { animOffsetY.snapTo((animOffsetY.value + consumed).coerceAtLeast(0f)) }
                     return Offset(0f, consumed)
                 }
                 return Offset.Zero
             }
 
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
                 val delta = available.y
-                if (delta > 0 && available.y > 0) {
-                    coroutineScope.launch { animOffsetY.snapTo(animOffsetY.value + delta) }
+                // Only allow dragging the sheet from post-scroll if the scroll gesture didn't just consume scroll
+                if (delta > 0f && consumed.y == 0f) {
+                    lastDragDeltaY = delta
+                    val dampedDelta = delta * 0.55f
+                    coroutineScope.launch { animOffsetY.snapTo((animOffsetY.value + dampedDelta).coerceAtLeast(0f)) }
                     return Offset(0f, delta)
                 }
                 return Offset.Zero
@@ -211,8 +226,7 @@ fun FrostedBottomSheet(
         }
     }
 
-    val solidSurface = LocalSolidSurface.current
-    val contentColor = autoTextColor(solidSurface)
+    val contentColor = ScribeTheme.colors.content.primary
 
     // Calculate dynamic scrim fade as sheet is dragged down
     val dragFraction = if (sheetHeightPx > 0f) (animOffsetY.value / sheetHeightPx).coerceIn(0f, 1f) else 0f
@@ -247,7 +261,7 @@ fun FrostedBottomSheet(
             enter = slideInVertically(
                 initialOffsetY = { it },
                 animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    dampingRatio = Spring.DampingRatioNoBouncy,
                     stiffness = Spring.StiffnessMediumLow
                 )
             ) + fadeIn(animationSpec = tween(150)),
@@ -263,12 +277,6 @@ fun FrostedBottomSheet(
                 Column(
                     modifier = modifier
                         .fillMaxWidth()
-                        .animateContentSize(
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMediumLow
-                            )
-                        )
                         .onGloballyPositioned { coordinates ->
                             sheetHeightPx = coordinates.size.height.toFloat()
                         }
@@ -295,18 +303,20 @@ fun FrostedBottomSheet(
                         .imePadding()
                         .windowInsetsPadding(WindowInsets.navigationBars)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .draggable(
-                                state = draggableState,
-                                orientation = Orientation.Vertical,
-                                onDragStopped = { velocity ->
-                                    coroutineScope.launch { settleSheet(velocity) }
-                                }
-                            )
-                    ) {
-                        dragHandle?.invoke()
+                    if (dragHandle != null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .draggable(
+                                    state = draggableState,
+                                    orientation = Orientation.Vertical,
+                                    onDragStopped = { velocity ->
+                                        coroutineScope.launch { settleSheet(velocity) }
+                                    }
+                                )
+                        ) {
+                            dragHandle.invoke()
+                        }
                     }
                     content()
                 }
