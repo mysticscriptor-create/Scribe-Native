@@ -240,12 +240,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 if (scroller != null) {
                     val maxY = editor.scrollMaxY.coerceAtLeast(0)
                     val clampedY = targetScrollY.coerceIn(0, maxY)
-                    scroller.startScroll(scroller.currX, clampedY, 0, 0, 0)
+                    scroller.startScroll(editor.offsetX, editor.offsetY, 0, clampedY - editor.offsetY, 0)
                     scroller.abortAnimation()
                     editor.invalidate()
                 }
             } catch (_: Throwable) {}
         }
+        applyTranslations()
         invalidate()
     }
 

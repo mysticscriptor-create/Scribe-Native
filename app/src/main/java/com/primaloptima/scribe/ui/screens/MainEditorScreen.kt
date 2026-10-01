@@ -315,13 +315,9 @@ fun MainEditorScreen(
     var lastLoadedNoteId by remember { mutableStateOf<String?>(null) }
     var latestCursorState by remember(activeNote?.id) { mutableStateOf<DocumentCursorState?>(null) }
 
-    // Context B: Track whether bottom sheet was opened in this session
-    var bottomSheetOpenedInSession by remember { mutableStateOf(false) }
-
     val restoreSessionScroll: () -> Unit = {
-        if (restoreCursorOnOpen && bottomSheetOpenedInSession && editorVm.hasSessionScroll()) {
+        if (restoreCursorOnOpen && editorVm.hasSessionScroll()) {
             val offset = editorVm.consumeSessionScroll()
-            bottomSheetOpenedInSession = false
             if (offset != null) {
                 val canvas = unifiedCanvasRef
                 val editor = soraEditorRef
@@ -338,7 +334,7 @@ fun MainEditorScreen(
                             if (cur != null) {
                                 val line = cur.leftLine.coerceIn(0, (editor.text.lineCount - 1).coerceAtLeast(0))
                                 val col = cur.leftColumn.coerceIn(0, editor.text.getColumnCount(line))
-                                editor.ensurePositionVisible(line, col, false)
+                                editor.ensurePositionVisible(line, col, true)
                             }
                         }
                     }
@@ -347,8 +343,17 @@ fun MainEditorScreen(
         }
     }
 
+    val captureSessionScrollBeforeNavigate: () -> Unit = {
+        if (restoreCursorOnOpen) {
+            val canvas = unifiedCanvasRef
+            val editor = soraEditorRef
+            if (canvas != null && editor != null) {
+                editorVm.captureSessionScroll(canvas.scrollD, editor.offsetY)
+            }
+        }
+    }
+
     // Dismiss keyboard immediately whenever the editor sheet opens and capture session scroll
-    var prevSheetPage by remember { mutableStateOf<EditorSheetPage?>(null) }
     LaunchedEffect(activeSheetPage) {
         if (activeSheetPage != null) {
             keyboardController?.hide()
@@ -360,19 +365,8 @@ fun MainEditorScreen(
             windowToken?.let { imm?.hideSoftInputFromWindow(it, 0) }
 
             // Context B: The moment the bottom sheet opens, capture and store current scroll offset in memory
-            if (restoreCursorOnOpen) {
-                val canvas = unifiedCanvasRef
-                val editor = soraEditorRef
-                if (canvas != null && editor != null) {
-                    editorVm.captureSessionScroll(canvas.scrollD, editor.offsetY)
-                    bottomSheetOpenedInSession = true
-                }
-            }
-        } else if (prevSheetPage != null && activeSheetPage == null) {
-            // Context B: When sheet is dismissed/closed without navigating away
-            restoreSessionScroll()
+            captureSessionScrollBeforeNavigate()
         }
-        prevSheetPage = activeSheetPage
     }
 
     // ── Floating Pills Scroll Animation & Dual-Title State ──────────────────────
@@ -487,6 +481,7 @@ fun MainEditorScreen(
     }
 
     BackHandler {
+        editorVm.consumeSessionScroll()
         activeNote?.let { note ->
             if (editorVm.restoreCursorOnOpen.value) {
                 val state = captureCurrentCursorState()
@@ -624,17 +619,6 @@ fun MainEditorScreen(
             lastLoadedNoteId = note.id
             loadedNoteId = note.id
 
-            val savedCursor = if (restoreCursorOnOpen) {
-                editorVm.getOrFetchCursorState(note.id)
-            } else null
-
-            latestCursorState = savedCursor
-
-            if (savedCursor == null) {
-                unifiedCanvasRef?.resetScroll()
-                lastActiveTarget = EditingTarget.NONE
-            }
-
             floatingPillsVisible = true
 
             // 1. Compute Inlay Hints synchronously so paragraph indents & scene badges are
@@ -656,34 +640,62 @@ fun MainEditorScreen(
             val initialIndent = activeTheme?.firstLineIndent ?: 0
             (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.firstLineIndentSpaces = initialIndent
 
-            if (savedCursor != null) {
-                when (savedCursor.target) {
-                    EditingTarget.PRIMARY_TITLE -> {
-                        lastActiveTarget = EditingTarget.PRIMARY_TITLE
-                        unifiedCanvasRef?.restoreCanvasAndEditorScroll(0, 0)
-                        val pLen = primaryTitleValue.text.length
-                        val start = savedCursor.primarySelStart.coerceIn(0, pLen)
-                        val end = savedCursor.primarySelEnd.coerceIn(0, pLen)
-                        primaryTitleValue = primaryTitleValue.copy(
-                            selection = if (start == end) TextRange(start) else TextRange(start, end)
-                        )
-                        // Silent: Do NOT auto-focus or trigger keyboard
-                    }
-                    EditingTarget.SECONDARY_TITLE -> {
-                        lastActiveTarget = EditingTarget.SECONDARY_TITLE
-                        showSecondaryTitle = true
-                        unifiedCanvasRef?.restoreCanvasAndEditorScroll(0, 0)
-                        val sLen = secondaryTitleValue.text.length
-                        val start = savedCursor.secondarySelStart.coerceIn(0, sLen)
-                        val end = savedCursor.secondarySelEnd.coerceIn(0, sLen)
-                        secondaryTitleValue = secondaryTitleValue.copy(
-                            selection = if (start == end) TextRange(start) else TextRange(start, end)
-                        )
-                        // Silent: Do NOT auto-focus or trigger keyboard
-                    }
-                    EditingTarget.EDITOR_BODY, EditingTarget.NONE -> {
-                        lastActiveTarget = savedCursor.target
-                        (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.doOnLayoutReady {
+            // Set text and inlay hints FIRST before layout and cursor restoration!
+            if (note.content.isEmpty() && initialIndent > 0) {
+                val indentStr = " ".repeat(initialIndent)
+                editor.setText(indentStr)
+                editorCurrentText = indentStr
+            } else {
+                editor.setText(note.content)
+            }
+            editor.setInlayHints(hints)
+
+            if (note.content.isEmpty()) {
+                editor.alpha = 1f
+            } else if (editor is ScribeCodeEditor) {
+                editor.notifyContentSet()
+            } else {
+                editor.animate().alpha(1f).setDuration(180).start()
+            }
+
+            val savedCursor = if (restoreCursorOnOpen) {
+                editorVm.getOrFetchCursorState(note.id)
+            } else null
+
+            latestCursorState = savedCursor
+
+            // Wait until layout & wordwrap calculation are fully ready on the loaded text!
+            (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.doOnLayoutReady {
+                if (restoreCursorOnOpen && editorVm.hasSessionScroll()) {
+                    // Context B: return from bottom sheet navigation
+                    restoreSessionScroll()
+                } else if (restoreCursorOnOpen && savedCursor != null) {
+                    when (savedCursor.target) {
+                        EditingTarget.PRIMARY_TITLE -> {
+                            lastActiveTarget = EditingTarget.PRIMARY_TITLE
+                            unifiedCanvasRef?.restoreCanvasAndEditorScroll(0, 0)
+                            val pLen = primaryTitleValue.text.length
+                            val start = savedCursor.primarySelStart.coerceIn(0, pLen)
+                            val end = savedCursor.primarySelEnd.coerceIn(0, pLen)
+                            primaryTitleValue = primaryTitleValue.copy(
+                                selection = if (start == end) TextRange(start) else TextRange(start, end)
+                            )
+                            // Silent: Do NOT auto-focus or trigger keyboard
+                        }
+                        EditingTarget.SECONDARY_TITLE -> {
+                            lastActiveTarget = EditingTarget.SECONDARY_TITLE
+                            showSecondaryTitle = true
+                            unifiedCanvasRef?.restoreCanvasAndEditorScroll(0, 0)
+                            val sLen = secondaryTitleValue.text.length
+                            val start = savedCursor.secondarySelStart.coerceIn(0, sLen)
+                            val end = savedCursor.secondarySelEnd.coerceIn(0, sLen)
+                            secondaryTitleValue = secondaryTitleValue.copy(
+                                selection = if (start == end) TextRange(start) else TextRange(start, end)
+                            )
+                            // Silent: Do NOT auto-focus or trigger keyboard
+                        }
+                        EditingTarget.EDITOR_BODY, EditingTarget.NONE -> {
+                            lastActiveTarget = savedCursor.target
                             val lineCount = editor.text.lineCount.coerceAtLeast(1)
                             val startL = savedCursor.bodyStartLine.coerceIn(0, lineCount - 1)
                             val startCMax = editor.text.getColumnCount(startL)
@@ -710,41 +722,18 @@ fun MainEditorScreen(
                             }
 
                             // Context A: scroll viewport silently to cursor line so cursor is visible
-                            editor.ensurePositionVisible(startL, startC, false)
-
+                            editor.ensurePositionVisible(startL, startC, true)
                             // Silent: Do NOT call editor.requestFocus() or keyboardController?.show()
                         }
                     }
-                }
-            } else {
-                (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.doOnLayoutReady {
+                } else {
+                    unifiedCanvasRef?.resetScroll()
+                    lastActiveTarget = EditingTarget.NONE
                     try {
                         val initCol = if (note.content.isEmpty()) initialIndent else 0
                         editor.setSelection(0, initCol, false)
                     } catch (_: Throwable) {}
                 }
-            }
-
-            if (note.content.isEmpty() && initialIndent > 0) {
-                val indentStr = " ".repeat(initialIndent)
-                editor.setText(indentStr)
-                try {
-                    if (savedCursor == null) {
-                        editor.setSelection(0, initialIndent)
-                    }
-                } catch (_: Throwable) {}
-                editorCurrentText = indentStr
-            } else {
-                editor.setText(note.content)
-            }
-            editor.setInlayHints(hints)
-
-            if (note.content.isEmpty()) {
-                editor.alpha = 1f
-            } else if (editor is ScribeCodeEditor) {
-                editor.notifyContentSet()
-            } else {
-                editor.animate().alpha(1f).setDuration(180).start()
             }
 
             ProseDiagnosticProvider.attachEditor(editor)
@@ -1879,23 +1868,28 @@ fun MainEditorScreen(
                     activeNote?.let { ExportHelper.shareNote(context, it, fmt) }
                 },
                 onVersionHistory = {
+                    captureSessionScrollBeforeNavigate()
                     activeSheetPage = null
                     editorVm.flushContent(soraEditorRef?.text?.toString() ?: "")
                     onOpenHistory()
                 },
                 onShortcuts      = {
+                    captureSessionScrollBeforeNavigate()
                     activeSheetPage = null
                     onOpenShortcuts()
                 },
                 onGuide          = {
+                    captureSessionScrollBeforeNavigate()
                     activeSheetPage = null
                     onOpenGuide()
                 },
                 onOpenThemes     = {
+                    captureSessionScrollBeforeNavigate()
                     activeSheetPage = null
                     onOpenThemes()
                 },
                 onSettings       = {
+                    captureSessionScrollBeforeNavigate()
                     activeSheetPage = null
                     onOpenSettings()
                 }

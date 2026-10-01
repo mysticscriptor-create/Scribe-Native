@@ -1221,7 +1221,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
             if (visibleHeight > 0) {
                 if (screenYBottom > visibleHeight - bottomMargin) {
                     val deltaY = screenYBottom - (visibleHeight - bottomMargin)
-                    if (isInternalPasting) {
+                    if (noAnimation) {
+                        parentCanvas.scrollCanvasBy(deltaY)
+                    } else if (isInternalPasting) {
                         parentCanvas.smoothScrollCanvasBy(deltaY, durationMs = 280)
                     } else if (kotlin.math.abs(deltaY) > rowHeight * 1.5f) {
                         parentCanvas.smoothScrollCanvasBy(deltaY, durationMs = 180)
@@ -1230,7 +1232,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     }
                 } else if (screenYTop < 0 && (parentCanvas.scrollD > 0 || offsetY > 0)) {
                     val deltaY = screenYTop
-                    parentCanvas.smoothScrollCanvasBy(deltaY, durationMs = 120)
+                    if (noAnimation) {
+                        parentCanvas.scrollCanvasBy(deltaY)
+                    } else {
+                        parentCanvas.smoothScrollCanvasBy(deltaY, durationMs = 120)
+                    }
                 }
             }
             invalidate()

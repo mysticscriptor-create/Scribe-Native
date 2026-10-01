@@ -754,6 +754,7 @@ class EditorViewModel(
     }
 
     fun loadNote(noteId: String, preloadedNote: Note? = null) {
+        sessionScrollOffset = null
         if (preloadedNote != null && preloadedNote.id == noteId) {
             preloadNote(preloadedNote)
         }
