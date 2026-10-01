@@ -31,6 +31,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     val typewriterMode: StateFlow<Boolean> = dataStore.typewriterModeFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val restoreCursorOnOpen: StateFlow<Boolean> = dataStore.restoreCursorOnOpenFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     val lineSpacing: StateFlow<String> = dataStore.lineSpacingFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "comfortable")
@@ -92,6 +94,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     fun setShowWordCount(v: Boolean)          { viewModelScope.launch { dataStore.setShowWordCount(v) } }
     fun setTypewriterMode(v: Boolean)         { viewModelScope.launch { dataStore.setTypewriterMode(v) } }
+    fun setRestoreCursorOnOpen(v: Boolean)    { viewModelScope.launch { dataStore.setRestoreCursorOnOpen(v) } }
     fun setLineSpacing(v: String)             { viewModelScope.launch { dataStore.setLineSpacing(v) } }
     fun setEditorFontSize(size: Int)          { viewModelScope.launch { dataStore.setEditorFontSize(size) } }
     fun setHomeStartPage(page: String)        { viewModelScope.launch { dataStore.setHomeStartPage(page) } }

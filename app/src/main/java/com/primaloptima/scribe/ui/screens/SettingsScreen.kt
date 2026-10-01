@@ -48,6 +48,7 @@ fun SettingsScreen(
 
     val showWordCount by vm.showWordCount.collectAsStateWithLifecycle()
     val typewriterMode by vm.typewriterMode.collectAsStateWithLifecycle()
+    val restoreCursorOnOpen by vm.restoreCursorOnOpen.collectAsStateWithLifecycle()
     val lineSpacing by vm.lineSpacing.collectAsStateWithLifecycle()
     val fontSize by vm.editorFontSize.collectAsStateWithLifecycle()
     val dailyGoal by vm.dailyGoal.collectAsStateWithLifecycle()
@@ -189,6 +190,24 @@ fun SettingsScreen(
                         Switch(
                             checked = typewriterMode,
                             onCheckedChange = { vm.setTypewriterMode(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                checkedTrackColor = accentColor
+                            )
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text("Restore Cursor Position on Open", fontWeight = FontWeight.Medium)
+                            Text("Resumes target, cursor, and focus where you left off", fontSize = 12.sp, color = subtleText)
+                        }
+                        Switch(
+                            checked = restoreCursorOnOpen,
+                            onCheckedChange = { vm.setRestoreCursorOnOpen(it) },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
                                 checkedTrackColor = accentColor

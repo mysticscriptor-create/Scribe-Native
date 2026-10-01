@@ -361,6 +361,8 @@ fun EditorUnifiedBottomSheet(
                         onGuide = onGuide,
                         onOpenThemes = onOpenThemes,
                         onSettings = onSettings,
+                        restoreCursorOnOpen = restoreCursorOnOpen,
+                        onToggleRestoreCursor = onToggleRestoreCursor,
                         onClose = dismissRequester
                     )
                 }
