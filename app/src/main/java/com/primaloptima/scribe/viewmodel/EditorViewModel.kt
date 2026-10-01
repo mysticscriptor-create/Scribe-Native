@@ -593,7 +593,10 @@ class EditorViewModel(
         }
     }
 
+    private val inMemoryCursorStates = java.util.concurrent.ConcurrentHashMap<String, DocumentCursorState>()
+
     fun saveCursorState(noteId: String, cursorState: DocumentCursorState) {
+        inMemoryCursorStates[noteId] = cursorState
         val json = AppJson.encodeToString(cursorState)
         val cur = _activeNote.value
         if (cur?.id == noteId) {
@@ -604,13 +607,19 @@ class EditorViewModel(
         }
     }
 
-    fun getActiveCursorState(): DocumentCursorState? {
-        val json = _activeNote.value?.cursorStateJson ?: return null
-        return try {
-            AppJson.decodeFromString<DocumentCursorState>(json)
-        } catch (_: Exception) {
-            null
+    fun getCursorStateForNote(noteId: String): DocumentCursorState? {
+        inMemoryCursorStates[noteId]?.let { return it }
+        val cur = _activeNote.value
+        val json = if (cur?.id == noteId) cur.cursorStateJson else null
+        if (json != null) {
+            return try { AppJson.decodeFromString<DocumentCursorState>(json) } catch (_: Throwable) { null }
         }
+        return null
+    }
+
+    fun getActiveCursorState(): DocumentCursorState? {
+        val id = _activeNote.value?.id ?: return null
+        return getCursorStateForNote(id)
     }
 
     // ── Init ──────────────────────────────────────────────────────────────────
@@ -728,11 +737,12 @@ class EditorViewModel(
         }
         if (loadNoteJob?.isActive == true) return
         loadNoteJob = viewModelScope.launch {
-            val note = if (preloadedNote != null && preloadedNote.id == noteId && (preloadedNote.externalUri == null || preloadedNote.loaded)) {
-                preloadedNote
-            } else {
-                withContext(Dispatchers.IO) { db.noteDao().getById(noteId) } ?: return@launch
-            }
+            val noteFromDb = withContext(Dispatchers.IO) { db.noteDao().getById(noteId) }
+            val rawNote = noteFromDb ?: (if (preloadedNote != null && preloadedNote.id == noteId) preloadedNote else return@launch)
+            val inMem = inMemoryCursorStates[noteId]
+            val note = if (inMem != null) {
+                rawNote.copy(cursorStateJson = AppJson.encodeToString(inMem))
+            } else rawNote
             val loaded = if (note.externalUri != null && !note.loaded) {
                 try {
                     val content = SAFHelper.readFile(getApplication(), Uri.parse(note.externalUri))

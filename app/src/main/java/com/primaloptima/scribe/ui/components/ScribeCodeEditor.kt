@@ -807,6 +807,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 prev?.invoke()
                 action()
             }
+            post { checkAndTriggerReady() }
         }
     }
 
@@ -851,7 +852,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (isAwaitingLayoutReady) {
             isAwaitingLayoutReady = false
             alpha = 1f
-            onLayoutReadyListener?.invoke()
+            val listener = onLayoutReadyListener
+            onLayoutReadyListener = null
+            listener?.invoke()
         }
     }
 
@@ -875,12 +878,20 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (isAwaitingLayoutReady && isWordwrapReady()) {
             removeCallbacks(safetyFadeInRunnable)
             isAwaitingLayoutReady = false
-            onLayoutReadyListener?.invoke()
+            val listener = onLayoutReadyListener
+            onLayoutReadyListener = null
+            listener?.invoke()
             animate()
                 .alpha(1f)
                 .setDuration(180)
                 .setInterpolator(DecelerateInterpolator())
                 .start()
+        } else if (!isAwaitingLayoutReady && isWordwrapReady()) {
+            val listener = onLayoutReadyListener
+            if (listener != null) {
+                onLayoutReadyListener = null
+                listener.invoke()
+            }
         }
     }
 
@@ -893,7 +904,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
             removeCallbacks(safetyFadeInRunnable)
             isAwaitingLayoutReady = false
             alpha = 1f
-            onLayoutReadyListener?.invoke()
+            val listener = onLayoutReadyListener
+            onLayoutReadyListener = null
+            listener?.invoke()
             return
         }
         post {

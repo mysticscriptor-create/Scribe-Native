@@ -311,6 +311,9 @@ fun MainEditorScreen(
     var soraEditorRef      by remember { mutableStateOf<com.primaloptima.scribe.ui.components.ScribeCodeEditor?>(null) }
     var isHandleDragging   by remember { mutableStateOf(false) }
     var loadedNoteId       by rememberSaveable { mutableStateOf<String?>(null) }
+    var lastLoadedEditorInstance by remember { mutableStateOf<com.primaloptima.scribe.ui.components.ScribeCodeEditor?>(null) }
+    var lastLoadedNoteId by remember { mutableStateOf<String?>(null) }
+    var latestCursorState by remember(activeNote?.id) { mutableStateOf<DocumentCursorState?>(null) }
 
     // Dismiss keyboard immediately whenever the editor sheet opens
     LaunchedEffect(activeSheetPage) {
@@ -413,12 +416,12 @@ fun MainEditorScreen(
         val canvas = unifiedCanvasRef
         val cur = try { editor?.cursor } catch (_: Throwable) { null }
         val isSel = cur?.isSelected == true
-        val startL = cur?.leftLine ?: 0
-        val startC = cur?.leftColumn ?: 0
-        val endL = if (isSel) (cur?.rightLine ?: startL) else startL
-        val endC = if (isSel) (cur?.rightColumn ?: startC) else startC
-        val cScrollD = canvas?.scrollD ?: 0
-        val cScrollY = editor?.offsetY ?: 0
+        val startL = cur?.leftLine ?: (latestCursorState?.bodyStartLine ?: 0)
+        val startC = cur?.leftColumn ?: (latestCursorState?.bodyStartCol ?: 0)
+        val endL = if (isSel) (cur?.rightLine ?: startL) else (latestCursorState?.bodyEndLine ?: startL)
+        val endC = if (isSel) (cur?.rightColumn ?: startC) else (latestCursorState?.bodyEndCol ?: startC)
+        val cScrollD = canvas?.scrollD ?: (latestCursorState?.scrollD ?: 0)
+        val cScrollY = editor?.offsetY ?: (latestCursorState?.scrollY ?: 0)
 
         DocumentCursorState(
             target = lastActiveTarget,
@@ -434,6 +437,34 @@ fun MainEditorScreen(
             secondarySelEnd = secondaryTitleValue.selection.end,
             timestamp = System.currentTimeMillis()
         )
+    }
+
+    // Debounce save cursor state to DB whenever latestCursorState changes
+    LaunchedEffect(latestCursorState, restoreCursorOnOpen) {
+        val state = latestCursorState ?: return@LaunchedEffect
+        if (!restoreCursorOnOpen) return@LaunchedEffect
+        val noteId = activeNote?.id ?: return@LaunchedEffect
+        delay(600)
+        editorVm.saveCursorState(noteId, state)
+    }
+
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, activeNote?.id) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE || event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                activeNote?.let { note ->
+                    if (editorVm.restoreCursorOnOpen.value) {
+                        val state = captureCurrentCursorState()
+                        latestCursorState = state
+                        editorVm.saveCursorState(note.id, state)
+                    }
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     fun persistDualTitle(primary: String, secondary: String) {
@@ -509,7 +540,8 @@ fun MainEditorScreen(
     LaunchedEffect(activeNote?.id, soraEditorRef) {
         val note   = activeNote ?: return@LaunchedEffect
         val editor = soraEditorRef ?: return@LaunchedEffect
-        if (loadedNoteId != note.id || (editor.text.length == 0 && note.content.isNotEmpty())) {
+
+        if (lastLoadedEditorInstance !== editor || lastLoadedNoteId != note.id) {
             // Ensure editor is measured and has a valid layout width before triggering wordwrap calculations.
             // Suspends until layout pass completes on the exact frame without any artificial delay.
             if (editor.width <= 0) {
@@ -528,12 +560,18 @@ fun MainEditorScreen(
                 }
             }
 
+            lastLoadedEditorInstance = editor
+            lastLoadedNoteId = note.id
             loadedNoteId = note.id
+
             val savedCursor = if (restoreCursorOnOpen) {
-                note.cursorStateJson?.let {
-                    try { AppJson.decodeFromString<DocumentCursorState>(it) } catch (_: Throwable) { null }
-                }
+                (editorVm.getCursorStateForNote(note.id)
+                    ?: note.cursorStateJson?.let {
+                        try { AppJson.decodeFromString<DocumentCursorState>(it) } catch (_: Throwable) { null }
+                    })
             } else null
+
+            latestCursorState = savedCursor
 
             if (savedCursor == null) {
                 unifiedCanvasRef?.resetScroll()
@@ -559,31 +597,12 @@ fun MainEditorScreen(
 
             val initialIndent = activeTheme?.firstLineIndent ?: 0
             (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.firstLineIndentSpaces = initialIndent
-            if (note.content.isEmpty() && initialIndent > 0) {
-                val indentStr = " ".repeat(initialIndent)
-                editor.setText(indentStr)
-                try {
-                    editor.setSelection(0, initialIndent)
-                } catch (_: Throwable) {}
-                editorCurrentText = indentStr
-            } else {
-                editor.setText(note.content)
-            }
-            editor.setInlayHints(hints)
-
-            if (note.content.isEmpty()) {
-                editor.alpha = 1f
-            } else if (editor is ScribeCodeEditor) {
-                editor.notifyContentSet()
-            } else {
-                editor.animate().alpha(1f).setDuration(180).start()
-            }
 
             if (savedCursor != null) {
                 when (savedCursor.target) {
                     EditingTarget.PRIMARY_TITLE -> {
                         lastActiveTarget = EditingTarget.PRIMARY_TITLE
-                        unifiedCanvasRef?.setCanvasScrollD(0)
+                        unifiedCanvasRef?.restoreCanvasAndEditorScroll(0, 0)
                         val pLen = primaryTitleValue.text.length
                         primaryTitleValue = primaryTitleValue.copy(
                             selection = TextRange(
@@ -602,7 +621,7 @@ fun MainEditorScreen(
                     EditingTarget.SECONDARY_TITLE -> {
                         lastActiveTarget = EditingTarget.SECONDARY_TITLE
                         showSecondaryTitle = true
-                        unifiedCanvasRef?.setCanvasScrollD(0)
+                        unifiedCanvasRef?.restoreCanvasAndEditorScroll(0, 0)
                         val sLen = secondaryTitleValue.text.length
                         secondaryTitleValue = secondaryTitleValue.copy(
                             selection = TextRange(
@@ -636,18 +655,7 @@ fun MainEditorScreen(
                                 editor.setSelectionRegion(startL, startC, endL, endC, false)
                             }
 
-                            val canvas = unifiedCanvasRef
-                            if (canvas != null) {
-                                canvas.setCanvasScrollD(savedCursor.scrollD)
-                                if (savedCursor.scrollD >= canvas.headerHeight && savedCursor.scrollY > 0) {
-                                    try {
-                                        editor.scroller?.let { s ->
-                                            s.startScroll(editor.offsetX, savedCursor.scrollY, 0, 0, 0)
-                                            s.abortAnimation()
-                                        }
-                                    } catch (_: Throwable) {}
-                                }
-                            }
+                            unifiedCanvasRef?.restoreCanvasAndEditorScroll(savedCursor.scrollD, savedCursor.scrollY)
                             editor.requestFocus()
                             editor.ensurePositionVisible(startL, startC, true)
                             keyboardController?.show()
@@ -662,21 +670,33 @@ fun MainEditorScreen(
                             val startC = savedCursor.bodyStartCol.coerceIn(0, maxC)
                             editor.setSelection(startL, startC, false)
 
-                            val canvas = unifiedCanvasRef
-                            if (canvas != null) {
-                                canvas.setCanvasScrollD(savedCursor.scrollD)
-                                if (savedCursor.scrollD >= canvas.headerHeight && savedCursor.scrollY > 0) {
-                                    try {
-                                        editor.scroller?.let { s ->
-                                            s.startScroll(editor.offsetX, savedCursor.scrollY, 0, 0, 0)
-                                            s.abortAnimation()
-                                        }
-                                    } catch (_: Throwable) {}
-                                }
-                            }
+                            unifiedCanvasRef?.restoreCanvasAndEditorScroll(savedCursor.scrollD, savedCursor.scrollY)
+                            editor.ensurePositionVisible(startL, startC, true)
                         }
                     }
                 }
+            }
+
+            if (note.content.isEmpty() && initialIndent > 0) {
+                val indentStr = " ".repeat(initialIndent)
+                editor.setText(indentStr)
+                try {
+                    if (savedCursor == null) {
+                        editor.setSelection(0, initialIndent)
+                    }
+                } catch (_: Throwable) {}
+                editorCurrentText = indentStr
+            } else {
+                editor.setText(note.content)
+            }
+            editor.setInlayHints(hints)
+
+            if (note.content.isEmpty()) {
+                editor.alpha = 1f
+            } else if (editor is ScribeCodeEditor) {
+                editor.notifyContentSet()
+            } else {
+                editor.animate().alpha(1f).setDuration(180).start()
             }
 
             ProseDiagnosticProvider.attachEditor(editor)
@@ -736,7 +756,8 @@ fun MainEditorScreen(
             activeNote?.let { note ->
                 editorVm.saveVersionSnapshotOnLeave(soraEditorForDispose?.text?.toString() ?: "")
                 if (editorVm.restoreCursorOnOpen.value) {
-                    editorVm.saveCursorState(note.id, captureCurrentCursorState())
+                    val state = latestCursorState ?: captureCurrentCursorState()
+                    editorVm.saveCursorState(note.id, state)
                 }
             }
         }
@@ -916,6 +937,7 @@ fun MainEditorScreen(
                                     if (scrollD <= 5 && editor.offsetY <= 10) {
                                         floatingPillsVisible = true
                                     }
+                                    latestCursorState = captureCurrentCursorState()
                                 }
                                 headerView.setViewCompositionStrategy(
                                     ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool
@@ -996,9 +1018,8 @@ fun MainEditorScreen(
                                         }
                                     }
                                     subscribeEvent(SelectionChangeEvent::class.java) { _, _ ->
-                                        if (editor.isFocused) {
-                                            lastActiveTarget = EditingTarget.EDITOR_BODY
-                                        }
+                                        lastActiveTarget = EditingTarget.EDITOR_BODY
+                                        latestCursorState = captureCurrentCursorState()
                                     }
                                     try {
                                         setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
@@ -1297,6 +1318,13 @@ fun MainEditorScreen(
 
                         },
                         onRelease = { layout ->
+                            activeNote?.let { note ->
+                                val state = captureCurrentCursorState()
+                                latestCursorState = state
+                                if (editorVm.restoreCursorOnOpen.value) {
+                                    editorVm.saveCursorState(note.id, state)
+                                }
+                            }
                             soraEditorRef = null
                             unifiedCanvasRef = null
                             ProseDiagnosticProvider.attachEditor(null)

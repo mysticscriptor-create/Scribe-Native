@@ -224,6 +224,31 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         invalidate()
     }
 
+    /**
+     * Synchronously restores both canvas header displacement (scrollD) and Sora editor vertical offset (offsetY).
+     */
+    fun restoreCanvasAndEditorScroll(targetScrollD: Int, targetScrollY: Int) {
+        cancelCanvasAnimation()
+        val clampedD = targetScrollD.coerceIn(0, headerHeight)
+        scrollD = clampedD
+        scrollDFloat = clampedD.toFloat()
+        applyTranslations()
+        onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
+        if (targetScrollY >= 0) {
+            try {
+                val scroller = editor.scroller
+                if (scroller != null) {
+                    val maxY = editor.scrollMaxY.coerceAtLeast(0)
+                    val clampedY = targetScrollY.coerceIn(0, maxY)
+                    scroller.startScroll(scroller.currX, clampedY, 0, 0, 0)
+                    scroller.abortAnimation()
+                    editor.invalidate()
+                }
+            } catch (_: Throwable) {}
+        }
+        invalidate()
+    }
+
     fun resetScroll() {
         if (!scroller.isFinished) {
             scroller.abortAnimation()
@@ -455,10 +480,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 }
             }
             return true
-        }
-
-        if (child === editor && !editor.isFocused) {
-            return false
         }
 
         if (child === editor) {
