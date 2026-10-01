@@ -378,8 +378,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         headerView.layout(0, 0, width, headerHeight)
         editor.layout(0, headerHeight, width, headerHeight + viewportHeight)
 
+        // Only enforce viewport height invariant when layout & wordwrap are fully ready
+        val scribeEditor = editor as? ScribeCodeEditor
+        val isReady = scribeEditor?.isWordwrapReady() ?: true
         val totalContentHeight = headerHeight + (editor.layout?.layoutHeight ?: 0)
-        if (totalContentHeight <= viewportHeight) {
+
+        if (isReady && totalContentHeight <= viewportHeight) {
             if (editor.offsetY > 0) {
                 try {
                     editor.scroller?.let { s ->

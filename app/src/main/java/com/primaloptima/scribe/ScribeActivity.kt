@@ -317,6 +317,7 @@ class ScribeActivity : ComponentActivity() {
                             noteListVm      = noteListVm,
                             shortcutsVm     = shortcutsVm,
                             initialNoteId   = key.noteId,
+                            isScreenActive  = (backStack.lastOrNull() is Route.Editor),
                             onBack          = { backStack.removeLastOrNull() },
                             onOpenHistory   = {
                                 // Flush pending autosave before navigating so no

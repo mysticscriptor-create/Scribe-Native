@@ -658,7 +658,9 @@ fun MainEditorScreen(
                 editor.animate().alpha(1f).setDuration(180).start()
             }
 
-            val savedCursor = if (restoreCursorOnOpen) {
+            // Await DataStore directly to eliminate startup race condition
+            val isRestoreEnabled = editorVm.isRestoreCursorEnabled()
+            val savedCursor = if (isRestoreEnabled) {
                 editorVm.getOrFetchCursorState(note.id)
             } else null
 
@@ -666,10 +668,10 @@ fun MainEditorScreen(
 
             // Wait until layout & wordwrap calculation are fully ready on the loaded text!
             (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.doOnLayoutReady {
-                if (restoreCursorOnOpen && editorVm.hasSessionScroll()) {
+                if (isRestoreEnabled && editorVm.hasSessionScroll(note.id)) {
                     // Context B: return from bottom sheet navigation
                     restoreSessionScroll()
-                } else if (restoreCursorOnOpen && savedCursor != null) {
+                } else if (isRestoreEnabled && savedCursor != null) {
                     when (savedCursor.target) {
                         EditingTarget.PRIMARY_TITLE -> {
                             lastActiveTarget = EditingTarget.PRIMARY_TITLE
@@ -1356,13 +1358,7 @@ fun MainEditorScreen(
 
                         },
                         onRelease = { layout ->
-                            activeNote?.let { note ->
-                                val state = captureCurrentCursorState()
-                                latestCursorState = state
-                                if (editorVm.restoreCursorOnOpen.value) {
-                                    editorVm.saveCursorState(note.id, state)
-                                }
-                            }
+                            saveCurrentCursorStateToDb()
                             soraEditorRef = null
                             unifiedCanvasRef = null
                             ProseDiagnosticProvider.attachEditor(null)
@@ -1650,6 +1646,7 @@ fun MainEditorScreen(
                                         contentDescription = "Menu",
                                         hazeState = hazeState,
                                         onClick = {
+                                            captureSessionScrollBeforeNavigate()
                                             keyboardController?.hide()
                                             focusManager.clearFocus()
                                             try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
@@ -1868,28 +1865,28 @@ fun MainEditorScreen(
                     activeNote?.let { ExportHelper.shareNote(context, it, fmt) }
                 },
                 onVersionHistory = {
-                    captureSessionScrollBeforeNavigate()
+                    wasSheetOpen = false
                     activeSheetPage = null
                     editorVm.flushContent(soraEditorRef?.text?.toString() ?: "")
                     onOpenHistory()
                 },
                 onShortcuts      = {
-                    captureSessionScrollBeforeNavigate()
+                    wasSheetOpen = false
                     activeSheetPage = null
                     onOpenShortcuts()
                 },
                 onGuide          = {
-                    captureSessionScrollBeforeNavigate()
+                    wasSheetOpen = false
                     activeSheetPage = null
                     onOpenGuide()
                 },
                 onOpenThemes     = {
-                    captureSessionScrollBeforeNavigate()
+                    wasSheetOpen = false
                     activeSheetPage = null
                     onOpenThemes()
                 },
                 onSettings       = {
-                    captureSessionScrollBeforeNavigate()
+                    wasSheetOpen = false
                     activeSheetPage = null
                     onOpenSettings()
                 }

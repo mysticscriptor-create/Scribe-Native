@@ -1211,6 +1211,13 @@ class ScribeCodeEditor @JvmOverloads constructor(
         // 2. Vertical cursor visibility through UnifiedCanvasLayout:
         val parentCanvas = parent as? UnifiedCanvasLayout
         if (parentCanvas != null) {
+            // If viewport has not laid out yet, defer to next frame
+            if (parentCanvas.height <= 0) {
+                parentCanvas.post {
+                    ensurePositionVisible(line, column, noAnimation)
+                }
+                return
+            }
             val headerRemaining = parentCanvas.headerHeight - parentCanvas.scrollD
             val screenYBottom = headerRemaining + yOffset - offsetY
             val screenYTop = screenYBottom - rowHeight
