@@ -593,6 +593,21 @@ class EditorViewModel(
         }
     }
 
+    // Context B (in-memory, per session scroll offset captured when bottom sheet opens)
+    private var sessionScrollOffset: Pair<Int, Int>? = null
+
+    fun captureSessionScroll(scrollD: Int, scrollY: Int) {
+        sessionScrollOffset = Pair(scrollD, scrollY)
+    }
+
+    fun consumeSessionScroll(): Pair<Int, Int>? {
+        val offset = sessionScrollOffset
+        sessionScrollOffset = null
+        return offset
+    }
+
+    fun hasSessionScroll(): Boolean = sessionScrollOffset != null
+
     private val inMemoryCursorStates = java.util.concurrent.ConcurrentHashMap<String, DocumentCursorState>()
 
     fun saveCursorState(noteId: String, cursorState: DocumentCursorState) {
@@ -602,9 +617,32 @@ class EditorViewModel(
         if (cur?.id == noteId) {
             _activeNote.value = cur.copy(cursorStateJson = json)
         }
-        viewModelScope.launch(Dispatchers.IO) {
-            db.noteDao().updateCursorState(noteId, json)
+        // Save to SQLite on app-level scope so backstack pop / ViewModel clearance does not cancel the DB write
+        @Suppress("OPT_IN_USAGE")
+        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+            try {
+                db.noteDao().updateCursorState(noteId, json)
+            } catch (_: Throwable) {}
         }
+    }
+
+    suspend fun getOrFetchCursorState(noteId: String): DocumentCursorState? {
+        inMemoryCursorStates[noteId]?.let { return it }
+        val cur = _activeNote.value
+        val json = if (cur?.id == noteId) cur.cursorStateJson else null
+        if (json != null) {
+            val parsed = try { AppJson.decodeFromString<DocumentCursorState>(json) } catch (_: Throwable) { null }
+            if (parsed != null) return parsed
+        }
+        val fromDb = withContext(Dispatchers.IO) { db.noteDao().getCursorState(noteId) }
+        if (fromDb != null) {
+            val parsed = try { AppJson.decodeFromString<DocumentCursorState>(fromDb) } catch (_: Throwable) { null }
+            if (parsed != null) {
+                inMemoryCursorStates[noteId] = parsed
+                return parsed
+            }
+        }
+        return null
     }
 
     fun getCursorStateForNote(noteId: String): DocumentCursorState? {
@@ -731,9 +769,6 @@ class EditorViewModel(
     fun loadNote(noteId: String, preloadedNote: Note? = null) {
         if (preloadedNote != null && preloadedNote.id == noteId) {
             preloadNote(preloadedNote)
-        }
-        if (_activeNote.value?.id == noteId && (_activeNote.value?.externalUri == null || _activeNote.value?.loaded == true)) {
-            if (preloadedNote != null) return
         }
         if (loadNoteJob?.isActive == true) return
         loadNoteJob = viewModelScope.launch {
