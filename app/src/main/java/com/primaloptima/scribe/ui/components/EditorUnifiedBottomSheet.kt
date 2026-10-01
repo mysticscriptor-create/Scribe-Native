@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DensityMedium
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.EditLocation
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FontDownload
 import androidx.compose.material.icons.filled.FormatAlignCenter
@@ -249,6 +250,8 @@ fun EditorUnifiedBottomSheet(
     onOpenThemes: () -> Unit,
     onSettings: () -> Unit,
     onVisualIndentChange: ((Int) -> Unit)? = null,
+    restoreCursorOnOpen: Boolean = false,
+    onToggleRestoreCursor: ((Boolean) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -480,6 +483,8 @@ private fun EditorMenuPage(
     onGuide: () -> Unit,
     onOpenThemes: () -> Unit,
     onSettings: () -> Unit,
+    restoreCursorOnOpen: Boolean = false,
+    onToggleRestoreCursor: ((Boolean) -> Unit)? = null,
     onClose: () -> Unit
 ) {
     Column(
@@ -657,6 +662,75 @@ private fun EditorMenuPage(
                 modifier = Modifier.weight(1f),
                 onClick = onOpenFloating
             )
+        }
+
+        // Cursor Position Restoration Card / Toggle
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            border = BorderStroke(
+                width = 1.dp,
+                color = if (restoreCursorOnOpen) ScribeTheme.colors.interaction.primary.copy(alpha = 0.5f)
+                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 10.dp)
+                .clickable { onToggleRestoreCursor?.invoke(!restoreCursorOnOpen) }
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (restoreCursorOnOpen) ScribeTheme.colors.interaction.primary.copy(alpha = 0.15f)
+                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.EditLocation,
+                            contentDescription = null,
+                            tint = if (restoreCursorOnOpen) ScribeTheme.colors.interaction.primary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "Restore Cursor Position",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (restoreCursorOnOpen) "Resumes target, cursor, and focus" else "Opens at top of document",
+                            fontSize = 11.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                        )
+                    }
+                }
+                androidx.compose.material3.Switch(
+                    checked = restoreCursorOnOpen,
+                    onCheckedChange = { onToggleRestoreCursor?.invoke(it) },
+                    colors = androidx.compose.material3.SwitchDefaults.colors(
+                        checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                        checkedTrackColor = ScribeTheme.colors.interaction.primary
+                    )
+                )
+            }
         }
 
         Spacer(Modifier.height(8.dp))

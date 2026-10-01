@@ -11,6 +11,7 @@ import androidx.room.PrimaryKey
 // but the explicit annotation documents intent and acts as a guard if a var field
 // is ever added (the compiler would warn rather than silently degrade performance).
 // Issue #2 / 2A fix. See stability_config.conf for the complementary List<T> fix.
+
 /** A text note stored in the vault or backed by a SAF URI. */
 @Immutable
 @Entity(
@@ -36,7 +37,9 @@ data class Note(
     /** Non-null when this note is backed by a SAF document URI. */
     @ColumnInfo(name = "external_uri") val externalUri: String? = null,
     /** True once the SAF file content has been read from disk. */
-    val loaded: Boolean = true
+    val loaded: Boolean = true,
+    /** Serialized DocumentCursorState JSON preserving last active target, cursor/selection, and viewport */
+    @ColumnInfo(name = "cursor_state_json") val cursorStateJson: String? = null
 ) {
     companion object {
         const val DEFAULT_BOOK_ID = "default"

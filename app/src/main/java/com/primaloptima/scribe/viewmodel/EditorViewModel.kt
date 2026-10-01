@@ -15,6 +15,8 @@ import com.primaloptima.scribe.util.MarkdownUtil
 import com.primaloptima.scribe.util.RecoveryManager
 import com.primaloptima.scribe.util.SAFHelper
 import com.primaloptima.scribe.util.model.AppTheme
+import com.primaloptima.scribe.util.model.DocumentCursorState
+import com.primaloptima.scribe.util.model.EditingTarget
 import com.primaloptima.scribe.util.model.ExternalRoot
 import com.primaloptima.scribe.util.model.FloatingWindow
 import com.primaloptima.scribe.util.model.OutlineEntry
@@ -580,6 +582,36 @@ class EditorViewModel(
     // Typewriter mode: reactive StateFlow instead of a synchronous prefs read
     val typewriterMode: StateFlow<Boolean> = dataStore.typewriterModeFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    // Restore cursor position on document open
+    val restoreCursorOnOpen: StateFlow<Boolean> = dataStore.restoreCursorOnOpenFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    fun setRestoreCursorOnOpen(enabled: Boolean) {
+        viewModelScope.launch {
+            dataStore.setRestoreCursorOnOpen(enabled)
+        }
+    }
+
+    fun saveCursorState(noteId: String, cursorState: DocumentCursorState) {
+        val json = AppJson.encodeToString(cursorState)
+        val cur = _activeNote.value
+        if (cur?.id == noteId) {
+            _activeNote.value = cur.copy(cursorStateJson = json)
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            db.noteDao().updateCursorState(noteId, json)
+        }
+    }
+
+    fun getActiveCursorState(): DocumentCursorState? {
+        val json = _activeNote.value?.cursorStateJson ?: return null
+        return try {
+            AppJson.decodeFromString<DocumentCursorState>(json)
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     // ── Init ──────────────────────────────────────────────────────────────────
 

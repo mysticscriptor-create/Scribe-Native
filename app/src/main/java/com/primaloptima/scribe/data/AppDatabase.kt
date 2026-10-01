@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 // Workbench note lastModified: bumped to version 9 (added last_modified column to notes)
 @Database(
     entities = [Note::class, Folder::class, WorldEntry::class, Book::class, NoteVersion::class, WritingLog::class],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -180,6 +180,19 @@ abstract class AppDatabase : RoomDatabase() {
          * v8 → v9: add `last_modified` column to notes table.
          * Purely additive — defaults to 0, then backfilled from updated_at.
          */
+        /**
+         * v9 → v10: add `cursor_state_json` column to notes table.
+         * Purely additive — defaults to NULL.
+         * Stores serialized DocumentCursorState preserving last target, selection, and viewport.
+         */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE notes ADD COLUMN cursor_state_json TEXT DEFAULT NULL"
+                )
+            }
+        }
+
         val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL(
@@ -198,7 +211,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "scribe.db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

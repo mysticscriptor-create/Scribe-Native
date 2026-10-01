@@ -62,6 +62,7 @@ class ScribeDataStore(private val context: Context) {
         // Editor
         val SHOW_WORD_COUNT    = booleanPreferencesKey("show_word_count")
         val TYPEWRITER_MODE    = booleanPreferencesKey("typewriter_mode")
+        val RESTORE_CURSOR_ON_OPEN = booleanPreferencesKey("restore_cursor_on_open")
         val LINE_SPACING       = stringPreferencesKey("line_spacing")
         val EDITOR_FONT_SIZE   = intPreferencesKey("editor_font_size")
         val MANUSCRIPT_ORNAMENT_ID = stringPreferencesKey("manuscript_ornament_id")
@@ -116,6 +117,7 @@ class ScribeDataStore(private val context: Context) {
 
     val showWordCountFlow: Flow<Boolean>     = store.data.map { it[SHOW_WORD_COUNT] ?: true }
     val typewriterModeFlow: Flow<Boolean>    = store.data.map { it[TYPEWRITER_MODE] ?: false }
+    val restoreCursorOnOpenFlow: Flow<Boolean> = store.data.map { it[RESTORE_CURSOR_ON_OPEN] ?: false }
     val lineSpacingFlow: Flow<String>        = store.data.map { it[LINE_SPACING] ?: "comfortable" }
     val editorFontSizeFlow: Flow<Int>        = store.data.map { it[EDITOR_FONT_SIZE] ?: 16 }
     val manuscriptOrnamentIdFlow: Flow<String> = store.data.map { it[MANUSCRIPT_ORNAMENT_ID] ?: "classic_diamond" }
@@ -272,6 +274,7 @@ class ScribeDataStore(private val context: Context) {
     suspend fun setShowWordCount(v: Boolean) = store.edit { it[SHOW_WORD_COUNT] = v }
 
     suspend fun setTypewriterMode(v: Boolean) = store.edit { it[TYPEWRITER_MODE] = v }
+    suspend fun setRestoreCursorOnOpen(v: Boolean) = store.edit { it[RESTORE_CURSOR_ON_OPEN] = v }
 
     suspend fun setLineSpacing(v: String) = store.edit { it[LINE_SPACING] = v }
 

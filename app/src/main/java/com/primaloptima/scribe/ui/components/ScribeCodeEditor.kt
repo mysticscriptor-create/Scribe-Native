@@ -794,6 +794,22 @@ class ScribeCodeEditor @JvmOverloads constructor(
     private var isAwaitingLayoutReady: Boolean = false
     var onLayoutReadyListener: (() -> Unit)? = null
 
+    /**
+     * Executes the action once the editor's text and wordwrap layout are fully computed.
+     * If layout is already ready, dispatches on the UI looper immediately.
+     */
+    fun doOnLayoutReady(action: () -> Unit) {
+        if (!isAwaitingLayoutReady && isWordwrapReady()) {
+            post { action() }
+        } else {
+            val prev = onLayoutReadyListener
+            onLayoutReadyListener = {
+                prev?.invoke()
+                action()
+            }
+        }
+    }
+
     private val layoutBusyField = try {
         CodeEditor::class.java.getDeclaredField("layoutBusy").apply {
             isAccessible = true

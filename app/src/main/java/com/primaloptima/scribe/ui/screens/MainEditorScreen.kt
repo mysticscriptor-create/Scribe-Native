@@ -20,6 +20,17 @@ import com.primaloptima.scribe.ui.components.TypographyFontSection
 import com.primaloptima.scribe.ui.components.MyFontsSubSheet
 import com.primaloptima.scribe.ui.components.DownloadFontsSubSheet
 
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import com.primaloptima.scribe.util.model.DocumentCursorState
+import com.primaloptima.scribe.util.model.EditingTarget
+import io.github.rosemoe.sora.event.SelectionChangeEvent
+import com.primaloptima.scribe.util.AppJson
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import android.view.inputmethod.InputMethodManager
 import android.app.Activity
@@ -267,6 +278,10 @@ fun MainEditorScreen(
     val workbenchState     by editorVm.workbenchState.collectAsStateWithLifecycle()
     val companionTabBarBottom   by editorVm.companionTabBarBottom.collectAsStateWithLifecycle()
     val companionSplitHorizontal by editorVm.companionSplitHorizontal.collectAsStateWithLifecycle()
+    val restoreCursorOnOpen by editorVm.restoreCursorOnOpen.collectAsStateWithLifecycle()
+    val primaryFocusRequester = remember { FocusRequester() }
+    val secondaryFocusRequester = remember { FocusRequester() }
+    var lastActiveTarget by remember(activeNote?.id) { mutableStateOf(EditingTarget.NONE) }
 
     // ── Local UI state ────────────────────────────────────────────────────────
     var rightPanelTab   by remember { mutableIntStateOf(0) }
@@ -353,6 +368,16 @@ fun MainEditorScreen(
     }
 
     // Dual-title inline editing state & persistence
+    var primaryTitleValue by remember(activeNote?.id) {
+        val raw = activeNote?.name ?: ""
+        val p = raw.substringBefore('\n')
+        mutableStateOf(TextFieldValue(p, TextRange(p.length)))
+    }
+    var secondaryTitleValue by remember(activeNote?.id) {
+        val raw = activeNote?.name ?: ""
+        val s = if (raw.contains('\n')) raw.substringAfter('\n') else ""
+        mutableStateOf(TextFieldValue(s, TextRange(s.length)))
+    }
     var primaryTitleText by remember(activeNote?.id) {
         val raw = activeNote?.name ?: ""
         mutableStateOf(raw.substringBefore('\n'))
@@ -370,6 +395,12 @@ fun MainEditorScreen(
         val raw = activeNote?.name ?: ""
         val p = raw.substringBefore('\n')
         val s = if (raw.contains('\n')) raw.substringAfter('\n') else ""
+        if (primaryTitleValue.text != p) {
+            primaryTitleValue = TextFieldValue(p, TextRange(p.length))
+        }
+        if (secondaryTitleValue.text != s) {
+            secondaryTitleValue = TextFieldValue(s, TextRange(s.length))
+        }
         if (primaryTitleText != p) {
             primaryTitleText = p
         }
@@ -377,6 +408,34 @@ fun MainEditorScreen(
             secondaryTitleText = s
         }
         showSecondaryTitle = raw.contains('\n')
+    }
+
+    val captureCurrentCursorState: () -> DocumentCursorState = {
+        val editor = soraEditorRef
+        val canvas = unifiedCanvasRef
+        val cur = try { editor?.cursor } catch (_: Throwable) { null }
+        val isSel = cur?.isSelected == true
+        val startL = cur?.leftLine ?: 0
+        val startC = cur?.leftColumn ?: 0
+        val endL = if (isSel) (cur?.rightLine ?: startL) else startL
+        val endC = if (isSel) (cur?.rightColumn ?: startC) else startC
+        val cScrollD = canvas?.scrollD ?: 0
+        val cScrollY = editor?.offsetY ?: 0
+
+        DocumentCursorState(
+            target = lastActiveTarget,
+            bodyStartLine = startL,
+            bodyStartCol = startC,
+            bodyEndLine = endL,
+            bodyEndCol = endC,
+            scrollD = cScrollD,
+            scrollY = cScrollY,
+            primarySelStart = primaryTitleValue.selection.start,
+            primarySelEnd = primaryTitleValue.selection.end,
+            secondarySelStart = secondaryTitleValue.selection.start,
+            secondarySelEnd = secondaryTitleValue.selection.end,
+            timestamp = System.currentTimeMillis()
+        )
     }
 
     fun persistDualTitle(primary: String, secondary: String) {
@@ -472,7 +531,16 @@ fun MainEditorScreen(
             }
 
             loadedNoteId = note.id
-            unifiedCanvasRef?.resetScroll()
+            val savedCursor = if (restoreCursorOnOpen) {
+                note.cursorStateJson?.let {
+                    try { AppJson.decodeFromString<DocumentCursorState>(it) } catch (_: Throwable) { null }
+                }
+            } else null
+
+            if (savedCursor == null) {
+                unifiedCanvasRef?.resetScroll()
+                lastActiveTarget = EditingTarget.NONE
+            }
             floatingPillsVisible = true
 
             // 1. Compute Inlay Hints synchronously so paragraph indents & scene badges are
@@ -511,6 +579,106 @@ fun MainEditorScreen(
                 editor.notifyContentSet()
             } else {
                 editor.animate().alpha(1f).setDuration(180).start()
+            }
+
+            if (savedCursor != null) {
+                when (savedCursor.target) {
+                    EditingTarget.PRIMARY_TITLE -> {
+                        lastActiveTarget = EditingTarget.PRIMARY_TITLE
+                        unifiedCanvasRef?.setCanvasScrollD(0)
+                        val pLen = primaryTitleValue.text.length
+                        primaryTitleValue = primaryTitleValue.copy(
+                            selection = TextRange(
+                                savedCursor.primarySelStart.coerceIn(0, pLen),
+                                savedCursor.primarySelEnd.coerceIn(0, pLen)
+                            )
+                        )
+                        scope.launch {
+                            delay(120)
+                            try {
+                                primaryFocusRequester.requestFocus()
+                                keyboardController?.show()
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                    EditingTarget.SECONDARY_TITLE -> {
+                        lastActiveTarget = EditingTarget.SECONDARY_TITLE
+                        showSecondaryTitle = true
+                        unifiedCanvasRef?.setCanvasScrollD(0)
+                        val sLen = secondaryTitleValue.text.length
+                        secondaryTitleValue = secondaryTitleValue.copy(
+                            selection = TextRange(
+                                savedCursor.secondarySelStart.coerceIn(0, sLen),
+                                savedCursor.secondarySelEnd.coerceIn(0, sLen)
+                            )
+                        )
+                        scope.launch {
+                            delay(120)
+                            try {
+                                secondaryFocusRequester.requestFocus()
+                                keyboardController?.show()
+                            } catch (_: Throwable) {}
+                        }
+                    }
+                    EditingTarget.EDITOR_BODY -> {
+                        lastActiveTarget = EditingTarget.EDITOR_BODY
+                        (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.doOnLayoutReady {
+                            val lineCount = editor.text.lineCount.coerceAtLeast(1)
+                            val startL = savedCursor.bodyStartLine.coerceIn(0, lineCount - 1)
+                            val startCMax = editor.text.getColumnCount(startL)
+                            val startC = savedCursor.bodyStartCol.coerceIn(0, startCMax)
+
+                            val endL = savedCursor.bodyEndLine.coerceIn(0, lineCount - 1)
+                            val endCMax = editor.text.getColumnCount(endL)
+                            val endC = savedCursor.bodyEndCol.coerceIn(0, endCMax)
+
+                            if (startL == endL && startC == endC) {
+                                editor.setSelection(startL, startC, false)
+                            } else {
+                                editor.setSelectionRegion(startL, startC, endL, endC, false)
+                            }
+
+                            val canvas = unifiedCanvasRef
+                            if (canvas != null) {
+                                canvas.setCanvasScrollD(savedCursor.scrollD)
+                                if (savedCursor.scrollD >= canvas.headerHeight && savedCursor.scrollY > 0) {
+                                    try {
+                                        editor.scroller?.let { s ->
+                                            s.startScroll(editor.offsetX, savedCursor.scrollY, 0, 0, 0)
+                                            s.abortAnimation()
+                                        }
+                                    } catch (_: Throwable) {}
+                                }
+                            }
+                            editor.requestFocus()
+                            editor.ensurePositionVisible(startL, startC, true)
+                            keyboardController?.show()
+                        }
+                    }
+                    EditingTarget.NONE -> {
+                        lastActiveTarget = EditingTarget.NONE
+                        (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.doOnLayoutReady {
+                            val lineCount = editor.text.lineCount.coerceAtLeast(1)
+                            val startL = savedCursor.bodyStartLine.coerceIn(0, lineCount - 1)
+                            val maxC = editor.text.getColumnCount(startL)
+                            val startC = savedCursor.bodyStartCol.coerceIn(0, maxC)
+                            editor.setSelection(startL, startC, false)
+
+                            val canvas = unifiedCanvasRef
+                            if (canvas != null) {
+                                canvas.setCanvasScrollD(savedCursor.scrollD)
+                                if (savedCursor.scrollD >= canvas.headerHeight && savedCursor.scrollY > 0) {
+                                    try {
+                                        editor.scroller?.let { s ->
+                                            s.startScroll(editor.offsetX, savedCursor.scrollY, 0, 0, 0)
+                                            s.abortAnimation()
+                                        }
+                                    } catch (_: Throwable) {}
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             ProseDiagnosticProvider.attachEditor(editor)
@@ -567,8 +735,11 @@ fun MainEditorScreen(
     val soraEditorForDispose = soraEditorRef
     DisposableEffect(activeNote?.id) {
         onDispose {
-            activeNote?.let {
+            activeNote?.let { note ->
                 editorVm.saveVersionSnapshotOnLeave(soraEditorForDispose?.text?.toString() ?: "")
+                if (editorVm.restoreCursorOnOpen.value) {
+                    editorVm.saveCursorState(note.id, captureCurrentCursorState())
+                }
             }
         }
     }
@@ -821,8 +992,15 @@ fun MainEditorScreen(
                                             editorVm.onContentChanged(current)
                                         unifiedCanvasRef?.ensureCursorVisibleAboveKeyboard()
                                     }
-                                    setOnFocusChangeListener { _, _ ->
-                                        // Focus change intentionally does not scroll to stale cursor positions
+                                    setOnFocusChangeListener { _, hasFocus ->
+                                        if (hasFocus) {
+                                            lastActiveTarget = EditingTarget.EDITOR_BODY
+                                        }
+                                    }
+                                    subscribeEvent(SelectionChangeEvent::class.java) { _, _ ->
+                                        if (editor.isFocused) {
+                                            lastActiveTarget = EditingTarget.EDITOR_BODY
+                                        }
                                     }
                                     try {
                                         setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
@@ -1048,8 +1226,25 @@ fun MainEditorScreen(
                                             ?: activeTheme?.colors?.text?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() }
 
                                         ManuscriptHeader(
+                                            primaryTitleValue = primaryTitleValue,
+                                            secondaryTitleValue = secondaryTitleValue,
                                             primaryTitleText = primaryTitleText,
                                             secondaryTitleText = secondaryTitleText,
+                                            primaryFocusRequester = primaryFocusRequester,
+                                            secondaryFocusRequester = secondaryFocusRequester,
+                                            onTargetFocused = { target ->
+                                                lastActiveTarget = target
+                                            },
+                                            onPrimaryTitleValueChange = { newVal ->
+                                                primaryTitleValue = newVal
+                                                primaryTitleText = newVal.text
+                                                persistDualTitle(newVal.text, secondaryTitleText)
+                                            },
+                                            onSecondaryTitleValueChange = { newVal ->
+                                                secondaryTitleValue = newVal
+                                                secondaryTitleText = newVal.text
+                                                persistDualTitle(primaryTitleText, newVal.text)
+                                            },
                                             selectedOrnamentId = selectedOrnamentId,
                                             showSecondaryTitle = showSecondaryTitle,
                                             titleAlignment = activeTheme?.titleAlignment ?: "center",
@@ -1081,6 +1276,7 @@ fun MainEditorScreen(
                                                     ed.setSelection(0, 0)
                                                     unifiedCanvasRef?.resetScroll()
                                                     ed.requestFocus()
+                                                    lastActiveTarget = EditingTarget.EDITOR_BODY
                                                 }
                                             },
                                             onBackspaceEmptySecondary = {
@@ -1092,6 +1288,7 @@ fun MainEditorScreen(
                                                     ed.setSelection(0, 0)
                                                     unifiedCanvasRef?.resetScroll()
                                                     ed.requestFocus()
+                                                    lastActiveTarget = EditingTarget.EDITOR_BODY
                                                 }
                                             },
                                             isEditable = true
@@ -1480,6 +1677,11 @@ fun MainEditorScreen(
                 allNotes         = allNotes,
                 activeNoteId     = activeNote?.id,
                 onNoteClick      = { id ->
+                    activeNote?.let { note ->
+                        if (editorVm.restoreCursorOnOpen.value) {
+                            editorVm.saveCursorState(note.id, captureCurrentCursorState())
+                        }
+                    }
                     editorVm.loadNote(id)
                     onClose()
                 },
@@ -1516,7 +1718,14 @@ fun MainEditorScreen(
                 onReorderNote         = { paneId, from, to -> editorVm.reorderPinnedNote(paneId, from, to) },
                 onCreateNote          = { paneId, title, content -> editorVm.createNoteForPane(paneId, title, content, activeNote?.bookId ?: Note.DEFAULT_BOOK_ID) },
                 onSaveNoteContent     = { noteId, content -> editorVm.updateNoteContent(noteId, content) },
-                onLoadNote            = { id -> editorVm.loadNote(id) },
+                onLoadNote            = { id ->
+                    activeNote?.let { note ->
+                        if (editorVm.restoreCursorOnOpen.value) {
+                            editorVm.saveCursorState(note.id, captureCurrentCursorState())
+                        }
+                    }
+                    editorVm.loadNote(id)
+                },
                 onClose               = onClose,
                 barBlurBitmap         = barBlurBitmap,
                 hazeState             = hazeState,
@@ -1576,6 +1785,8 @@ fun MainEditorScreen(
                 onDismiss        = { activeSheetPage = null },
                 noteTitle        = activeNote?.name ?: "Untitled Note",
                 activeTheme      = activeTheme,
+                restoreCursorOnOpen = restoreCursorOnOpen,
+                onToggleRestoreCursor = { editorVm.setRestoreCursorOnOpen(it) },
                 onUpdateTheme    = { transform -> editorVm.updateActiveTheme(transform) },
                 onVisualIndentChange = { visualSpaces ->
                     (soraEditorRef as? ScribeCodeEditor)?.setVisualFirstLineIndent(visualSpaces)
@@ -1865,10 +2076,17 @@ fun FormatButton(
 
 @Composable
 fun ManuscriptHeader(
-    primaryTitleText: String,
-    secondaryTitleText: String,
+    primaryTitleValue: TextFieldValue? = null,
+    secondaryTitleValue: TextFieldValue? = null,
+    onPrimaryTitleValueChange: ((TextFieldValue) -> Unit)? = null,
+    onSecondaryTitleValueChange: ((TextFieldValue) -> Unit)? = null,
+    primaryFocusRequester: FocusRequester? = null,
+    secondaryFocusRequester: FocusRequester? = null,
+    onTargetFocused: ((EditingTarget) -> Unit)? = null,
+    primaryTitleText: String = primaryTitleValue?.text ?: "",
+    secondaryTitleText: String = secondaryTitleValue?.text ?: "",
     selectedOrnamentId: String = "classic_flourish",
-    showSecondaryTitle: Boolean = secondaryTitleText.isNotEmpty(),
+    showSecondaryTitle: Boolean = secondaryTitleText.isNotEmpty() || (secondaryTitleValue?.text?.isNotEmpty() == true),
     titleAlignment: String = "center",
     horizontalPadding: androidx.compose.ui.unit.Dp = 28.dp,
     primaryTitleColor: Color? = null,
@@ -1911,11 +2129,16 @@ fun ManuscriptHeader(
     val primaryColor = primaryTitleColor ?: MaterialTheme.colorScheme.primary
     val secondaryColor = secondaryTitleColor ?: MaterialTheme.colorScheme.onBackground
 
-    if (isEditable) {
-        val localPrimaryFocus = remember { FocusRequester() }
-        val localSecondaryFocus = remember { FocusRequester() }
-        var secondaryFocusTrigger by remember { mutableIntStateOf(0) }
+    val effPrimaryText = primaryTitleValue?.text ?: primaryTitleText
+    val effSecondaryText = secondaryTitleValue?.text ?: secondaryTitleText
 
+    if (isEditable) {
+        val internalPrimaryFocus = remember { FocusRequester() }
+        val internalSecondaryFocus = remember { FocusRequester() }
+        val effectivePrimaryFocus = primaryFocusRequester ?: internalPrimaryFocus
+        val effectiveSecondaryFocus = secondaryFocusRequester ?: internalSecondaryFocus
+
+        var secondaryFocusTrigger by remember { mutableIntStateOf(0) }
         val moveToSecondary: () -> Unit = {
             onMoveToSecondaryTitle?.invoke()
             secondaryFocusTrigger++
@@ -1928,119 +2151,54 @@ fun ManuscriptHeader(
                 .padding(start = horizontalPadding, top = 56.dp, end = horizontalPadding, bottom = 12.dp)
         ) {
             // Primary Title / Kicker (e.g., CHAPTER I)
-            BasicTextField(
-                value = primaryTitleText,
-                onValueChange = { input ->
-                    if (input.contains('\n')) {
-                        val sanitized = input.replace("\n", "").trimEnd()
-                        onPrimaryTitleChange?.invoke(sanitized)
-                        moveToSecondary()
-                    } else {
-                        onPrimaryTitleChange?.invoke(input)
-                    }
-                },
-                singleLine = false,
-                maxLines = 4,
-                textStyle = MaterialTheme.typography.titleMedium.copy(
-                    color = primaryColor,
-                    fontWeight = primaryTitleFontWeight,
-                    fontSize = primaryTitleFontSize,
-                    fontFamily = title1FontFamily ?: titleFontFamily,
-                    lineHeight = if (primaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) primaryTitleLineHeight else MaterialTheme.typography.titleMedium.lineHeight,
-                    textAlign = tAlign,
-                    letterSpacing = 2.5.sp
-                ),
-                cursorBrush = SolidColor(primaryColor),
-                keyboardOptions = KeyboardOptions(
-                    imeAction = ImeAction.Next,
-                    capitalization = KeyboardCapitalization.Sentences
-                ),
-                keyboardActions = KeyboardActions(
-                    onNext = { moveToSecondary() }
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(localPrimaryFocus)
-                    .onPreviewKeyEvent { event ->
-                        if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
-                            moveToSecondary()
-                            true
-                        } else false
-                    },
-                decorationBox = { innerTextField ->
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = boxContentAlign
-                    ) {
-                        if (primaryTitleText.isEmpty()) {
-                            Text(
-                                text = "CHAPTER / TITLE",
-                                style = MaterialTheme.typography.titleMedium.copy(
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                    fontWeight = primaryTitleFontWeight,
-                                    fontSize = primaryTitleFontSize,
-                                    fontFamily = title1FontFamily ?: titleFontFamily,
-                                    lineHeight = if (primaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) primaryTitleLineHeight else MaterialTheme.typography.titleMedium.lineHeight,
-                                    textAlign = tAlign,
-                                    letterSpacing = 2.5.sp
-                                )
-                            )
-                        }
-                        innerTextField()
-                    }
-                }
-            )
-
-            // Main Title (e.g., The Starlit Archive)
-            if (showSecondaryTitle || secondaryTitleText.isNotEmpty()) {
-                LaunchedEffect(secondaryFocusTrigger) {
-                    if (secondaryFocusTrigger > 0) {
-                        withFrameNanos { }
-                        try {
-                            localSecondaryFocus.requestFocus()
-                        } catch (_: Exception) { }
-                    }
-                }
-                Spacer(Modifier.height(6.dp))
+            if (primaryTitleValue != null) {
                 BasicTextField(
-                    value = secondaryTitleText,
+                    value = primaryTitleValue,
                     onValueChange = { input ->
-                        if (input.contains('\n')) {
-                            val sanitized = input.replace("\n", "").trimEnd()
-                            onSecondaryTitleChange?.invoke(sanitized)
-                            onEnterInSecondary?.invoke()
+                        if (input.text.contains('\n')) {
+                            val sanitizedText = input.text.replace("\n", "").trimEnd()
+                            val sanitized = input.copy(
+                                text = sanitizedText,
+                                selection = TextRange(sanitizedText.length.coerceAtMost(input.selection.start))
+                            )
+                            onPrimaryTitleValueChange?.invoke(sanitized)
+                            onPrimaryTitleChange?.invoke(sanitizedText)
+                            moveToSecondary()
                         } else {
-                            onSecondaryTitleChange?.invoke(input)
+                            onPrimaryTitleValueChange?.invoke(input)
+                            onPrimaryTitleChange?.invoke(input.text)
                         }
                     },
                     singleLine = false,
                     maxLines = 4,
-                    textStyle = MaterialTheme.typography.headlineMedium.copy(
-                        color = secondaryColor,
-                        fontWeight = secondaryTitleFontWeight,
-                        fontSize = secondaryTitleFontSize,
-                        fontFamily = title2FontFamily ?: titleFontFamily,
-                        lineHeight = if (secondaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) secondaryTitleLineHeight else MaterialTheme.typography.headlineMedium.lineHeight,
-                        textAlign = tAlign
+                    textStyle = MaterialTheme.typography.titleMedium.copy(
+                        color = primaryColor,
+                        fontWeight = primaryTitleFontWeight,
+                        fontSize = primaryTitleFontSize,
+                        fontFamily = title1FontFamily ?: titleFontFamily,
+                        lineHeight = if (primaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) primaryTitleLineHeight else MaterialTheme.typography.titleMedium.lineHeight,
+                        textAlign = tAlign,
+                        letterSpacing = 2.5.sp
                     ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    cursorBrush = SolidColor(primaryColor),
                     keyboardOptions = KeyboardOptions(
-                        imeAction = ImeAction.Done,
+                        imeAction = ImeAction.Next,
                         capitalization = KeyboardCapitalization.Sentences
                     ),
                     keyboardActions = KeyboardActions(
-                        onDone = { onDone?.invoke() }
+                        onNext = { moveToSecondary() }
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .focusRequester(localSecondaryFocus)
+                        .focusRequester(effectivePrimaryFocus)
+                        .onFocusChanged { state ->
+                            if (state.isFocused) {
+                                onTargetFocused?.invoke(EditingTarget.PRIMARY_TITLE)
+                            }
+                        }
                         .onPreviewKeyEvent { event ->
-                            if (event.key == Key.Backspace && secondaryTitleText.isEmpty() && event.type == KeyEventType.KeyUp) {
-                                onBackspaceEmptySecondary?.invoke()
-                                localPrimaryFocus.requestFocus()
-                                true
-                            } else if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
-                                onEnterInSecondary?.invoke()
+                            if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
+                                moveToSecondary()
                                 true
                             } else false
                         },
@@ -2049,16 +2207,85 @@ fun ManuscriptHeader(
                             modifier = Modifier.fillMaxWidth(),
                             contentAlignment = boxContentAlign
                         ) {
-                            if (secondaryTitleText.isEmpty()) {
+                            if (effPrimaryText.isEmpty()) {
                                 Text(
-                                    text = "Manuscript Title (Optional)",
-                                    style = MaterialTheme.typography.headlineMedium.copy(
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                                        fontWeight = secondaryTitleFontWeight,
-                                        fontSize = secondaryTitleFontSize,
-                                        fontFamily = title2FontFamily ?: titleFontFamily,
-                                        lineHeight = if (secondaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) secondaryTitleLineHeight else MaterialTheme.typography.headlineMedium.lineHeight,
-                                        textAlign = tAlign
+                                    text = "CHAPTER / TITLE",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                        fontWeight = primaryTitleFontWeight,
+                                        fontSize = primaryTitleFontSize,
+                                        fontFamily = title1FontFamily ?: titleFontFamily,
+                                        lineHeight = if (primaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) primaryTitleLineHeight else MaterialTheme.typography.titleMedium.lineHeight,
+                                        textAlign = tAlign,
+                                        letterSpacing = 2.5.sp
+                                    )
+                                )
+                            }
+                            innerTextField()
+                        }
+                    }
+                )
+            } else {
+                BasicTextField(
+                    value = effPrimaryText,
+                    onValueChange = { input ->
+                        if (input.contains('\n')) {
+                            val sanitized = input.replace("\n", "").trimEnd()
+                            onPrimaryTitleChange?.invoke(sanitized)
+                            moveToSecondary()
+                        } else {
+                            onPrimaryTitleChange?.invoke(input)
+                        }
+                    },
+                    singleLine = false,
+                    maxLines = 4,
+                    textStyle = MaterialTheme.typography.titleMedium.copy(
+                        color = primaryColor,
+                        fontWeight = primaryTitleFontWeight,
+                        fontSize = primaryTitleFontSize,
+                        fontFamily = title1FontFamily ?: titleFontFamily,
+                        lineHeight = if (primaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) primaryTitleLineHeight else MaterialTheme.typography.titleMedium.lineHeight,
+                        textAlign = tAlign,
+                        letterSpacing = 2.5.sp
+                    ),
+                    cursorBrush = SolidColor(primaryColor),
+                    keyboardOptions = KeyboardOptions(
+                        imeAction = ImeAction.Next,
+                        capitalization = KeyboardCapitalization.Sentences
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onNext = { moveToSecondary() }
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(effectivePrimaryFocus)
+                        .onFocusChanged { state ->
+                            if (state.isFocused) {
+                                onTargetFocused?.invoke(EditingTarget.PRIMARY_TITLE)
+                            }
+                        }
+                        .onPreviewKeyEvent { event ->
+                            if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
+                                moveToSecondary()
+                                true
+                            } else false
+                        },
+                    decorationBox = { innerTextField ->
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = boxContentAlign
+                        ) {
+                            if (effPrimaryText.isEmpty()) {
+                                Text(
+                                    text = "CHAPTER / TITLE",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                        fontWeight = primaryTitleFontWeight,
+                                        fontSize = primaryTitleFontSize,
+                                        fontFamily = title1FontFamily ?: titleFontFamily,
+                                        lineHeight = if (primaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) primaryTitleLineHeight else MaterialTheme.typography.titleMedium.lineHeight,
+                                        textAlign = tAlign,
+                                        letterSpacing = 2.5.sp
                                     )
                                 )
                             }
@@ -2068,11 +2295,172 @@ fun ManuscriptHeader(
                 )
             }
 
+            // Main Title (e.g., The Starlit Archive)
+            if (showSecondaryTitle || effSecondaryText.isNotEmpty()) {
+                LaunchedEffect(secondaryFocusTrigger) {
+                    if (secondaryFocusTrigger > 0) {
+                        withFrameNanos { }
+                        try {
+                            effectiveSecondaryFocus.requestFocus()
+                        } catch (_: Exception) { }
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                if (secondaryTitleValue != null) {
+                    BasicTextField(
+                        value = secondaryTitleValue,
+                        onValueChange = { input ->
+                            if (input.text.contains('\n')) {
+                                val sanitizedText = input.text.replace("\n", "").trimEnd()
+                                val sanitized = input.copy(
+                                    text = sanitizedText,
+                                    selection = TextRange(sanitizedText.length.coerceAtMost(input.selection.start))
+                                )
+                                onSecondaryTitleValueChange?.invoke(sanitized)
+                                onSecondaryTitleChange?.invoke(sanitizedText)
+                                onEnterInSecondary?.invoke()
+                            } else {
+                                onSecondaryTitleValueChange?.invoke(input)
+                                onSecondaryTitleChange?.invoke(input.text)
+                            }
+                        },
+                        singleLine = false,
+                        maxLines = 4,
+                        textStyle = MaterialTheme.typography.headlineMedium.copy(
+                            color = secondaryColor,
+                            fontWeight = secondaryTitleFontWeight,
+                            fontSize = secondaryTitleFontSize,
+                            fontFamily = title2FontFamily ?: titleFontFamily,
+                            lineHeight = if (secondaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) secondaryTitleLineHeight else MaterialTheme.typography.headlineMedium.lineHeight,
+                            textAlign = tAlign
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        keyboardOptions = KeyboardOptions(
+                            imeAction = ImeAction.Done,
+                            capitalization = KeyboardCapitalization.Sentences
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = { onDone?.invoke() }
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(effectiveSecondaryFocus)
+                            .onFocusChanged { state ->
+                                if (state.isFocused) {
+                                    onTargetFocused?.invoke(EditingTarget.SECONDARY_TITLE)
+                                }
+                            }
+                            .onPreviewKeyEvent { event ->
+                                if (event.key == Key.Backspace && effSecondaryText.isEmpty() && event.type == KeyEventType.KeyUp) {
+                                    onBackspaceEmptySecondary?.invoke()
+                                    effectivePrimaryFocus.requestFocus()
+                                    onTargetFocused?.invoke(EditingTarget.PRIMARY_TITLE)
+                                    true
+                                } else if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
+                                    onEnterInSecondary?.invoke()
+                                    true
+                                } else false
+                            },
+                        decorationBox = { innerTextField ->
+                            Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = boxContentAlign
+                            ) {
+                                if (effSecondaryText.isEmpty()) {
+                                    Text(
+                                        text = "Manuscript Title (Optional)",
+                                        style = MaterialTheme.typography.headlineMedium.copy(
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                                            fontWeight = secondaryTitleFontWeight,
+                                            fontSize = secondaryTitleFontSize,
+                                            fontFamily = title2FontFamily ?: titleFontFamily,
+                                            lineHeight = if (secondaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) secondaryTitleLineHeight else MaterialTheme.typography.headlineMedium.lineHeight,
+                                            textAlign = tAlign
+                                        )
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        }
+                    )
+                } else {
+                    BasicTextField(
+                        value = effSecondaryText,
+                        onValueChange = { input ->
+                            if (input.contains('\n')) {
+                                val sanitized = input.replace("\n", "").trimEnd()
+                                onSecondaryTitleChange?.invoke(sanitized)
+                                onEnterInSecondary?.invoke()
+                            } else {
+                                onSecondaryTitleChange?.invoke(input)
+                            }
+                        },
+                        singleLine = false,
+                        maxLines = 4,
+                        textStyle = MaterialTheme.typography.headlineMedium.copy(
+                            color = secondaryColor,
+                            fontWeight = secondaryTitleFontWeight,
+                            fontSize = secondaryTitleFontSize,
+                            fontFamily = title2FontFamily ?: titleFontFamily,
+                            lineHeight = if (secondaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) secondaryTitleLineHeight else MaterialTheme.typography.headlineMedium.lineHeight,
+                            textAlign = tAlign
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        keyboardOptions = KeyboardOptions(
+                            imeAction = ImeAction.Done,
+                            capitalization = KeyboardCapitalization.Sentences
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onDone = { onDone?.invoke() }
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(effectiveSecondaryFocus)
+                            .onFocusChanged { state ->
+                                if (state.isFocused) {
+                                    onTargetFocused?.invoke(EditingTarget.SECONDARY_TITLE)
+                                }
+                            }
+                            .onPreviewKeyEvent { event ->
+                                if (event.key == Key.Backspace && effSecondaryText.isEmpty() && event.type == KeyEventType.KeyUp) {
+                                    onBackspaceEmptySecondary?.invoke()
+                                    effectivePrimaryFocus.requestFocus()
+                                    onTargetFocused?.invoke(EditingTarget.PRIMARY_TITLE)
+                                    true
+                                } else if (event.key == Key.Enter && event.type == KeyEventType.KeyDown) {
+                                    onEnterInSecondary?.invoke()
+                                    true
+                                } else false
+                            },
+                        decorationBox = { innerTextField ->
+                            Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = boxContentAlign
+                            ) {
+                                if (effSecondaryText.isEmpty()) {
+                                    Text(
+                                        text = "Manuscript Title (Optional)",
+                                        style = MaterialTheme.typography.headlineMedium.copy(
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                                            fontWeight = secondaryTitleFontWeight,
+                                            fontSize = secondaryTitleFontSize,
+                                            fontFamily = title2FontFamily ?: titleFontFamily,
+                                            lineHeight = if (secondaryTitleLineHeight != androidx.compose.ui.unit.TextUnit.Unspecified) secondaryTitleLineHeight else MaterialTheme.typography.headlineMedium.lineHeight,
+                                            textAlign = tAlign
+                                        )
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        }
+                    )
+                }
+            }
+
             // Extensible Vector Manuscript Ornament Divider
             val currentOrnament = remember(selectedOrnamentId) {
                 OrnamentRegistry.getById(selectedOrnamentId)
             }
-
             Spacer(Modifier.height(10.dp))
             Box(
                 modifier = Modifier
@@ -2100,9 +2488,9 @@ fun ManuscriptHeader(
                 .fillMaxWidth()
                 .padding(start = horizontalPadding, top = 24.dp, end = horizontalPadding, bottom = 8.dp)
         ) {
-            if (primaryTitleText.isNotEmpty()) {
+            if (effPrimaryText.isNotEmpty()) {
                 Text(
-                    text = primaryTitleText,
+                    text = effPrimaryText,
                     style = MaterialTheme.typography.titleMedium.copy(
                         color = primaryColor,
                         fontWeight = primaryTitleFontWeight,
@@ -2116,11 +2504,10 @@ fun ManuscriptHeader(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-
-            if (secondaryTitleText.isNotEmpty()) {
+            if (effSecondaryText.isNotEmpty()) {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = secondaryTitleText,
+                    text = effSecondaryText,
                     style = MaterialTheme.typography.headlineMedium.copy(
                         color = secondaryColor,
                         fontWeight = secondaryTitleFontWeight,
@@ -2133,7 +2520,6 @@ fun ManuscriptHeader(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-
             val currentOrnament = remember(selectedOrnamentId) {
                 OrnamentRegistry.getById(selectedOrnamentId)
             }

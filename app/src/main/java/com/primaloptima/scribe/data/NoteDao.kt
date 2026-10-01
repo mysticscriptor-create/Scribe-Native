@@ -68,6 +68,12 @@ interface NoteDao {
     @Query("SELECT id, content FROM notes")
     suspend fun getAllIdAndContent(): List<NoteIdContent>
 
+    @Query("UPDATE notes SET cursor_state_json = :cursorJson WHERE id = :id")
+    suspend fun updateCursorState(id: String, cursorJson: String?)
+
+    @Query("SELECT cursor_state_json FROM notes WHERE id = :id")
+    suspend fun getCursorState(id: String): String?
+
     @Query("UPDATE notes SET name = :name, updated_at = :updatedAt WHERE id = :id")
     suspend fun updateName(id: String, name: String, updatedAt: Long)
 
