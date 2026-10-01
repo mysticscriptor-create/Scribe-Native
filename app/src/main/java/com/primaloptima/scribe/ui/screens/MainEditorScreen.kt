@@ -231,16 +231,6 @@ fun MainEditorScreen(
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    BackHandler {
-        activeNote?.let { note ->
-            if (editorVm.restoreCursorOnOpen.value) {
-                val state = captureCurrentCursorState()
-                editorVm.saveCursorState(note.id, state)
-            }
-        }
-        onBack()
-    }
-
     // ── Adaptive Window Size Class ────────────────────────────────────────────
     val adaptiveInfo = currentWindowAdaptiveInfo()
     val isCompact = adaptiveInfo.windowSizeClass.windowWidthSizeClass == WindowWidthSizeClass.COMPACT
@@ -494,6 +484,16 @@ fun MainEditorScreen(
             secondarySelEnd = secondaryTitleValue.selection.end,
             timestamp = System.currentTimeMillis()
         )
+    }
+
+    BackHandler {
+        activeNote?.let { note ->
+            if (editorVm.restoreCursorOnOpen.value) {
+                val state = captureCurrentCursorState()
+                editorVm.saveCursorState(note.id, state)
+            }
+        }
+        onBack()
     }
 
     // Debounce save cursor state to DB whenever latestCursorState changes
@@ -985,7 +985,6 @@ fun MainEditorScreen(
                                     if (scrollD <= 5 && editor.offsetY <= 10) {
                                         floatingPillsVisible = true
                                     }
-                                    latestCursorState = captureCurrentCursorState()
                                 }
                                 headerView.setViewCompositionStrategy(
                                     ViewCompositionStrategy.DisposeOnDetachedFromWindowOrReleasedFromPool

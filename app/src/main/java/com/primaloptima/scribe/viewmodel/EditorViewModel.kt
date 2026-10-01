@@ -645,20 +645,7 @@ class EditorViewModel(
         return null
     }
 
-    fun getCursorStateForNote(noteId: String): DocumentCursorState? {
-        inMemoryCursorStates[noteId]?.let { return it }
-        val cur = _activeNote.value
-        val json = if (cur?.id == noteId) cur.cursorStateJson else null
-        if (json != null) {
-            return try { AppJson.decodeFromString<DocumentCursorState>(json) } catch (_: Throwable) { null }
-        }
-        return null
-    }
 
-    fun getActiveCursorState(): DocumentCursorState? {
-        val id = _activeNote.value?.id ?: return null
-        return getCursorStateForNote(id)
-    }
 
     // ── Init ──────────────────────────────────────────────────────────────────
 
