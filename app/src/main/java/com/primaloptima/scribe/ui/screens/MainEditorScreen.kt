@@ -218,6 +218,7 @@ fun MainEditorScreen(
     noteListVm: NoteListViewModel,
     shortcutsVm: ShortcutsViewModel,
     initialNoteId: String?,
+    isScreenActive: Boolean = true,
     onBack: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenShortcuts: () -> Unit,
@@ -292,6 +293,7 @@ fun MainEditorScreen(
     var showRenameDialog     by remember { mutableStateOf(false) }
     var showCreateNoteDialog by remember { mutableStateOf(false) }
     var activeSheetPage      by rememberSaveable { mutableStateOf<EditorSheetPage?>(null) }
+    var wasSheetOpen         by remember { mutableStateOf(false) }
 
     val dataStore = remember { (context.applicationContext as? ScribeApp)?.dataStore ?: ScribeDataStore(context) }
     val selectedOrnamentId by dataStore.manuscriptOrnamentIdFlow.collectAsStateWithLifecycle("classic_diamond")
@@ -315,21 +317,36 @@ fun MainEditorScreen(
     var lastLoadedNoteId by remember { mutableStateOf<String?>(null) }
     var latestCursorState by remember(activeNote?.id) { mutableStateOf<DocumentCursorState?>(null) }
 
+    val captureSessionScrollBeforeNavigate: () -> Unit = {
+        val noteId = activeNote?.id ?: ""
+        if (noteId.isNotEmpty() && restoreCursorOnOpen) {
+            val canvas = unifiedCanvasRef
+            val editor = soraEditorRef
+            if (canvas != null && editor != null) {
+                editorVm.captureSessionScroll(noteId, canvas.scrollD, editor.offsetY)
+            }
+        }
+    }
+
     val restoreSessionScroll: () -> Unit = {
-        if (restoreCursorOnOpen && editorVm.hasSessionScroll()) {
-            val offset = editorVm.consumeSessionScroll()
-            if (offset != null) {
+        val noteId = activeNote?.id ?: ""
+        if (noteId.isNotEmpty() && restoreCursorOnOpen) {
+            val sessionScroll = editorVm.consumeSessionScroll(noteId)
+            if (sessionScroll != null) {
                 val canvas = unifiedCanvasRef
                 val editor = soraEditorRef
                 if (canvas != null && editor != null) {
                     (editor as? ScribeCodeEditor)?.doOnLayoutReady {
-                        val clampedD = offset.first.coerceIn(0, canvas.headerHeight)
+                        val clampedD = sessionScroll.scrollD.coerceIn(0, canvas.headerHeight)
                         val maxY = editor.scrollMaxY.coerceAtLeast(0)
-                        val clampedY = offset.second.coerceIn(0, maxY)
+                        val clampedY = sessionScroll.scrollY.coerceIn(0, maxY)
+                        // Context B: Restore exact saved scroll offset mid-session
                         canvas.restoreCanvasAndEditorScroll(clampedD, clampedY)
 
-                        // If clamped (document length changed), ensure cursor line is visible
-                        if (offset.second > maxY) {
+                        // Shared Rule: Cursor does not drive scroll in Context B.
+                        // Only if document length shrank and saved offset is now out of bounds,
+                        // ensure cursor line is visible.
+                        if (sessionScroll.scrollY > maxY && editor.isWordwrapReady()) {
                             val cur = try { editor.cursor } catch (_: Throwable) { null }
                             if (cur != null) {
                                 val line = cur.leftLine.coerceIn(0, (editor.text.lineCount - 1).coerceAtLeast(0))
@@ -343,19 +360,14 @@ fun MainEditorScreen(
         }
     }
 
-    val captureSessionScrollBeforeNavigate: () -> Unit = {
-        if (restoreCursorOnOpen) {
-            val canvas = unifiedCanvasRef
-            val editor = soraEditorRef
-            if (canvas != null && editor != null) {
-                editorVm.captureSessionScroll(canvas.scrollD, editor.offsetY)
-            }
-        }
-    }
-
-    // Dismiss keyboard immediately whenever the editor sheet opens and capture session scroll
+    // Capture scroll the moment bottom sheet opens; restore if dismissed mid-session without navigation
     LaunchedEffect(activeSheetPage) {
+        val noteId = activeNote?.id ?: ""
         if (activeSheetPage != null) {
+            wasSheetOpen = true
+            if (!editorVm.hasSessionScroll(noteId)) {
+                captureSessionScrollBeforeNavigate()
+            }
             keyboardController?.hide()
             focusManager.clearFocus()
             try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
@@ -363,9 +375,23 @@ fun MainEditorScreen(
             val windowToken = (context as? Activity)?.window?.decorView?.windowToken
                 ?: soraEditorRef?.windowToken
             windowToken?.let { imm?.hideSoftInputFromWindow(it, 0) }
+        } else if (wasSheetOpen) {
+            wasSheetOpen = false
+            // Bottom sheet dismissed mid-session without navigating away:
+            // restore Context B saved scroll offset
+            if (restoreCursorOnOpen && editorVm.hasSessionScroll(noteId)) {
+                restoreSessionScroll()
+            }
+        }
+    }
 
-            // Context B: The moment the bottom sheet opens, capture and store current scroll offset in memory
-            captureSessionScrollBeforeNavigate()
+    // Context B: Triggered when returning from auxiliary screen backstack entries
+    LaunchedEffect(isScreenActive) {
+        if (isScreenActive) {
+            val noteId = activeNote?.id ?: ""
+            if (restoreCursorOnOpen && editorVm.hasSessionScroll(noteId)) {
+                restoreSessionScroll()
+            }
         }
     }
 
@@ -480,14 +506,19 @@ fun MainEditorScreen(
         )
     }
 
-    BackHandler {
-        editorVm.consumeSessionScroll()
+    val saveCurrentCursorStateToDb: () -> Unit = {
         activeNote?.let { note ->
             if (editorVm.restoreCursorOnOpen.value) {
                 val state = captureCurrentCursorState()
+                latestCursorState = state
                 editorVm.saveCursorState(note.id, state)
             }
         }
+    }
+
+    BackHandler {
+        editorVm.clearSessionScroll()
+        saveCurrentCursorStateToDb()
         onBack()
     }
 
@@ -507,13 +538,7 @@ fun MainEditorScreen(
                 // Context B: When returning to editor from auxiliary screens (Settings, Shortcuts, Themes, etc.)
                 restoreSessionScroll()
             } else if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE || event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
-                activeNote?.let { note ->
-                    if (editorVm.restoreCursorOnOpen.value) {
-                        val state = captureCurrentCursorState()
-                        latestCursorState = state
-                        editorVm.saveCursorState(note.id, state)
-                    }
-                }
+                saveCurrentCursorStateToDb()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
