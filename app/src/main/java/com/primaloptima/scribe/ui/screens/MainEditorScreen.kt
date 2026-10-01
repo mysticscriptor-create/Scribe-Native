@@ -22,8 +22,6 @@ import com.primaloptima.scribe.ui.components.DownloadFontsSubSheet
 
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import com.primaloptima.scribe.util.model.DocumentCursorState
 import com.primaloptima.scribe.util.model.EditingTarget
