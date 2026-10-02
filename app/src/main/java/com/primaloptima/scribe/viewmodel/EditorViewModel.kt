@@ -597,35 +597,39 @@ class EditorViewModel(
         }
     }
 
-    // Context B (in-memory, per session scroll offset captured when bottom sheet opens)
+    // Context B (in-memory, per session scroll offset captured across the entire editing session)
     data class SessionScroll(val noteId: String, val scrollD: Int, val scrollY: Int)
 
-    private var sessionScrollOffset: SessionScroll? = null
+    private val sessionScrollMap = java.util.concurrent.ConcurrentHashMap<String, SessionScroll>()
+
+    fun saveSessionScroll(noteId: String, scrollD: Int, scrollY: Int) {
+        if (noteId.isNotEmpty()) {
+            sessionScrollMap[noteId] = SessionScroll(noteId, scrollD, scrollY)
+        }
+    }
 
     fun captureSessionScroll(noteId: String, scrollD: Int, scrollY: Int) {
-        sessionScrollOffset = SessionScroll(noteId, scrollD, scrollY)
+        saveSessionScroll(noteId, scrollD, scrollY)
     }
 
     fun hasSessionScroll(noteId: String): Boolean {
-        return sessionScrollOffset != null && sessionScrollOffset?.noteId == noteId
+        return sessionScrollMap.containsKey(noteId)
     }
 
     fun getSessionScroll(noteId: String): SessionScroll? {
-        val s = sessionScrollOffset
-        return if (s?.noteId == noteId) s else null
+        return sessionScrollMap[noteId]
     }
 
     fun consumeSessionScroll(noteId: String): SessionScroll? {
-        val s = sessionScrollOffset
-        if (s != null && s.noteId == noteId) {
-            sessionScrollOffset = null
-            return s
-        }
-        return null
+        return sessionScrollMap[noteId]
     }
 
-    fun clearSessionScroll() {
-        sessionScrollOffset = null
+    fun clearSessionScroll(noteId: String? = null) {
+        if (noteId != null) {
+            sessionScrollMap.remove(noteId)
+        } else {
+            sessionScrollMap.clear()
+        }
     }
 
     private val inMemoryCursorStates = java.util.concurrent.ConcurrentHashMap<String, DocumentCursorState>()
@@ -775,7 +779,7 @@ class EditorViewModel(
 
     fun loadNote(noteId: String, preloadedNote: Note? = null) {
         if (_activeNote.value?.id != noteId) {
-            sessionScrollOffset = null
+            sessionScrollMap.remove(noteId)
         }
         if (preloadedNote != null && preloadedNote.id == noteId) {
             preloadNote(preloadedNote)
@@ -808,7 +812,7 @@ class EditorViewModel(
     }
 
     fun clearActiveNote() {
-        sessionScrollOffset = null
+        _activeNote.value?.id?.let { sessionScrollMap.remove(it) }
         loadNoteJob?.cancel()
         loadNoteJob = null
         autosaveJob?.cancel()

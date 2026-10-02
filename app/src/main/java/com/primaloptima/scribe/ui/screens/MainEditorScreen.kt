@@ -319,19 +319,19 @@ fun MainEditorScreen(
 
     val captureSessionScrollBeforeNavigate: () -> Unit = {
         val noteId = activeNote?.id ?: ""
-        if (noteId.isNotEmpty() && restoreCursorOnOpen) {
+        if (noteId.isNotEmpty()) {
             val canvas = unifiedCanvasRef
             val editor = soraEditorRef
             if (canvas != null && editor != null) {
-                editorVm.captureSessionScroll(noteId, canvas.scrollD, editor.offsetY)
+                editorVm.saveSessionScroll(noteId, canvas.scrollD, editor.offsetY)
             }
         }
     }
 
     val restoreSessionScroll: () -> Unit = {
         val noteId = activeNote?.id ?: ""
-        if (noteId.isNotEmpty() && restoreCursorOnOpen) {
-            val sessionScroll = editorVm.consumeSessionScroll(noteId)
+        if (noteId.isNotEmpty()) {
+            val sessionScroll = editorVm.getSessionScroll(noteId)
             if (sessionScroll != null) {
                 val canvas = unifiedCanvasRef
                 val editor = soraEditorRef
@@ -360,14 +360,12 @@ fun MainEditorScreen(
         }
     }
 
-    // Capture scroll the moment bottom sheet opens; restore if dismissed mid-session without navigation
+    // Context B: Capture scroll the moment bottom sheet opens; restore if dismissed mid-session
     LaunchedEffect(activeSheetPage) {
         val noteId = activeNote?.id ?: ""
         if (activeSheetPage != null) {
             wasSheetOpen = true
-            if (!editorVm.hasSessionScroll(noteId)) {
-                captureSessionScrollBeforeNavigate()
-            }
+            captureSessionScrollBeforeNavigate()
             keyboardController?.hide()
             focusManager.clearFocus()
             try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
@@ -379,7 +377,7 @@ fun MainEditorScreen(
             wasSheetOpen = false
             // Bottom sheet dismissed mid-session without navigating away:
             // restore Context B saved scroll offset
-            if (restoreCursorOnOpen && editorVm.hasSessionScroll(noteId)) {
+            if (editorVm.hasSessionScroll(noteId)) {
                 restoreSessionScroll()
             }
         }
@@ -389,7 +387,7 @@ fun MainEditorScreen(
     LaunchedEffect(isScreenActive) {
         if (isScreenActive) {
             val noteId = activeNote?.id ?: ""
-            if (restoreCursorOnOpen && editorVm.hasSessionScroll(noteId)) {
+            if (editorVm.hasSessionScroll(noteId)) {
                 restoreSessionScroll()
             }
         }
@@ -517,7 +515,7 @@ fun MainEditorScreen(
     }
 
     BackHandler {
-        editorVm.clearSessionScroll()
+        activeNote?.id?.let { editorVm.clearSessionScroll(it) }
         saveCurrentCursorStateToDb()
         onBack()
     }
@@ -538,6 +536,7 @@ fun MainEditorScreen(
                 // Context B: When returning to editor from auxiliary screens (Settings, Shortcuts, Themes, etc.)
                 restoreSessionScroll()
             } else if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE || event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                captureSessionScrollBeforeNavigate()
                 saveCurrentCursorStateToDb()
             }
         }
@@ -693,9 +692,50 @@ fun MainEditorScreen(
 
             // Wait until layout & wordwrap calculation are fully ready on the loaded text!
             (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.doOnLayoutReady {
-                if (isRestoreEnabled && editorVm.hasSessionScroll(note.id)) {
-                    // Context B: return from bottom sheet navigation
+                if (editorVm.hasSessionScroll(note.id)) {
+                    // CONTEXT B (Mid-Session: ALWAYS ACTIVE by default, independent of restoreCursorOnOpen setting):
                     restoreSessionScroll()
+                    // Restore cursor position silently without driving scroll to cursor line
+                    if (savedCursor != null) {
+                        when (savedCursor.target) {
+                            EditingTarget.PRIMARY_TITLE -> {
+                                lastActiveTarget = EditingTarget.PRIMARY_TITLE
+                                val pLen = primaryTitleValue.text.length
+                                val start = savedCursor.primarySelStart.coerceIn(0, pLen)
+                                val end = savedCursor.primarySelEnd.coerceIn(0, pLen)
+                                primaryTitleValue = primaryTitleValue.copy(
+                                    selection = if (start == end) TextRange(start) else TextRange(start, end)
+                                )
+                            }
+                            EditingTarget.SECONDARY_TITLE -> {
+                                lastActiveTarget = EditingTarget.SECONDARY_TITLE
+                                showSecondaryTitle = true
+                                val sLen = secondaryTitleValue.text.length
+                                val start = savedCursor.secondarySelStart.coerceIn(0, sLen)
+                                val end = savedCursor.secondarySelEnd.coerceIn(0, sLen)
+                                secondaryTitleValue = secondaryTitleValue.copy(
+                                    selection = if (start == end) TextRange(start) else TextRange(start, end)
+                                )
+                            }
+                            EditingTarget.EDITOR_BODY, EditingTarget.NONE -> {
+                                lastActiveTarget = savedCursor.target
+                                val lineCount = editor.text.lineCount.coerceAtLeast(1)
+                                val startL = savedCursor.bodyStartLine.coerceIn(0, lineCount - 1)
+                                val startCMax = editor.text.getColumnCount(startL)
+                                val startC = savedCursor.bodyStartCol.coerceIn(0, startCMax)
+                                val isRegion = (savedCursor.bodyStartLine != savedCursor.bodyEndLine || savedCursor.bodyStartCol != savedCursor.bodyEndCol)
+                                if (isRegion) {
+                                    val endL = savedCursor.bodyEndLine.coerceIn(0, lineCount - 1)
+                                    val endCMax = editor.text.getColumnCount(endL)
+                                    val endC = savedCursor.bodyEndCol.coerceIn(0, endCMax)
+                                    editor.setSelectionRegion(startL, startC, endL, endC, false)
+                                } else {
+                                    editor.setSelection(startL, startC, false)
+                                }
+                                // Context B Invariant: NEVER call editor.ensurePositionVisible!
+                            }
+                        }
+                    }
                 } else if (isRestoreEnabled && savedCursor != null) {
                     when (savedCursor.target) {
                         EditingTarget.PRIMARY_TITLE -> {
@@ -1000,6 +1040,11 @@ fun MainEditorScreen(
                                 onUnifiedScrollChanged = { scrollD, _ ->
                                     if (scrollD <= 5 && editor.offsetY <= 10) {
                                         floatingPillsVisible = true
+                                    }
+                                    activeNote?.id?.let { id ->
+                                        if (id.isNotEmpty()) {
+                                            editorVm.saveSessionScroll(id, scrollD, editor.offsetY)
+                                        }
                                     }
                                 }
                                 headerView.setViewCompositionStrategy(
@@ -1383,6 +1428,7 @@ fun MainEditorScreen(
 
                         },
                         onRelease = { layout ->
+                            captureSessionScrollBeforeNavigate()
                             saveCurrentCursorStateToDb()
                             soraEditorRef = null
                             unifiedCanvasRef = null
@@ -1890,27 +1936,32 @@ fun MainEditorScreen(
                     activeNote?.let { ExportHelper.shareNote(context, it, fmt) }
                 },
                 onVersionHistory = {
+                    captureSessionScrollBeforeNavigate()
                     wasSheetOpen = false
                     activeSheetPage = null
                     editorVm.flushContent(soraEditorRef?.text?.toString() ?: "")
                     onOpenHistory()
                 },
                 onShortcuts      = {
+                    captureSessionScrollBeforeNavigate()
                     wasSheetOpen = false
                     activeSheetPage = null
                     onOpenShortcuts()
                 },
                 onGuide          = {
+                    captureSessionScrollBeforeNavigate()
                     wasSheetOpen = false
                     activeSheetPage = null
                     onOpenGuide()
                 },
                 onOpenThemes     = {
+                    captureSessionScrollBeforeNavigate()
                     wasSheetOpen = false
                     activeSheetPage = null
                     onOpenThemes()
                 },
                 onSettings       = {
+                    captureSessionScrollBeforeNavigate()
                     wasSheetOpen = false
                     activeSheetPage = null
                     onOpenSettings()
