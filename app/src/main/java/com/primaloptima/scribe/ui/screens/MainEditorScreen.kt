@@ -316,14 +316,17 @@ fun MainEditorScreen(
     var lastLoadedEditorInstance by remember { mutableStateOf<com.primaloptima.scribe.ui.components.ScribeCodeEditor?>(null) }
     var lastLoadedNoteId by remember { mutableStateOf<String?>(null) }
     var latestCursorState by remember(activeNote?.id) { mutableStateOf<DocumentCursorState?>(null) }
+    var isExitingNote by rememberSaveable { mutableStateOf(false) }
 
     val captureSessionScrollBeforeNavigate: () -> Unit = {
-        val noteId = activeNote?.id ?: ""
-        if (noteId.isNotEmpty()) {
-            val canvas = unifiedCanvasRef
-            val editor = soraEditorRef
-            if (canvas != null && editor != null) {
-                editorVm.saveSessionScroll(noteId, canvas.scrollD, editor.offsetY)
+        if (!isExitingNote) {
+            val noteId = activeNote?.id ?: ""
+            if (noteId.isNotEmpty()) {
+                val canvas = unifiedCanvasRef
+                val editor = soraEditorRef
+                if (canvas != null && editor != null) {
+                    editorVm.saveSessionScroll(noteId, canvas.scrollD, editor.offsetY)
+                }
             }
         }
     }
@@ -515,8 +518,9 @@ fun MainEditorScreen(
     }
 
     BackHandler {
-        activeNote?.id?.let { editorVm.clearSessionScroll(it) }
+        isExitingNote = true
         saveCurrentCursorStateToDb()
+        activeNote?.id?.let { editorVm.clearSessionScroll(it) }
         onBack()
     }
 
@@ -534,10 +538,14 @@ fun MainEditorScreen(
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 // Context B: When returning to editor from auxiliary screens (Settings, Shortcuts, Themes, etc.)
-                restoreSessionScroll()
+                if (!isExitingNote) {
+                    restoreSessionScroll()
+                }
             } else if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE || event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
-                captureSessionScrollBeforeNavigate()
-                saveCurrentCursorStateToDb()
+                if (!isExitingNote) {
+                    captureSessionScrollBeforeNavigate()
+                    saveCurrentCursorStateToDb()
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -789,7 +797,10 @@ fun MainEditorScreen(
                             }
 
                             // Context A: scroll viewport silently to cursor line so cursor is visible
-                            editor.ensurePositionVisible(startL, startC, true)
+                            // Context A: scroll viewport silently to cursor line once laid out
+                            editor.post {
+                                editor.ensurePositionVisible(startL, startC, true)
+                            }
                             // Silent: Do NOT call editor.requestFocus() or keyboardController?.show()
                         }
                     }
@@ -859,8 +870,8 @@ fun MainEditorScreen(
         onDispose {
             activeNote?.let { note ->
                 editorVm.saveVersionSnapshotOnLeave(soraEditorForDispose?.text?.toString() ?: "")
-                if (editorVm.restoreCursorOnOpen.value) {
-                    val state = latestCursorState ?: captureCurrentCursorState()
+                if (!isExitingNote && editorVm.restoreCursorOnOpen.value) {
+                    val state = captureCurrentCursorState()
                     editorVm.saveCursorState(note.id, state)
                 }
             }
@@ -1041,9 +1052,11 @@ fun MainEditorScreen(
                                     if (scrollD <= 5 && editor.offsetY <= 10) {
                                         floatingPillsVisible = true
                                     }
-                                    activeNote?.id?.let { id ->
-                                        if (id.isNotEmpty()) {
-                                            editorVm.saveSessionScroll(id, scrollD, editor.offsetY)
+                                    if (!isExitingNote) {
+                                        activeNote?.id?.let { id ->
+                                            if (id.isNotEmpty()) {
+                                                editorVm.saveSessionScroll(id, scrollD, editor.offsetY)
+                                            }
                                         }
                                     }
                                 }
@@ -1428,8 +1441,10 @@ fun MainEditorScreen(
 
                         },
                         onRelease = { layout ->
-                            captureSessionScrollBeforeNavigate()
-                            saveCurrentCursorStateToDb()
+                            if (!isExitingNote) {
+                                captureSessionScrollBeforeNavigate()
+                                saveCurrentCursorStateToDb()
+                            }
                             soraEditorRef = null
                             unifiedCanvasRef = null
                             ProseDiagnosticProvider.attachEditor(null)

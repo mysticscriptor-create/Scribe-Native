@@ -318,7 +318,10 @@ class ScribeActivity : ComponentActivity() {
                             shortcutsVm     = shortcutsVm,
                             initialNoteId   = key.noteId,
                             isScreenActive  = (backStack.lastOrNull() is Route.Editor),
-                            onBack          = { backStack.removeLastOrNull() },
+                            onBack          = {
+                                editorVm.clearActiveNote()
+                                backStack.removeLastOrNull()
+                            },
                             onOpenHistory   = {
                                 // Flush pending autosave before navigating so no
                                 // keystrokes in the 500ms debounce window are lost.

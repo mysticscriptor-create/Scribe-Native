@@ -780,6 +780,7 @@ class EditorViewModel(
     fun loadNote(noteId: String, preloadedNote: Note? = null) {
         if (_activeNote.value?.id != noteId) {
             sessionScrollMap.remove(noteId)
+            inMemoryCursorStates.remove(noteId)
         }
         if (preloadedNote != null && preloadedNote.id == noteId) {
             preloadNote(preloadedNote)
@@ -812,7 +813,10 @@ class EditorViewModel(
     }
 
     fun clearActiveNote() {
-        _activeNote.value?.id?.let { sessionScrollMap.remove(it) }
+        _activeNote.value?.id?.let {
+            sessionScrollMap.remove(it)
+            inMemoryCursorStates.remove(it)
+        }
         loadNoteJob?.cancel()
         loadNoteJob = null
         autosaveJob?.cancel()

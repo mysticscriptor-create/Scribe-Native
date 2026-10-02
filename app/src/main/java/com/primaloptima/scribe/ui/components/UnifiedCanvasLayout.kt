@@ -233,17 +233,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         scrollD = clampedD
         scrollDFloat = clampedD.toFloat()
         applyTranslations()
-        onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
         if (targetScrollY >= 0) {
             try {
-                val scroller = editor.scroller
-                if (scroller != null) {
-                    val maxY = editor.scrollMaxY.coerceAtLeast(0)
-                    val clampedY = targetScrollY.coerceIn(0, maxY)
-                    scroller.startScroll(editor.offsetX, editor.offsetY, 0, clampedY - editor.offsetY, 0)
-                    scroller.abortAnimation()
-                    editor.invalidate()
-                }
+                editor.scroller?.forceFinished(true)
+                val maxY = editor.scrollMaxY.coerceAtLeast(0)
+                val clampedY = targetScrollY.coerceIn(0, maxY)
+                editor.scrollTo(editor.offsetX, clampedY)
+                editor.invalidate()
             } catch (_: Throwable) {}
         }
         applyTranslations()
