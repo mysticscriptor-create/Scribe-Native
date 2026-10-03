@@ -376,6 +376,11 @@ fun MainEditorScreen(
             if (editorVm.hasSessionScroll(noteId)) {
                 restoreSessionScroll()
             }
+            (soraEditorRef as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.showCursorSilently() ?: run {
+                soraEditorRef?.requestFocus()
+                try { soraEditorRef?.hideSoftInput() } catch (_: Throwable) {}
+            }
+            keyboardController?.hide()
         }
     }
 
@@ -406,6 +411,11 @@ fun MainEditorScreen(
                     } else {
                         editor.setSelection(startL, startC, false)
                     }
+                    (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.showCursorSilently() ?: run {
+                        editor.requestFocus()
+                        try { editor.hideSoftInput() } catch (_: Throwable) {}
+                    }
+                    keyboardController?.hide()
                 }
             }
         }
@@ -774,6 +784,11 @@ fun MainEditorScreen(
                                 } else {
                                     editor.setSelection(startL, startC, false)
                                 }
+                                (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.showCursorSilently() ?: run {
+                                    editor.requestFocus()
+                                    try { editor.hideSoftInput() } catch (_: Throwable) {}
+                                }
+                                keyboardController?.hide()
                                 // Context B Invariant: NEVER call editor.ensurePositionVisible!
                             }
                         }
@@ -830,7 +845,11 @@ fun MainEditorScreen(
                                     editor.ensurePositionVisible(startL, startC, true)
                                 }
                             }
-                            // Silent: Do NOT call editor.requestFocus() or keyboardController?.show()
+                            (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.showCursorSilently() ?: run {
+                                editor.requestFocus()
+                                try { editor.hideSoftInput() } catch (_: Throwable) {}
+                            }
+                            keyboardController?.hide()
                         }
                     }
                 } else {

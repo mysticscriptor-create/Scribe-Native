@@ -1071,6 +1071,25 @@ class ScribeCodeEditor @JvmOverloads constructor(
      * Safely updates scroller, View mScrollX/mScrollY, invalidates GPU render nodes,
      * and triggers a redraw pass.
      */
+    /**
+     * Silently gains focus to activate cursor rendering and cursor blinking
+     * while guaranteeing that soft input / keyboard remains hidden.
+     */
+    fun showCursorSilently() {
+        if (!isFocused) {
+            requestFocus()
+        }
+        try {
+            hideSoftInput()
+        } catch (_: Throwable) {}
+        post {
+            try {
+                hideSoftInput()
+            } catch (_: Throwable) {}
+        }
+        invalidate()
+    }
+
     fun jumpScrollTo(targetX: Int, targetY: Int) {
         val scroller = scroller ?: return
         scroller.forceFinished(true)
