@@ -859,6 +859,21 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
 
     /**
+     * Restores full opacity and forces GPU render node invalidation when returning
+     * to the editor screen mid-session (Context B). Guarantees zero blank screen state.
+     */
+    fun refreshRenderingOnResume() {
+        removeCallbacks(safetyFadeInRunnable)
+        isAwaitingLayoutReady = false
+        alpha = 1f
+        try {
+            renderContext.invalidateRenderNodes()
+        } catch (_: Throwable) {}
+        invalidate()
+        postInvalidateOnAnimation()
+    }
+
+    /**
      * Prepares the editor for a newly loaded document:
      * Fades the editor to invisible (alpha = 0f) and arms the ready-check listener.
      */

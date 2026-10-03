@@ -225,25 +225,78 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     /**
+     * Executes the given action once the UnifiedCanvasLayout has a valid measured height
+     * and headerView has a non-zero measured height.
+     */
+    fun doOnCanvasReady(action: () -> Unit) {
+        if (headerHeight > 0 && height > 0) {
+            post { action() }
+            return
+        }
+        val listener = object : View.OnLayoutChangeListener {
+            override fun onLayoutChange(
+                v: View?,
+                left: Int, top: Int, right: Int, bottom: Int,
+                oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int
+            ) {
+                if (headerHeight > 0 && (bottom - top) > 0) {
+                    removeOnLayoutChangeListener(this)
+                    post { action() }
+                }
+            }
+        }
+        addOnLayoutChangeListener(listener)
+    }
+
+    /**
+     * Centers the given cursor line vertically within the viewport/canvas.
+     * Clamps to top (header visible) or bottom (max scroll) naturally.
+     */
+    fun centerCursorInViewport(line: Int, column: Int) {
+        doOnCanvasReady {
+            val ed = editor as? ScribeCodeEditor
+            ed?.doOnLayoutReady {
+                val edLayout = editor.layout ?: return@doOnLayoutReady
+                val layoutOffset = try { edLayout.getCharLayoutOffset(line, column) } catch (_: Throwable) { null } ?: return@doOnLayoutReady
+                val lineDocY = (layoutOffset[0] - editor.rowHeight).toFloat()
+                val cursorCanvasY = headerHeight + lineDocY
+                val viewportHeight = height.toFloat()
+                val targetTotalScroll = cursorCanvasY - (viewportHeight / 2f)
+                if (targetTotalScroll <= 0f) {
+                    restoreCanvasAndEditorScroll(0, 0)
+                } else {
+                    val targetScrollD = targetTotalScroll.toInt().coerceIn(0, headerHeight)
+                    val remainingScroll = targetTotalScroll.toInt() - targetScrollD
+                    val maxY = editor.scrollMaxY.coerceAtLeast(0)
+                    val targetScrollY = remainingScroll.coerceIn(0, maxY)
+                    restoreCanvasAndEditorScroll(targetScrollD, targetScrollY)
+                }
+            }
+        }
+    }
+
+    /**
      * Synchronously restores both canvas header displacement (scrollD) and Sora editor vertical offset (offsetY).
      */
     fun restoreCanvasAndEditorScroll(targetScrollD: Int, targetScrollY: Int) {
-        cancelCanvasAnimation()
-        val clampedD = targetScrollD.coerceIn(0, headerHeight)
-        scrollD = clampedD
-        scrollDFloat = clampedD.toFloat()
-        applyTranslations()
-        if (targetScrollY >= 0) {
-            try {
-                editor.scroller?.forceFinished(true)
-                val maxY = editor.scrollMaxY.coerceAtLeast(0)
-                val clampedY = targetScrollY.coerceIn(0, maxY)
-                editor.scrollTo(editor.offsetX, clampedY)
-                editor.invalidate()
-            } catch (_: Throwable) {}
+        doOnCanvasReady {
+            cancelCanvasAnimation()
+            val clampedD = targetScrollD.coerceIn(0, headerHeight)
+            scrollD = clampedD
+            scrollDFloat = clampedD.toFloat()
+            applyTranslations()
+            if (targetScrollY >= 0) {
+                try {
+                    editor.scroller?.forceFinished(true)
+                    val maxY = editor.scrollMaxY.coerceAtLeast(0)
+                    val clampedY = targetScrollY.coerceIn(0, maxY)
+                    editor.scrollTo(editor.offsetX, clampedY)
+                    editor.invalidate()
+                } catch (_: Throwable) {}
+            }
+            applyTranslations()
+            invalidate()
         }
-        applyTranslations()
-        invalidate()
     }
 
     fun resetScroll() {
@@ -377,9 +430,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         // Only enforce viewport height invariant when layout & wordwrap are fully ready
         val scribeEditor = editor as? ScribeCodeEditor
         val isReady = scribeEditor?.isWordwrapReady() ?: true
-        val totalContentHeight = headerHeight + (editor.layout?.layoutHeight ?: 0)
+        val layoutH = editor.layout?.layoutHeight ?: 0
+        val isLayoutPopulated = editor.text.length == 0 || layoutH > 0
+        val totalContentHeight = headerHeight + layoutH
 
-        if (isReady && totalContentHeight <= viewportHeight) {
+        if (isReady && isLayoutPopulated && totalContentHeight <= viewportHeight) {
             if (editor.offsetY > 0) {
                 try {
                     editor.scroller?.let { s ->

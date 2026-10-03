@@ -339,16 +339,9 @@ fun MainEditorScreen(
                 val canvas = unifiedCanvasRef
                 val editor = soraEditorRef
                 if (canvas != null && editor != null) {
+                    canvas.restoreCanvasAndEditorScroll(sessionScroll.scrollD, sessionScroll.scrollY)
                     (editor as? ScribeCodeEditor)?.doOnLayoutReady {
-                        val clampedD = sessionScroll.scrollD.coerceIn(0, canvas.headerHeight)
                         val maxY = editor.scrollMaxY.coerceAtLeast(0)
-                        val clampedY = sessionScroll.scrollY.coerceIn(0, maxY)
-                        // Context B: Restore exact saved scroll offset mid-session
-                        canvas.restoreCanvasAndEditorScroll(clampedD, clampedY)
-
-                        // Shared Rule: Cursor does not drive scroll in Context B.
-                        // Only if document length shrank and saved offset is now out of bounds,
-                        // ensure cursor line is visible.
                         if (sessionScroll.scrollY > maxY && editor.isWordwrapReady()) {
                             val cur = try { editor.cursor } catch (_: Throwable) { null }
                             if (cur != null) {
@@ -390,6 +383,8 @@ fun MainEditorScreen(
     LaunchedEffect(isScreenActive) {
         if (isScreenActive) {
             val noteId = activeNote?.id ?: ""
+            (soraEditorRef as? ScribeCodeEditor)?.refreshRenderingOnResume()
+            unifiedCanvasRef?.invalidate()
             if (editorVm.hasSessionScroll(noteId)) {
                 restoreSessionScroll()
             }
@@ -539,6 +534,8 @@ fun MainEditorScreen(
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 // Context B: When returning to editor from auxiliary screens (Settings, Shortcuts, Themes, etc.)
                 if (!isExitingNote) {
+                    (soraEditorRef as? ScribeCodeEditor)?.refreshRenderingOnResume()
+                    unifiedCanvasRef?.invalidate()
                     restoreSessionScroll()
                 }
             } else if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE || event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
@@ -787,19 +784,14 @@ fun MainEditorScreen(
                                 editor.setSelection(startL, startC, false)
                             }
 
-                            // Restore viewport scroll
+                            // Context A: Center cursor line vertically in the middle of the viewport/canvas
                             val canvas = unifiedCanvasRef
                             if (canvas != null) {
-                                val clampedD = savedCursor.scrollD.coerceIn(0, canvas.headerHeight)
-                                val maxY = editor.scrollMaxY.coerceAtLeast(0)
-                                val clampedY = savedCursor.scrollY.coerceIn(0, maxY)
-                                canvas.restoreCanvasAndEditorScroll(clampedD, clampedY)
-                            }
-
-                            // Context A: scroll viewport silently to cursor line so cursor is visible
-                            // Context A: scroll viewport silently to cursor line once laid out
-                            editor.post {
-                                editor.ensurePositionVisible(startL, startC, true)
+                                canvas.centerCursorInViewport(startL, startC)
+                            } else {
+                                editor.post {
+                                    editor.ensurePositionVisible(startL, startC, true)
+                                }
                             }
                             // Silent: Do NOT call editor.requestFocus() or keyboardController?.show()
                         }
