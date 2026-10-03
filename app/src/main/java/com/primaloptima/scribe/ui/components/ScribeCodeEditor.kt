@@ -759,7 +759,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
     private var lastMakeVisibleTime: Long = 0L
     private var isFlingActive = false
-    private var isSynchronizingScroll = false
     private var forceNextLayoutClear = false
 
     /**
@@ -1067,37 +1066,30 @@ class ScribeCodeEditor @JvmOverloads constructor(
         return result
     }
 
-    override fun scrollTo(x: Int, y: Int) {
-        if (isSynchronizingScroll) {
-            super.scrollTo(x, y)
-            return
-        }
-        val scroller = scroller ?: run {
-            super.scrollTo(x, y)
-            return
+    /**
+     * Instantly jumps the editor scroll position to the target offsets without animation.
+     * Safely updates scroller, View mScrollX/mScrollY, invalidates GPU render nodes,
+     * and triggers a redraw pass.
+     */
+    fun jumpScrollTo(targetX: Int, targetY: Int) {
+        val scroller = scroller ?: return
+        scroller.forceFinished(true)
+        val currX = scroller.currX
+        val currY = scroller.currY
+        val maxX = try { scrollMaxX.coerceAtLeast(0) } catch (_: Throwable) { 0 }
+        val maxY = try { scrollMaxY.coerceAtLeast(0) } catch (_: Throwable) { 0 }
+        val clampedX = targetX.coerceIn(0, maxX)
+        val clampedY = targetY.coerceIn(0, maxY)
+        val dx = clampedX - currX
+        val dy = clampedY - currY
+        if (dx != 0 || dy != 0) {
+            scroller.startScroll(currX, currY, dx, dy, 0)
+            scroller.abortAnimation()
         }
         try {
-            isSynchronizingScroll = true
-            scroller.forceFinished(true)
-            val targetX = x.coerceIn(0, scrollMaxX)
-            val targetY = y.coerceIn(0, scrollMaxY)
-            val currX = scroller.currX
-            val currY = scroller.currY
-            val dx = targetX - currX
-            val dy = targetY - currY
-            if (dx != 0 || dy != 0) {
-                scroller.startScroll(currX, currY, dx, dy, 0)
-                scroller.abortAnimation()
-            } else {
-                super.scrollTo(targetX, targetY)
-            }
-            try {
-                renderContext.invalidateRenderNodes()
-            } catch (_: Throwable) {}
-            invalidate()
-        } finally {
-            isSynchronizingScroll = false
-        }
+            renderContext.invalidateRenderNodes()
+        } catch (_: Throwable) {}
+        invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {

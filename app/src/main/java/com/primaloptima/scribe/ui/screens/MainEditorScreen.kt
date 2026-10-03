@@ -1203,10 +1203,11 @@ fun MainEditorScreen(
                                     editor.renderContext.invalidateRenderNodes()
                                 } catch (_: Throwable) {}
                                 editor.invalidate()
-                                if (editor.offsetY > editor.scrollMaxY && editor.scrollMaxY >= 0) {
+                                val maxScrollY = try { editor.scrollMaxY } catch (_: Throwable) { -1 }
+                                if (editor.offsetY > maxScrollY && maxScrollY >= 0) {
                                     try {
                                         editor.scroller?.let { s ->
-                                            s.startScroll(editor.offsetX, editor.offsetY, 0, editor.scrollMaxY - editor.offsetY, 0)
+                                            s.startScroll(editor.offsetX, editor.offsetY, 0, maxScrollY - editor.offsetY, 0)
                                             s.abortAnimation()
                                         }
                                     } catch (_: Throwable) {}

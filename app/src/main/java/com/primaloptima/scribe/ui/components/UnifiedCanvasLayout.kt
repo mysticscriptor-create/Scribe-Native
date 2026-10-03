@@ -21,6 +21,13 @@ import io.github.rosemoe.sora.widget.CodeEditor
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+private val CodeEditor.safeScrollMaxY: Int
+    get() = try {
+        scrollMaxY.coerceAtLeast(0)
+    } catch (_: Throwable) {
+        0
+    }
+
 /**
  * UnifiedCanvasLayout — Edge-to-Edge Document Canvas Architecture.
  *
@@ -204,7 +211,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * so that the end of the document never disappears off-screen.
      */
     fun clampEditorScrollToMax() {
-        val maxScrollY = editor.scrollMaxY.coerceAtLeast(0)
+        val maxScrollY = editor.safeScrollMaxY
         if (editor.offsetY > maxScrollY) {
             val excess = (editor.offsetY - maxScrollY).toFloat()
             scrollCanvasBy(-excess)
@@ -267,7 +274,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 } else {
                     val targetScrollD = targetTotalScroll.toInt().coerceIn(0, headerHeight)
                     val remainingScroll = targetTotalScroll.toInt() - targetScrollD
-                    val maxY = editor.scrollMaxY.coerceAtLeast(0)
+                    val maxY = editor.safeScrollMaxY
                     val targetScrollY = remainingScroll.coerceIn(0, maxY)
                     restoreCanvasAndEditorScroll(targetScrollD, targetScrollY)
                 }
@@ -287,22 +294,27 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             applyTranslations()
             if (targetScrollY >= 0) {
                 try {
-                    val scroller = editor.scroller
-                    if (scroller != null) {
-                        scroller.forceFinished(true)
-                        val maxY = editor.scrollMaxY.coerceAtLeast(0)
-                        val clampedY = if (clampedD < headerHeight) 0 else targetScrollY.coerceIn(0, maxY)
-                        val currY = scroller.currY
-                        val currX = scroller.currX
-                        val dy = clampedY - currY
-                        if (dy != 0) {
-                            scroller.startScroll(currX, currY, 0, dy, 0)
-                            scroller.abortAnimation()
+                    val maxY = editor.safeScrollMaxY
+                    val clampedY = if (clampedD < headerHeight) 0 else targetScrollY.coerceIn(0, maxY)
+                    val scribeEditor = editor as? ScribeCodeEditor
+                    if (scribeEditor != null) {
+                        scribeEditor.jumpScrollTo(editor.offsetX, clampedY)
+                    } else {
+                        val scroller = editor.scroller
+                        if (scroller != null) {
+                            scroller.forceFinished(true)
+                            val currY = scroller.currY
+                            val currX = scroller.currX
+                            val dy = clampedY - currY
+                            if (dy != 0) {
+                                scroller.startScroll(currX, currY, 0, dy, 0)
+                                scroller.abortAnimation()
+                            }
+                            try {
+                                editor.renderContext.invalidateRenderNodes()
+                            } catch (_: Throwable) {}
+                            editor.invalidate()
                         }
-                        try {
-                            editor.renderContext.invalidateRenderNodes()
-                        } catch (_: Throwable) {}
-                        editor.invalidate()
                     }
                 } catch (_: Throwable) {}
             }
@@ -513,8 +525,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     scrollCanvasBy(-returnStep)
                 }
                 // When viewport expands, ensure editor.offsetY is immediately clamped to editor.scrollMaxY:
-                if (editor.offsetY > editor.scrollMaxY && editor.scrollMaxY >= 0) {
-                    val excess = (editor.offsetY - editor.scrollMaxY).toFloat()
+                val maxAllowedY = editor.safeScrollMaxY
+                if (editor.offsetY > maxAllowedY) {
+                    val excess = (editor.offsetY - maxAllowedY).toFloat()
                     scrollCanvasBy(-excess)
                 }
             }
@@ -689,7 +702,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         try {
             val scroller = editor.scroller ?: return
             val currY = scroller.currY
-            val targetY = (currY + dy).roundToInt().coerceIn(0, editor.scrollMaxY)
+            val targetY = (currY + dy).roundToInt().coerceIn(0, editor.safeScrollMaxY)
             if (targetY != currY) {
                 scroller.startScroll(scroller.currX, currY, 0, targetY - currY, 0)
                 scroller.abortAnimation()
@@ -751,7 +764,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     if (abs(vy) > minFlingVelocity) {
                         val scrollerVy = -vy.toInt()
                         lastScrollerY = scrollD + editor.offsetY
-                        val maxScroll = headerHeight + editor.scrollMaxY
+                        val maxScroll = headerHeight + editor.safeScrollMaxY
                         scroller.fling(0, lastScrollerY, 0, scrollerVy, 0, 0, 0, maxScroll, 0, 0)
                         postInvalidateOnAnimation()
                     }
@@ -853,7 +866,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 if (abs(vy) > minFlingVelocity) {
                     val scrollerVy = -vy.toInt()
                     lastScrollerY = scrollD + editor.offsetY
-                    val maxScroll = headerHeight + editor.scrollMaxY
+                    val maxScroll = headerHeight + editor.safeScrollMaxY
                     scroller.fling(0, lastScrollerY, 0, scrollerVy, 0, 0, 0, maxScroll, 0, 0)
                     postInvalidateOnAnimation()
                 }
