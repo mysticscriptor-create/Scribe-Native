@@ -759,6 +759,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
     private var lastMakeVisibleTime: Long = 0L
     private var isFlingActive = false
+    private var isSynchronizingScroll = false
     private var forceNextLayoutClear = false
 
     /**
@@ -1056,7 +1057,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
             val strayY = offsetY
             try {
                 scroller?.let { s ->
-                    s.startScroll(s.currX, 0, 0, 0, 0)
+                    val currY = s.currY
+                    s.startScroll(s.currX, currY, 0, -currY, 0)
                     s.abortAnimation()
                 }
             } catch (_: Throwable) {}
@@ -1066,29 +1068,39 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
 
     override fun scrollTo(x: Int, y: Int) {
-        val parentCanvas = parent as? UnifiedCanvasLayout
-        if (parentCanvas != null && parentCanvas.scrollD < parentCanvas.headerHeight) {
-            if (y > 0) {
-                parentCanvas.scrollCanvasBy(y.toFloat())
-                super.scrollTo(x, 0)
-                return
-            }
+        if (isSynchronizingScroll) {
+            super.scrollTo(x, y)
+            return
         }
-        super.scrollTo(x, y)
+        val scroller = scroller ?: run {
+            super.scrollTo(x, y)
+            return
+        }
+        try {
+            isSynchronizingScroll = true
+            scroller.forceFinished(true)
+            val targetX = x.coerceIn(0, scrollMaxX)
+            val targetY = y.coerceIn(0, scrollMaxY)
+            val currX = scroller.currX
+            val currY = scroller.currY
+            val dx = targetX - currX
+            val dy = targetY - currY
+            if (dx != 0 || dy != 0) {
+                scroller.startScroll(currX, currY, dx, dy, 0)
+                scroller.abortAnimation()
+            } else {
+                super.scrollTo(targetX, targetY)
+            }
+            try {
+                renderContext.invalidateRenderNodes()
+            } catch (_: Throwable) {}
+            invalidate()
+        } finally {
+            isSynchronizingScroll = false
+        }
     }
 
     override fun onDraw(canvas: Canvas) {
-        val parentCanvas = parent as? UnifiedCanvasLayout
-        if (parentCanvas != null && parentCanvas.scrollD < parentCanvas.headerHeight && offsetY > 0) {
-            val strayY = offsetY
-            try {
-                scroller?.let { s ->
-                    s.startScroll(s.currX, 0, 0, 0, 0)
-                    s.abortAnimation()
-                }
-            } catch (_: Throwable) {}
-            parentCanvas.scrollCanvasBy(strayY.toFloat())
-        }
         if (isAwaitingLayoutReady && isWordwrap && !isWordwrapReady()) {
             // Layout computation for initial document load in progress. Paint only background
             // color to completely eliminate flashing of un-wrapped single-line fallback text.
@@ -1169,7 +1181,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
             val strayY = offsetY
             try {
                 scroller?.let { s ->
-                    s.startScroll(s.currX, 0, 0, 0, 0)
+                    val currY = s.currY
+                    s.startScroll(s.currX, currY, 0, -currY, 0)
                     s.abortAnimation()
                 }
             } catch (_: Throwable) {}

@@ -287,14 +287,27 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             applyTranslations()
             if (targetScrollY >= 0) {
                 try {
-                    editor.scroller?.forceFinished(true)
-                    val maxY = editor.scrollMaxY.coerceAtLeast(0)
-                    val clampedY = targetScrollY.coerceIn(0, maxY)
-                    editor.scrollTo(editor.offsetX, clampedY)
-                    editor.invalidate()
+                    val scroller = editor.scroller
+                    if (scroller != null) {
+                        scroller.forceFinished(true)
+                        val maxY = editor.scrollMaxY.coerceAtLeast(0)
+                        val clampedY = if (clampedD < headerHeight) 0 else targetScrollY.coerceIn(0, maxY)
+                        val currY = scroller.currY
+                        val currX = scroller.currX
+                        val dy = clampedY - currY
+                        if (dy != 0) {
+                            scroller.startScroll(currX, currY, 0, dy, 0)
+                            scroller.abortAnimation()
+                        }
+                        try {
+                            editor.renderContext.invalidateRenderNodes()
+                        } catch (_: Throwable) {}
+                        editor.invalidate()
+                    }
                 } catch (_: Throwable) {}
             }
             applyTranslations()
+            onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
             invalidate()
         }
     }
@@ -314,8 +327,16 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         try {
             val scroller = editor.scroller
             if (scroller != null) {
-                scroller.startScroll(scroller.currX, 0, 0, 0, 0)
-                scroller.abortAnimation()
+                scroller.forceFinished(true)
+                val currY = scroller.currY
+                val currX = scroller.currX
+                if (currY != 0) {
+                    scroller.startScroll(currX, currY, 0, -currY, 0)
+                    scroller.abortAnimation()
+                }
+                try {
+                    editor.renderContext.invalidateRenderNodes()
+                } catch (_: Throwable) {}
                 editor.invalidate()
             }
         } catch (_: Throwable) {}
@@ -378,7 +399,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (scrollD < headerHeight && editor.offsetY > 0) {
             try {
                 editor.scroller?.let { s ->
-                    s.startScroll(s.currX, 0, 0, 0, 0)
+                    val currY = s.currY
+                    s.startScroll(s.currX, currY, 0, -currY, 0)
                     s.abortAnimation()
                 }
             } catch (_: Throwable) {}
@@ -438,7 +460,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             if (editor.offsetY > 0) {
                 try {
                     editor.scroller?.let { s ->
-                        s.startScroll(s.currX, 0, 0, 0, 0)
+                        val currY = s.currY
+                        s.startScroll(s.currX, currY, 0, -currY, 0)
                         s.abortAnimation()
                     }
                 } catch (_: Throwable) {}
