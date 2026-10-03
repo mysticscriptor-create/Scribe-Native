@@ -634,6 +634,8 @@ class EditorViewModel(
 
     private val inMemoryCursorStates = java.util.concurrent.ConcurrentHashMap<String, DocumentCursorState>()
 
+    fun getCursorStateInMemory(noteId: String): DocumentCursorState? = inMemoryCursorStates[noteId]
+
     fun saveCursorState(noteId: String, cursorState: DocumentCursorState) {
         inMemoryCursorStates[noteId] = cursorState
         val json = AppJson.encodeToString(cursorState)
@@ -780,7 +782,6 @@ class EditorViewModel(
     fun loadNote(noteId: String, preloadedNote: Note? = null) {
         if (_activeNote.value?.id != noteId) {
             sessionScrollMap.remove(noteId)
-            inMemoryCursorStates.remove(noteId)
         }
         if (preloadedNote != null && preloadedNote.id == noteId) {
             preloadNote(preloadedNote)
@@ -815,7 +816,6 @@ class EditorViewModel(
     fun clearActiveNote() {
         _activeNote.value?.id?.let {
             sessionScrollMap.remove(it)
-            inMemoryCursorStates.remove(it)
         }
         loadNoteJob?.cancel()
         loadNoteJob = null
