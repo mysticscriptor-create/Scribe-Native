@@ -194,7 +194,7 @@ val STUDIO_CATEGORIES: List<CategoryMeta> = listOf(
 // Human-friendly title mapper delegating to resolvedLabel()
 private fun getHumanFriendlyTitle(shortcut: ShortcutAction): String = shortcut.resolvedLabel()
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ShortcutsScreen(
     vm: ShortcutsViewModel,
@@ -205,7 +205,8 @@ fun ShortcutsScreen(
     val disabledCategories by vm.disabledCategories.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
+    val coroutineScope = rememberCoroutineScope()
+    val scope = coroutineScope
     val listState = rememberLazyListState()
 
     // ── Semantic Color Tokens ────────────────────────────────────────────────
@@ -1284,18 +1285,12 @@ private fun ReorderableWritingBarItemRow(
     val formatDetail = remember(shortcut.kind, shortcut.payload, shortcut.closing) {
         when (shortcut.kind) {
             "pair", "wrap" -> {
-                val openClean = shortcut.payload.replace("
-", "↵").replace("
-", "↵").replace("", "↵")
+                val openClean = shortcut.payload.replace("\r\n", "↵").replace("\n", "↵").replace("\r", "↵")
                 val closeRaw = shortcut.closing?.ifBlank { null } ?: shortcut.payload
-                val closeClean = closeRaw.replace("
-", "↵").replace("
-", "↵").replace("", "↵")
+                val closeClean = closeRaw.replace("\r\n", "↵").replace("\n", "↵").replace("\r", "↵")
                 "$openClean $closeClean".trim()
             }
-            else -> shortcut.payload.replace("
-", "↵").replace("
-", "↵").replace("", "↵").trim()
+            else -> shortcut.payload.replace("\r\n", "↵").replace("\n", "↵").replace("\r", "↵").trim()
         }
     }
     val displayKind = remember(shortcut.kind) {
