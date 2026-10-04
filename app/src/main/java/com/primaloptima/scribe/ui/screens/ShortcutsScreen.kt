@@ -1,4 +1,8 @@
 package com.primaloptima.scribe.ui.screens
+
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.graphics.SolidColor
@@ -222,6 +226,139 @@ fun ShortcutsScreen(
 
     // ── Edit/Reorder Mode State ──────────────────────────────────────────────
     var isEditMode by rememberSaveable { mutableStateOf(false) }
+    var workingBarShortcuts by remember(activeBarShortcuts) {
+        mutableStateOf(activeBarShortcuts.toList())
+    }
+
+    // Intercept Back while in Edit Mode to cleanly cancel and restore order
+    BackHandler(enabled = isEditMode) {
+        isEditMode = false
+        workingBarShortcuts = activeBarShortcuts.toList()
+    }
+
+    // ── Smart Scrolling FAB Controller ───────────────────────────────────────
+    val density = LocalDensity.current
+    var isFabExtended by remember { mutableStateOf(true) }
+    var isFabVisible by remember { mutableStateOf(true) }
+    var previousScrollOffset by remember { mutableIntStateOf(0) }
+    var previousFirstVisibleIndex by remember { mutableIntStateOf(0) }
+    var accumulatedDownScroll by remember { mutableFloatStateOf(0f) }
+    var accumulatedUpScroll by remember { mutableFloatStateOf(0f) }
+
+    val thresholdContractPx = with(density) { 8.dp.toPx() }
+    val thresholdHidePx = with(density) { 64.dp.toPx() }
+    val thresholdShowPx = with(density) { 12.dp.toPx() }
+
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
+            .collect { (currentIndex, currentOffset) ->
+                if (currentIndex == 0 && currentOffset <= 10) {
+                    isFabExtended = true
+                    isFabVisible = true
+                    accumulatedDownScroll = 0f
+                    accumulatedUpScroll = 0f
+                } else {
+                    val delta = if (currentIndex != previousFirstVisibleIndex) {
+                        (currentIndex - previousFirstVisibleIndex) * 200 + (currentOffset - previousScrollOffset)
+                    } else {
+                        currentOffset - previousScrollOffset
+                    }
+
+                    if (delta > 2) { // Scrolling down
+                        accumulatedUpScroll = 0f
+                        accumulatedDownScroll += delta
+                        if (accumulatedDownScroll > thresholdContractPx) {
+                            isFabExtended = false
+                        }
+                        if (accumulatedDownScroll > thresholdHidePx) {
+                            isFabVisible = false
+                        }
+                    } else if (delta < -2) { // Scrolling up
+                        accumulatedDownScroll = 0f
+                        accumulatedUpScroll += -delta
+                        if (accumulatedUpScroll > thresholdShowPx) {
+                            isFabVisible = true
+                            if (accumulatedUpScroll > thresholdContractPx * 3) {
+                                isFabExtended = true
+                            }
+                        }
+                    }
+                }
+                previousFirstVisibleIndex = currentIndex
+                previousScrollOffset = currentOffset
+            }
+    }
+
+    // ── Elastic Stretch Overscroll Physics ───────────────────────────────────
+    val rawOverscrollY = remember { Animatable(0f) }
+    val maxRubberBandPx = with(density) { 54.dp.toPx() }
+    val dampedOverscrollY = remember(rawOverscrollY.value, maxRubberBandPx) {
+        val raw = rawOverscrollY.value
+        if (abs(raw) < 0.5f) {
+            0f
+        } else {
+            sign(raw) * maxRubberBandPx * (1f - exp(-abs(raw) / (maxRubberBandPx * 2.0f)))
+        }
+    }
+    val rubberBandScrollConnection = remember(coroutineScope, maxRubberBandPx) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val current = rawOverscrollY.value
+                if (abs(current) > 0.5f && available.y != 0f && sign(available.y) != sign(current)) {
+                    val next = if (current > 0f) {
+                        (current + available.y * 1.4f).coerceAtLeast(0f)
+                    } else {
+                        (current + available.y * 1.4f).coerceAtMost(0f)
+                    }
+                    coroutineScope.launch { rawOverscrollY.snapTo(next) }
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
+                if (available.y != 0f && source == NestedScrollSource.UserInput) {
+                    val next = (rawOverscrollY.value + available.y)
+                        .coerceIn(-maxRubberBandPx * 3.5f, maxRubberBandPx * 3.5f)
+                    coroutineScope.launch { rawOverscrollY.snapTo(next) }
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (abs(rawOverscrollY.value) > 0.5f) {
+                    coroutineScope.launch {
+                        rawOverscrollY.animateTo(
+                            targetValue = 0f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        )
+                    }
+                    return available
+                }
+                return Velocity.Zero
+            }
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (abs(rawOverscrollY.value) > 0.5f) {
+                    coroutineScope.launch {
+                        rawOverscrollY.animateTo(
+                            targetValue = 0f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMediumLow
+                            )
+                        )
+                    }
+                }
+                return available
+            }
+        }
+    }
 
     // ── Category Collapse State ──────────────────────────────────────────────
     // Match reference: Dialogue expanded, remaining categories collapsed
@@ -285,6 +422,12 @@ fun ShortcutsScreen(
                 action.keywords.any { it.lowercase().contains(cleanQuery) }
         }
     }
+    val shortcutsByCategory = remember(filteredShortcuts) {
+        filteredShortcuts.groupBy { it.category }
+    }
+    val allShortcutsByCategory = remember(shortcuts) {
+        shortcuts.groupBy { it.category }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
@@ -292,7 +435,14 @@ fun ShortcutsScreen(
             ScribeTopBar(
                 title = "Shortcut Studio",
                 navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
-                onNavigationClick = onBack,
+                onNavigationClick = {
+                    if (isEditMode) {
+                        isEditMode = false
+                        workingBarShortcuts = activeBarShortcuts.toList()
+                    } else {
+                        onBack()
+                    }
+                },
                 titleContent = { titleMod ->
                     Text(
                         text = "Shortcut Studio",
@@ -336,40 +486,58 @@ fun ShortcutsScreen(
             )
         },
         floatingActionButton = {
-            // Extended FAB using theme token interaction.primary
-            Surface(
-                onClick = { isCreatingNew = true },
-                shape = CircleShape,
-                color = accentPrimary,
-                shadowElevation = 6.dp,
-                modifier = Modifier.padding(bottom = 8.dp, end = 4.dp)
+            AnimatedVisibility(
+                visible = isFabVisible && !isEditMode,
+                enter = slideInVertically(
+                    initialOffsetY = { it },
+                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioNoBouncy)
+                ) + fadeIn(animationSpec = tween(200)),
+                exit = slideOutVertically(
+                    targetOffsetY = { it },
+                    animationSpec = tween(200, easing = FastOutLinearInEasing)
+                ) + fadeOut(animationSpec = tween(150))
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 13.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Surface(
+                    onClick = { isCreatingNew = true },
+                    shape = CircleShape,
+                    color = accentPrimary,
+                    shadowElevation = 6.dp,
+                    modifier = Modifier.padding(bottom = 8.dp, end = 4.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null,
-                        tint = onAccent,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Column {
-                        Text(
-                            text = "Create",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = onAccent,
-                            lineHeight = 15.sp
+                    Row(
+                        modifier = Modifier
+                            .animateContentSize(
+                                animationSpec = spring(
+                                    stiffness = Spring.StiffnessMediumLow,
+                                    dampingRatio = Spring.DampingRatioNoBouncy
+                                )
+                            )
+                            .padding(
+                                horizontal = if (isFabExtended) 18.dp else 16.dp,
+                                vertical = 14.dp
+                            ),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Create Shortcut",
+                            tint = onAccent,
+                            modifier = Modifier.size(20.dp)
                         )
-                        Text(
-                            text = "Shortcut",
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = onAccent,
-                            lineHeight = 15.sp
-                        )
+                        AnimatedVisibility(
+                            visible = isFabExtended,
+                            enter = fadeIn(animationSpec = tween(180)) + expandHorizontally(),
+                            exit = fadeOut(animationSpec = tween(140)) + shrinkHorizontally()
+                        ) {
+                            Text(
+                                text = "Create Shortcut",
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = onAccent,
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
             }
@@ -377,159 +545,193 @@ fun ShortcutsScreen(
         containerColor = canvasBg,
         contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime)
     ) { paddingValues ->
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .then(if (hazeState != null) Modifier.hazeSource(hazeState) else Modifier),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            // ── 1. YOUR WRITING BAR (Hero Section) ───────────────────────────
-            item(key = "hero_writing_bar") {
-                WritingBarHeroSection(
-                    activeShortcuts = activeBarShortcuts,
-                    isEditMode = isEditMode,
-                    onToggleEditMode = {
-                        isEditMode = !isEditMode
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    },
-                    onRemoveShortcut = { shortcut ->
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        vm.setShortcutEnabled(shortcut.id, false)
-                    },
-                    onMoveShortcut = { from, to ->
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        vm.moveActiveShortcut(from, to)
-                    },
-                    onScrollToLibrary = {
-                        scope.launch {
-                            listState.animateScrollToItem(1)
+        CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+                    .nestedScroll(rubberBandScrollConnection)
+                    .graphicsLayer { translationY = dampedOverscrollY },
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // ── 1. YOUR WRITING BAR (Hero Section) ───────────────────────────
+                item(key = "hero_writing_bar") {
+                    WritingBarHeroSection(
+                        activeShortcuts = activeBarShortcuts,
+                        isEditMode = isEditMode,
+                        workingShortcuts = workingBarShortcuts,
+                        onStartEdit = {
+                            workingBarShortcuts = activeBarShortcuts.toList()
+                            isEditMode = true
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        },
+                        onCommitEdit = {
+                            vm.commitActiveBarOrder(workingBarShortcuts.map { it.id })
+                            isEditMode = false
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        },
+                        onCancelEdit = {
+                            workingBarShortcuts = activeBarShortcuts.toList()
+                            isEditMode = false
+                        },
+                        onRemoveShortcut = { shortcut ->
+                            workingBarShortcuts = workingBarShortcuts.filter { it.id != shortcut.id }
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        },
+                        onReorderShortcuts = { from, to ->
+                            if (from in workingBarShortcuts.indices && to in workingBarShortcuts.indices && from != to) {
+                                val updated = workingBarShortcuts.toMutableList()
+                                val item = updated.removeAt(from)
+                                updated.add(to, item)
+                                workingBarShortcuts = updated
+                            }
+                        },
+                        onScrollToLibrary = {
+                            scope.launch {
+                                listState.animateScrollToItem(1)
+                            }
                         }
-                    }
-                )
-            }
-
-            // ── 2. SEARCH & PILL FILTERS ─────────────────────────────────────
-            item(key = "search_and_filters") {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    // Search Bar (Rounded pill shape)
-                    ShortcutSearchField(
-                        query = searchQuery,
-                        onQueryChange = { searchQuery = it }
-                    )
-
-                    // Horizontal Filter Chips Row: [All] [Punctuation] [Dialogue] [Editing] [Symbols] ...
-                    ShortcutCategoryFilters(
-                        selectedCategory = selectedFilterCategory,
-                        onSelectCategory = { selectedFilterCategory = it }
                     )
                 }
-            }
 
-            // ── 3. SHORTCUT LIBRARY SECTIONS ─────────────────────────────────
-            val displayedCategories = if (selectedFilterCategory != null && selectedFilterCategory != "all" && selectedFilterCategory != "in_bar") {
-                STUDIO_CATEGORIES.filter { it.id == selectedFilterCategory }
-            } else {
-                STUDIO_CATEGORIES
-            }
+                // ── 2. SEARCH & PILL FILTERS ─────────────────────────────────────
+                item(key = "search_and_filters") {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        // Search Bar (Rounded pill shape)
+                        ShortcutSearchField(
+                            query = searchQuery,
+                            onQueryChange = { searchQuery = it }
+                        )
 
-            displayedCategories.forEach { catMeta ->
-                val categoryShortcuts = filteredShortcuts.filter { it.category == catMeta.id }
-                val allInThisCat = shortcuts.filter { it.category == catMeta.id }
-                val isCatDisabled = disabledCategories.contains(catMeta.id)
-                val totalInThisCat = allInThisCat.size
-                val isCollapsed = collapsedCategories.contains(catMeta.id) && cleanQuery.isBlank() && selectedFilterCategory == "all"
+                        // Horizontal Filter Chips Row: [All] [Punctuation] [Dialogue] [Editing] [Symbols] ...
+                        ShortcutCategoryFilters(
+                            selectedCategory = selectedFilterCategory,
+                            onSelectCategory = { selectedFilterCategory = it }
+                        )
+                    }
+                }
 
-                if (categoryShortcuts.isNotEmpty() || (cleanQuery.isBlank() && selectedFilterCategory in listOf("all", catMeta.id))) {
-                    item(key = "cat_card_${catMeta.id}") {
-                        // Enclosed Elegant Card Container
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = ScribeShapeTokens.CardMedium,
-                            color = cardBg,
-                            border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder.copy(alpha = 0.6f))
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 12.dp, horizontal = 14.dp)
+                // ── 3. SHORTCUT LIBRARY SECTIONS ─────────────────────────────────
+                val displayedCategories = if (selectedFilterCategory != null && selectedFilterCategory != "all" && selectedFilterCategory != "in_bar") {
+                    STUDIO_CATEGORIES.filter { it.id == selectedFilterCategory }
+                } else {
+                    STUDIO_CATEGORIES
+                }
+
+                displayedCategories.forEach { catMeta ->
+                    val categoryShortcuts = shortcutsByCategory[catMeta.id] ?: emptyList()
+                    val allInThisCat = allShortcutsByCategory[catMeta.id] ?: emptyList()
+                    val isCatDisabled = disabledCategories.contains(catMeta.id)
+                    val totalInThisCat = allInThisCat.size
+                    val isCollapsed = collapsedCategories.contains(catMeta.id) && cleanQuery.isBlank() && selectedFilterCategory == "all"
+
+                    if (categoryShortcuts.isNotEmpty() || (cleanQuery.isBlank() && selectedFilterCategory in listOf("all", catMeta.id))) {
+                        item(key = "cat_card_${catMeta.id}") {
+                            // Enclosed Elegant Card Container
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = ScribeShapeTokens.CardMedium,
+                                color = cardBg,
+                                border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder.copy(alpha = 0.6f))
                             ) {
-                                // Accordion Header Row
-                                ShortcutCategoryAccordionHeader(
-                                    meta = catMeta,
-                                    totalCount = totalInThisCat,
-                                    isCategoryDisabled = isCatDisabled,
-                                    isCollapsed = isCollapsed,
-                                    onToggleCollapse = {
-                                        collapsedCategories = if (isCollapsed) {
-                                            collapsedCategories - catMeta.id
-                                        } else {
-                                            collapsedCategories + catMeta.id
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 12.dp, horizontal = 14.dp)
+                                ) {
+                                    // Accordion Header Row
+                                    ShortcutCategoryAccordionHeader(
+                                        meta = catMeta,
+                                        totalCount = totalInThisCat,
+                                        isCategoryDisabled = isCatDisabled,
+                                        isCollapsed = isCollapsed,
+                                        onToggleCollapse = {
+                                            collapsedCategories = if (isCollapsed) {
+                                                collapsedCategories - catMeta.id
+                                            } else {
+                                                collapsedCategories + catMeta.id
+                                            }
                                         }
-                                    }
-                                )
+                                    )
 
-                                // Expanded Shortcut List
-                                if (!isCollapsed) {
-                                    Spacer(modifier = Modifier.height(10.dp))
+                                    // Smooth Animated Expanded Shortcut List
+                                    AnimatedVisibility(
+                                        visible = !isCollapsed,
+                                        enter = expandVertically(
+                                            animationSpec = tween(260, easing = FastOutSlowInEasing)
+                                        ) + fadeIn(animationSpec = tween(260, easing = FastOutSlowInEasing)),
+                                        exit = shrinkVertically(
+                                            animationSpec = tween(260, easing = FastOutSlowInEasing)
+                                        ) + fadeOut(animationSpec = tween(200, easing = FastOutSlowInEasing))
+                                    ) {
+                                        Column {
+                                            Spacer(modifier = Modifier.height(10.dp))
 
-                                    if (categoryShortcuts.isEmpty() && catMeta.id == DefaultShortcuts.CAT_CUSTOM) {
-                                        EmptyCustomCategoryNotice(
-                                            onCreateClick = { isCreatingNew = true }
-                                        )
-                                    } else {
-                                        val displayLimit = expandedLimits[catMeta.id] ?: 5
-                                        val visibleShortcuts = if (cleanQuery.isNotBlank() || selectedFilterCategory != "all") {
-                                            categoryShortcuts
-                                        } else {
-                                            categoryShortcuts.take(displayLimit)
-                                        }
+                                            if (categoryShortcuts.isEmpty() && catMeta.id == DefaultShortcuts.CAT_CUSTOM) {
+                                                EmptyCustomCategoryNotice(
+                                                    onCreateClick = { isCreatingNew = true }
+                                                )
+                                            } else {
+                                                val displayLimit = expandedLimits[catMeta.id] ?: 5
+                                                val visibleShortcuts = if (cleanQuery.isNotBlank() || selectedFilterCategory != "all") {
+                                                    categoryShortcuts
+                                                } else {
+                                                    categoryShortcuts.take(displayLimit)
+                                                }
 
-                                        visibleShortcuts.forEach { shortcut ->
-                                            val isShortcutActive = shortcut.isEnabled && !isCatDisabled
-                                            ShortcutCompactRow(
-                                                shortcut = shortcut,
-                                                isActive = isShortcutActive,
-                                                onToggle = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    vm.toggleShortcutEnabled(shortcut.id)
-                                                },
-                                                onEdit = { editingShortcut = shortcut },
-                                                onDelete = if (shortcut.category == DefaultShortcuts.CAT_CUSTOM) {
-                                                    { deleteCandidate = shortcut }
-                                                } else null
-                                            )
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                        }
-
-                                        // "Show more (N) v" Expand Toggle if more items exist
-                                        if (cleanQuery.isBlank() && selectedFilterCategory == "all" && categoryShortcuts.size > displayLimit) {
-                                            val remaining = categoryShortcuts.size - displayLimit
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .clickable {
-                                                        expandedLimits = expandedLimits + (catMeta.id to (displayLimit + 10))
+                                                visibleShortcuts.forEachIndexed { index, shortcut ->
+                                                    val isShortcutActive = shortcut.isEnabled && !isCatDisabled
+                                                    ShortcutCompactRow(
+                                                        shortcut = shortcut,
+                                                        isActive = isShortcutActive,
+                                                        onToggle = {
+                                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                            vm.toggleShortcutEnabled(shortcut.id)
+                                                        },
+                                                        onEdit = { editingShortcut = shortcut },
+                                                        onDelete = if (shortcut.category == DefaultShortcuts.CAT_CUSTOM) {
+                                                            { deleteCandidate = shortcut }
+                                                        } else null
+                                                    )
+                                                    if (index < visibleShortcuts.lastIndex) {
+                                                        HorizontalDivider(
+                                                            modifier = Modifier.padding(start = 52.dp, end = 6.dp),
+                                                            thickness = 0.5.dp,
+                                                            color = subtleBorder.copy(alpha = 0.5f)
+                                                        )
                                                     }
-                                                    .padding(vertical = 8.dp),
-                                                horizontalArrangement = Arrangement.Center,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Text(
-                                                    text = "Show more ($remaining)",
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Medium,
-                                                    color = contentTertiary
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Icon(
-                                                    imageVector = Icons.Default.KeyboardArrowDown,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(16.dp),
-                                                    tint = contentTertiary
-                                                )
+                                                }
+
+                                                // "Show more (N) v" Expand Toggle if more items exist
+                                                if (cleanQuery.isBlank() && selectedFilterCategory == "all" && categoryShortcuts.size > displayLimit) {
+                                                    val remaining = categoryShortcuts.size - displayLimit
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .clickable {
+                                                                expandedLimits = expandedLimits + (catMeta.id to (displayLimit + 10))
+                                                            }
+                                                            .padding(vertical = 8.dp),
+                                                        horizontalArrangement = Arrangement.Center,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Text(
+                                                            text = "Show more ($remaining)",
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.Medium,
+                                                            color = contentTertiary
+                                                        )
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Icon(
+                                                            imageVector = Icons.Default.KeyboardArrowDown,
+                                                            contentDescription = null,
+                                                            modifier = Modifier.size(16.dp),
+                                                            tint = contentTertiary
+                                                        )
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -538,11 +740,11 @@ fun ShortcutsScreen(
                         }
                     }
                 }
-            }
 
-            // Bottom spacing for extended FAB
-            item(key = "bottom_spacer") {
-                Spacer(modifier = Modifier.height(84.dp))
+                // Bottom spacing for extended FAB
+                item(key = "bottom_spacer") {
+                    Spacer(modifier = Modifier.height(84.dp))
+                }
             }
         }
     }
@@ -627,9 +829,12 @@ fun ShortcutsScreen(
 private fun WritingBarHeroSection(
     activeShortcuts: List<ShortcutAction>,
     isEditMode: Boolean,
-    onToggleEditMode: () -> Unit,
+    workingShortcuts: List<ShortcutAction>,
+    onStartEdit: () -> Unit,
+    onCommitEdit: () -> Unit,
+    onCancelEdit: () -> Unit,
     onRemoveShortcut: (ShortcutAction) -> Unit,
-    onMoveShortcut: (from: Int, to: Int) -> Unit,
+    onReorderShortcuts: (from: Int, to: Int) -> Unit,
     onScrollToLibrary: () -> Unit
 ) {
     val colors = ScribeTheme.colors
@@ -652,10 +857,16 @@ private fun WritingBarHeroSection(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .animateContentSize(
+                    animationSpec = spring(
+                        stiffness = Spring.StiffnessMediumLow,
+                        dampingRatio = Spring.DampingRatioNoBouncy
+                    )
+                )
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Header Row: Leading Rounded Icon + Title & Count + Trailing "Edit" Pill
+            // Header Row: Leading Rounded Icon + Title & Count + Trailing Actions
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -669,138 +880,182 @@ private fun WritingBarHeroSection(
                         modifier = Modifier
                             .size(36.dp)
                             .clip(RoundedCornerShape(8.dp))
-                            .background(glyphBoxBg),
+                            .background(if (isEditMode) accentPrimary.copy(alpha = 0.12f) else glyphBoxBg),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Default.ViewCompact,
+                            imageVector = if (isEditMode) Icons.Default.Tune else Icons.Default.ViewCompact,
                             contentDescription = null,
                             modifier = Modifier.size(18.dp),
-                            tint = contentPrimary
+                            tint = if (isEditMode) accentPrimary else contentPrimary
                         )
                     }
-
                     Column {
                         Text(
-                            text = "Your Writing Bar",
+                            text = if (isEditMode) "Edit Writing Bar" else "Your Writing Bar",
                             fontFamily = FontFamily.Serif,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Medium,
                             color = contentPrimary
                         )
                         Text(
-                            text = if (activeShortcuts.isNotEmpty()) "${activeShortcuts.size} shortcuts" else "0 shortcuts",
+                            text = if (isEditMode) {
+                                "Drag handle to reorder • Tap × to remove"
+                            } else {
+                                if (activeShortcuts.isNotEmpty()) "${activeShortcuts.size} shortcuts" else "0 shortcuts"
+                            },
                             fontSize = 12.sp,
-                            color = contentSecondary
+                            color = if (isEditMode) accentPrimary else contentSecondary
                         )
                     }
                 }
 
-                if (activeShortcuts.isNotEmpty()) {
-                    Surface(
-                        onClick = onToggleEditMode,
-                        shape = CircleShape,
-                        color = if (isEditMode) accentPrimary else glyphBoxBg,
-                        border = androidx.compose.foundation.BorderStroke(
-                            0.5.dp,
-                            if (isEditMode) accentPrimary else subtleBorder
-                        ),
-                        modifier = Modifier.height(32.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                // Trailing Buttons
+                if (!isEditMode) {
+                    if (activeShortcuts.isNotEmpty()) {
+                        Surface(
+                            onClick = onStartEdit,
+                            shape = CircleShape,
+                            color = glyphBoxBg,
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder),
+                            modifier = Modifier.height(32.dp)
                         ) {
-                            Icon(
-                                imageVector = if (isEditMode) Icons.Default.Check else Icons.Default.Edit,
-                                contentDescription = null,
-                                modifier = Modifier.size(13.dp),
-                                tint = if (isEditMode) onAccent else contentPrimary
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(13.dp),
+                                    tint = contentPrimary
+                                )
+                                Text(
+                                    text = "Edit",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = contentPrimary
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        TextButton(
+                            onClick = onCancelEdit,
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) {
                             Text(
-                                text = if (isEditMode) "Done" else "Edit",
+                                text = "Cancel",
                                 fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (isEditMode) onAccent else contentPrimary
+                                fontWeight = FontWeight.Medium,
+                                color = contentSecondary
                             )
+                        }
+                        Surface(
+                            onClick = onCommitEdit,
+                            shape = CircleShape,
+                            color = accentPrimary,
+                            border = androidx.compose.foundation.BorderStroke(0.5.dp, accentPrimary),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(13.dp),
+                                    tint = onAccent
+                                )
+                                Text(
+                                    text = "Done",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = onAccent
+                                )
+                            }
                         }
                     }
                 }
             }
 
-            // Live Preview Enclosed Surface
-            if (activeShortcuts.isEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Text(
-                        text = "No shortcuts currently active",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = contentPrimary
-                    )
-                    TextButton(onClick = onScrollToLibrary) {
-                        Text("Browse shortcuts", color = accentPrimary, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-            } else {
-                Surface(
-                    shape = ScribeShapeTokens.CardMedium,
-                    color = innerBarBg,
-                    border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
+            // Body: Compact Horizontal Bar vs Expanded Reorderable Studio
+            if (!isEditMode) {
+                if (activeShortcuts.isEmpty()) {
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 8.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .padding(vertical = 12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        // Undo Pill (Circular)
-                        Surface(
-                            shape = CircleShape,
-                            color = glyphBoxBg,
-                            border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder),
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Undo,
-                                    contentDescription = "Undo",
-                                    modifier = Modifier.size(15.dp),
-                                    tint = contentPrimary
-                                )
-                            }
+                        Text(
+                            text = "No shortcuts currently active",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = contentPrimary
+                        )
+                        TextButton(onClick = onScrollToLibrary) {
+                            Text("Browse shortcuts", color = accentPrimary, fontWeight = FontWeight.SemiBold)
                         }
-
-                        // Redo Pill (Circular)
-                        Surface(
-                            shape = CircleShape,
-                            color = glyphBoxBg,
-                            border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder),
-                            modifier = Modifier.size(34.dp)
+                    }
+                } else {
+                    Surface(
+                        shape = ScribeShapeTokens.CardMedium,
+                        color = innerBarBg,
+                        border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 8.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Redo,
-                                    contentDescription = "Redo",
-                                    modifier = Modifier.size(15.dp),
-                                    tint = contentPrimary
-                                )
+                            // Undo Pill
+                            Surface(
+                                shape = CircleShape,
+                                color = glyphBoxBg,
+                                border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder),
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Undo,
+                                        contentDescription = "Undo",
+                                        modifier = Modifier.size(15.dp),
+                                        tint = contentPrimary
+                                    )
+                                }
                             }
-                        }
-
-                        // Active Shortcuts
-                        activeShortcuts.forEachIndexed { index, shortcut ->
-                            if (!isEditMode) {
-                                // Rounded pill chip
+                            // Redo Pill
+                            Surface(
+                                shape = CircleShape,
+                                color = glyphBoxBg,
+                                border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder),
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Redo,
+                                        contentDescription = "Redo",
+                                        modifier = Modifier.size(15.dp),
+                                        tint = contentPrimary
+                                    )
+                                }
+                            }
+                            // Active Shortcuts
+                            activeShortcuts.forEach { shortcut ->
                                 Surface(
                                     shape = CircleShape,
                                     color = glyphBoxBg,
@@ -820,40 +1075,183 @@ private fun WritingBarHeroSection(
                                         )
                                     }
                                 }
-                            } else {
-                                // Reorderable Chip Item
-                                ReorderableBarChipItem(
-                                    shortcut = shortcut,
-                                    index = index,
-                                    totalCount = activeShortcuts.size,
-                                    onMove = onMoveShortcut,
-                                    onRemove = { onRemoveShortcut(shortcut) }
-                                )
                             }
-                        }
-
-                        // Trailing overflow pill (...) & forward indicator (›)
-                        Surface(
-                            shape = CircleShape,
-                            color = glyphBoxBg,
-                            border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder),
-                            modifier = Modifier.size(34.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.MoreHoriz,
-                                    contentDescription = "More shortcuts",
-                                    modifier = Modifier.size(16.dp),
-                                    tint = contentPrimary
-                                )
+                            // Trailing overflow pill (...) & forward indicator (›)
+                            Surface(
+                                shape = CircleShape,
+                                color = glyphBoxBg,
+                                border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder),
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreHoriz,
+                                        contentDescription = "More shortcuts",
+                                        modifier = Modifier.size(16.dp),
+                                        tint = contentPrimary
+                                    )
+                                }
                             }
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = contentTertiary
+                            )
                         }
+                    }
+                }
+            } else {
+                WritingBarEditCardContent(
+                    workingShortcuts = workingShortcuts,
+                    onRemoveShortcut = onRemoveShortcut,
+                    onReorderShortcuts = onReorderShortcuts
+                )
+            }
+        }
+    }
+}
 
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = contentTertiary
+// ── Reorderable Writing Bar Edit Card Content ─────────────────────────────────
+@Composable
+private fun WritingBarEditCardContent(
+    workingShortcuts: List<ShortcutAction>,
+    onRemoveShortcut: (ShortcutAction) -> Unit,
+    onReorderShortcuts: (from: Int, to: Int) -> Unit
+) {
+    val colors = ScribeTheme.colors
+    val subtleBorder = colors.borders.subtle
+    val contentSecondary = colors.content.secondary
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val rowHeightPx = with(density) { 56.dp.toPx() }
+
+    var draggingIndex by remember { mutableStateOf<Int?>(null) }
+    var dragOffsetY by remember { mutableFloatStateOf(0f) }
+    var dragStartIndex by remember { mutableStateOf<Int?>(null) }
+
+    val innerBarBg = colors.surfaces.surfaceLowest.copy(alpha = 0.65f)
+
+    if (workingShortcuts.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 20.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "No shortcuts in Writing Bar. Select shortcuts below to add them.",
+                fontSize = 13.sp,
+                color = contentSecondary,
+                textAlign = TextAlign.Center
+            )
+        }
+    } else {
+        Surface(
+            shape = ScribeShapeTokens.CardMedium,
+            color = innerBarBg,
+            border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            val listState = rememberLazyListState()
+            val coroutineScope = rememberCoroutineScope()
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 380.dp)
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(0.dp)
+            ) {
+                itemsIndexed(
+                    items = workingShortcuts,
+                    key = { _, item -> item.id }
+                ) { index, shortcut ->
+                    val isDragging = draggingIndex == index
+
+                    val itemModifier = if (isDragging) {
+                        Modifier
+                            .zIndex(10f)
+                            .graphicsLayer {
+                                translationY = dragOffsetY
+                                shadowElevation = 8.dp.toPx()
+                                scaleX = 1.02f
+                                scaleY = 1.02f
+                            }
+                    } else {
+                        Modifier
+                            .zIndex(1f)
+                            .animateItem()
+                    }
+
+                    ReorderableWritingBarItemRow(
+                        modifier = itemModifier,
+                        shortcut = shortcut,
+                        isDragging = isDragging,
+                        onDragStart = {
+                            draggingIndex = index
+                            dragStartIndex = index
+                            dragOffsetY = 0f
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        },
+                        onDrag = { dragAmountY ->
+                            dragOffsetY += dragAmountY
+                            val currIdx = draggingIndex ?: return@ReorderableWritingBarItemRow
+
+                            // Edge autoscroll if near bounds
+                            val visibleItems = listState.layoutInfo.visibleItemsInfo
+                            val currentItemInfo = visibleItems.firstOrNull { it.index == currIdx }
+                            if (currentItemInfo != null) {
+                                val itemTop = currentItemInfo.offset + dragOffsetY
+                                val itemBottom = itemTop + currentItemInfo.size
+                                val viewportHeight = listState.layoutInfo.viewportSize.height
+                                if (itemTop < 30f) {
+                                    coroutineScope.launch { listState.scrollBy(-16f) }
+                                } else if (itemBottom > viewportHeight - 30f) {
+                                    coroutineScope.launch { listState.scrollBy(16f) }
+                                }
+                            }
+
+                            // Dynamic slot crossing threshold (50% of row height)
+                            if (dragOffsetY > rowHeightPx * 0.5f && currIdx < workingShortcuts.lastIndex) {
+                                val target = currIdx + 1
+                                onReorderShortcuts(currIdx, target)
+                                draggingIndex = target
+                                dragOffsetY -= rowHeightPx
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            } else if (dragOffsetY < -rowHeightPx * 0.5f && currIdx > 0) {
+                                val target = currIdx - 1
+                                onReorderShortcuts(currIdx, target)
+                                draggingIndex = target
+                                dragOffsetY += rowHeightPx
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                        },
+                        onDragEnd = {
+                            draggingIndex = null
+                            dragStartIndex = null
+                            dragOffsetY = 0f
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        },
+                        onDragCancel = {
+                            val start = dragStartIndex
+                            val curr = draggingIndex
+                            if (start != null && curr != null && start != curr) {
+                                onReorderShortcuts(curr, start)
+                            }
+                            draggingIndex = null
+                            dragStartIndex = null
+                            dragOffsetY = 0f
+                        },
+                        onRemove = { onRemoveShortcut(shortcut) }
+                    )
+
+                    if (index < workingShortcuts.lastIndex) {
+                        HorizontalDivider(
+                            modifier = Modifier.padding(start = 52.dp, end = 12.dp),
+                            thickness = 0.5.dp,
+                            color = subtleBorder.copy(alpha = 0.4f)
                         )
                     }
                 }
@@ -862,99 +1260,142 @@ private fun WritingBarHeroSection(
     }
 }
 
-// ── Edit/Reorder Mode Bar Chip Item with Drag Gestures ────────────────────────
+// ── Reorderable Writing Bar Item Row ──────────────────────────────────────────
 @Composable
-private fun ReorderableBarChipItem(
+private fun ReorderableWritingBarItemRow(
+    modifier: Modifier = Modifier,
     shortcut: ShortcutAction,
-    index: Int,
-    totalCount: Int,
-    onMove: (from: Int, to: Int) -> Unit,
+    isDragging: Boolean,
+    onDragStart: () -> Unit,
+    onDrag: (Float) -> Unit,
+    onDragEnd: () -> Unit,
+    onDragCancel: () -> Unit,
     onRemove: () -> Unit
 ) {
     val colors = ScribeTheme.colors
-    val subtleBorder = colors.borders.subtle
     val contentPrimary = colors.content.primary
+    val contentSecondary = colors.content.secondary
     val contentTertiary = colors.content.tertiary
     val accentPrimary = colors.interaction.primary
-    val glyphBoxBg = colors.surfaces.surfaceLowest
     val cardBg = colors.surfaces.surface
+    val badgeBg = colors.interaction.primaryContainer
+    val badgeContent = colors.interaction.onPrimaryContainer
 
-    var offsetX by remember { mutableStateOf(0f) }
-    var isDragging by remember { mutableStateOf(false) }
-    val haptic = LocalHapticFeedback.current
-
-    val animatedElevation by animateDpAsState(
-        targetValue = if (isDragging) 6.dp else 1.dp,
-        label = "dragElevation"
-    )
+    val formatDetail = remember(shortcut.kind, shortcut.payload, shortcut.closing) {
+        when (shortcut.kind) {
+            "pair", "wrap" -> {
+                val openClean = shortcut.payload.replace("
+", "↵").replace("
+", "↵").replace("", "↵")
+                val closeRaw = shortcut.closing?.ifBlank { null } ?: shortcut.payload
+                val closeClean = closeRaw.replace("
+", "↵").replace("
+", "↵").replace("", "↵")
+                "$openClean $closeClean".trim()
+            }
+            else -> shortcut.payload.replace("
+", "↵").replace("
+", "↵").replace("", "↵").trim()
+        }
+    }
+    val displayKind = remember(shortcut.kind) {
+        if (shortcut.kind == "wrap") "Pair" else shortcut.kind.replaceFirstChar { it.uppercase() }
+    }
 
     Surface(
-        shape = CircleShape,
-        color = if (isDragging) cardBg else glyphBoxBg,
-        tonalElevation = animatedElevation,
-        shadowElevation = animatedElevation,
-        border = androidx.compose.foundation.BorderStroke(
-            0.5.dp,
-            if (isDragging) accentPrimary else subtleBorder
-        ),
-        modifier = Modifier
-            .offset { IntOffset(offsetX.roundToInt(), 0) }
-            .height(34.dp)
-            .zIndex(if (isDragging) 10f else 1f)
-            .pointerInput(shortcut.id, index, totalCount) {
-                detectDragGestures(
-                    onDragStart = {
-                        isDragging = true
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    },
-                    onDragEnd = {
-                        val threshold = 40.dp.toPx()
-                        if (offsetX > threshold && index < totalCount - 1) {
-                            onMove(index, index + 1)
-                        } else if (offsetX < -threshold && index > 0) {
-                            onMove(index, index - 1)
-                        }
-                        offsetX = 0f
-                        isDragging = false
-                    },
-                    onDragCancel = {
-                        offsetX = 0f
-                        isDragging = false
-                    },
-                    onDrag = { change, dragAmount ->
-                        change.consume()
-                        offsetX = (offsetX + dragAmount.x).coerceIn(-120f, 120f)
-                    }
-                )
-            }
+        color = if (isDragging) cardBg else Color.Transparent,
+        shape = RoundedCornerShape(8.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .padding(horizontal = 6.dp)
     ) {
         Row(
-            modifier = Modifier.padding(start = 8.dp, end = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Default.DragHandle,
-                contentDescription = "Drag to reorder",
-                modifier = Modifier.size(13.dp),
-                tint = accentPrimary
-            )
+            // Drag Handle + Glyph Badge + Label
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Drag handle touch zone
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .pointerInput(shortcut.id) {
+                            detectDragGestures(
+                                onDragStart = { onDragStart() },
+                                onDragEnd = { onDragEnd() },
+                                onDragCancel = { onDragCancel() },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    onDrag(dragAmount.y)
+                                }
+                            )
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DragHandle,
+                        contentDescription = "Drag to reorder",
+                        modifier = Modifier.size(20.dp),
+                        tint = if (isDragging) accentPrimary else contentTertiary
+                    )
+                }
 
-            Text(
-                text = shortcut.resolvedIcon(),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = contentPrimary
-            )
+                // Typography semantic glyph badge
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(badgeBg),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = shortcut.resolvedIcon(),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.5.sp,
+                        color = badgeContent,
+                        maxLines = 1,
+                        textAlign = TextAlign.Center
+                    )
+                }
 
+                // Label and kind
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = shortcut.resolvedLabel(),
+                        fontFamily = FontFamily.Serif,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Normal,
+                        color = contentPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = "$displayKind • $formatDetail",
+                        fontSize = 11.sp,
+                        color = contentSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            // Trailing Remove Button
             IconButton(
                 onClick = onRemove,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(32.dp)
             ) {
                 Icon(
                     imageVector = Icons.Default.Close,
-                    contentDescription = "Remove",
-                    modifier = Modifier.size(12.dp),
+                    contentDescription = "Remove from writing bar",
+                    modifier = Modifier.size(16.dp),
                     tint = contentTertiary
                 )
             }
@@ -1118,7 +1559,7 @@ private fun ShortcutCategoryAccordionHeader(
 
     val chevronRotation by animateFloatAsState(
         targetValue = if (isCollapsed) 0f else 180f,
-        animationSpec = tween(200),
+        animationSpec = tween(260, easing = FastOutSlowInEasing),
         label = "chevronRot"
     )
 
@@ -1227,9 +1668,24 @@ private fun ShortcutCompactRow(
     val contentSecondary = colors.content.secondary
     val accentPrimary = colors.interaction.primary
     val onAccent = colors.content.onAccent
-    val glyphBoxBg = colors.surfaces.surfaceLowest
-
+    val badgeBg = colors.interaction.primaryContainer
+    val badgeContent = colors.interaction.onPrimaryContainer
     var showMenu by remember { mutableStateOf(false) }
+
+    val formatDetail = remember(shortcut.kind, shortcut.payload, shortcut.closing) {
+        when (shortcut.kind) {
+            "pair", "wrap" -> {
+                val openClean = shortcut.payload.replace("\r\n", "↵").replace("\n", "↵").replace("\r", "↵")
+                val closeRaw = shortcut.closing?.ifBlank { null } ?: shortcut.payload
+                val closeClean = closeRaw.replace("\r\n", "↵").replace("\n", "↵").replace("\r", "↵")
+                "$openClean $closeClean".trim()
+            }
+            else -> shortcut.payload.replace("\r\n", "↵").replace("\n", "↵").replace("\r", "↵").trim()
+        }
+    }
+    val displayKind = remember(shortcut.kind) {
+        if (shortcut.kind == "wrap") "Pair" else shortcut.kind.replaceFirstChar { it.uppercase() }
+    }
 
     Row(
         modifier = Modifier
@@ -1246,19 +1702,19 @@ private fun ShortcutCompactRow(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Glyph Badge (Prominent rounded box ~40dp) — displays the shortcut's icon symbol, never the label description
+            // Glyph Badge (Prominent rounded box ~40dp) — displays the shortcut symbol using semantic tokens
             Box(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(glyphBoxBg),
+                    .background(badgeBg),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = shortcut.resolvedIcon(),
                     fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    color = contentPrimary,
+                    fontSize = 13.5.sp,
+                    color = badgeContent,
                     maxLines = 1,
                     textAlign = TextAlign.Center
                 )
@@ -1275,16 +1731,6 @@ private fun ShortcutCompactRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                val formatDetail = when (shortcut.kind) {
-                    "pair", "wrap" -> {
-                        val openClean = shortcut.payload.replace("\r\n", "↵").replace("\n", "↵").replace("\r", "↵")
-                        val closeRaw = shortcut.closing?.ifBlank { null } ?: shortcut.payload
-                        val closeClean = closeRaw.replace("\r\n", "↵").replace("\n", "↵").replace("\r", "↵")
-                        "$openClean $closeClean".trim()
-                    }
-                    else -> shortcut.payload.replace("\r\n", "↵").replace("\n", "↵").replace("\r", "↵").trim()
-                }
-                val displayKind = if (shortcut.kind == "wrap") "Pair" else shortcut.kind.replaceFirstChar { it.uppercase() }
                 Text(
                     text = "$displayKind • $formatDetail",
                     fontSize = 11.sp,
@@ -1324,50 +1770,54 @@ private fun ShortcutCompactRow(
                             showMenu = false
                             onEdit()
                         },
-                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = contentPrimary
+                            )
+                        }
                     )
+
                     if (onDelete != null) {
                         DropdownMenuItem(
-                            text = { Text("Delete", color = colors.semantic.error) },
+                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                             onClick = {
                                 showMenu = false
                                 onDelete()
                             },
                             leadingIcon = {
-                                Icon(Icons.Default.Delete, contentDescription = null, tint = colors.semantic.error)
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.error
+                                )
                             }
                         )
                     }
                 }
             }
 
-            // Circular Action Button: Solid accent circle with white checkmark when active, or light circle with dark plus sign when inactive
+            // Circular toggle button: Active (filled circle with checkmark) vs Inactive (subtle circle with plus)
             Surface(
                 onClick = onToggle,
                 shape = CircleShape,
-                color = if (isActive) accentPrimary else glyphBoxBg,
-                border = androidx.compose.foundation.BorderStroke(
+                color = if (isActive) accentPrimary else colors.surfaces.surfaceLowest,
+                border = BorderStroke(
                     0.5.dp,
                     if (isActive) accentPrimary else subtleBorder
                 ),
                 modifier = Modifier.size(30.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    if (isActive) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = "Active in bar",
-                            modifier = Modifier.size(15.dp),
-                            tint = onAccent
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Add to bar",
-                            modifier = Modifier.size(15.dp),
-                            tint = contentPrimary
-                        )
-                    }
+                    Icon(
+                        imageVector = if (isActive) Icons.Default.Check else Icons.Default.Add,
+                        contentDescription = if (isActive) "Enabled" else "Disabled",
+                        tint = if (isActive) onAccent else contentSecondary,
+                        modifier = Modifier.size(15.dp)
+                    )
                 }
             }
         }

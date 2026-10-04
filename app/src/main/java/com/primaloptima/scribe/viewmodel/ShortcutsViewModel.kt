@@ -104,6 +104,36 @@ class ShortcutsViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    /**
+     * Atomically commits a finalized writing bar order from Edit Mode.
+     * Active shortcuts are ordered to strictly match [orderedActiveIds].
+     * Any shortcut previously active in the bar that is no longer in [orderedActiveIds]
+     * has isEnabled set to false (removed from bar, but preserved intact in the library).
+     */
+    fun commitActiveBarOrder(orderedActiveIds: List<String>) {
+        val currentList = _shortcuts.value
+        val orderedIdSet = orderedActiveIds.toSet()
+        val currentMap = currentList.associateBy { it.id }
+
+        // 1. Reordered active bar items
+        val activeItems = orderedActiveIds.mapNotNull { id ->
+            currentMap[id]?.copy(isEnabled = true)
+        }
+
+        // 2. Remaining library items
+        val remainingItems = currentList.filter { it.id !in orderedIdSet }.map { item ->
+            // If item was enabled and not in disabled categories, it was removed from the active bar
+            if (item.isEnabled && item.category !in _disabledCategories.value) {
+                item.copy(isEnabled = false)
+            } else {
+                item
+            }
+        }
+
+        val finalList = activeItems + remainingItems
+        save(finalList)
+    }
+
     fun moveActiveShortcut(fromIndex: Int, toIndex: Int) {
         val active = activeBarShortcuts.value
         if (fromIndex !in active.indices || toIndex !in active.indices || fromIndex == toIndex) return
