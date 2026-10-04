@@ -241,66 +241,57 @@ fun ShortcutsScreen(
     val density = LocalDensity.current
     var isFabExtended by remember { mutableStateOf(true) }
     var isFabVisible by remember { mutableStateOf(true) }
-    var previousScrollOffset by remember { mutableIntStateOf(0) }
-    var previousFirstVisibleIndex by remember { mutableIntStateOf(0) }
-    var accumulatedDownScroll by remember { mutableFloatStateOf(0f) }
-    var accumulatedUpScroll by remember { mutableFloatStateOf(0f) }
 
-    val thresholdContractPx = with(density) { 8.dp.toPx() }
-    val thresholdHidePx = with(density) { 64.dp.toPx() }
-    val thresholdShowPx = with(density) { 12.dp.toPx() }
+    val thresholdContractPx = with(density) { 14.dp.toPx() }
+    val thresholdHidePx = with(density) { 72.dp.toPx() }
+    val thresholdShowPx = with(density) { 16.dp.toPx() }
 
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset }
-            .collect { (currentIndex, currentOffset) ->
-                if (currentIndex == 0 && currentOffset <= 10) {
-                    isFabExtended = true
-                    isFabVisible = true
-                    accumulatedDownScroll = 0f
-                    accumulatedUpScroll = 0f
-                } else {
-                    val delta = if (currentIndex != previousFirstVisibleIndex) {
-                        (currentIndex - previousFirstVisibleIndex) * 200 + (currentOffset - previousScrollOffset)
-                    } else {
-                        currentOffset - previousScrollOffset
+    // Direct physical gesture tracking via NestedScrollConnection to prevent offset calculation jitter
+    val fabScrollConnection = remember {
+        object : NestedScrollConnection {
+            var accumulatedDown = 0f
+            var accumulatedUp = 0f
+
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                val dy = available.y // dy < 0 means finger drags up, list scrolls down
+                if (dy < -1.5f) {
+                    accumulatedUp = 0f
+                    accumulatedDown += -dy
+                    if (accumulatedDown > thresholdContractPx) {
+                        isFabExtended = false
                     }
-
-                    if (delta > 2) { // Scrolling down
-                        accumulatedUpScroll = 0f
-                        accumulatedDownScroll += delta
-                        if (accumulatedDownScroll > thresholdContractPx) {
-                            isFabExtended = false
-                        }
-                        if (accumulatedDownScroll > thresholdHidePx) {
-                            isFabVisible = false
-                        }
-                    } else if (delta < -2) { // Scrolling up
-                        accumulatedDownScroll = 0f
-                        accumulatedUpScroll += -delta
-                        if (accumulatedUpScroll > thresholdShowPx) {
-                            isFabVisible = true
-                            if (accumulatedUpScroll > thresholdContractPx * 3) {
-                                isFabExtended = true
-                            }
+                    if (accumulatedDown > thresholdHidePx) {
+                        isFabVisible = false
+                    }
+                } else if (dy > 1.5f) {
+                    accumulatedDown = 0f
+                    accumulatedUp += dy
+                    if (accumulatedUp > thresholdShowPx) {
+                        isFabVisible = true
+                        if (accumulatedUp > thresholdContractPx * 2.5f) {
+                            isFabExtended = true
                         }
                     }
                 }
-                previousFirstVisibleIndex = currentIndex
-                previousScrollOffset = currentOffset
+                return Offset.Zero
+            }
+        }
+    }
+
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 12 }
+            .collect { isAtTop ->
+                if (isAtTop) {
+                    isFabExtended = true
+                    isFabVisible = true
+                }
             }
     }
 
-    // ── Elastic Stretch Overscroll Physics ───────────────────────────────────
+    // ── Elastic Stretch Overscroll Physics (Render-thread evaluated) ─────────
     val rawOverscrollY = remember { Animatable(0f) }
     val maxRubberBandPx = with(density) { 54.dp.toPx() }
-    val dampedOverscrollY = remember(rawOverscrollY.value, maxRubberBandPx) {
-        val raw = rawOverscrollY.value
-        if (abs(raw) < 0.5f) {
-            0f
-        } else {
-            sign(raw) * maxRubberBandPx * (1f - exp(-abs(raw) / (maxRubberBandPx * 2.0f)))
-        }
-    }
+
     val rubberBandScrollConnection = remember(coroutineScope, maxRubberBandPx) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
@@ -316,6 +307,7 @@ fun ShortcutsScreen(
                 }
                 return Offset.Zero
             }
+
             override fun onPostScroll(
                 consumed: Offset,
                 available: Offset,
@@ -329,32 +321,30 @@ fun ShortcutsScreen(
                 }
                 return Offset.Zero
             }
+
             override suspend fun onPreFling(available: Velocity): Velocity {
                 if (abs(rawOverscrollY.value) > 0.5f) {
-                    coroutineScope.launch {
-                        rawOverscrollY.animateTo(
-                            targetValue = 0f,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMediumLow
-                            )
+                    rawOverscrollY.animateTo(
+                        targetValue = 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow
                         )
-                    }
+                    )
                     return available
                 }
                 return Velocity.Zero
             }
+
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
                 if (abs(rawOverscrollY.value) > 0.5f) {
-                    coroutineScope.launch {
-                        rawOverscrollY.animateTo(
-                            targetValue = 0f,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMediumLow
-                            )
+                    rawOverscrollY.animateTo(
+                        targetValue = 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow
                         )
-                    }
+                    )
                 }
                 return available
             }
@@ -383,29 +373,17 @@ fun ShortcutsScreen(
 
     // ── Haze & Snapshot for Frosted Glass ────────────────────────────────────
     val hazeState = LocalHazeState.current
-    val view = LocalView.current
-    var barBlurBitmap by remember { mutableStateOf<Bitmap?>(null) }
-
-    LaunchedEffect(Unit) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            withContext(Dispatchers.Default) {
-                try {
-                    val w = view.width.takeIf { it > 0 } ?: 1080
-                    val h = view.height.takeIf { it > 0 } ?: 1920
-                    val bmp = Bitmap.createBitmap(w / 4, h / 4, Bitmap.Config.ARGB_8888)
-                    barBlurBitmap = BitmapBlur.blurBitmap(bmp, 20)
-                } catch (_: Throwable) {}
-            }
-        }
-    }
-
     // ── Search & Filter Logic ────────────────────────────────────────────────
     val cleanQuery = searchQuery.trim().lowercase()
 
-    val filteredShortcuts = remember(shortcuts, cleanQuery, selectedFilterCategory, activeBarShortcuts) {
+    val activeBarShortcutIds = remember(activeBarShortcuts) {
+        activeBarShortcuts.map { it.id }.toSet()
+    }
+
+    val filteredShortcuts = remember(shortcuts, cleanQuery, selectedFilterCategory, activeBarShortcutIds) {
         shortcuts.filter { action ->
             val matchesFilter = when (selectedFilterCategory) {
-                "in_bar" -> action.isEnabled && action in activeBarShortcuts
+                "in_bar" -> action.isEnabled && action.id in activeBarShortcutIds
                 "all", null -> true
                 else -> action.category == selectedFilterCategory
             }
@@ -552,8 +530,16 @@ fun ShortcutsScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
+                    .nestedScroll(fabScrollConnection)
                     .nestedScroll(rubberBandScrollConnection)
-                    .graphicsLayer { translationY = dampedOverscrollY },
+                    .graphicsLayer {
+                        val raw = rawOverscrollY.value
+                        translationY = if (abs(raw) < 0.5f) {
+                            0f
+                        } else {
+                            sign(raw) * maxRubberBandPx * (1f - exp(-abs(raw) / (maxRubberBandPx * 2.0f)))
+                        }
+                    },
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
@@ -2148,15 +2134,6 @@ private fun CreateOrEditShortcutSheet(
     }
     val rawOverscrollY = remember { Animatable(0f) }
     val maxRubberBandPx = with(density) { 48.dp.toPx() }
-    val dampedOverscrollY = remember(rawOverscrollY.value, maxRubberBandPx) {
-        val raw = rawOverscrollY.value
-        if (abs(raw) < 0.5f) {
-            0f
-        } else {
-            sign(raw) * maxRubberBandPx * (1f - exp(-abs(raw) / (maxRubberBandPx * 2.0f)))
-        }
-    }
-
     val rubberBandScrollConnection = remember(coroutineScope, maxRubberBandPx) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
@@ -2191,15 +2168,13 @@ private fun CreateOrEditShortcutSheet(
 
             override suspend fun onPreFling(available: Velocity): Velocity {
                 if (abs(rawOverscrollY.value) > 0.5f) {
-                    coroutineScope.launch {
-                        rawOverscrollY.animateTo(
-                            targetValue = 0f,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMedium
-                            )
+                    rawOverscrollY.animateTo(
+                        targetValue = 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMedium
                         )
-                    }
+                    )
                     return available
                 }
                 return Velocity.Zero
@@ -2207,15 +2182,13 @@ private fun CreateOrEditShortcutSheet(
 
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
                 if (abs(rawOverscrollY.value) > 0.5f) {
-                    coroutineScope.launch {
-                        rawOverscrollY.animateTo(
-                            targetValue = 0f,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMedium
-                            )
+                    rawOverscrollY.animateTo(
+                        targetValue = 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMedium
                         )
-                    }
+                    )
                 }
                 return available
             }
@@ -2341,7 +2314,13 @@ private fun CreateOrEditShortcutSheet(
                         )
                         .verticalScroll(scrollState, enabled = isScrollNeeded)
                         .graphicsLayer {
-                            translationY = if (isScrollNeeded) dampedOverscrollY else 0f
+                            if (isScrollNeeded) {
+                                val raw = rawOverscrollY.value
+                                translationY = if (abs(raw) < 0.5f) 0f
+                                else sign(raw) * maxRubberBandPx * (1f - exp(-abs(raw) / (maxRubberBandPx * 2.0f)))
+                            } else {
+                                translationY = 0f
+                            }
                         }
                         .animateContentSize(
                             animationSpec = spring(
