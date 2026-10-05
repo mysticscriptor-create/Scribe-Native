@@ -1428,10 +1428,13 @@ private fun WritingBarEditFlowGrid(
     val haptic = LocalHapticFeedback.current
 
     var draggingId by remember { mutableStateOf<String?>(null) }
-    var dragPositionInContainer by remember { mutableStateOf<Offset?>(null) }
+    var dragPillTopLeft by remember { mutableStateOf(Offset.Zero) }
     var hoverTargetIndex by remember { mutableIntStateOf(-1) }
     val pillBoundsMap = remember { mutableMapOf<String, Rect>() }
     var containerCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+
+    // Snapshot of stable slot bounding boxes taken at drag start to eliminate dynamic layout oscillation
+    var frozenSlotBounds by remember { mutableStateOf<List<Rect>>(emptyList()) }
 
     if (displayedPills.isEmpty()) {
         Box(
@@ -1448,18 +1451,17 @@ private fun WritingBarEditFlowGrid(
             )
         }
     } else {
-        val otherPills = remember(displayedPills, draggingId) {
-            if (draggingId != null) displayedPills.filter { it.id != draggingId } else displayedPills
-        }
-        val layoutPills = remember(displayedPills, otherPills, draggingId, hoverTargetIndex) {
+        // Reconstruct layout order with placeholder slot placed at hoverTargetIndex
+        val layoutPills = remember(displayedPills, draggingId, hoverTargetIndex) {
             if (draggingId == null || hoverTargetIndex == -1) {
                 displayedPills
             } else {
-                val list = otherPills.toMutableList()
-                val draggedItem = displayedPills.find { it.id == draggingId }
-                if (draggedItem != null) {
-                    val safeIndex = hoverTargetIndex.coerceIn(0, list.size)
-                    list.add(safeIndex, draggedItem)
+                val list = displayedPills.toMutableList()
+                val origin = list.indexOfFirst { it.id == draggingId }
+                if (origin != -1) {
+                    val item = list.removeAt(origin)
+                    val safeTarget = hoverTargetIndex.coerceIn(0, list.size)
+                    list.add(safeTarget, item)
                 }
                 list
             }
@@ -1484,6 +1486,9 @@ private fun WritingBarEditFlowGrid(
                         var currentPos = downPos
                         val touchSlop = viewConfiguration.touchSlop
                         var accumulatedDelta = Offset.Zero
+
+                        val hitBounds = pillBoundsMap[hitPill.id] ?: Rect.Zero
+                        val grabOffset = downPos - hitBounds.topLeft
 
                         try {
                             while (true) {
@@ -1519,10 +1524,14 @@ private fun WritingBarEditFlowGrid(
                                     isDragActive = true
                                     change.consume()
                                     draggingId = hitPill.id
+
+                                    // Snapshot stable slot bounds at drag start to eliminate dynamic layout oscillation
+                                    frozenSlotBounds = displayedPills.map { pillBoundsMap[it.id] ?: Rect.Zero }
                                     val originIdx = displayedPills.indexOfFirst { it.id == hitPill.id }
                                     hoverTargetIndex = originIdx
-                                    val startCenter = pillBoundsMap[hitPill.id]?.center ?: downPos
-                                    dragPositionInContainer = startCenter
+
+                                    // Position floating pill exactly where it was grabbed
+                                    dragPillTopLeft = downPos - grabOffset
                                     onDraggingStateChanged(true)
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 }
@@ -1530,25 +1539,36 @@ private fun WritingBarEditFlowGrid(
                                 if (isDragActive) {
                                     change.consume()
                                     currentPos += delta
-                                    dragPositionInContainer = currentPos
+                                    dragPillTopLeft = currentPos - grabOffset
 
-                                    // Find closest slot in otherPills
-                                    val currentOtherPills = displayedPills.filter { it.id != hitPill.id }
-                                    if (currentOtherPills.isNotEmpty()) {
-                                        var closestSlot = 0
+                                    // Calculate center of dragged pill
+                                    val pillCenter = dragPillTopLeft + Offset(hitBounds.width / 2f, hitBounds.height / 2f)
+
+                                    // Find closest slot from the FROZEN stable bounds snapshot
+                                    if (frozenSlotBounds.isNotEmpty()) {
+                                        var closestIdx = hoverTargetIndex
                                         var minDistance = Float.MAX_VALUE
-                                        for (i in currentOtherPills.indices) {
-                                            val b = pillBoundsMap[currentOtherPills[i].id] ?: continue
-                                            val dist = (b.center - currentPos).getDistance()
+                                        for (i in frozenSlotBounds.indices) {
+                                            val b = frozenSlotBounds[i]
+                                            if (b.isEmpty) continue
+                                            val dist = (b.center - pillCenter).getDistance()
                                             if (dist < minDistance) {
                                                 minDistance = dist
-                                                val isSameRow = kotlin.math.abs(currentPos.y - b.center.y) < b.height * 0.85f
-                                                val isAfter = if (isSameRow) currentPos.x > b.center.x else currentPos.y > b.center.y
-                                                closestSlot = if (isAfter) i + 1 else i
+                                                closestIdx = i
                                             }
                                         }
-                                        if (closestSlot != hoverTargetIndex) {
-                                            hoverTargetIndex = closestSlot
+
+                                        // Apply 14px hysteresis deadband so we only switch slots decisively
+                                        val currentHoverBounds = frozenSlotBounds.getOrNull(hoverTargetIndex)
+                                        val distToCurrent = if (currentHoverBounds != null && !currentHoverBounds.isEmpty) {
+                                            (currentHoverBounds.center - pillCenter).getDistance()
+                                        } else {
+                                            Float.MAX_VALUE
+                                        }
+
+                                        // Only change hoverTargetIndex if the new slot is significantly closer (deadband)
+                                        if (closestIdx != hoverTargetIndex && (minDistance + 14f) < distToCurrent) {
+                                            hoverTargetIndex = closestIdx
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         }
                                     }
@@ -1567,8 +1587,8 @@ private fun WritingBarEditFlowGrid(
                                     }
                                 }
                                 draggingId = null
-                                dragPositionInContainer = null
                                 hoverTargetIndex = -1
+                                frozenSlotBounds = emptyList()
                                 onDraggingStateChanged(false)
                             }
                         }
@@ -1585,17 +1605,7 @@ private fun WritingBarEditFlowGrid(
                 layoutPills.forEach { shortcut ->
                     if (shortcut.id == draggingId) {
                         key("placeholder_${shortcut.id}") {
-                            WritingBarPlaceholderSlot(
-                                shortcut = shortcut,
-                                onPositioned = { coords ->
-                                    containerCoords?.let { container ->
-                                        if (container.isAttached && coords.isAttached) {
-                                            val offset = container.localPositionOf(coords, Offset.Zero)
-                                            pillBoundsMap[shortcut.id] = Rect(offset, Size(coords.size.width.toFloat(), coords.size.height.toFloat()))
-                                        }
-                                    }
-                                }
-                            )
+                            WritingBarPlaceholderSlot(shortcut = shortcut)
                         }
                     } else {
                         key(shortcut.id) {
@@ -1616,13 +1626,13 @@ private fun WritingBarEditFlowGrid(
                 }
             }
 
-            // Floating elevated pill overlay that follows the finger precisely
-            if (draggingId != null && dragPositionInContainer != null) {
+            // Floating elevated pill overlay that tracks finger precisely with zero jumping
+            if (draggingId != null) {
                 val draggingShortcut = displayedPills.find { it.id == draggingId }
                 if (draggingShortcut != null) {
                     WritingBarFloatingPill(
                         shortcut = draggingShortcut,
-                        center = dragPositionInContainer!!
+                        topLeft = dragPillTopLeft
                     )
                 }
             }
@@ -1633,8 +1643,7 @@ private fun WritingBarEditFlowGrid(
 // ── Placeholder Slot in the FlowRow ───────────────────────────────────────────
 @Composable
 private fun WritingBarPlaceholderSlot(
-    shortcut: ShortcutAction,
-    onPositioned: (LayoutCoordinates) -> Unit
+    shortcut: ShortcutAction
 ) {
     val colors = ScribeTheme.colors
     val accentPrimary = colors.interaction.primary
@@ -1643,11 +1652,7 @@ private fun WritingBarPlaceholderSlot(
         shape = CircleShape,
         color = accentPrimary.copy(alpha = 0.08f),
         border = BorderStroke(1.2.dp, accentPrimary.copy(alpha = 0.45f)),
-        modifier = Modifier
-            .height(36.dp)
-            .onGloballyPositioned { coordinates ->
-                onPositioned(coordinates)
-            }
+        modifier = Modifier.height(36.dp)
     ) {
         Box(
             contentAlignment = Alignment.Center,
@@ -1670,7 +1675,7 @@ private fun WritingBarPlaceholderSlot(
 @Composable
 private fun WritingBarFloatingPill(
     shortcut: ShortcutAction,
-    center: Offset
+    topLeft: Offset
 ) {
     val colors = ScribeTheme.colors
     val contentPrimary = colors.content.primary
@@ -1680,8 +1685,8 @@ private fun WritingBarFloatingPill(
         modifier = Modifier
             .offset {
                 IntOffset(
-                    x = center.x.roundToInt(),
-                    y = center.y.roundToInt()
+                    x = topLeft.x.roundToInt(),
+                    y = topLeft.y.roundToInt()
                 )
             }
             .zIndex(60f)
@@ -1691,8 +1696,6 @@ private fun WritingBarFloatingPill(
                 shadowElevation = 12.dp.toPx()
                 shape = CircleShape
                 clip = false
-                translationX = -size.width / 2f
-                translationY = -size.height / 2f
             }
     ) {
         Surface(
