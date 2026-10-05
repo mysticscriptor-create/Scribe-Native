@@ -1561,16 +1561,18 @@ private fun WritingBarCategoryReorderStrip(
                                     label = "catTranslation"
                                 )
 
+                                val activeCatTranslation = if (draggingCatId != null) animOffset else Offset.Zero
+
                                 if (isDraggingThis) {
                                     WritingBarCategoryPlaceholder(
                                         catId = catId,
-                                        translation = animOffset
+                                        translation = activeCatTranslation
                                     )
                                 } else {
                                     WritingBarCategoryChip(
                                         catId = catId,
                                         shortcutCount = count,
-                                        translation = animOffset,
+                                        translation = activeCatTranslation,
                                         onPositioned = { coords ->
                                             catContainerCoords?.let { container ->
                                                 if (container.isAttached && coords.isAttached) {
@@ -2003,16 +2005,18 @@ private fun WritingBarEditFlowGrid(
                             label = "pillTranslation"
                         )
 
+                        val activeTranslation = if (draggingId != null) animOffset else Offset.Zero
+
                         if (isDraggingThis) {
                             WritingBarPlaceholderSlot(
                                 shortcut = shortcut,
-                                translation = animOffset
+                                translation = activeTranslation
                             )
                         } else {
                             WritingBarStaticPill(
                                 shortcut = shortcut,
                                 isMarkedForRemoval = shortcut.id in markedForRemovalIds,
-                                translation = animOffset,
+                                translation = activeTranslation,
                                 onPositioned = { coords ->
                                     containerCoords?.let { container ->
                                         if (container.isAttached && coords.isAttached) {
