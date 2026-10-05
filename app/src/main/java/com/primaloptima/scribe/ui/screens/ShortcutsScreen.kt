@@ -6,6 +6,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.layout.boundsInParent
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -943,13 +944,13 @@ private fun WritingBarHeroSection(
                                 if (markedForRemovalIds.isNotEmpty()) {
                                     "${markedForRemovalIds.size} marked for removal"
                                 } else {
-                                    "Tap to remove • Drag to reorder"
+                                    "${activeShortcuts.size} shortcuts in Writing Bar"
                                 }
                             } else {
                                 if (activeShortcuts.isNotEmpty()) "${activeShortcuts.size} shortcuts" else "0 shortcuts"
                             },
                             fontSize = 11.5.sp,
-                            color = if (isEditMode) accentPrimary else contentSecondary,
+                            color = if (isEditMode && markedForRemovalIds.isNotEmpty()) accentPrimary else contentSecondary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -989,50 +990,7 @@ private fun WritingBarHeroSection(
                         }
                     }
                 } else {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        TextButton(
-                            onClick = onCancelClick,
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.height(32.dp)
-                        ) {
-                            Text(
-                                text = "Cancel",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = contentSecondary
-                            )
-                        }
-
-                        Surface(
-                            onClick = onDoneClick,
-                            shape = CircleShape,
-                            color = accentPrimary,
-                            border = BorderStroke(0.5.dp, accentPrimary),
-                            modifier = Modifier.height(32.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Check,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(13.dp),
-                                    tint = onAccent
-                                )
-                                Text(
-                                    text = "Done",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = onAccent
-                                )
-                            }
-                        }
-                    }
+                    // Actions moved to bottom footer row
                 }
             }
 
@@ -1209,44 +1167,122 @@ private fun WritingBarHeroSection(
                             }
                         )
                     }
+
+                    // ── Bottom Footer: Bulb Hint Strip on Left + Action Buttons on Right ──
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 2.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Left hint strip with small warm bulb icon
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.weight(1f, fill = false)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lightbulb,
+                                contentDescription = null,
+                                tint = Color(0xFFF59E0B),
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = if (markedForRemovalIds.isNotEmpty()) {
+                                    "Tap Done to remove ${markedForRemovalIds.size} shortcut${if (markedForRemovalIds.size > 1) "s" else ""}"
+                                } else {
+                                    "Tap pill to remove • Drag to reorder"
+                                },
+                                fontSize = 11.5.sp,
+                                color = contentSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        // Right action buttons: Cancel and Done
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            TextButton(
+                                onClick = onCancelClick,
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text(
+                                    text = "Cancel",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = contentSecondary
+                                )
+                            }
+
+                            Surface(
+                                onClick = onDoneClick,
+                                shape = CircleShape,
+                                color = accentPrimary,
+                                border = BorderStroke(0.5.dp, accentPrimary),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(13.dp),
+                                        tint = onAccent
+                                    )
+                                    Text(
+                                        text = "Done",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = onAccent
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-// ── Smooth Placement Animation in Container ──────────────────────────────────
+// ── Smooth Placement Animation ────────────────────────────────────────────────
 @Composable
-private fun Modifier.animatePlacementInContainer(
-    containerCoords: LayoutCoordinates?
-): Modifier {
+private fun Modifier.animatePlacement(): Modifier {
     var previousPosition by remember { mutableStateOf<Offset?>(null) }
     val animOffset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
     val scope = rememberCoroutineScope()
 
     return this
         .onGloballyPositioned { coords ->
-            containerCoords?.let { container ->
-                if (container.isAttached && coords.isAttached) {
-                    val currentPos = container.localPositionOf(coords, Offset.Zero)
-                    val prev = previousPosition
-                    if (prev != null && prev != currentPos) {
-                        val delta = prev - currentPos
-                        if (delta.getDistance() > 1.5f) {
-                            scope.launch {
-                                animOffset.snapTo(animOffset.value + delta)
-                                animOffset.animateTo(
-                                    targetValue = Offset.Zero,
-                                    animationSpec = spring(
-                                        stiffness = Spring.StiffnessMediumLow,
-                                        dampingRatio = Spring.DampingRatioNoBouncy
-                                    )
+            if (coords.isAttached) {
+                val currentPos = coords.positionInWindow()
+                val prev = previousPosition
+                if (prev != null && prev != currentPos) {
+                    val delta = prev - currentPos
+                    if (delta.getDistance() > 1.5f) {
+                        scope.launch {
+                            animOffset.snapTo(animOffset.value + delta)
+                            animOffset.animateTo(
+                                targetValue = Offset.Zero,
+                                animationSpec = spring(
+                                    stiffness = Spring.StiffnessMediumLow,
+                                    dampingRatio = Spring.DampingRatioNoBouncy
                                 )
-                            }
+                            )
                         }
                     }
-                    previousPosition = currentPos
                 }
+                previousPosition = currentPos
             }
         }
         .graphicsLayer {
@@ -1275,6 +1311,7 @@ private fun WritingBarCategoryReorderStrip(
     val accentPrimary = colors.interaction.primary
     val glyphBoxBg = colors.surfaces.surfaceLowest
     val haptic = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
 
     var draggingCatId by remember { mutableStateOf<String?>(null) }
     var dragCatTopLeft by remember { mutableStateOf(Offset.Zero) }
@@ -1282,6 +1319,9 @@ private fun WritingBarCategoryReorderStrip(
     val catBoundsMap = remember { mutableMapOf<String, Rect>() }
     var catContainerCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var frozenCatBounds by remember { mutableStateOf<List<Rect>>(emptyList()) }
+
+    var isSettling by remember { mutableStateOf(false) }
+    val settlingOffset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
 
     val chevronRot by animateFloatAsState(
         targetValue = if (isExpanded && !isCustomOrder) 180f else 0f,
@@ -1381,12 +1421,6 @@ private fun WritingBarCategoryReorderStrip(
                         .padding(top = 8.dp, bottom = 2.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text(
-                        text = "Drag chips to reorder category groups in Writing Bar",
-                        fontSize = 11.sp,
-                        color = contentSecondary
-                    )
-
                     val layoutCategories = remember(categories, draggingCatId, hoverTargetCatIndex) {
                         if (draggingCatId == null || hoverTargetCatIndex == -1) {
                             categories
@@ -1436,11 +1470,35 @@ private fun WritingBarCategoryReorderStrip(
                                                     val targetIdx = hoverTargetCatIndex
                                                     if (dragId != null && targetIdx != -1) {
                                                         val originIdx = categories.indexOf(dragId)
-                                                        if (originIdx != -1 && originIdx != targetIdx) {
-                                                            onReorderCategories(originIdx, targetIdx)
+                                                        val targetBounds = frozenCatBounds.getOrNull(targetIdx) ?: hitBounds
+                                                        val targetTopLeft = targetBounds.topLeft
+
+                                                        isSettling = true
+                                                        coroutineScope.launch {
+                                                            settlingOffset.snapTo(dragCatTopLeft)
+                                                            settlingOffset.animateTo(
+                                                                targetValue = targetTopLeft,
+                                                                animationSpec = spring(
+                                                                    stiffness = Spring.StiffnessMediumLow,
+                                                                    dampingRatio = Spring.DampingRatioNoBouncy
+                                                                )
+                                                            )
+                                                            if (originIdx != -1 && originIdx != targetIdx) {
+                                                                onReorderCategories(originIdx, targetIdx)
+                                                            }
+                                                            draggingCatId = null
+                                                            hoverTargetCatIndex = -1
+                                                            isSettling = false
+                                                            frozenCatBounds = emptyList()
+                                                            onDraggingStateChanged(false)
+                                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                         }
+                                                    } else {
+                                                        draggingCatId = null
+                                                        hoverTargetCatIndex = -1
+                                                        frozenCatBounds = emptyList()
+                                                        onDraggingStateChanged(false)
                                                     }
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                 }
                                                 break
                                             }
@@ -1462,7 +1520,7 @@ private fun WritingBarCategoryReorderStrip(
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             }
 
-                                            if (isDragActive) {
+                                            if (isDragActive && !isSettling) {
                                                 change.consume()
                                                 currentPos += delta
                                                 dragCatTopLeft = currentPos - grabOffset
@@ -1470,34 +1528,28 @@ private fun WritingBarCategoryReorderStrip(
                                                 val chipCenter = dragCatTopLeft + Offset(hitBounds.width / 2f, hitBounds.height / 2f)
 
                                                 if (frozenCatBounds.isNotEmpty()) {
-                                                    var closestIdx = hoverTargetCatIndex
-                                                    var minDistance = Float.MAX_VALUE
-                                                    for (i in frozenCatBounds.indices) {
-                                                        val b = frozenCatBounds[i]
-                                                        if (b.isEmpty) continue
-                                                        val dist = (b.center - chipCenter).getDistance()
-                                                        if (dist < minDistance) {
-                                                            minDistance = dist
-                                                            closestIdx = i
+                                                    // Find exact slot the chip center is currently within
+                                                    val targetSlot = frozenCatBounds.indexOfFirst { b -> !b.isEmpty && b.contains(chipCenter) }
+                                                        .let { found ->
+                                                            if (found != -1) {
+                                                                found
+                                                            } else {
+                                                                frozenCatBounds.indices.minByOrNull { i ->
+                                                                    val b = frozenCatBounds[i]
+                                                                    if (b.isEmpty) Float.MAX_VALUE else (b.center - chipCenter).getDistance()
+                                                                } ?: hoverTargetCatIndex
+                                                            }
                                                         }
-                                                    }
 
-                                                    val currentHoverBounds = frozenCatBounds.getOrNull(hoverTargetCatIndex)
-                                                    val distToCurrent = if (currentHoverBounds != null && !currentHoverBounds.isEmpty) {
-                                                        (currentHoverBounds.center - chipCenter).getDistance()
-                                                    } else {
-                                                        Float.MAX_VALUE
-                                                    }
-
-                                                    if (closestIdx != hoverTargetCatIndex && (minDistance + 14f) < distToCurrent) {
-                                                        hoverTargetCatIndex = closestIdx
+                                                    if (targetSlot != hoverTargetCatIndex && targetSlot != -1) {
+                                                        hoverTargetCatIndex = targetSlot
                                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                     }
                                                 }
                                             }
                                         }
                                     } finally {
-                                        if (isDragActive) {
+                                        if (isDragActive && !isSettling) {
                                             val dragId = draggingCatId
                                             val targetIdx = hoverTargetCatIndex
                                             if (dragId != null && targetIdx != -1) {
@@ -1526,17 +1578,13 @@ private fun WritingBarCategoryReorderStrip(
                                 val count = shortcutCounts[catId] ?: 0
                                 if (catId == draggingCatId) {
                                     key("cat_placeholder_$catId") {
-                                        WritingBarCategoryPlaceholder(
-                                            catId = catId,
-                                            containerCoords = catContainerCoords
-                                        )
+                                        WritingBarCategoryPlaceholder(catId = catId)
                                     }
                                 } else {
                                     key(catId) {
                                         WritingBarCategoryChip(
                                             catId = catId,
                                             shortcutCount = count,
-                                            containerCoords = catContainerCoords,
                                             onPositioned = { coords ->
                                                 catContainerCoords?.let { container ->
                                                     if (container.isAttached && coords.isAttached) {
@@ -1554,13 +1602,14 @@ private fun WritingBarCategoryReorderStrip(
                             }
                         }
 
-                        // Floating elevated category chip overlay that tracks finger precisely
+                        // Floating elevated category chip overlay that tracks finger and smoothly settles
                         if (draggingCatId != null) {
                             val count = shortcutCounts[draggingCatId] ?: 0
+                            val renderPos = if (isSettling) settlingOffset.value else dragCatTopLeft
                             WritingBarFloatingCategoryChip(
                                 catId = draggingCatId!!,
                                 shortcutCount = count,
-                                topLeft = dragCatTopLeft
+                                topLeft = renderPos
                             )
                         }
                     }
@@ -1575,7 +1624,6 @@ private fun WritingBarCategoryReorderStrip(
 private fun WritingBarCategoryChip(
     catId: String,
     shortcutCount: Int,
-    containerCoords: LayoutCoordinates?,
     onPositioned: (LayoutCoordinates) -> Unit
 ) {
     val colors = ScribeTheme.colors
@@ -1593,7 +1641,7 @@ private fun WritingBarCategoryChip(
         border = BorderStroke(0.7.dp, subtleBorder),
         modifier = Modifier
             .height(34.dp)
-            .animatePlacementInContainer(containerCoords)
+            .animatePlacement()
             .onGloballyPositioned { coordinates ->
                 onPositioned(coordinates)
             }
@@ -1636,8 +1684,7 @@ private fun WritingBarCategoryChip(
 // ── Category Placeholder Slot ─────────────────────────────────────────────────
 @Composable
 private fun WritingBarCategoryPlaceholder(
-    catId: String,
-    containerCoords: LayoutCoordinates?
+    catId: String
 ) {
     val colors = ScribeTheme.colors
     val accentPrimary = colors.interaction.primary
@@ -1651,7 +1698,7 @@ private fun WritingBarCategoryPlaceholder(
         border = BorderStroke(1.2.dp, accentPrimary.copy(alpha = 0.45f)),
         modifier = Modifier
             .height(34.dp)
-            .animatePlacementInContainer(containerCoords)
+            .animatePlacement()
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
@@ -1683,6 +1730,7 @@ private fun WritingBarFloatingCategoryChip(
 ) {
     val colors = ScribeTheme.colors
     val contentPrimary = colors.content.primary
+    val contentSecondary = colors.content.secondary
     val accentPrimary = colors.interaction.primary
 
     val meta = STUDIO_CATEGORIES.find { it.id == catId }
@@ -1758,6 +1806,7 @@ private fun WritingBarEditFlowGrid(
 ) {
     val colors = ScribeTheme.colors
     val haptic = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
 
     var draggingId by remember { mutableStateOf<String?>(null) }
     var dragPillTopLeft by remember { mutableStateOf(Offset.Zero) }
@@ -1767,6 +1816,9 @@ private fun WritingBarEditFlowGrid(
 
     // Snapshot of stable slot bounding boxes taken at drag start to eliminate dynamic layout oscillation
     var frozenSlotBounds by remember { mutableStateOf<List<Rect>>(emptyList()) }
+
+    var isSettling by remember { mutableStateOf(false) }
+    val settlingOffset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
 
     if (displayedPills.isEmpty()) {
         Box(
@@ -1838,13 +1890,37 @@ private fun WritingBarEditFlowGrid(
                                         val targetIdx = hoverTargetIndex
                                         if (dragId != null && targetIdx != -1) {
                                             val originIdx = displayedPills.indexOfFirst { it.id == dragId }
-                                            if (originIdx != -1 && originIdx != targetIdx) {
-                                                val safeTarget = targetIdx.coerceIn(displayedPills.indices)
-                                                val crossedCat = displayedPills[originIdx].category != displayedPills[safeTarget].category
-                                                onReorderPills(originIdx, targetIdx, crossedCat)
+                                            val targetBounds = frozenSlotBounds.getOrNull(targetIdx) ?: hitBounds
+                                            val targetTopLeft = targetBounds.topLeft
+
+                                            isSettling = true
+                                            coroutineScope.launch {
+                                                settlingOffset.snapTo(dragPillTopLeft)
+                                                settlingOffset.animateTo(
+                                                    targetValue = targetTopLeft,
+                                                    animationSpec = spring(
+                                                        stiffness = Spring.StiffnessMediumLow,
+                                                        dampingRatio = Spring.DampingRatioNoBouncy
+                                                    )
+                                                )
+                                                if (originIdx != -1 && originIdx != targetIdx) {
+                                                    val safeTarget = targetIdx.coerceIn(displayedPills.indices)
+                                                    val crossedCat = displayedPills[originIdx].category != displayedPills[safeTarget].category
+                                                    onReorderPills(originIdx, targetIdx, crossedCat)
+                                                }
+                                                draggingId = null
+                                                hoverTargetIndex = -1
+                                                isSettling = false
+                                                frozenSlotBounds = emptyList()
+                                                onDraggingStateChanged(false)
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             }
+                                        } else {
+                                            draggingId = null
+                                            hoverTargetIndex = -1
+                                            frozenSlotBounds = emptyList()
+                                            onDraggingStateChanged(false)
                                         }
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     }
                                     break
                                 }
@@ -1868,7 +1944,7 @@ private fun WritingBarEditFlowGrid(
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 }
 
-                                if (isDragActive) {
+                                if (isDragActive && !isSettling) {
                                     change.consume()
                                     currentPos += delta
                                     dragPillTopLeft = currentPos - grabOffset
@@ -1876,38 +1952,29 @@ private fun WritingBarEditFlowGrid(
                                     // Calculate center of dragged pill
                                     val pillCenter = dragPillTopLeft + Offset(hitBounds.width / 2f, hitBounds.height / 2f)
 
-                                    // Find closest slot from the FROZEN stable bounds snapshot
+                                    // Find exact slot the pill center is currently within
                                     if (frozenSlotBounds.isNotEmpty()) {
-                                        var closestIdx = hoverTargetIndex
-                                        var minDistance = Float.MAX_VALUE
-                                        for (i in frozenSlotBounds.indices) {
-                                            val b = frozenSlotBounds[i]
-                                            if (b.isEmpty) continue
-                                            val dist = (b.center - pillCenter).getDistance()
-                                            if (dist < minDistance) {
-                                                minDistance = dist
-                                                closestIdx = i
+                                        val targetSlot = frozenSlotBounds.indexOfFirst { b -> !b.isEmpty && b.contains(pillCenter) }
+                                            .let { found ->
+                                                if (found != -1) {
+                                                    found
+                                                } else {
+                                                    frozenSlotBounds.indices.minByOrNull { i ->
+                                                        val b = frozenSlotBounds[i]
+                                                        if (b.isEmpty) Float.MAX_VALUE else (b.center - pillCenter).getDistance()
+                                                    } ?: hoverTargetIndex
+                                                }
                                             }
-                                        }
 
-                                        // Apply 14px hysteresis deadband so we only switch slots decisively
-                                        val currentHoverBounds = frozenSlotBounds.getOrNull(hoverTargetIndex)
-                                        val distToCurrent = if (currentHoverBounds != null && !currentHoverBounds.isEmpty) {
-                                            (currentHoverBounds.center - pillCenter).getDistance()
-                                        } else {
-                                            Float.MAX_VALUE
-                                        }
-
-                                        // Only change hoverTargetIndex if the new slot is significantly closer (deadband)
-                                        if (closestIdx != hoverTargetIndex && (minDistance + 14f) < distToCurrent) {
-                                            hoverTargetIndex = closestIdx
+                                        if (targetSlot != hoverTargetIndex && targetSlot != -1) {
+                                            hoverTargetIndex = targetSlot
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                         }
                                     }
                                 }
                             }
                         } finally {
-                            if (isDragActive) {
+                            if (isDragActive && !isSettling) {
                                 val dragId = draggingId
                                 val targetIdx = hoverTargetIndex
                                 if (dragId != null && targetIdx != -1) {
@@ -1937,17 +2004,13 @@ private fun WritingBarEditFlowGrid(
                 layoutPills.forEach { shortcut ->
                     if (shortcut.id == draggingId) {
                         key("placeholder_${shortcut.id}") {
-                            WritingBarPlaceholderSlot(
-                                shortcut = shortcut,
-                                containerCoords = containerCoords
-                            )
+                            WritingBarPlaceholderSlot(shortcut = shortcut)
                         }
                     } else {
                         key(shortcut.id) {
                             WritingBarStaticPill(
                                 shortcut = shortcut,
                                 isMarkedForRemoval = shortcut.id in markedForRemovalIds,
-                                containerCoords = containerCoords,
                                 onPositioned = { coords ->
                                     containerCoords?.let { container ->
                                         if (container.isAttached && coords.isAttached) {
@@ -1962,13 +2025,14 @@ private fun WritingBarEditFlowGrid(
                 }
             }
 
-            // Floating elevated pill overlay that tracks finger precisely with zero jumping
+            // Floating elevated pill overlay that tracks finger precisely and smoothly settles
             if (draggingId != null) {
                 val draggingShortcut = displayedPills.find { it.id == draggingId }
                 if (draggingShortcut != null) {
+                    val renderPos = if (isSettling) settlingOffset.value else dragPillTopLeft
                     WritingBarFloatingPill(
                         shortcut = draggingShortcut,
-                        topLeft = dragPillTopLeft
+                        topLeft = renderPos
                     )
                 }
             }
@@ -1979,8 +2043,7 @@ private fun WritingBarEditFlowGrid(
 // ── Placeholder Slot in the FlowRow ───────────────────────────────────────────
 @Composable
 private fun WritingBarPlaceholderSlot(
-    shortcut: ShortcutAction,
-    containerCoords: LayoutCoordinates?
+    shortcut: ShortcutAction
 ) {
     val colors = ScribeTheme.colors
     val accentPrimary = colors.interaction.primary
@@ -1991,7 +2054,7 @@ private fun WritingBarPlaceholderSlot(
         border = BorderStroke(1.2.dp, accentPrimary.copy(alpha = 0.45f)),
         modifier = Modifier
             .height(36.dp)
-            .animatePlacementInContainer(containerCoords)
+            .animatePlacement()
     ) {
         Box(
             contentAlignment = Alignment.Center,
@@ -2066,7 +2129,6 @@ private fun WritingBarFloatingPill(
 private fun WritingBarStaticPill(
     shortcut: ShortcutAction,
     isMarkedForRemoval: Boolean,
-    containerCoords: LayoutCoordinates?,
     onPositioned: (LayoutCoordinates) -> Unit
 ) {
     val colors = ScribeTheme.colors
@@ -2090,7 +2152,7 @@ private fun WritingBarStaticPill(
         border = BorderStroke(0.7.dp, borderColor),
         modifier = Modifier
             .height(36.dp)
-            .animatePlacementInContainer(containerCoords)
+            .animatePlacement()
             .graphicsLayer {
                 alpha = animatedAlpha
                 shape = CircleShape
