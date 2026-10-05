@@ -235,10 +235,12 @@ fun ShortcutsScreen(
 
     // ── Edit/Reorder Mode State ──────────────────────────────────────────────
     var isEditMode by rememberSaveable { mutableStateOf(false) }
+    var isPillDragging by remember { mutableStateOf(false) }
 
     // Intercept Back while in Edit Mode to cleanly cancel and restore order
     BackHandler(enabled = isEditMode) {
         isEditMode = false
+        isPillDragging = false
     }
 
     // ── Smart Scrolling FAB Controller ───────────────────────────────────────
@@ -530,6 +532,7 @@ fun ShortcutsScreen(
         CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
             LazyColumn(
                 state = listState,
+                userScrollEnabled = !isPillDragging,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues)
@@ -551,6 +554,7 @@ fun ShortcutsScreen(
                     WritingBarHeroSection(
                         activeShortcuts = activeBarShortcuts,
                         isEditMode = isEditMode,
+                        onDraggingStateChanged = { isDragging -> isPillDragging = isDragging },
                         onStartEdit = {
                             isEditMode = true
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -558,10 +562,12 @@ fun ShortcutsScreen(
                         onCommitEdit = { finalShortcuts ->
                             vm.commitActiveBarOrder(finalShortcuts.map { it.id })
                             isEditMode = false
+                            isPillDragging = false
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         },
                         onCancelEdit = {
                             isEditMode = false
+                            isPillDragging = false
                         },
                         onScrollToLibrary = {
                             scope.launch {
@@ -800,11 +806,11 @@ fun ShortcutsScreen(
 }
 
 // ── Writing Bar Hero Section ──────────────────────────────────────────────────
-// ── Writing Bar Hero Section ──────────────────────────────────────────────────
 @Composable
 private fun WritingBarHeroSection(
     activeShortcuts: List<ShortcutAction>,
     isEditMode: Boolean,
+    onDraggingStateChanged: (Boolean) -> Unit,
     onStartEdit: () -> Unit,
     onCommitEdit: (List<ShortcutAction>) -> Unit,
     onCancelEdit: () -> Unit,
@@ -864,6 +870,7 @@ private fun WritingBarHeroSection(
 
     val onDoneClick = {
         val finalShortcuts = displayedPills.filter { it.id !in markedForRemovalIds }
+        onDraggingStateChanged(false)
         onCommitEdit(finalShortcuts)
     }
 
@@ -871,6 +878,7 @@ private fun WritingBarHeroSection(
         workingShortcuts = activeShortcuts.toList()
         markedForRemovalIds = emptySet()
         isCustomOrder = false
+        onDraggingStateChanged(false)
         onCancelEdit()
     }
 
@@ -899,6 +907,7 @@ private fun WritingBarHeroSection(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
+                    modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -917,29 +926,35 @@ private fun WritingBarHeroSection(
                         )
                     }
 
-                    Column {
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
                         Text(
                             text = if (isEditMode) "Edit Writing Bar" else "Your Writing Bar",
                             fontFamily = FontFamily.Serif,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Medium,
-                            color = contentPrimary
+                            color = contentPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = if (isEditMode) {
                                 if (markedForRemovalIds.isNotEmpty()) {
-                                    "${markedForRemovalIds.size} marked for removal • Tap Done to apply"
+                                    "${markedForRemovalIds.size} marked for removal"
                                 } else {
-                                    "Tap pill to remove • Drag to reorder"
+                                    "Tap to remove • Drag to reorder"
                                 }
                             } else {
                                 if (activeShortcuts.isNotEmpty()) "${activeShortcuts.size} shortcuts" else "0 shortcuts"
                             },
-                            fontSize = 12.sp,
-                            color = if (isEditMode) accentPrimary else contentSecondary
+                            fontSize = 11.5.sp,
+                            color = if (isEditMode) accentPrimary else contentSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
+
+                Spacer(modifier = Modifier.width(8.dp))
 
                 // Trailing Buttons: "Edit" in normal state; "Cancel" + "Done" in edit state
                 if (!isEditMode) {
@@ -978,7 +993,7 @@ private fun WritingBarHeroSection(
                     ) {
                         TextButton(
                             onClick = onCancelClick,
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                             modifier = Modifier.height(32.dp)
                         ) {
                             Text(
@@ -997,7 +1012,7 @@ private fun WritingBarHeroSection(
                             modifier = Modifier.height(32.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
@@ -1177,6 +1192,7 @@ private fun WritingBarHeroSection(
                                     markedForRemovalIds + id
                                 }
                             },
+                            onDraggingStateChanged = onDraggingStateChanged,
                             onReorderPills = { fromIndex, toIndex, crossedCategory ->
                                 if (crossedCategory) {
                                     isCustomOrder = true
@@ -1403,13 +1419,14 @@ private fun WritingBarEditFlowGrid(
     displayedPills: List<ShortcutAction>,
     markedForRemovalIds: Set<String>,
     onToggleMark: (String) -> Unit,
+    onDraggingStateChanged: (Boolean) -> Unit,
     onReorderPills: (fromIndex: Int, toIndex: Int, crossedCategory: Boolean) -> Unit
 ) {
     val colors = ScribeTheme.colors
     val haptic = LocalHapticFeedback.current
 
     var draggingId by remember { mutableStateOf<String?>(null) }
-    var dragOffset by remember { mutableStateOf(Offset.Zero) }
+    var dragPositionInContainer by remember { mutableStateOf<Offset?>(null) }
     val pillBoundsMap = remember { mutableMapOf<String, Rect>() }
 
     if (displayedPills.isEmpty()) {
@@ -1435,56 +1452,78 @@ private fun WritingBarEditFlowGrid(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             displayedPills.forEachIndexed { index, shortcut ->
-                val isDragging = draggingId == shortcut.id
-                val isMarked = shortcut.id in markedForRemovalIds
+                key(shortcut.id) {
+                    val isDragging = draggingId == shortcut.id
+                    val isMarked = shortcut.id in markedForRemovalIds
+                    val currentBounds = pillBoundsMap[shortcut.id]
 
-                WritingBarEditPill(
-                    shortcut = shortcut,
-                    isMarkedForRemoval = isMarked,
-                    isDragging = isDragging,
-                    dragOffset = if (isDragging) dragOffset else Offset.Zero,
-                    onToggleMark = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onToggleMark(shortcut.id)
-                    },
-                    onDragStart = {
-                        draggingId = shortcut.id
-                        dragOffset = Offset.Zero
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    },
-                    onDrag = { delta ->
-                        dragOffset += delta
-                        val currentDraggingId = draggingId ?: return@WritingBarEditPill
-                        val initialBounds = pillBoundsMap[currentDraggingId] ?: return@WritingBarEditPill
-                        val currentCenter = initialBounds.center + dragOffset
+                    val visualTranslation = if (isDragging && dragPositionInContainer != null && currentBounds != null) {
+                        dragPositionInContainer!! - currentBounds.center
+                    } else {
+                        Offset.Zero
+                    }
 
-                        // Check which pill's bounding box contains the dragged center
-                        val currIndex = displayedPills.indexOfFirst { it.id == currentDraggingId }
-                        if (currIndex != -1) {
-                            for (targetIndex in displayedPills.indices) {
-                                if (targetIndex != currIndex) {
-                                    val targetPill = displayedPills[targetIndex]
-                                    val targetBounds = pillBoundsMap[targetPill.id]
-                                    if (targetBounds != null && targetBounds.contains(currentCenter)) {
-                                        val crossedCat = displayedPills[currIndex].category != targetPill.category
-                                        onReorderPills(currIndex, targetIndex, crossedCat)
-                                        dragOffset = currentCenter - targetBounds.center
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        break
+                    WritingBarEditPill(
+                        shortcut = shortcut,
+                        isMarkedForRemoval = isMarked,
+                        isDragging = isDragging,
+                        visualTranslation = visualTranslation,
+                        onToggleMark = {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            onToggleMark(shortcut.id)
+                        },
+                        onDragStart = {
+                            val initialCenter = pillBoundsMap[shortcut.id]?.center ?: Offset.Zero
+                            draggingId = shortcut.id
+                            dragPositionInContainer = initialCenter
+                            onDraggingStateChanged(true)
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        },
+                        onDrag = { delta ->
+                            val currentDraggingId = draggingId ?: return@WritingBarEditPill
+                            val currentPos = dragPositionInContainer ?: return@WritingBarEditPill
+                            val newPos = currentPos + delta
+                            dragPositionInContainer = newPos
+
+                            // Check which pill is closest to newPos
+                            val currIndex = displayedPills.indexOfFirst { it.id == currentDraggingId }
+                            if (currIndex != -1) {
+                                var bestTargetIndex = -1
+                                var bestDist = Float.MAX_VALUE
+
+                                for (targetIndex in displayedPills.indices) {
+                                    if (targetIndex != currIndex) {
+                                        val targetPill = displayedPills[targetIndex]
+                                        val targetBounds = pillBoundsMap[targetPill.id]
+                                        if (targetBounds != null) {
+                                            val dist = (targetBounds.center - newPos).getDistance()
+                                            val threshold = (targetBounds.width.coerceAtLeast(targetBounds.height) * 0.85f).coerceAtLeast(28f)
+                                            if (dist < threshold && dist < bestDist) {
+                                                bestDist = dist
+                                                bestTargetIndex = targetIndex
+                                            }
+                                        }
                                     }
                                 }
+
+                                if (bestTargetIndex != -1) {
+                                    val crossedCat = displayedPills[currIndex].category != displayedPills[bestTargetIndex].category
+                                    onReorderPills(currIndex, bestTargetIndex, crossedCat)
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                }
                             }
+                        },
+                        onDragEnd = {
+                            draggingId = null
+                            dragPositionInContainer = null
+                            onDraggingStateChanged(false)
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        },
+                        onPositioned = { bounds ->
+                            pillBoundsMap[shortcut.id] = bounds
                         }
-                    },
-                    onDragEnd = {
-                        draggingId = null
-                        dragOffset = Offset.Zero
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    },
-                    onPositioned = { bounds ->
-                        pillBoundsMap[shortcut.id] = bounds
-                    }
-                )
+                    )
+                }
             }
         }
     }
@@ -1496,7 +1535,7 @@ private fun WritingBarEditPill(
     shortcut: ShortcutAction,
     isMarkedForRemoval: Boolean,
     isDragging: Boolean,
-    dragOffset: Offset,
+    visualTranslation: Offset,
     onToggleMark: () -> Unit,
     onDragStart: () -> Unit,
     onDrag: (Offset) -> Unit,
@@ -1511,14 +1550,13 @@ private fun WritingBarEditPill(
     val glyphBoxBg = colors.surfaces.surfaceLowest
 
     val animatedAlpha by animateFloatAsState(
-        targetValue = if (isMarkedForRemoval) 0.32f else 1.0f,
-        animationSpec = tween(220),
+        targetValue = if (isMarkedForRemoval) 0.30f else 1.0f,
+        animationSpec = tween(200),
         label = "pillAlpha"
     )
 
     val targetScale = when {
         isDragging -> 1.14f
-        isMarkedForRemoval -> 0.93f
         else -> 1.0f
     }
     val animatedScale by animateFloatAsState(
@@ -1538,13 +1576,13 @@ private fun WritingBarEditPill(
 
     val borderColor = when {
         isDragging -> accentPrimary
-        isMarkedForRemoval -> colors.semantic.error.copy(alpha = 0.4f)
+        isMarkedForRemoval -> subtleBorder.copy(alpha = 0.35f)
         else -> subtleBorder
     }
 
     val backgroundColor = when {
         isDragging -> colors.surfaces.surfaceRaised
-        isMarkedForRemoval -> glyphBoxBg.copy(alpha = 0.5f)
+        isMarkedForRemoval -> glyphBoxBg.copy(alpha = 0.45f)
         else -> glyphBoxBg
     }
 
@@ -1552,8 +1590,8 @@ private fun WritingBarEditPill(
         modifier = Modifier
             .zIndex(if (isDragging) 30f else 1f)
             .graphicsLayer {
-                translationX = if (isDragging) dragOffset.x else 0f
-                translationY = if (isDragging) dragOffset.y else 0f
+                translationX = visualTranslation.x
+                translationY = visualTranslation.y
                 scaleX = animatedScale
                 scaleY = animatedScale
                 shadowElevation = animatedElevation.toPx()
@@ -1564,41 +1602,47 @@ private fun WritingBarEditPill(
             .onGloballyPositioned { coordinates ->
                 onPositioned(coordinates.boundsInParent())
             }
-            .pointerInput(shortcut.id) {
+            .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     var isDragActive = false
                     var accumulatedDelta = Offset.Zero
                     val touchSlop = viewConfiguration.touchSlop
 
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    try {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
 
-                        if (change.changedToUp()) {
-                            if (!isDragActive) {
-                                // Tap detected! Toggle mark for removal
-                                change.consume()
-                                onToggleMark()
-                            } else {
-                                change.consume()
-                                onDragEnd()
+                            if (change.changedToUp() || !change.pressed) {
+                                if (!isDragActive) {
+                                    change.consume()
+                                    onToggleMark()
+                                } else {
+                                    change.consume()
+                                    onDragEnd()
+                                }
+                                isDragActive = false
+                                break
                             }
-                            break
+
+                            val delta = change.positionChange()
+                            accumulatedDelta += delta
+
+                            if (!isDragActive && accumulatedDelta.getDistance() > touchSlop) {
+                                isDragActive = true
+                                change.consume()
+                                onDragStart()
+                            }
+
+                            if (isDragActive) {
+                                change.consume()
+                                onDrag(delta)
+                            }
                         }
-
-                        val delta = change.positionChange()
-                        accumulatedDelta += delta
-
-                        if (!isDragActive && accumulatedDelta.getDistance() > touchSlop) {
-                            isDragActive = true
-                            change.consume()
-                            onDragStart()
-                        }
-
+                    } finally {
                         if (isDragActive) {
-                            change.consume()
-                            onDrag(delta)
+                            onDragEnd()
                         }
                     }
                 }
@@ -1620,23 +1664,13 @@ private fun WritingBarEditPill(
                     text = shortcut.resolvedIcon(),
                     fontSize = 13.5.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = if (isMarkedForRemoval) contentSecondary else contentPrimary,
+                    color = if (isMarkedForRemoval) contentSecondary.copy(alpha = 0.5f) else contentPrimary,
                     maxLines = 1
                 )
-
-                if (isMarkedForRemoval) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(colors.semantic.error.copy(alpha = 0.7f))
-                    )
-                }
             }
         }
     }
 }
-
 // ── Search Field (Pill Shape) ─────────────────────────────────────────────────
 @Composable
 private fun ShortcutSearchField(
