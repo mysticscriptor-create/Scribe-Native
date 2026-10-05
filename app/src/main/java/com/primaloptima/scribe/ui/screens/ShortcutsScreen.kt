@@ -1255,22 +1255,39 @@ private fun WritingBarHeroSection(
     }
 }
 
-// ── Slot Reorder Permutation Helper ───────────────────────────────────────────
-private fun getReorderTargetSlot(itemIndex: Int, dragOrigin: Int, hoverTarget: Int): Int {
-    if (dragOrigin == hoverTarget || dragOrigin == -1 || hoverTarget == -1) return itemIndex
-    return if (dragOrigin < hoverTarget) {
-        when {
-            itemIndex == dragOrigin -> hoverTarget
-            itemIndex in (dragOrigin + 1)..hoverTarget -> itemIndex - 1
-            else -> itemIndex
+// ── Dynamic FlowRow Layout Coordinate Simulation ──────────────────────────────
+// Calculates exact 2D coordinates for any permutation of variable-width items,
+// ensuring surrounding items make the exact room needed for the dragged item
+private fun computeFlowRowPositions(
+    itemIds: List<String>,
+    boundsMap: Map<String, Rect>,
+    containerWidth: Float,
+    hSpacing: Float,
+    vSpacing: Float
+): Map<String, Offset> {
+    if (itemIds.isEmpty() || boundsMap.isEmpty()) return emptyMap()
+
+    val startX = boundsMap.values.minOfOrNull { it.left } ?: 0f
+    val startY = boundsMap.values.minOfOrNull { it.top } ?: 0f
+    val maxRight = if (containerWidth > startX) containerWidth - startX else Float.MAX_VALUE
+
+    val positions = mutableMapOf<String, Offset>()
+    var curX = startX
+    var curY = startY
+
+    for (id in itemIds) {
+        val bounds = boundsMap[id]
+        val w = bounds?.width ?: 0f
+        val h = bounds?.height ?: 0f
+
+        if (curX > startX && (curX + w > maxRight)) {
+            curX = startX
+            curY += h + vSpacing
         }
-    } else {
-        when {
-            itemIndex == dragOrigin -> hoverTarget
-            itemIndex in hoverTarget until dragOrigin -> itemIndex + 1
-            else -> itemIndex
-        }
+        positions[id] = Offset(curX, curY)
+        curX += w + hSpacing
     }
+    return positions
 }
 
 // ── Category Reorder Strip (Drag and Drop enabled) ────────────────────────────
@@ -1293,6 +1310,7 @@ private fun WritingBarCategoryReorderStrip(
     val accentPrimary = colors.interaction.primary
     val glyphBoxBg = colors.surfaces.surfaceLowest
     val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
 
     var draggingCatId by remember { mutableStateOf<String?>(null) }
@@ -1302,11 +1320,30 @@ private fun WritingBarCategoryReorderStrip(
     val catBoundsMap = remember { mutableMapOf<String, Rect>() }
     var catContainerCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var frozenCatBounds by remember { mutableStateOf<List<Rect>>(emptyList()) }
+    var frozenCatBoundsMap by remember { mutableStateOf<Map<String, Rect>>(emptyMap()) }
 
     var isSettling by remember { mutableStateOf(false) }
     val settlingOffset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
     val settlingScale = remember { Animatable(1.08f) }
     val settlingElevation = remember { Animatable(10f) }
+
+    val simulatedCatPositions = remember(categories, draggingCatId, hoverTargetCatIndex, dragCatOriginIndex, frozenCatBoundsMap, catContainerCoords) {
+        if (draggingCatId == null || hoverTargetCatIndex == -1 || dragCatOriginIndex == -1 || frozenCatBoundsMap.isEmpty()) {
+            emptyMap()
+        } else {
+            val list = categories.toMutableList()
+            val safeOrigin = dragCatOriginIndex.coerceIn(list.indices)
+            val safeTarget = hoverTargetCatIndex.coerceIn(list.indices)
+            if (safeOrigin != safeTarget) {
+                val item = list.removeAt(safeOrigin)
+                list.add(safeTarget, item)
+            }
+            val containerWidth = catContainerCoords?.size?.width?.toFloat() ?: 0f
+            val hSpacing = with(density) { 8.dp.toPx() }
+            val vSpacing = with(density) { 8.dp.toPx() }
+            computeFlowRowPositions(list, frozenCatBoundsMap, containerWidth, hSpacing, vSpacing)
+        }
+    }
 
     val chevronRot by animateFloatAsState(
         targetValue = if (isExpanded && !isCustomOrder) 180f else 0f,
@@ -1435,8 +1472,10 @@ private fun WritingBarCategoryReorderStrip(
                                                 val originIdx = dragCatOriginIndex
                                                 val targetIdx = hoverTargetCatIndex
                                                 if (dragId != null && originIdx != -1 && targetIdx != -1) {
-                                                    val targetBounds = frozenCatBounds.getOrNull(targetIdx) ?: hitBounds
-                                                    val targetTopLeft = targetBounds.topLeft
+                                                    val targetPos = simulatedCatPositions[hitCat]
+                                                        ?: frozenCatBounds.getOrNull(targetIdx)?.topLeft
+                                                        ?: hitBounds.topLeft
+                                                    val targetTopLeft = targetPos
 
                                                     isSettling = true
                                                     coroutineScope.launch {
@@ -1476,6 +1515,7 @@ private fun WritingBarCategoryReorderStrip(
                                                         hoverTargetCatIndex = -1
                                                         isSettling = false
                                                         frozenCatBounds = emptyList()
+                                                        frozenCatBoundsMap = emptyMap()
                                                         onDraggingStateChanged(false)
                                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                     }
@@ -1498,6 +1538,7 @@ private fun WritingBarCategoryReorderStrip(
                                             change.consume()
                                             draggingCatId = hitCat
 
+                                            frozenCatBoundsMap = catBoundsMap.toMap()
                                             frozenCatBounds = categories.map { catBoundsMap[it] ?: Rect.Zero }
                                             val originIdx = categories.indexOf(hitCat)
                                             dragCatOriginIndex = originIdx
@@ -1558,12 +1599,11 @@ private fun WritingBarCategoryReorderStrip(
                                 val count = shortcutCounts[catId] ?: 0
                                 val isDraggingThis = catId == draggingCatId
 
-                                val targetOffset = if (draggingCatId != null && frozenCatBounds.size == categories.size) {
-                                    val targetSlot = getReorderTargetSlot(index, dragCatOriginIndex, hoverTargetCatIndex)
-                                    val originBounds = frozenCatBounds.getOrNull(index)
-                                    val targetBounds = frozenCatBounds.getOrNull(targetSlot)
-                                    if (originBounds != null && targetBounds != null && !originBounds.isEmpty && !targetBounds.isEmpty) {
-                                        targetBounds.topLeft - originBounds.topLeft
+                                val targetOffset = if (draggingCatId != null && simulatedCatPositions.isNotEmpty()) {
+                                    val origBounds = frozenCatBoundsMap[catId]
+                                    val targetPos = simulatedCatPositions[catId]
+                                    if (origBounds != null && targetPos != null) {
+                                        targetPos - origBounds.topLeft
                                     } else {
                                         Offset.Zero
                                     }
@@ -1839,6 +1879,7 @@ private fun WritingBarEditFlowGrid(
 ) {
     val colors = ScribeTheme.colors
     val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
     val coroutineScope = rememberCoroutineScope()
 
     var draggingId by remember { mutableStateOf<String?>(null) }
@@ -1850,11 +1891,30 @@ private fun WritingBarEditFlowGrid(
 
     // Snapshot of stable slot bounding boxes taken at drag start to eliminate dynamic layout oscillation
     var frozenSlotBounds by remember { mutableStateOf<List<Rect>>(emptyList()) }
+    var frozenBoundsMap by remember { mutableStateOf<Map<String, Rect>>(emptyMap()) }
 
     var isSettling by remember { mutableStateOf(false) }
     val settlingOffset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
     val settlingScale = remember { Animatable(1.15f) }
     val settlingElevation = remember { Animatable(12f) }
+
+    val simulatedTargetPositions = remember(displayedPills, draggingId, hoverTargetIndex, dragOriginIndex, frozenBoundsMap, containerCoords) {
+        if (draggingId == null || hoverTargetIndex == -1 || dragOriginIndex == -1 || frozenBoundsMap.isEmpty()) {
+            emptyMap()
+        } else {
+            val list = displayedPills.map { it.id }.toMutableList()
+            val safeOrigin = dragOriginIndex.coerceIn(list.indices)
+            val safeTarget = hoverTargetIndex.coerceIn(list.indices)
+            if (safeOrigin != safeTarget) {
+                val item = list.removeAt(safeOrigin)
+                list.add(safeTarget, item)
+            }
+            val containerWidth = containerCoords?.size?.width?.toFloat() ?: 0f
+            val hSpacing = with(density) { 8.dp.toPx() }
+            val vSpacing = with(density) { 8.dp.toPx() }
+            computeFlowRowPositions(list, frozenBoundsMap, containerWidth, hSpacing, vSpacing)
+        }
+    }
 
     if (displayedPills.isEmpty()) {
         Box(
@@ -1910,8 +1970,10 @@ private fun WritingBarEditFlowGrid(
                                         val originIdx = dragOriginIndex
                                         val targetIdx = hoverTargetIndex
                                         if (dragId != null && originIdx != -1 && targetIdx != -1) {
-                                            val targetBounds = frozenSlotBounds.getOrNull(targetIdx) ?: hitBounds
-                                            val targetTopLeft = targetBounds.topLeft
+                                            val targetPos = simulatedTargetPositions[hitPill.id]
+                                                ?: frozenSlotBounds.getOrNull(targetIdx)?.topLeft
+                                                ?: hitBounds.topLeft
+                                            val targetTopLeft = targetPos
 
                                             isSettling = true
                                             coroutineScope.launch {
@@ -1953,6 +2015,7 @@ private fun WritingBarEditFlowGrid(
                                                 hoverTargetIndex = -1
                                                 isSettling = false
                                                 frozenSlotBounds = emptyList()
+                                                frozenBoundsMap = emptyMap()
                                                 onDraggingStateChanged(false)
                                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             }
@@ -1976,6 +2039,7 @@ private fun WritingBarEditFlowGrid(
                                     draggingId = hitPill.id
 
                                     // Snapshot stable slot bounds at drag start to eliminate dynamic layout oscillation
+                                    frozenBoundsMap = pillBoundsMap.toMap()
                                     frozenSlotBounds = displayedPills.map { pillBoundsMap[it.id] ?: Rect.Zero }
                                     val originIdx = displayedPills.indexOfFirst { it.id == hitPill.id }
                                     dragOriginIndex = originIdx
@@ -2039,12 +2103,11 @@ private fun WritingBarEditFlowGrid(
                     key(shortcut.id) {
                         val isDraggingThis = shortcut.id == draggingId
 
-                        val targetOffset = if (draggingId != null && frozenSlotBounds.size == displayedPills.size) {
-                            val targetSlot = getReorderTargetSlot(index, dragOriginIndex, hoverTargetIndex)
-                            val originBounds = frozenSlotBounds.getOrNull(index)
-                            val targetBounds = frozenSlotBounds.getOrNull(targetSlot)
-                            if (originBounds != null && targetBounds != null && !originBounds.isEmpty && !targetBounds.isEmpty) {
-                                targetBounds.topLeft - originBounds.topLeft
+                        val targetOffset = if (draggingId != null && simulatedTargetPositions.isNotEmpty()) {
+                            val origBounds = frozenBoundsMap[shortcut.id]
+                            val targetPos = simulatedTargetPositions[shortcut.id]
+                            if (origBounds != null && targetPos != null) {
+                                targetPos - origBounds.topLeft
                             } else {
                                 Offset.Zero
                             }
