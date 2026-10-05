@@ -2,6 +2,13 @@ package com.primaloptima.scribe.ui.screens
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInParent
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
 import androidx.compose.ui.text.TextStyle
@@ -227,14 +234,10 @@ fun ShortcutsScreen(
 
     // ── Edit/Reorder Mode State ──────────────────────────────────────────────
     var isEditMode by rememberSaveable { mutableStateOf(false) }
-    var workingBarShortcuts by remember(activeBarShortcuts) {
-        mutableStateOf(activeBarShortcuts.toList())
-    }
 
     // Intercept Back while in Edit Mode to cleanly cancel and restore order
     BackHandler(enabled = isEditMode) {
         isEditMode = false
-        workingBarShortcuts = activeBarShortcuts.toList()
     }
 
     // ── Smart Scrolling FAB Controller ───────────────────────────────────────
@@ -417,7 +420,6 @@ fun ShortcutsScreen(
                 onNavigationClick = {
                     if (isEditMode) {
                         isEditMode = false
-                        workingBarShortcuts = activeBarShortcuts.toList()
                     } else {
                         onBack()
                     }
@@ -548,32 +550,17 @@ fun ShortcutsScreen(
                     WritingBarHeroSection(
                         activeShortcuts = activeBarShortcuts,
                         isEditMode = isEditMode,
-                        workingShortcuts = workingBarShortcuts,
                         onStartEdit = {
-                            workingBarShortcuts = activeBarShortcuts.toList()
                             isEditMode = true
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         },
-                        onCommitEdit = {
-                            vm.commitActiveBarOrder(workingBarShortcuts.map { it.id })
+                        onCommitEdit = { finalShortcuts ->
+                            vm.commitActiveBarOrder(finalShortcuts.map { it.id })
                             isEditMode = false
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         },
                         onCancelEdit = {
-                            workingBarShortcuts = activeBarShortcuts.toList()
                             isEditMode = false
-                        },
-                        onRemoveShortcut = { shortcut ->
-                            workingBarShortcuts = workingBarShortcuts.filter { it.id != shortcut.id }
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        },
-                        onReorderShortcuts = { from, to ->
-                            if (from in workingBarShortcuts.indices && to in workingBarShortcuts.indices && from != to) {
-                                val updated = workingBarShortcuts.toMutableList()
-                                val item = updated.removeAt(from)
-                                updated.add(to, item)
-                                workingBarShortcuts = updated
-                            }
                         },
                         onScrollToLibrary = {
                             scope.launch {
@@ -812,16 +799,14 @@ fun ShortcutsScreen(
 }
 
 // ── Writing Bar Hero Section ──────────────────────────────────────────────────
+// ── Writing Bar Hero Section ──────────────────────────────────────────────────
 @Composable
 private fun WritingBarHeroSection(
     activeShortcuts: List<ShortcutAction>,
     isEditMode: Boolean,
-    workingShortcuts: List<ShortcutAction>,
     onStartEdit: () -> Unit,
-    onCommitEdit: () -> Unit,
+    onCommitEdit: (List<ShortcutAction>) -> Unit,
     onCancelEdit: () -> Unit,
-    onRemoveShortcut: (ShortcutAction) -> Unit,
-    onReorderShortcuts: (from: Int, to: Int) -> Unit,
     onScrollToLibrary: () -> Unit
 ) {
     val colors = ScribeTheme.colors
@@ -835,11 +820,64 @@ private fun WritingBarHeroSection(
     val glyphBoxBg = colors.surfaces.surfaceLowest
     val innerBarBg = colors.surfaces.surfaceLowest.copy(alpha = 0.65f)
 
+    // In-memory temporary state during Edit Mode
+    var workingShortcuts by remember(isEditMode, activeShortcuts) {
+        mutableStateOf(activeShortcuts.toList())
+    }
+    var markedForRemovalIds by remember(isEditMode) {
+        mutableStateOf(setOf<String>())
+    }
+    var isCustomOrder by remember(isEditMode) {
+        mutableStateOf(false)
+    }
+    var categoryOrder by remember(isEditMode, activeShortcuts) {
+        val cats = activeShortcuts.map { it.category }.distinct()
+        mutableStateOf(cats)
+    }
+    var isCategoryStripExpanded by remember(isEditMode) {
+        mutableStateOf(false)
+    }
+
+    // By default, pills are grouped by category; once user drags across category boundaries, custom flat order takes over
+    val displayedPills = remember(workingShortcuts, categoryOrder, isCustomOrder) {
+        if (isCustomOrder) {
+            workingShortcuts
+        } else {
+            val byCat = workingShortcuts.groupBy { it.category }
+            val ordered = mutableListOf<ShortcutAction>()
+            for (cat in categoryOrder) {
+                byCat[cat]?.let { ordered.addAll(it) }
+            }
+            for ((cat, items) in byCat) {
+                if (cat !in categoryOrder) {
+                    ordered.addAll(items)
+                }
+            }
+            ordered
+        }
+    }
+
+    val shortcutCountsByCategory = remember(workingShortcuts) {
+        workingShortcuts.groupBy { it.category }.mapValues { it.value.size }
+    }
+
+    val onDoneClick = {
+        val finalShortcuts = displayedPills.filter { it.id !in markedForRemovalIds }
+        onCommitEdit(finalShortcuts)
+    }
+
+    val onCancelClick = {
+        workingShortcuts = activeShortcuts.toList()
+        markedForRemovalIds = emptySet()
+        isCustomOrder = false
+        onCancelEdit()
+    }
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = ScribeShapeTokens.CardMedium,
         color = cardBg,
-        border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder.copy(alpha = 0.6f))
+        border = BorderStroke(0.5.dp, subtleBorder.copy(alpha = 0.6f))
     ) {
         Column(
             modifier = Modifier
@@ -851,9 +889,9 @@ private fun WritingBarHeroSection(
                     )
                 )
                 .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Header Row: Leading Rounded Icon + Title & Count + Trailing Actions
+            // Header Row: Leading Rounded Icon + Title & Subtitle + Trailing Actions
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -877,6 +915,7 @@ private fun WritingBarHeroSection(
                             tint = if (isEditMode) accentPrimary else contentPrimary
                         )
                     }
+
                     Column {
                         Text(
                             text = if (isEditMode) "Edit Writing Bar" else "Your Writing Bar",
@@ -887,7 +926,11 @@ private fun WritingBarHeroSection(
                         )
                         Text(
                             text = if (isEditMode) {
-                                "Drag handle to reorder • Tap × to remove"
+                                if (markedForRemovalIds.isNotEmpty()) {
+                                    "${markedForRemovalIds.size} marked for removal • Tap Done to apply"
+                                } else {
+                                    "Tap pill to remove • Drag to reorder"
+                                }
                             } else {
                                 if (activeShortcuts.isNotEmpty()) "${activeShortcuts.size} shortcuts" else "0 shortcuts"
                             },
@@ -897,14 +940,14 @@ private fun WritingBarHeroSection(
                     }
                 }
 
-                // Trailing Buttons
+                // Trailing Buttons: "Edit" in normal state; "Cancel" + "Done" in edit state
                 if (!isEditMode) {
                     if (activeShortcuts.isNotEmpty()) {
                         Surface(
                             onClick = onStartEdit,
                             shape = CircleShape,
                             color = glyphBoxBg,
-                            border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder),
+                            border = BorderStroke(0.5.dp, subtleBorder),
                             modifier = Modifier.height(32.dp)
                         ) {
                             Row(
@@ -933,7 +976,7 @@ private fun WritingBarHeroSection(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         TextButton(
-                            onClick = onCancelEdit,
+                            onClick = onCancelClick,
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                             modifier = Modifier.height(32.dp)
                         ) {
@@ -944,11 +987,12 @@ private fun WritingBarHeroSection(
                                 color = contentSecondary
                             )
                         }
+
                         Surface(
-                            onClick = onCommitEdit,
+                            onClick = onDoneClick,
                             shape = CircleShape,
                             color = accentPrimary,
-                            border = androidx.compose.foundation.BorderStroke(0.5.dp, accentPrimary),
+                            border = BorderStroke(0.5.dp, accentPrimary),
                             modifier = Modifier.height(32.dp)
                         ) {
                             Row(
@@ -974,7 +1018,7 @@ private fun WritingBarHeroSection(
                 }
             }
 
-            // Body: Compact Horizontal Bar vs Expanded Reorderable Studio
+            // Body: Compact Horizontal Bar vs Expanded Edit FlowGrid
             if (!isEditMode) {
                 if (activeShortcuts.isEmpty()) {
                     Column(
@@ -998,7 +1042,7 @@ private fun WritingBarHeroSection(
                     Surface(
                         shape = ScribeShapeTokens.CardMedium,
                         color = innerBarBg,
-                        border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder),
+                        border = BorderStroke(0.5.dp, subtleBorder),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
@@ -1013,7 +1057,7 @@ private fun WritingBarHeroSection(
                             Surface(
                                 shape = CircleShape,
                                 color = glyphBoxBg,
-                                border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder),
+                                border = BorderStroke(0.5.dp, subtleBorder),
                                 modifier = Modifier.size(34.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
@@ -1029,7 +1073,7 @@ private fun WritingBarHeroSection(
                             Surface(
                                 shape = CircleShape,
                                 color = glyphBoxBg,
-                                border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder),
+                                border = BorderStroke(0.5.dp, subtleBorder),
                                 modifier = Modifier.size(34.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
@@ -1046,7 +1090,7 @@ private fun WritingBarHeroSection(
                                 Surface(
                                     shape = CircleShape,
                                     color = glyphBoxBg,
-                                    border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder),
+                                    border = BorderStroke(0.5.dp, subtleBorder),
                                     modifier = Modifier.height(34.dp)
                                 ) {
                                     Box(
@@ -1063,11 +1107,11 @@ private fun WritingBarHeroSection(
                                     }
                                 }
                             }
-                            // Trailing overflow pill (...) & forward indicator (›)
+                            // Trailing overflow pill (...) & indicator
                             Surface(
                                 shape = CircleShape,
                                 color = glyphBoxBg,
-                                border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder),
+                                border = BorderStroke(0.5.dp, subtleBorder),
                                 modifier = Modifier.size(34.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
@@ -1089,156 +1133,60 @@ private fun WritingBarHeroSection(
                     }
                 }
             } else {
-                WritingBarEditCardContent(
-                    workingShortcuts = workingShortcuts,
-                    onRemoveShortcut = onRemoveShortcut,
-                    onReorderShortcuts = onReorderShortcuts
-                )
-            }
-        }
-    }
-}
-
-// ── Reorderable Writing Bar Edit Card Content ─────────────────────────────────
-@Composable
-private fun WritingBarEditCardContent(
-    workingShortcuts: List<ShortcutAction>,
-    onRemoveShortcut: (ShortcutAction) -> Unit,
-    onReorderShortcuts: (from: Int, to: Int) -> Unit
-) {
-    val colors = ScribeTheme.colors
-    val subtleBorder = colors.borders.subtle
-    val contentSecondary = colors.content.secondary
-    val haptic = LocalHapticFeedback.current
-    val density = LocalDensity.current
-    val rowHeightPx = with(density) { 56.dp.toPx() }
-
-    var draggingIndex by remember { mutableStateOf<Int?>(null) }
-    var dragOffsetY by remember { mutableFloatStateOf(0f) }
-    var dragStartIndex by remember { mutableStateOf<Int?>(null) }
-
-    val innerBarBg = colors.surfaces.surfaceLowest.copy(alpha = 0.65f)
-
-    if (workingShortcuts.isEmpty()) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 20.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = "No shortcuts in Writing Bar. Select shortcuts below to add them.",
-                fontSize = 13.sp,
-                color = contentSecondary,
-                textAlign = TextAlign.Center
-            )
-        }
-    } else {
-        Surface(
-            shape = ScribeShapeTokens.CardMedium,
-            color = innerBarBg,
-            border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            val listState = rememberLazyListState()
-            val coroutineScope = rememberCoroutineScope()
-
-            LazyColumn(
-                state = listState,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 380.dp)
-                    .padding(vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(0.dp)
-            ) {
-                itemsIndexed(
-                    items = workingShortcuts,
-                    key = { _, item -> item.id }
-                ) { index, shortcut ->
-                    val isDragging = draggingIndex == index
-
-                    val itemModifier = if (isDragging) {
-                        Modifier
-                            .zIndex(10f)
-                            .graphicsLayer {
-                                translationY = dragOffsetY
-                                shadowElevation = 8.dp.toPx()
-                                scaleX = 1.02f
-                                scaleY = 1.02f
-                            }
-                    } else {
-                        Modifier
-                            .zIndex(1f)
-                            .animateItem()
-                    }
-
-                    ReorderableWritingBarItemRow(
-                        modifier = itemModifier,
-                        shortcut = shortcut,
-                        isDragging = isDragging,
-                        onDragStart = {
-                            draggingIndex = index
-                            dragStartIndex = index
-                            dragOffsetY = 0f
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        },
-                        onDrag = { dragAmountY ->
-                            dragOffsetY += dragAmountY
-                            val currIdx = draggingIndex ?: return@ReorderableWritingBarItemRow
-
-                            // Edge autoscroll if near bounds
-                            val visibleItems = listState.layoutInfo.visibleItemsInfo
-                            val currentItemInfo = visibleItems.firstOrNull { it.index == currIdx }
-                            if (currentItemInfo != null) {
-                                val itemTop = currentItemInfo.offset + dragOffsetY
-                                val itemBottom = itemTop + currentItemInfo.size
-                                val viewportHeight = listState.layoutInfo.viewportSize.height
-                                if (itemTop < 30f) {
-                                    coroutineScope.launch { listState.scrollBy(-16f) }
-                                } else if (itemBottom > viewportHeight - 30f) {
-                                    coroutineScope.launch { listState.scrollBy(16f) }
-                                }
-                            }
-
-                            // Dynamic slot crossing threshold (50% of row height)
-                            if (dragOffsetY > rowHeightPx * 0.5f && currIdx < workingShortcuts.lastIndex) {
-                                val target = currIdx + 1
-                                onReorderShortcuts(currIdx, target)
-                                draggingIndex = target
-                                dragOffsetY -= rowHeightPx
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            } else if (dragOffsetY < -rowHeightPx * 0.5f && currIdx > 0) {
-                                val target = currIdx - 1
-                                onReorderShortcuts(currIdx, target)
-                                draggingIndex = target
-                                dragOffsetY += rowHeightPx
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                // ── EDIT MODE BODY ───────────────────────────────────────────
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Category Reorder Strip (collapsed by default)
+                    WritingBarCategoryReorderStrip(
+                        categories = categoryOrder,
+                        shortcutCounts = shortcutCountsByCategory,
+                        isCustomOrder = isCustomOrder,
+                        isExpanded = isCategoryStripExpanded,
+                        onToggleExpand = { isCategoryStripExpanded = !isCategoryStripExpanded },
+                        onReorderCategories = { from, to ->
+                            if (from in categoryOrder.indices && to in categoryOrder.indices && from != to) {
+                                val updated = categoryOrder.toMutableList()
+                                val item = updated.removeAt(from)
+                                updated.add(to, item)
+                                categoryOrder = updated
                             }
                         },
-                        onDragEnd = {
-                            draggingIndex = null
-                            dragStartIndex = null
-                            dragOffsetY = 0f
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        },
-                        onDragCancel = {
-                            val start = dragStartIndex
-                            val curr = draggingIndex
-                            if (start != null && curr != null && start != curr) {
-                                onReorderShortcuts(curr, start)
-                            }
-                            draggingIndex = null
-                            dragStartIndex = null
-                            dragOffsetY = 0f
-                        },
-                        onRemove = { onRemoveShortcut(shortcut) }
+                        onResetToCategoryOrder = {
+                            isCustomOrder = false
+                            categoryOrder = activeShortcuts.map { it.category }.distinct()
+                        }
                     )
 
-                    if (index < workingShortcuts.lastIndex) {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(start = 52.dp, end = 12.dp),
-                            thickness = 0.5.dp,
-                            color = subtleBorder.copy(alpha = 0.4f)
+                    // Wrapping FlowRow of Pills
+                    Surface(
+                        shape = ScribeShapeTokens.CardMedium,
+                        color = innerBarBg,
+                        border = BorderStroke(0.5.dp, subtleBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        WritingBarEditFlowGrid(
+                            displayedPills = displayedPills,
+                            markedForRemovalIds = markedForRemovalIds,
+                            onToggleMark = { id ->
+                                markedForRemovalIds = if (markedForRemovalIds.contains(id)) {
+                                    markedForRemovalIds - id
+                                } else {
+                                    markedForRemovalIds + id
+                                }
+                            },
+                            onReorderPills = { fromIndex, toIndex, crossedCategory ->
+                                if (crossedCategory) {
+                                    isCustomOrder = true
+                                }
+                                val currentList = displayedPills.toMutableList()
+                                if (fromIndex in currentList.indices && toIndex in currentList.indices) {
+                                    val item = currentList.removeAt(fromIndex)
+                                    currentList.add(toIndex, item)
+                                    workingShortcuts = currentList
+                                }
+                            }
                         )
                     }
                 }
@@ -1247,138 +1195,442 @@ private fun WritingBarEditCardContent(
     }
 }
 
-// ── Reorderable Writing Bar Item Row ──────────────────────────────────────────
+// ── Category Reorder Strip (Collapsed by default) ─────────────────────────────
 @Composable
-private fun ReorderableWritingBarItemRow(
-    modifier: Modifier = Modifier,
-    shortcut: ShortcutAction,
-    isDragging: Boolean,
-    onDragStart: () -> Unit,
-    onDrag: (Float) -> Unit,
-    onDragEnd: () -> Unit,
-    onDragCancel: () -> Unit,
-    onRemove: () -> Unit
+private fun WritingBarCategoryReorderStrip(
+    categories: List<String>,
+    shortcutCounts: Map<String, Int>,
+    isCustomOrder: Boolean,
+    isExpanded: Boolean,
+    onToggleExpand: () -> Unit,
+    onReorderCategories: (from: Int, to: Int) -> Unit,
+    onResetToCategoryOrder: () -> Unit
 ) {
     val colors = ScribeTheme.colors
+    val subtleBorder = colors.borders.subtle
     val contentPrimary = colors.content.primary
     val contentSecondary = colors.content.secondary
     val contentTertiary = colors.content.tertiary
     val accentPrimary = colors.interaction.primary
-    val cardBg = colors.surfaces.surface
-    val badgeBg = colors.interaction.primaryContainer
-    val badgeContent = colors.interaction.onPrimaryContainer
+    val glyphBoxBg = colors.surfaces.surfaceLowest
 
-    val formatDetail = remember(shortcut.kind, shortcut.payload, shortcut.closing) {
-        when (shortcut.kind) {
-            "pair", "wrap" -> {
-                val openClean = shortcut.payload.replace("\r\n", "↵").replace("\n", "↵").replace("\r", "↵")
-                val closeRaw = shortcut.closing?.ifBlank { null } ?: shortcut.payload
-                val closeClean = closeRaw.replace("\r\n", "↵").replace("\n", "↵").replace("\r", "↵")
-                "$openClean $closeClean".trim()
-            }
-            else -> shortcut.payload.replace("\r\n", "↵").replace("\n", "↵").replace("\r", "↵").trim()
-        }
-    }
-    val displayKind = remember(shortcut.kind) {
-        if (shortcut.kind == "wrap") "Pair" else shortcut.kind.replaceFirstChar { it.uppercase() }
-    }
+    val chevronRot by animateFloatAsState(
+        targetValue = if (isExpanded && !isCustomOrder) 180f else 0f,
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        label = "catStripChevron"
+    )
 
     Surface(
-        color = if (isDragging) cardBg else Color.Transparent,
-        shape = RoundedCornerShape(8.dp),
-        modifier = modifier
-            .fillMaxWidth()
-            .height(56.dp)
-            .padding(horizontal = 6.dp)
+        shape = RoundedCornerShape(10.dp),
+        color = glyphBoxBg,
+        border = BorderStroke(0.6.dp, subtleBorder.copy(alpha = 0.7f)),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Row(
+        Column(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxWidth()
+                .animateContentSize(
+                    animationSpec = spring(
+                        stiffness = Spring.StiffnessMediumLow,
+                        dampingRatio = Spring.DampingRatioNoBouncy
+                    )
+                )
+                .padding(horizontal = 10.dp, vertical = 7.dp)
         ) {
-            // Drag Handle + Glyph Badge + Label
+            // Header Row of the Strip
             Row(
-                modifier = Modifier.weight(1f),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = !isCustomOrder, onClick = onToggleExpand),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Drag handle touch zone
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .pointerInput(shortcut.id) {
-                            detectDragGestures(
-                                onDragStart = { onDragStart() },
-                                onDragEnd = { onDragEnd() },
-                                onDragCancel = { onDragCancel() },
-                                onDrag = { change, dragAmount ->
-                                    change.consume()
-                                    onDrag(dragAmount.y)
-                                }
-                            )
-                        },
-                    contentAlignment = Alignment.Center
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.DragHandle,
-                        contentDescription = "Drag to reorder",
-                        modifier = Modifier.size(20.dp),
-                        tint = if (isDragging) accentPrimary else contentTertiary
+                        imageVector = Icons.Default.Layers,
+                        contentDescription = null,
+                        tint = if (isCustomOrder) contentTertiary else accentPrimary,
+                        modifier = Modifier.size(15.dp)
                     )
+                    Text(
+                        text = if (isCustomOrder) "Custom pill order active" else "Reorder Categories",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (isCustomOrder) contentSecondary else contentPrimary
+                    )
+                    if (!isCustomOrder) {
+                        Surface(
+                            shape = CircleShape,
+                            color = accentPrimary.copy(alpha = 0.12f),
+                            modifier = Modifier.padding(start = 2.dp)
+                        ) {
+                            Text(
+                                text = "${categories.size}",
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = accentPrimary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                            )
+                        }
+                    }
                 }
 
-                // Typography semantic glyph badge
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(badgeBg),
-                    contentAlignment = Alignment.Center
-                ) {
+                if (isCustomOrder) {
                     Text(
-                        text = shortcut.resolvedIcon(),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.5.sp,
-                        color = badgeContent,
-                        maxLines = 1,
-                        textAlign = TextAlign.Center
+                        text = "Reset grouping",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = accentPrimary,
+                        modifier = Modifier
+                            .clickable(onClick = onResetToCategoryOrder)
+                            .padding(4.dp)
                     )
-                }
-
-                // Label and kind
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = shortcut.resolvedLabel(),
-                        fontFamily = FontFamily.Serif,
-                        fontSize = 13.5.sp,
-                        fontWeight = FontWeight.Normal,
-                        color = contentPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "$displayKind • $formatDetail",
-                        fontSize = 11.sp,
-                        color = contentSecondary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = if (isExpanded) "Collapse" else "Expand",
+                        tint = contentTertiary,
+                        modifier = Modifier
+                            .size(16.dp)
+                            .rotate(chevronRot)
                     )
                 }
             }
 
-            // Trailing Remove Button
-            IconButton(
-                onClick = onRemove,
-                modifier = Modifier.size(32.dp)
+            // Expanded category chips row
+            AnimatedVisibility(
+                visible = isExpanded && !isCustomOrder,
+                enter = expandVertically(animationSpec = tween(220)) + fadeIn(animationSpec = tween(180)),
+                exit = shrinkVertically(animationSpec = tween(200)) + fadeOut(animationSpec = tween(140))
             ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Remove from writing bar",
-                    modifier = Modifier.size(16.dp),
-                    tint = contentTertiary
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 2.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "Use arrows to rearrange category groups in Writing Bar",
+                        fontSize = 11.sp,
+                        color = contentSecondary
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        categories.forEachIndexed { index, catId ->
+                            val meta = STUDIO_CATEGORIES.find { it.id == catId }
+                            val catTitle = meta?.filterLabel ?: catId.replaceFirstChar { it.uppercase() }
+                            val count = shortcutCounts[catId] ?: 0
+
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = colors.surfaces.surface,
+                                border = BorderStroke(0.6.dp, subtleBorder),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    // Left nudge button if not first
+                                    if (index > 0) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                            contentDescription = "Move left",
+                                            tint = contentSecondary,
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .clickable { onReorderCategories(index, index - 1) }
+                                        )
+                                    }
+
+                                    Text(
+                                        text = catTitle,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = contentPrimary
+                                    )
+
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = glyphBoxBg,
+                                        modifier = Modifier.size(16.dp)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = "$count",
+                                                fontSize = 9.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = contentSecondary
+                                            )
+                                        }
+                                    }
+
+                                    // Right nudge button if not last
+                                    if (index < categories.lastIndex) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                            contentDescription = "Move right",
+                                            tint = contentSecondary,
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .clickable { onReorderCategories(index, index + 1) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Wrapping FlowRow Edit Grid ────────────────────────────────────────────────
+@Composable
+private fun WritingBarEditFlowGrid(
+    displayedPills: List<ShortcutAction>,
+    markedForRemovalIds: Set<String>,
+    onToggleMark: (String) -> Unit,
+    onReorderPills: (fromIndex: Int, toIndex: Int, crossedCategory: Boolean) -> Unit
+) {
+    val colors = ScribeTheme.colors
+    val haptic = LocalHapticFeedback.current
+
+    var draggingId by remember { mutableStateOf<String?>(null) }
+    var dragOffset by remember { mutableStateOf(Offset.Zero) }
+    val pillBoundsMap = remember { mutableMapOf<String, Rect>() }
+
+    if (displayedPills.isEmpty()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 16.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "No shortcuts in Writing Bar to edit",
+                fontSize = 13.sp,
+                color = colors.content.secondary,
+                textAlign = TextAlign.Center
+            )
+        }
+    } else {
+        FlowRow(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            displayedPills.forEachIndexed { index, shortcut ->
+                val isDragging = draggingId == shortcut.id
+                val isMarked = shortcut.id in markedForRemovalIds
+
+                WritingBarEditPill(
+                    shortcut = shortcut,
+                    isMarkedForRemoval = isMarked,
+                    isDragging = isDragging,
+                    dragOffset = if (isDragging) dragOffset else Offset.Zero,
+                    onToggleMark = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onToggleMark(shortcut.id)
+                    },
+                    onDragStart = {
+                        draggingId = shortcut.id
+                        dragOffset = Offset.Zero
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    },
+                    onDrag = { delta ->
+                        dragOffset += delta
+                        val currentDraggingId = draggingId ?: return@WritingBarEditPill
+                        val initialBounds = pillBoundsMap[currentDraggingId] ?: return@WritingBarEditPill
+                        val currentCenter = initialBounds.center + dragOffset
+
+                        // Check which pill's bounding box contains the dragged center
+                        val currIndex = displayedPills.indexOfFirst { it.id == currentDraggingId }
+                        if (currIndex != -1) {
+                            for (targetIndex in displayedPills.indices) {
+                                if (targetIndex != currIndex) {
+                                    val targetPill = displayedPills[targetIndex]
+                                    val targetBounds = pillBoundsMap[targetPill.id]
+                                    if (targetBounds != null && targetBounds.contains(currentCenter)) {
+                                        val crossedCat = displayedPills[currIndex].category != targetPill.category
+                                        onReorderPills(currIndex, targetIndex, crossedCat)
+                                        dragOffset = currentCenter - targetBounds.center
+                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                        break
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    onDragEnd = {
+                        draggingId = null
+                        dragOffset = Offset.Zero
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    },
+                    onPositioned = { bounds ->
+                        pillBoundsMap[shortcut.id] = bounds
+                    }
                 )
+            }
+        }
+    }
+}
+
+// ── Writing Bar Edit Pill ─────────────────────────────────────────────────────
+@Composable
+private fun WritingBarEditPill(
+    shortcut: ShortcutAction,
+    isMarkedForRemoval: Boolean,
+    isDragging: Boolean,
+    dragOffset: Offset,
+    onToggleMark: () -> Unit,
+    onDragStart: () -> Unit,
+    onDrag: (Offset) -> Unit,
+    onDragEnd: () -> Unit,
+    onPositioned: (Rect) -> Unit
+) {
+    val colors = ScribeTheme.colors
+    val subtleBorder = colors.borders.subtle
+    val contentPrimary = colors.content.primary
+    val contentSecondary = colors.content.secondary
+    val accentPrimary = colors.interaction.primary
+    val glyphBoxBg = colors.surfaces.surfaceLowest
+
+    val animatedAlpha by animateFloatAsState(
+        targetValue = if (isMarkedForRemoval) 0.32f else 1.0f,
+        animationSpec = tween(220),
+        label = "pillAlpha"
+    )
+
+    val targetScale = when {
+        isDragging -> 1.14f
+        isMarkedForRemoval -> 0.93f
+        else -> 1.0f
+    }
+    val animatedScale by animateFloatAsState(
+        targetValue = targetScale,
+        animationSpec = spring(
+            stiffness = Spring.StiffnessMediumLow,
+            dampingRatio = Spring.DampingRatioNoBouncy
+        ),
+        label = "pillScale"
+    )
+
+    val animatedElevation by animateDpAsState(
+        targetValue = if (isDragging) 9.dp else 0.dp,
+        animationSpec = tween(150),
+        label = "pillElevation"
+    )
+
+    val borderColor = when {
+        isDragging -> accentPrimary
+        isMarkedForRemoval -> colors.semantic.error.copy(alpha = 0.4f)
+        else -> subtleBorder
+    }
+
+    val backgroundColor = when {
+        isDragging -> colors.surfaces.surfaceHigher
+        isMarkedForRemoval -> glyphBoxBg.copy(alpha = 0.5f)
+        else -> glyphBoxBg
+    }
+
+    Box(
+        modifier = Modifier
+            .zIndex(if (isDragging) 30f else 1f)
+            .graphicsLayer {
+                translationX = if (isDragging) dragOffset.x else 0f
+                translationY = if (isDragging) dragOffset.y else 0f
+                scaleX = animatedScale
+                scaleY = animatedScale
+                shadowElevation = animatedElevation.toPx()
+                shape = CircleShape
+                clip = false
+            }
+            .alpha(animatedAlpha)
+            .onGloballyPositioned { coordinates ->
+                onPositioned(coordinates.boundsInParent())
+            }
+            .pointerInput(shortcut.id) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    var isDragActive = false
+                    var accumulatedDelta = Offset.Zero
+                    val touchSlop = viewConfiguration.touchSlop
+
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+
+                        if (change.changedToUp()) {
+                            if (!isDragActive) {
+                                // Tap detected! Toggle mark for removal
+                                change.consume()
+                                onToggleMark()
+                            } else {
+                                change.consume()
+                                onDragEnd()
+                            }
+                            break
+                        }
+
+                        val delta = change.positionChange()
+                        accumulatedDelta += delta
+
+                        if (!isDragActive && accumulatedDelta.getDistance() > touchSlop) {
+                            isDragActive = true
+                            change.consume()
+                            onDragStart()
+                        }
+
+                        if (isDragActive) {
+                            change.consume()
+                            onDrag(delta)
+                        }
+                    }
+                }
+            }
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = backgroundColor,
+            border = BorderStroke(if (isDragging) 1.2.dp else 0.7.dp, borderColor),
+            modifier = Modifier.height(36.dp)
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                    .defaultMinSize(minWidth = 36.dp)
+            ) {
+                Text(
+                    text = shortcut.resolvedIcon(),
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (isMarkedForRemoval) contentSecondary else contentPrimary,
+                    maxLines = 1
+                )
+
+                if (isMarkedForRemoval) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(1.dp)
+                            .background(colors.semantic.error.copy(alpha = 0.7f))
+                    )
+                }
             }
         }
     }
