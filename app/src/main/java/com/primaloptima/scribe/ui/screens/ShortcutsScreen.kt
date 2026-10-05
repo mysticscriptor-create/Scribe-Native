@@ -1255,39 +1255,98 @@ private fun WritingBarHeroSection(
     }
 }
 
-// ── Dynamic FlowRow Layout Coordinate Simulation ──────────────────────────────
+// ── Accurate FlowRow Layout Coordinate Simulation ──────────────────────────────
 // Calculates exact 2D coordinates for any permutation of variable-width items,
-// ensuring surrounding items make the exact room needed for the dragged item
+// accurately matching Compose FlowRow wrapping and row height rules.
 private fun computeFlowRowPositions(
     itemIds: List<String>,
     boundsMap: Map<String, Rect>,
     containerWidth: Float,
     hSpacing: Float,
-    vSpacing: Float
+    vSpacing: Float,
+    paddingStart: Float = 0f,
+    paddingTop: Float = 0f,
+    paddingEnd: Float = 0f
 ): Map<String, Offset> {
-    if (itemIds.isEmpty() || boundsMap.isEmpty()) return emptyMap()
+    if (itemIds.isEmpty() || boundsMap.isEmpty() || containerWidth <= 0f) return emptyMap()
 
-    val startX = boundsMap.values.minOfOrNull { it.left } ?: 0f
-    val startY = boundsMap.values.minOfOrNull { it.top } ?: 0f
-    val maxRight = if (containerWidth > startX) containerWidth - startX else Float.MAX_VALUE
-
+    val maxRight = containerWidth - paddingEnd
     val positions = mutableMapOf<String, Offset>()
-    var curX = startX
-    var curY = startY
+    var curX = paddingStart
+    var curY = paddingTop
+    var rowMaxHeight = 0f
+    var isFirstInRow = true
 
     for (id in itemIds) {
         val bounds = boundsMap[id]
         val w = bounds?.width ?: 0f
         val h = bounds?.height ?: 0f
 
-        if (curX > startX && (curX + w > maxRight)) {
-            curX = startX
-            curY += h + vSpacing
+        // Check if item wraps to the next row
+        if (!isFirstInRow && (curX + w > maxRight)) {
+            curX = paddingStart
+            curY += rowMaxHeight + vSpacing
+            rowMaxHeight = h
+            isFirstInRow = true
         }
+
         positions[id] = Offset(curX, curY)
+        rowMaxHeight = maxOf(rowMaxHeight, h)
         curX += w + hSpacing
+        isFirstInRow = false
     }
     return positions
+}
+
+// ── Candidate Slot Center Calculator for Dragged Item ──────────────────────────
+// Computes where the dragged item's center would land for every possible insertion index k
+private fun computeCandidateSlotCenters(
+    items: List<String>,
+    draggingId: String,
+    boundsMap: Map<String, Rect>,
+    containerWidth: Float,
+    hSpacing: Float,
+    vSpacing: Float,
+    paddingStart: Float = 0f,
+    paddingTop: Float = 0f,
+    paddingEnd: Float = 0f
+): List<Offset> {
+    val dragOrigin = items.indexOf(draggingId)
+    if (dragOrigin == -1 || items.isEmpty() || boundsMap.isEmpty() || containerWidth <= 0f) return emptyList()
+
+    val dragBounds = boundsMap[draggingId] ?: return emptyList()
+    val dragHalfW = dragBounds.width / 2f
+    val dragHalfH = dragBounds.height / 2f
+
+    val otherItems = items.toMutableList().apply { removeAt(dragOrigin) }
+    val result = ArrayList<Offset>(items.size)
+
+    for (k in 0..otherItems.size) {
+        val permuted = ArrayList<String>(items.size)
+        for (i in 0 until otherItems.size) {
+            if (i == k) {
+                permuted.add(draggingId)
+            }
+            permuted.add(otherItems[i])
+        }
+        if (k == otherItems.size) {
+            permuted.add(draggingId)
+        }
+
+        val positions = computeFlowRowPositions(
+            itemIds = permuted,
+            boundsMap = boundsMap,
+            containerWidth = containerWidth,
+            hSpacing = hSpacing,
+            vSpacing = vSpacing,
+            paddingStart = paddingStart,
+            paddingTop = paddingTop,
+            paddingEnd = paddingEnd
+        )
+        val pos = positions[draggingId] ?: Offset.Zero
+        result.add(pos + Offset(dragHalfW, dragHalfH))
+    }
+    return result
 }
 
 // ── Category Reorder Strip (Drag and Drop enabled) ────────────────────────────
@@ -1327,8 +1386,32 @@ private fun WritingBarCategoryReorderStrip(
     val settlingScale = remember { Animatable(1.08f) }
     val settlingElevation = remember { Animatable(10f) }
 
-    val simulatedCatPositions = remember(categories, draggingCatId, hoverTargetCatIndex, dragCatOriginIndex, frozenCatBoundsMap, catContainerCoords) {
-        if (draggingCatId == null || hoverTargetCatIndex == -1 || dragCatOriginIndex == -1 || frozenCatBoundsMap.isEmpty()) {
+    val hSpacingPx = with(density) { 8.dp.toPx() }
+    val vSpacingPx = with(density) { 8.dp.toPx() }
+    val catPaddingTopPx = with(density) { 4.dp.toPx() }
+    val catContainerWidth = catContainerCoords?.size?.width?.toFloat() ?: 0f
+
+    val candidateCatCenters = remember(categories, draggingCatId, frozenCatBoundsMap, catContainerWidth) {
+        val dragId = draggingCatId
+        if (dragId == null || frozenCatBoundsMap.isEmpty() || catContainerWidth <= 0f) {
+            emptyList()
+        } else {
+            computeCandidateSlotCenters(
+                items = categories,
+                draggingId = dragId,
+                boundsMap = frozenCatBoundsMap,
+                containerWidth = catContainerWidth,
+                hSpacing = hSpacingPx,
+                vSpacing = vSpacingPx,
+                paddingStart = 0f,
+                paddingTop = catPaddingTopPx,
+                paddingEnd = 0f
+            )
+        }
+    }
+
+    val simulatedCatPositions = remember(categories, draggingCatId, hoverTargetCatIndex, dragCatOriginIndex, frozenCatBoundsMap, catContainerWidth) {
+        if (draggingCatId == null || hoverTargetCatIndex == -1 || dragCatOriginIndex == -1 || frozenCatBoundsMap.isEmpty() || catContainerWidth <= 0f) {
             emptyMap()
         } else {
             val list = categories.toMutableList()
@@ -1338,10 +1421,16 @@ private fun WritingBarCategoryReorderStrip(
                 val item = list.removeAt(safeOrigin)
                 list.add(safeTarget, item)
             }
-            val containerWidth = catContainerCoords?.size?.width?.toFloat() ?: 0f
-            val hSpacing = with(density) { 8.dp.toPx() }
-            val vSpacing = with(density) { 8.dp.toPx() }
-            computeFlowRowPositions(list, frozenCatBoundsMap, containerWidth, hSpacing, vSpacing)
+            computeFlowRowPositions(
+                itemIds = list,
+                boundsMap = frozenCatBoundsMap,
+                containerWidth = catContainerWidth,
+                hSpacing = hSpacingPx,
+                vSpacing = vSpacingPx,
+                paddingStart = 0f,
+                paddingTop = catPaddingTopPx,
+                paddingEnd = 0f
+            )
         }
     }
 
@@ -1556,10 +1645,12 @@ private fun WritingBarCategoryReorderStrip(
 
                                             val chipCenter = dragCatTopLeft + Offset(hitBounds.width / 2f, hitBounds.height / 2f)
 
-                                            if (frozenCatBounds.isNotEmpty()) {
-                                                val closestSlot = frozenCatBounds.indices.minByOrNull { i ->
-                                                    val b = frozenCatBounds[i]
-                                                    if (b.isEmpty) Float.MAX_VALUE else (b.center - chipCenter).getDistance()
+                                            if (candidateCatCenters.isNotEmpty()) {
+                                                val currentTarget = hoverTargetCatIndex
+                                                val hysteresisPx = with(density) { 14.dp.toPx() }
+                                                val closestSlot = candidateCatCenters.indices.minByOrNull { i ->
+                                                    val dist = (candidateCatCenters[i] - chipCenter).getDistance()
+                                                    if (i == currentTarget) dist - hysteresisPx else dist
                                                 } ?: hoverTargetCatIndex
 
                                                 if (closestSlot != hoverTargetCatIndex && closestSlot != -1) {
@@ -1637,13 +1728,15 @@ private fun WritingBarCategoryReorderStrip(
                                         shortcutCount = count,
                                         translation = activeCatTranslation,
                                         onPositioned = { coords ->
-                                            catContainerCoords?.let { container ->
-                                                if (container.isAttached && coords.isAttached) {
-                                                    val offset = container.localPositionOf(coords, Offset.Zero)
-                                                    catBoundsMap[catId] = Rect(
-                                                        offset,
-                                                        Size(coords.size.width.toFloat(), coords.size.height.toFloat())
-                                                    )
+                                            if (draggingCatId == null) {
+                                                catContainerCoords?.let { container ->
+                                                    if (container.isAttached && coords.isAttached) {
+                                                        val offset = container.localPositionOf(coords, Offset.Zero)
+                                                        catBoundsMap[catId] = Rect(
+                                                            offset,
+                                                            Size(coords.size.width.toFloat(), coords.size.height.toFloat())
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
@@ -1696,12 +1789,12 @@ private fun WritingBarCategoryChip(
         border = BorderStroke(0.7.dp, subtleBorder),
         modifier = Modifier
             .height(34.dp)
+            .onGloballyPositioned { coordinates ->
+                onPositioned(coordinates)
+            }
             .graphicsLayer {
                 translationX = translation.x
                 translationY = translation.y
-            }
-            .onGloballyPositioned { coordinates ->
-                onPositioned(coordinates)
             }
     ) {
         Row(
@@ -1898,21 +1991,54 @@ private fun WritingBarEditFlowGrid(
     val settlingScale = remember { Animatable(1.15f) }
     val settlingElevation = remember { Animatable(12f) }
 
-    val simulatedTargetPositions = remember(displayedPills, draggingId, hoverTargetIndex, dragOriginIndex, frozenBoundsMap, containerCoords) {
-        if (draggingId == null || hoverTargetIndex == -1 || dragOriginIndex == -1 || frozenBoundsMap.isEmpty()) {
+    val hSpacingPx = with(density) { 8.dp.toPx() }
+    val vSpacingPx = with(density) { 8.dp.toPx() }
+    val pillPaddingHorizontalPx = with(density) { 4.dp.toPx() }
+    val pillPaddingVerticalPx = with(density) { 6.dp.toPx() }
+    val gridContainerWidth = containerCoords?.size?.width?.toFloat() ?: 0f
+
+    val displayedPillIds = remember(displayedPills) { displayedPills.map { it.id } }
+
+    val candidatePillCenters = remember(displayedPillIds, draggingId, frozenBoundsMap, gridContainerWidth) {
+        val dragId = draggingId
+        if (dragId == null || frozenBoundsMap.isEmpty() || gridContainerWidth <= 0f) {
+            emptyList()
+        } else {
+            computeCandidateSlotCenters(
+                items = displayedPillIds,
+                draggingId = dragId,
+                boundsMap = frozenBoundsMap,
+                containerWidth = gridContainerWidth,
+                hSpacing = hSpacingPx,
+                vSpacing = vSpacingPx,
+                paddingStart = pillPaddingHorizontalPx,
+                paddingTop = pillPaddingVerticalPx,
+                paddingEnd = pillPaddingHorizontalPx
+            )
+        }
+    }
+
+    val simulatedTargetPositions = remember(displayedPillIds, draggingId, hoverTargetIndex, dragOriginIndex, frozenBoundsMap, gridContainerWidth) {
+        if (draggingId == null || hoverTargetIndex == -1 || dragOriginIndex == -1 || frozenBoundsMap.isEmpty() || gridContainerWidth <= 0f) {
             emptyMap()
         } else {
-            val list = displayedPills.map { it.id }.toMutableList()
+            val list = displayedPillIds.toMutableList()
             val safeOrigin = dragOriginIndex.coerceIn(list.indices)
             val safeTarget = hoverTargetIndex.coerceIn(list.indices)
             if (safeOrigin != safeTarget) {
                 val item = list.removeAt(safeOrigin)
                 list.add(safeTarget, item)
             }
-            val containerWidth = containerCoords?.size?.width?.toFloat() ?: 0f
-            val hSpacing = with(density) { 8.dp.toPx() }
-            val vSpacing = with(density) { 8.dp.toPx() }
-            computeFlowRowPositions(list, frozenBoundsMap, containerWidth, hSpacing, vSpacing)
+            computeFlowRowPositions(
+                itemIds = list,
+                boundsMap = frozenBoundsMap,
+                containerWidth = gridContainerWidth,
+                hSpacing = hSpacingPx,
+                vSpacing = vSpacingPx,
+                paddingStart = pillPaddingHorizontalPx,
+                paddingTop = pillPaddingVerticalPx,
+                paddingEnd = pillPaddingHorizontalPx
+            )
         }
     }
 
@@ -2059,10 +2185,12 @@ private fun WritingBarEditFlowGrid(
                                     // Calculate center of dragged pill
                                     val pillCenter = dragPillTopLeft + Offset(hitBounds.width / 2f, hitBounds.height / 2f)
 
-                                    if (frozenSlotBounds.isNotEmpty()) {
-                                        val closestSlot = frozenSlotBounds.indices.minByOrNull { i ->
-                                            val b = frozenSlotBounds[i]
-                                            if (b.isEmpty) Float.MAX_VALUE else (b.center - pillCenter).getDistance()
+                                    if (candidatePillCenters.isNotEmpty()) {
+                                        val currentTarget = hoverTargetIndex
+                                        val hysteresisPx = with(density) { 14.dp.toPx() }
+                                        val closestSlot = candidatePillCenters.indices.minByOrNull { i ->
+                                            val dist = (candidatePillCenters[i] - pillCenter).getDistance()
+                                            if (i == currentTarget) dist - hysteresisPx else dist
                                         } ?: hoverTargetIndex
 
                                         if (closestSlot != hoverTargetIndex && closestSlot != -1) {
@@ -2141,10 +2269,12 @@ private fun WritingBarEditFlowGrid(
                                 isMarkedForRemoval = shortcut.id in markedForRemovalIds,
                                 translation = activeTranslation,
                                 onPositioned = { coords ->
-                                    containerCoords?.let { container ->
-                                        if (container.isAttached && coords.isAttached) {
-                                            val offset = container.localPositionOf(coords, Offset.Zero)
-                                            pillBoundsMap[shortcut.id] = Rect(offset, Size(coords.size.width.toFloat(), coords.size.height.toFloat()))
+                                    if (draggingId == null) {
+                                        containerCoords?.let { container ->
+                                            if (container.isAttached && coords.isAttached) {
+                                                val offset = container.localPositionOf(coords, Offset.Zero)
+                                                pillBoundsMap[shortcut.id] = Rect(offset, Size(coords.size.width.toFloat(), coords.size.height.toFloat()))
+                                            }
                                         }
                                     }
                                 }
@@ -2301,15 +2431,15 @@ private fun WritingBarStaticPill(
         border = BorderStroke(0.7.dp, borderColor),
         modifier = Modifier
             .height(36.dp)
+            .onGloballyPositioned { coordinates ->
+                onPositioned(coordinates)
+            }
             .graphicsLayer {
                 translationX = translation.x
                 translationY = translation.y
                 alpha = animatedAlpha
                 shape = CircleShape
                 clip = false
-            }
-            .onGloballyPositioned { coordinates ->
-                onPositioned(coordinates)
             }
     ) {
         Box(
