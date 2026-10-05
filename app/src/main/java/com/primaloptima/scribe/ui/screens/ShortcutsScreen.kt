@@ -55,6 +55,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
@@ -1542,7 +1543,7 @@ private fun WritingBarEditPill(
     }
 
     val backgroundColor = when {
-        isDragging -> colors.surfaces.surfaceHigher
+        isDragging -> colors.surfaces.surfaceRaised
         isMarkedForRemoval -> glyphBoxBg.copy(alpha = 0.5f)
         else -> glyphBoxBg
     }
@@ -1556,10 +1557,10 @@ private fun WritingBarEditPill(
                 scaleX = animatedScale
                 scaleY = animatedScale
                 shadowElevation = animatedElevation.toPx()
+                alpha = animatedAlpha
                 shape = CircleShape
                 clip = false
             }
-            .alpha(animatedAlpha)
             .onGloballyPositioned { coordinates ->
                 onPositioned(coordinates.boundsInParent())
             }
