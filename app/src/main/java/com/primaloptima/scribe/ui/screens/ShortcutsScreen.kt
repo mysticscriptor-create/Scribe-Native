@@ -69,6 +69,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -1304,6 +1305,10 @@ private fun WritingBarCategoryReorderStrip(
 
     var isSettling by remember { mutableStateOf(false) }
     val settlingOffset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+    val settlingScale = remember { Animatable(1.15f) }
+    val settlingElevation = remember { Animatable(12f) }
+    val settlingScale = remember { Animatable(1.08f) }
+    val settlingElevation = remember { Animatable(10f) }
 
     val chevronRot by animateFloatAsState(
         targetValue = if (isExpanded && !isCustomOrder) 180f else 0f,
@@ -1437,6 +1442,26 @@ private fun WritingBarCategoryReorderStrip(
 
                                                     isSettling = true
                                                     coroutineScope.launch {
+                                                        launch {
+                                                            settlingScale.snapTo(1.08f)
+                                                            settlingScale.animateTo(
+                                                                targetValue = 1.0f,
+                                                                animationSpec = spring(
+                                                                    stiffness = Spring.StiffnessMediumLow,
+                                                                    dampingRatio = Spring.DampingRatioNoBouncy
+                                                                )
+                                                            )
+                                                        }
+                                                        launch {
+                                                            settlingElevation.snapTo(10f)
+                                                            settlingElevation.animateTo(
+                                                                targetValue = 0f,
+                                                                animationSpec = spring(
+                                                                    stiffness = Spring.StiffnessMediumLow,
+                                                                    dampingRatio = Spring.DampingRatioNoBouncy
+                                                                )
+                                                            )
+                                                        }
                                                         settlingOffset.snapTo(dragCatTopLeft)
                                                         settlingOffset.animateTo(
                                                             targetValue = targetTopLeft,
@@ -1590,14 +1615,18 @@ private fun WritingBarCategoryReorderStrip(
                         }
                     }
 
-                    // Floating elevated category chip overlay that tracks finger and smoothly settles
+                    // Floating category chip overlay that shrinks and fades hovering effects on release
                     if (draggingCatId != null) {
                         val count = shortcutCounts[draggingCatId] ?: 0
                         val renderPos = if (isSettling) settlingOffset.value else dragCatTopLeft
+                        val renderScale = if (isSettling) settlingScale.value else 1.08f
+                        val renderElevation = if (isSettling) settlingElevation.value else 10f
                         WritingBarFloatingCategoryChip(
                             catId = draggingCatId!!,
                             shortcutCount = count,
-                            topLeft = renderPos
+                            topLeft = renderPos,
+                            scale = renderScale,
+                            elevationDp = renderElevation
                         )
                     }
                 }
@@ -1721,12 +1750,23 @@ private fun WritingBarCategoryPlaceholder(
 private fun WritingBarFloatingCategoryChip(
     catId: String,
     shortcutCount: Int,
-    topLeft: Offset
+    topLeft: Offset,
+    scale: Float = 1.08f,
+    elevationDp: Float = 10f
 ) {
     val colors = ScribeTheme.colors
     val contentPrimary = colors.content.primary
     val contentSecondary = colors.content.secondary
     val accentPrimary = colors.interaction.primary
+    val subtleBorder = colors.borders.subtle
+    val surfaceNormal = colors.surfaces.surface
+    val surfaceRaised = colors.surfaces.surfaceRaised
+
+    // Smooth interpolation: 0f (resting slot appearance) to 1f (fully lifted hover)
+    val hoverFraction = ((scale - 1.0f) / 0.08f).coerceIn(0f, 1f)
+    val borderColor = lerp(subtleBorder, accentPrimary, hoverFraction)
+    val surfaceColor = lerp(surfaceNormal, surfaceRaised, hoverFraction)
+    val borderWidth = (0.7f + 0.7f * hoverFraction).dp
 
     val meta = STUDIO_CATEGORIES.find { it.id == catId }
     val catTitle = meta?.filterLabel ?: catId.replaceFirstChar { it.uppercase() }
@@ -1741,17 +1781,17 @@ private fun WritingBarFloatingCategoryChip(
             }
             .zIndex(60f)
             .graphicsLayer {
-                scaleX = 1.08f
-                scaleY = 1.08f
-                shadowElevation = 10.dp.toPx()
+                scaleX = scale
+                scaleY = scale
+                shadowElevation = elevationDp.dp.toPx()
                 shape = RoundedCornerShape(8.dp)
                 clip = false
             }
     ) {
         Surface(
             shape = RoundedCornerShape(8.dp),
-            color = colors.surfaces.surfaceRaised,
-            border = BorderStroke(1.4.dp, accentPrimary),
+            color = surfaceColor,
+            border = BorderStroke(borderWidth, borderColor),
             modifier = Modifier.height(34.dp)
         ) {
             Row(
@@ -1762,7 +1802,7 @@ private fun WritingBarFloatingCategoryChip(
                 Icon(
                     imageVector = Icons.Default.DragHandle,
                     contentDescription = null,
-                    tint = accentPrimary,
+                    tint = lerp(contentSecondary.copy(alpha = 0.6f), accentPrimary, hoverFraction),
                     modifier = Modifier.size(13.dp)
                 )
                 Text(
@@ -1774,7 +1814,7 @@ private fun WritingBarFloatingCategoryChip(
                 if (shortcutCount > 0) {
                     Surface(
                         shape = CircleShape,
-                        color = accentPrimary.copy(alpha = 0.15f)
+                        color = accentPrimary.copy(alpha = 0.10f + 0.05f * hoverFraction)
                     ) {
                         Text(
                             text = "$shortcutCount",
@@ -1875,6 +1915,26 @@ private fun WritingBarEditFlowGrid(
 
                                             isSettling = true
                                             coroutineScope.launch {
+                                                launch {
+                                                    settlingScale.snapTo(1.15f)
+                                                    settlingScale.animateTo(
+                                                        targetValue = 1.0f,
+                                                        animationSpec = spring(
+                                                            stiffness = Spring.StiffnessMediumLow,
+                                                            dampingRatio = Spring.DampingRatioNoBouncy
+                                                        )
+                                                    )
+                                                }
+                                                launch {
+                                                    settlingElevation.snapTo(12f)
+                                                    settlingElevation.animateTo(
+                                                        targetValue = 0f,
+                                                        animationSpec = spring(
+                                                            stiffness = Spring.StiffnessMediumLow,
+                                                            dampingRatio = Spring.DampingRatioNoBouncy
+                                                        )
+                                                    )
+                                                }
                                                 settlingOffset.snapTo(dragPillTopLeft)
                                                 settlingOffset.animateTo(
                                                     targetValue = targetTopLeft,
@@ -2031,14 +2091,18 @@ private fun WritingBarEditFlowGrid(
                 }
             }
 
-            // Floating elevated pill overlay that tracks finger precisely and smoothly settles
+            // Floating pill overlay that shrinks and dissolves hovering effects immediately on release
             if (draggingId != null) {
                 val draggingShortcut = displayedPills.find { it.id == draggingId }
                 if (draggingShortcut != null) {
                     val renderPos = if (isSettling) settlingOffset.value else dragPillTopLeft
+                    val renderScale = if (isSettling) settlingScale.value else 1.15f
+                    val renderElevation = if (isSettling) settlingElevation.value else 12f
                     WritingBarFloatingPill(
                         shortcut = draggingShortcut,
-                        topLeft = renderPos
+                        topLeft = renderPos,
+                        scale = renderScale,
+                        elevationDp = renderElevation
                     )
                 }
             }
@@ -2087,11 +2151,22 @@ private fun WritingBarPlaceholderSlot(
 @Composable
 private fun WritingBarFloatingPill(
     shortcut: ShortcutAction,
-    topLeft: Offset
+    topLeft: Offset,
+    scale: Float = 1.15f,
+    elevationDp: Float = 12f
 ) {
     val colors = ScribeTheme.colors
     val contentPrimary = colors.content.primary
     val accentPrimary = colors.interaction.primary
+    val subtleBorder = colors.borders.subtle
+    val surfaceLowest = colors.surfaces.surfaceLowest
+    val surfaceRaised = colors.surfaces.surfaceRaised
+
+    // Smooth interpolation: 0f (resting slot appearance) to 1f (fully lifted hover)
+    val hoverFraction = ((scale - 1.0f) / 0.15f).coerceIn(0f, 1f)
+    val borderColor = lerp(subtleBorder, accentPrimary, hoverFraction)
+    val surfaceColor = lerp(surfaceLowest, surfaceRaised, hoverFraction)
+    val borderWidth = (0.7f + 0.8f * hoverFraction).dp
 
     Box(
         modifier = Modifier
@@ -2103,17 +2178,17 @@ private fun WritingBarFloatingPill(
             }
             .zIndex(60f)
             .graphicsLayer {
-                scaleX = 1.15f
-                scaleY = 1.15f
-                shadowElevation = 12.dp.toPx()
+                scaleX = scale
+                scaleY = scale
+                shadowElevation = elevationDp.dp.toPx()
                 shape = CircleShape
                 clip = false
             }
     ) {
         Surface(
             shape = CircleShape,
-            color = colors.surfaces.surfaceRaised,
-            border = BorderStroke(1.5.dp, accentPrimary),
+            color = surfaceColor,
+            border = BorderStroke(borderWidth, borderColor),
             modifier = Modifier.height(36.dp)
         ) {
             Box(
