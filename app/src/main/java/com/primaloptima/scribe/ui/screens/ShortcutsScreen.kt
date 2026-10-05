@@ -1169,23 +1169,25 @@ private fun WritingBarHeroSection(
                     }
 
                     // ── Bottom Footer: Bulb Hint Strip on Left + Action Buttons on Right ──
+                    val hintColor = if (markedForRemovalIds.isNotEmpty()) colors.semantic.error else colors.semantic.warning
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Left hint strip with small warm bulb icon
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.weight(1f, fill = false)
+                            modifier = Modifier
+                                .weight(1f)
+                                .clipToBounds()
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Lightbulb,
                                 contentDescription = null,
-                                tint = Color(0xFFF59E0B),
+                                tint = hintColor,
                                 modifier = Modifier.size(15.dp)
                             )
                             Text(
@@ -1197,7 +1199,8 @@ private fun WritingBarHeroSection(
                                 fontSize = 11.5.sp,
                                 color = contentSecondary,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
                             )
                         }
 
