@@ -1305,8 +1305,6 @@ private fun WritingBarCategoryReorderStrip(
 
     var isSettling by remember { mutableStateOf(false) }
     val settlingOffset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
-    val settlingScale = remember { Animatable(1.15f) }
-    val settlingElevation = remember { Animatable(12f) }
     val settlingScale = remember { Animatable(1.08f) }
     val settlingElevation = remember { Animatable(10f) }
 
@@ -1855,6 +1853,8 @@ private fun WritingBarEditFlowGrid(
 
     var isSettling by remember { mutableStateOf(false) }
     val settlingOffset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+    val settlingScale = remember { Animatable(1.15f) }
+    val settlingElevation = remember { Animatable(12f) }
 
     if (displayedPills.isEmpty()) {
         Box(
