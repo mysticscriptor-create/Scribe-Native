@@ -1550,10 +1550,14 @@ private fun WritingBarCategoryReorderStrip(
 
                                 val animOffset by animateOffsetAsState(
                                     targetValue = targetOffset,
-                                    animationSpec = spring(
-                                        stiffness = Spring.StiffnessMediumLow,
-                                        dampingRatio = Spring.DampingRatioNoBouncy
-                                    ),
+                                    animationSpec = if (draggingCatId == null) {
+                                        snap()
+                                    } else {
+                                        spring(
+                                            stiffness = Spring.StiffnessMediumLow,
+                                            dampingRatio = Spring.DampingRatioNoBouncy
+                                        )
+                                    },
                                     label = "catTranslation"
                                 )
 
@@ -1988,10 +1992,14 @@ private fun WritingBarEditFlowGrid(
 
                         val animOffset by animateOffsetAsState(
                             targetValue = targetOffset,
-                            animationSpec = spring(
-                                stiffness = Spring.StiffnessMediumLow,
-                                dampingRatio = Spring.DampingRatioNoBouncy
-                            ),
+                            animationSpec = if (draggingId == null) {
+                                snap()
+                            } else {
+                                spring(
+                                    stiffness = Spring.StiffnessMediumLow,
+                                    dampingRatio = Spring.DampingRatioNoBouncy
+                                )
+                            },
                             label = "pillTranslation"
                         )
 
