@@ -1174,7 +1174,8 @@ private fun WritingBarHeroSection(
                         onResetToCategoryOrder = {
                             isCustomOrder = false
                             categoryOrder = activeShortcuts.map { it.category }.distinct()
-                        }
+                        },
+                        onDraggingStateChanged = onDraggingStateChanged
                     )
 
                     // Wrapping FlowRow of Pills
@@ -1214,7 +1215,47 @@ private fun WritingBarHeroSection(
     }
 }
 
-// ── Category Reorder Strip (Collapsed by default) ─────────────────────────────
+// ── Smooth Placement Animation in Container ──────────────────────────────────
+@Composable
+private fun Modifier.animatePlacementInContainer(
+    containerCoords: LayoutCoordinates?
+): Modifier {
+    var previousPosition by remember { mutableStateOf<Offset?>(null) }
+    val animOffset = remember { Animatable(Offset.Zero, Offset.VectorConverter) }
+    val scope = rememberCoroutineScope()
+
+    return this
+        .onGloballyPositioned { coords ->
+            containerCoords?.let { container ->
+                if (container.isAttached && coords.isAttached) {
+                    val currentPos = container.localPositionOf(coords, Offset.Zero)
+                    val prev = previousPosition
+                    if (prev != null && prev != currentPos) {
+                        val delta = prev - currentPos
+                        if (delta.getDistance() > 1.5f) {
+                            scope.launch {
+                                animOffset.snapTo(animOffset.value + delta)
+                                animOffset.animateTo(
+                                    targetValue = Offset.Zero,
+                                    animationSpec = spring(
+                                        stiffness = Spring.StiffnessMediumLow,
+                                        dampingRatio = Spring.DampingRatioNoBouncy
+                                    )
+                                )
+                            }
+                        }
+                    }
+                    previousPosition = currentPos
+                }
+            }
+        }
+        .graphicsLayer {
+            translationX = animOffset.value.x
+            translationY = animOffset.value.y
+        }
+}
+
+// ── Category Reorder Strip (Drag and Drop enabled) ────────────────────────────
 @Composable
 private fun WritingBarCategoryReorderStrip(
     categories: List<String>,
@@ -1223,7 +1264,8 @@ private fun WritingBarCategoryReorderStrip(
     isExpanded: Boolean,
     onToggleExpand: () -> Unit,
     onReorderCategories: (from: Int, to: Int) -> Unit,
-    onResetToCategoryOrder: () -> Unit
+    onResetToCategoryOrder: () -> Unit,
+    onDraggingStateChanged: (Boolean) -> Unit
 ) {
     val colors = ScribeTheme.colors
     val subtleBorder = colors.borders.subtle
@@ -1232,6 +1274,14 @@ private fun WritingBarCategoryReorderStrip(
     val contentTertiary = colors.content.tertiary
     val accentPrimary = colors.interaction.primary
     val glyphBoxBg = colors.surfaces.surfaceLowest
+    val haptic = LocalHapticFeedback.current
+
+    var draggingCatId by remember { mutableStateOf<String?>(null) }
+    var dragCatTopLeft by remember { mutableStateOf(Offset.Zero) }
+    var hoverTargetCatIndex by remember { mutableIntStateOf(-1) }
+    val catBoundsMap = remember { mutableMapOf<String, Rect>() }
+    var catContainerCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var frozenCatBounds by remember { mutableStateOf<List<Rect>>(emptyList()) }
 
     val chevronRot by animateFloatAsState(
         targetValue = if (isExpanded && !isCustomOrder) 180f else 0f,
@@ -1319,7 +1369,7 @@ private fun WritingBarCategoryReorderStrip(
                 }
             }
 
-            // Expanded category chips row
+            // Expanded category chips row with drag and drop
             AnimatedVisibility(
                 visible = isExpanded && !isCustomOrder,
                 enter = expandVertically(animationSpec = tween(220)) + fadeIn(animationSpec = tween(180)),
@@ -1332,82 +1382,364 @@ private fun WritingBarCategoryReorderStrip(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "Use arrows to rearrange category groups in Writing Bar",
+                        text = "Drag chips to reorder category groups in Writing Bar",
                         fontSize = 11.sp,
                         color = contentSecondary
                     )
 
-                    Row(
+                    val layoutCategories = remember(categories, draggingCatId, hoverTargetCatIndex) {
+                        if (draggingCatId == null || hoverTargetCatIndex == -1) {
+                            categories
+                        } else {
+                            val list = categories.toMutableList()
+                            val origin = list.indexOf(draggingCatId)
+                            if (origin != -1) {
+                                val item = list.removeAt(origin)
+                                val safeTarget = hoverTargetCatIndex.coerceIn(0, list.size)
+                                list.add(safeTarget, item)
+                            }
+                            list
+                        }
+                    }
+
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        categories.forEachIndexed { index, catId ->
-                            val meta = STUDIO_CATEGORIES.find { it.id == catId }
-                            val catTitle = meta?.filterLabel ?: catId.replaceFirstChar { it.uppercase() }
-                            val count = shortcutCounts[catId] ?: 0
+                            .onGloballyPositioned { catContainerCoords = it }
+                            .pointerInput(categories) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    val downPos = down.position
 
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = colors.surfaces.surface,
-                                border = BorderStroke(0.6.dp, subtleBorder),
-                                modifier = Modifier.height(32.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    // Left nudge button if not first
-                                    if (index > 0) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                                            contentDescription = "Move left",
-                                            tint = contentSecondary,
-                                            modifier = Modifier
-                                                .size(16.dp)
-                                                .clickable { onReorderCategories(index, index - 1) }
-                                        )
-                                    }
+                                    val hitCat = categories.find { catId ->
+                                        val bounds = catBoundsMap[catId]
+                                        bounds != null && bounds.inflate(6f).contains(downPos)
+                                    } ?: return@awaitEachGesture
 
-                                    Text(
-                                        text = catTitle,
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.Medium,
-                                        color = contentPrimary
-                                    )
+                                    var isDragActive = false
+                                    var currentPos = downPos
+                                    val touchSlop = viewConfiguration.touchSlop
+                                    var accumulatedDelta = Offset.Zero
 
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = glyphBoxBg,
-                                        modifier = Modifier.size(16.dp)
-                                    ) {
-                                        Box(contentAlignment = Alignment.Center) {
-                                            Text(
-                                                text = "$count",
-                                                fontSize = 9.5.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = contentSecondary
-                                            )
+                                    val hitBounds = catBoundsMap[hitCat] ?: Rect.Zero
+                                    val grabOffset = downPos - hitBounds.topLeft
+
+                                    try {
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+
+                                            if (change.changedToUp() || !change.pressed) {
+                                                if (isDragActive) {
+                                                    change.consume()
+                                                    val dragId = draggingCatId
+                                                    val targetIdx = hoverTargetCatIndex
+                                                    if (dragId != null && targetIdx != -1) {
+                                                        val originIdx = categories.indexOf(dragId)
+                                                        if (originIdx != -1 && originIdx != targetIdx) {
+                                                            onReorderCategories(originIdx, targetIdx)
+                                                        }
+                                                    }
+                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                }
+                                                break
+                                            }
+
+                                            val delta = change.positionChange()
+                                            accumulatedDelta += delta
+
+                                            if (!isDragActive && accumulatedDelta.getDistance() > touchSlop) {
+                                                isDragActive = true
+                                                change.consume()
+                                                draggingCatId = hitCat
+
+                                                frozenCatBounds = categories.map { catBoundsMap[it] ?: Rect.Zero }
+                                                val originIdx = categories.indexOf(hitCat)
+                                                hoverTargetCatIndex = originIdx
+
+                                                dragCatTopLeft = downPos - grabOffset
+                                                onDraggingStateChanged(true)
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            }
+
+                                            if (isDragActive) {
+                                                change.consume()
+                                                currentPos += delta
+                                                dragCatTopLeft = currentPos - grabOffset
+
+                                                val chipCenter = dragCatTopLeft + Offset(hitBounds.width / 2f, hitBounds.height / 2f)
+
+                                                if (frozenCatBounds.isNotEmpty()) {
+                                                    var closestIdx = hoverTargetCatIndex
+                                                    var minDistance = Float.MAX_VALUE
+                                                    for (i in frozenCatBounds.indices) {
+                                                        val b = frozenCatBounds[i]
+                                                        if (b.isEmpty) continue
+                                                        val dist = (b.center - chipCenter).getDistance()
+                                                        if (dist < minDistance) {
+                                                            minDistance = dist
+                                                            closestIdx = i
+                                                        }
+                                                    }
+
+                                                    val currentHoverBounds = frozenCatBounds.getOrNull(hoverTargetCatIndex)
+                                                    val distToCurrent = if (currentHoverBounds != null && !currentHoverBounds.isEmpty) {
+                                                        (currentHoverBounds.center - chipCenter).getDistance()
+                                                    } else {
+                                                        Float.MAX_VALUE
+                                                    }
+
+                                                    if (closestIdx != hoverTargetCatIndex && (minDistance + 14f) < distToCurrent) {
+                                                        hoverTargetCatIndex = closestIdx
+                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } finally {
+                                        if (isDragActive) {
+                                            val dragId = draggingCatId
+                                            val targetIdx = hoverTargetCatIndex
+                                            if (dragId != null && targetIdx != -1) {
+                                                val originIdx = categories.indexOf(dragId)
+                                                if (originIdx != -1 && originIdx != targetIdx) {
+                                                    onReorderCategories(originIdx, targetIdx)
+                                                }
+                                            }
+                                            draggingCatId = null
+                                            hoverTargetCatIndex = -1
+                                            frozenCatBounds = emptyList()
+                                            onDraggingStateChanged(false)
                                         }
                                     }
-
-                                    // Right nudge button if not last
-                                    if (index < categories.lastIndex) {
-                                        Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                            contentDescription = "Move right",
-                                            tint = contentSecondary,
-                                            modifier = Modifier
-                                                .size(16.dp)
-                                                .clickable { onReorderCategories(index, index + 1) }
+                                }
+                            }
+                    ) {
+                        FlowRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            layoutCategories.forEach { catId ->
+                                val count = shortcutCounts[catId] ?: 0
+                                if (catId == draggingCatId) {
+                                    key("cat_placeholder_$catId") {
+                                        WritingBarCategoryPlaceholder(
+                                            catId = catId,
+                                            containerCoords = catContainerCoords
+                                        )
+                                    }
+                                } else {
+                                    key(catId) {
+                                        WritingBarCategoryChip(
+                                            catId = catId,
+                                            shortcutCount = count,
+                                            containerCoords = catContainerCoords,
+                                            onPositioned = { coords ->
+                                                catContainerCoords?.let { container ->
+                                                    if (container.isAttached && coords.isAttached) {
+                                                        val offset = container.localPositionOf(coords, Offset.Zero)
+                                                        catBoundsMap[catId] = Rect(
+                                                            offset,
+                                                            Size(coords.size.width.toFloat(), coords.size.height.toFloat())
+                                                        )
+                                                    }
+                                                }
+                                            }
                                         )
                                     }
                                 }
                             }
                         }
+
+                        // Floating elevated category chip overlay that tracks finger precisely
+                        if (draggingCatId != null) {
+                            val count = shortcutCounts[draggingCatId] ?: 0
+                            WritingBarFloatingCategoryChip(
+                                catId = draggingCatId!!,
+                                shortcutCount = count,
+                                topLeft = dragCatTopLeft
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Category Chip Component ───────────────────────────────────────────────────
+@Composable
+private fun WritingBarCategoryChip(
+    catId: String,
+    shortcutCount: Int,
+    containerCoords: LayoutCoordinates?,
+    onPositioned: (LayoutCoordinates) -> Unit
+) {
+    val colors = ScribeTheme.colors
+    val subtleBorder = colors.borders.subtle
+    val contentPrimary = colors.content.primary
+    val contentSecondary = colors.content.secondary
+    val accentPrimary = colors.interaction.primary
+
+    val meta = STUDIO_CATEGORIES.find { it.id == catId }
+    val catTitle = meta?.filterLabel ?: catId.replaceFirstChar { it.uppercase() }
+
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = colors.surfaces.surface,
+        border = BorderStroke(0.7.dp, subtleBorder),
+        modifier = Modifier
+            .height(34.dp)
+            .animatePlacementInContainer(containerCoords)
+            .onGloballyPositioned { coordinates ->
+                onPositioned(coordinates)
+            }
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.DragHandle,
+                contentDescription = null,
+                tint = contentSecondary.copy(alpha = 0.6f),
+                modifier = Modifier.size(13.dp)
+            )
+            Text(
+                text = catTitle,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = contentPrimary
+            )
+            if (shortcutCount > 0) {
+                Surface(
+                    shape = CircleShape,
+                    color = accentPrimary.copy(alpha = 0.10f)
+                ) {
+                    Text(
+                        text = "$shortcutCount",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = accentPrimary,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+// ── Category Placeholder Slot ─────────────────────────────────────────────────
+@Composable
+private fun WritingBarCategoryPlaceholder(
+    catId: String,
+    containerCoords: LayoutCoordinates?
+) {
+    val colors = ScribeTheme.colors
+    val accentPrimary = colors.interaction.primary
+
+    val meta = STUDIO_CATEGORIES.find { it.id == catId }
+    val catTitle = meta?.filterLabel ?: catId.replaceFirstChar { it.uppercase() }
+
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = accentPrimary.copy(alpha = 0.08f),
+        border = BorderStroke(1.2.dp, accentPrimary.copy(alpha = 0.45f)),
+        modifier = Modifier
+            .height(34.dp)
+            .animatePlacementInContainer(containerCoords)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.DragHandle,
+                contentDescription = null,
+                tint = accentPrimary.copy(alpha = 0.3f),
+                modifier = Modifier.size(13.dp)
+            )
+            Text(
+                text = catTitle,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = accentPrimary.copy(alpha = 0.35f)
+            )
+        }
+    }
+}
+
+// ── Floating Dragged Category Chip ───────────────────────────────────────────
+@Composable
+private fun WritingBarFloatingCategoryChip(
+    catId: String,
+    shortcutCount: Int,
+    topLeft: Offset
+) {
+    val colors = ScribeTheme.colors
+    val contentPrimary = colors.content.primary
+    val accentPrimary = colors.interaction.primary
+
+    val meta = STUDIO_CATEGORIES.find { it.id == catId }
+    val catTitle = meta?.filterLabel ?: catId.replaceFirstChar { it.uppercase() }
+
+    Box(
+        modifier = Modifier
+            .offset {
+                IntOffset(
+                    x = topLeft.x.roundToInt(),
+                    y = topLeft.y.roundToInt()
+                )
+            }
+            .zIndex(60f)
+            .graphicsLayer {
+                scaleX = 1.08f
+                scaleY = 1.08f
+                shadowElevation = 10.dp.toPx()
+                shape = RoundedCornerShape(8.dp)
+                clip = false
+            }
+    ) {
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = colors.surfaces.surfaceRaised,
+            border = BorderStroke(1.4.dp, accentPrimary),
+            modifier = Modifier.height(34.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.DragHandle,
+                    contentDescription = null,
+                    tint = accentPrimary,
+                    modifier = Modifier.size(13.dp)
+                )
+                Text(
+                    text = catTitle,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = contentPrimary
+                )
+                if (shortcutCount > 0) {
+                    Surface(
+                        shape = CircleShape,
+                        color = accentPrimary.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = "$shortcutCount",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = accentPrimary,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                        )
                     }
                 }
             }
@@ -1605,13 +1937,17 @@ private fun WritingBarEditFlowGrid(
                 layoutPills.forEach { shortcut ->
                     if (shortcut.id == draggingId) {
                         key("placeholder_${shortcut.id}") {
-                            WritingBarPlaceholderSlot(shortcut = shortcut)
+                            WritingBarPlaceholderSlot(
+                                shortcut = shortcut,
+                                containerCoords = containerCoords
+                            )
                         }
                     } else {
                         key(shortcut.id) {
                             WritingBarStaticPill(
                                 shortcut = shortcut,
                                 isMarkedForRemoval = shortcut.id in markedForRemovalIds,
+                                containerCoords = containerCoords,
                                 onPositioned = { coords ->
                                     containerCoords?.let { container ->
                                         if (container.isAttached && coords.isAttached) {
@@ -1643,7 +1979,8 @@ private fun WritingBarEditFlowGrid(
 // ── Placeholder Slot in the FlowRow ───────────────────────────────────────────
 @Composable
 private fun WritingBarPlaceholderSlot(
-    shortcut: ShortcutAction
+    shortcut: ShortcutAction,
+    containerCoords: LayoutCoordinates?
 ) {
     val colors = ScribeTheme.colors
     val accentPrimary = colors.interaction.primary
@@ -1652,7 +1989,9 @@ private fun WritingBarPlaceholderSlot(
         shape = CircleShape,
         color = accentPrimary.copy(alpha = 0.08f),
         border = BorderStroke(1.2.dp, accentPrimary.copy(alpha = 0.45f)),
-        modifier = Modifier.height(36.dp)
+        modifier = Modifier
+            .height(36.dp)
+            .animatePlacementInContainer(containerCoords)
     ) {
         Box(
             contentAlignment = Alignment.Center,
@@ -1727,6 +2066,7 @@ private fun WritingBarFloatingPill(
 private fun WritingBarStaticPill(
     shortcut: ShortcutAction,
     isMarkedForRemoval: Boolean,
+    containerCoords: LayoutCoordinates?,
     onPositioned: (LayoutCoordinates) -> Unit
 ) {
     val colors = ScribeTheme.colors
@@ -1750,6 +2090,7 @@ private fun WritingBarStaticPill(
         border = BorderStroke(0.7.dp, borderColor),
         modifier = Modifier
             .height(36.dp)
+            .animatePlacementInContainer(containerCoords)
             .graphicsLayer {
                 alpha = animatedAlpha
                 shape = CircleShape
