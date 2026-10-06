@@ -68,13 +68,30 @@ class ShortcutsViewModel(application: Application) : AndroidViewModel(applicatio
                 migratedDisabledCats.add(DefaultShortcuts.CAT_SCENE_BREAKS)
             }
 
+            val loadedCustomCategories = dataStore.getCustomCategories()
             _shortcuts.value = loadedShortcuts
             _disabledCategories.value = migratedDisabledCats
+            _customCategories.value = loadedCustomCategories
 
             // Persist the migrated states quietly
             save(loadedShortcuts)
             if (migratedDisabledCats != rawDisabledCats) {
                 dataStore.setDisabledCategoriesJson(AppJson.encodeToString(migratedDisabledCats))
+            }
+        }
+    }
+
+    fun addCategory(tab: String, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        val current = _customCategories.value.toMutableMap()
+        val list = current[tab]?.toMutableList() ?: mutableListOf()
+        if (!list.contains(trimmed)) {
+            list.add(trimmed)
+            current[tab] = list
+            _customCategories.value = current
+            viewModelScope.launch {
+                dataStore.setCustomCategoriesJson(AppJson.encodeToString(current))
             }
         }
     }
@@ -95,6 +112,13 @@ class ShortcutsViewModel(application: Application) : AndroidViewModel(applicatio
     fun toggleShortcutEnabled(id: String) {
         val list = _shortcuts.value.map {
             if (it.id == id) it.copy(isEnabled = !it.isEnabled) else it
+        }
+        save(list)
+    }
+
+    fun toggleShortcutPin(id: String) {
+        val list = _shortcuts.value.map {
+            if (it.id == id) it.copy(showInQuickActions = !it.showInQuickActions) else it
         }
         save(list)
     }

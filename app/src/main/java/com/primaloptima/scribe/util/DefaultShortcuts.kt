@@ -29,6 +29,17 @@ object DefaultShortcuts {
     const val CAT_CURRENCY = "currency"
     const val CAT_CUSTOM = "custom"
 
+    // Snippets Categories
+    const val CAT_CORRESPONDENCE = "correspondence"
+    const val CAT_NARRATIVE = "narrative"
+    const val CAT_NOTES = "notes"
+
+    // Templates Categories
+    const val CAT_TMPL_STRUCTURE = "structure"
+    const val CAT_TMPL_CHARACTERS = "characters"
+    const val CAT_TMPL_WORLDBUILDING = "worldbuilding"
+    const val CAT_TMPL_DIALOGUE = "dialogue"
+
     // Legacy compatibility constant for existing data migration
     const val CAT_SYMBOLS = "symbols"
 

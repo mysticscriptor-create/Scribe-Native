@@ -203,6 +203,68 @@ val STUDIO_CATEGORIES: List<CategoryMeta> = listOf(
     )
 )
 
+val SNIPPET_CATEGORIES: List<CategoryMeta> = listOf(
+    CategoryMeta(
+        id = DefaultShortcuts.CAT_CORRESPONDENCE,
+        title = "Correspondence",
+        subtitle = "Sign-offs • closings • formal letters",
+        iconVector = Icons.Default.MailOutline,
+        filterLabel = "Letters"
+    ),
+    CategoryMeta(
+        id = DefaultShortcuts.CAT_NARRATIVE,
+        title = "Narrative Beats",
+        subtitle = "POV switches • action beats • narrative frames",
+        iconVector = Icons.Default.MenuBook,
+        filterLabel = "Narrative"
+    ),
+    CategoryMeta(
+        id = DefaultShortcuts.CAT_NOTES,
+        title = "Drafting & Notes",
+        subtitle = "Writer notes • inline comments • draft tags",
+        iconVector = Icons.Default.EditNote,
+        filterLabel = "Notes"
+    )
+)
+
+val TEMPLATE_CATEGORIES: List<CategoryMeta> = listOf(
+    CategoryMeta(
+        id = DefaultShortcuts.CAT_TMPL_STRUCTURE,
+        title = "Scene Structure",
+        subtitle = "Scene goals • narrative beats • outlines",
+        iconVector = Icons.Default.AutoStories,
+        filterLabel = "Structure"
+    ),
+    CategoryMeta(
+        id = DefaultShortcuts.CAT_TMPL_CHARACTERS,
+        title = "Character Profiles",
+        subtitle = "Character profiles • motivation • voice",
+        iconVector = Icons.Default.PersonOutline,
+        filterLabel = "Characters"
+    ),
+    CategoryMeta(
+        id = DefaultShortcuts.CAT_TMPL_WORLDBUILDING,
+        title = "Worldbuilding & Stats",
+        subtitle = "Stat blocks • status boxes • lore templates",
+        iconVector = Icons.Default.Public,
+        filterLabel = "Worldbuilding"
+    ),
+    CategoryMeta(
+        id = DefaultShortcuts.CAT_TMPL_DIALOGUE,
+        title = "Dialogue Frames",
+        subtitle = "Sparring frames • banter • subtext exchanges",
+        iconVector = Icons.Default.Forum,
+        filterLabel = "Dialogue"
+    )
+)
+
+enum class StudioTab(val title: String) {
+    QUICK_ACTIONS("Quick Actions"),
+    SNIPPETS("Snippets"),
+    TEMPLATES("Templates")
+}
+
+
 // Human-friendly title mapper delegating to resolvedLabel()
 private fun getHumanFriendlyTitle(shortcut: ShortcutAction): String = shortcut.resolvedLabel()
 
@@ -215,6 +277,21 @@ fun ShortcutsScreen(
     val shortcuts by vm.shortcuts.collectAsStateWithLifecycle()
     val activeBarShortcuts by vm.activeBarShortcuts.collectAsStateWithLifecycle()
     val disabledCategories by vm.disabledCategories.collectAsStateWithLifecycle()
+    val customCategories by vm.customCategories.collectAsStateWithLifecycle()
+    val snippets by vm.snippets.collectAsStateWithLifecycle()
+    val templates by vm.templates.collectAsStateWithLifecycle()
+
+    var activeStudioTab by rememberSaveable { mutableStateOf(StudioTab.QUICK_ACTIONS) }
+    var isQuickActionsCategoriesExpanded by rememberSaveable { mutableStateOf(false) }
+    var showFabMenu by remember { mutableStateOf(false) }
+    var showCreateCategoryDialog by remember { mutableStateOf(false) }
+    var newCategoryInputName by remember { mutableStateOf("") }
+    var itemTypeForSheet by remember { mutableStateOf("action") }
+
+    var selectedSnippetCategory by rememberSaveable { mutableStateOf("all") }
+    var selectedTemplateCategory by rememberSaveable { mutableStateOf("all") }
+    var snippetSearchQuery by rememberSaveable { mutableStateOf("") }
+    var templateSearchQuery by rememberSaveable { mutableStateOf("") }
     val context = LocalContext.current
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
@@ -441,30 +518,82 @@ fun ShortcutsScreen(
                 exit = fadeOut(animationSpec = tween(150, easing = FastOutSlowInEasing)) +
                        scaleOut(animationSpec = tween(150, easing = FastOutSlowInEasing), targetScale = 0.8f)
             ) {
-                Surface(
-                    onClick = { isCreatingNew = true },
-                    shape = CircleShape,
-                    color = accentPrimary,
-                    shadowElevation = 6.dp,
-                    modifier = Modifier.padding(bottom = 8.dp, end = 4.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Box(contentAlignment = Alignment.BottomEnd) {
+                    Surface(
+                        onClick = { showFabMenu = true },
+                        shape = CircleShape,
+                        color = accentPrimary,
+                        shadowElevation = 6.dp,
+                        modifier = Modifier.padding(bottom = 8.dp, end = 4.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Create Shortcut",
-                            tint = onAccent,
-                            modifier = Modifier.size(20.dp)
+                        Row(
+                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Create",
+                                tint = onAccent,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = when (activeStudioTab) {
+                                    StudioTab.QUICK_ACTIONS -> "Create Action"
+                                    StudioTab.SNIPPETS -> "Create Snippet"
+                                    StudioTab.TEMPLATES -> "Create Template"
+                                },
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = onAccent,
+                                maxLines = 1
+                            )
+                        }
+                    }
+
+                    FrostedDropdownMenu(
+                        expanded = showFabMenu,
+                        onDismissRequest = { showFabMenu = false }
+                    ) {
+                        val createLabel = when (activeStudioTab) {
+                            StudioTab.QUICK_ACTIONS -> "Create Quick Action"
+                            StudioTab.SNIPPETS -> "Create Snippet"
+                            StudioTab.TEMPLATES -> "Create Template"
+                        }
+                        DropdownMenuItem(
+                            text = { Text(createLabel) },
+                            onClick = {
+                                showFabMenu = false
+                                itemTypeForSheet = when (activeStudioTab) {
+                                    StudioTab.QUICK_ACTIONS -> "action"
+                                    StudioTab.SNIPPETS -> "snippet"
+                                    StudioTab.TEMPLATES -> "template"
+                                }
+                                editingShortcut = null
+                                isCreatingNew = true
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = null,
+                                    tint = accentPrimary
+                                )
+                            }
                         )
-                        Text(
-                            text = "Create Shortcut",
-                            fontSize = 13.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = onAccent,
-                            maxLines = 1
+                        DropdownMenuItem(
+                            text = { Text("New Category in ${activeStudioTab.title}") },
+                            onClick = {
+                                showFabMenu = false
+                                newCategoryInputName = ""
+                                showCreateCategoryDialog = true
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.CreateNewFolder,
+                                    contentDescription = null,
+                                    tint = accentPrimary
+                                )
+                            }
                         )
                     }
                 }
@@ -506,6 +635,116 @@ fun ShortcutsScreen(
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
+            // ── 3-TAB STUDIO NAVIGATION BAR ─────────────────────────────────
+            Surface(
+                shape = CircleShape,
+                color = glyphBoxBg,
+                border = BorderStroke(0.6.dp, subtleBorder.copy(alpha = 0.6f)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp)
+            ) {
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(3.dp)
+                ) {
+                    val tabWidth = maxWidth / 3
+                    val indicatorOffset by animateDpAsState(
+                        targetValue = when (activeStudioTab) {
+                            StudioTab.QUICK_ACTIONS -> 0.dp
+                            StudioTab.SNIPPETS -> tabWidth
+                            StudioTab.TEMPLATES -> tabWidth * 2
+                        },
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioLowBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        ),
+                        label = "tabIndicator"
+                    )
+                    // Sliding pill background indicator
+                    Box(
+                        modifier = Modifier
+                            .offset(x = indicatorOffset)
+                            .width(tabWidth)
+                            .fillMaxHeight()
+                            .shadow(2.dp, CircleShape)
+                            .background(cardBg, CircleShape)
+                            .border(0.6.dp, subtleBorder.copy(alpha = 0.5f), CircleShape)
+                    )
+                    // 3 clickable Tab items
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        StudioTab.entries.forEach { tab ->
+                            val isSelected = activeStudioTab == tab
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        if (tab == StudioTab.QUICK_ACTIONS) {
+                                            if (activeStudioTab == StudioTab.QUICK_ACTIONS) {
+                                                isQuickActionsCategoriesExpanded = !isQuickActionsCategoriesExpanded
+                                            } else {
+                                                activeStudioTab = StudioTab.QUICK_ACTIONS
+                                                isQuickActionsCategoriesExpanded = false
+                                            }
+                                        } else {
+                                            activeStudioTab = tab
+                                            isQuickActionsCategoriesExpanded = false
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = tab.title,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) contentPrimary else contentSecondary
+                                    )
+                                    if (tab == StudioTab.QUICK_ACTIONS) {
+                                        val arrowRotation by animateFloatAsState(
+                                            targetValue = if (isQuickActionsCategoriesExpanded && isSelected) 180f else 0f,
+                                            animationSpec = tween(220),
+                                            label = "arrowRotation"
+                                        )
+                                        Icon(
+                                            imageVector = Icons.Default.KeyboardArrowDown,
+                                            contentDescription = "Expand categories",
+                                            modifier = Modifier
+                                                .size(15.dp)
+                                                .graphicsLayer { rotationZ = arrowRotation },
+                                            tint = if (isSelected) accentPrimary else contentTertiary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Collapsible Category Chips Under Quick Actions
+            AnimatedVisibility(
+                visible = activeStudioTab == StudioTab.QUICK_ACTIONS && isQuickActionsCategoriesExpanded,
+                enter = expandVertically(animationSpec = tween(260, easing = FastOutSlowInEasing)) + fadeIn(tween(260)),
+                exit = shrinkVertically(animationSpec = tween(220, easing = FastOutSlowInEasing)) + fadeOut(tween(180))
+            ) {
+                Column(modifier = Modifier.padding(top = 2.dp)) {
+                    ShortcutCategoryFilters(
+                        selectedCategory = selectedFilterCategory,
+                        onSelectCategory = { selectedFilterCategory = it }
+                    )
+                }
+            }
+
+            if (activeStudioTab == StudioTab.QUICK_ACTIONS) {
             // ── 1. YOUR WRITING BAR (Hero Section) ───────────────────────────
             WritingBarHeroSection(
                 activeShortcuts = activeBarShortcuts,
@@ -749,10 +988,101 @@ fun ShortcutsScreen(
                 }
             }
 
+            } else if (activeStudioTab == StudioTab.SNIPPETS) {
+                SnippetsStudioTabContent(
+                    snippets = snippets,
+                    customCategories = customCategories["snippet"] ?: emptyList(),
+                    searchQuery = snippetSearchQuery,
+                    onSearchQueryChange = { snippetSearchQuery = it },
+                    selectedCategory = selectedSnippetCategory,
+                    onSelectCategory = { selectedSnippetCategory = it },
+                    onToggleEnabled = { shortcut ->
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        vm.toggleShortcutEnabled(shortcut.id)
+                    },
+                    onTogglePin = { shortcut ->
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        vm.update(shortcut.copy(showInQuickActions = !shortcut.showInQuickActions))
+                    },
+                    onEdit = { shortcut -> editingShortcut = shortcut },
+                    onDelete = { shortcut -> deleteCandidate = shortcut }
+                )
+            } else {
+                TemplatesStudioTabContent(
+                    templates = templates,
+                    customCategories = customCategories["template"] ?: emptyList(),
+                    searchQuery = templateSearchQuery,
+                    onSearchQueryChange = { templateSearchQuery = it },
+                    selectedCategory = selectedTemplateCategory,
+                    onSelectCategory = { selectedTemplateCategory = it },
+                    onToggleEnabled = { shortcut ->
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        vm.toggleShortcutEnabled(shortcut.id)
+                    },
+                    onTogglePin = { shortcut ->
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        vm.update(shortcut.copy(showInQuickActions = !shortcut.showInQuickActions))
+                    },
+                    onEdit = { shortcut -> editingShortcut = shortcut },
+                    onDelete = { shortcut -> deleteCandidate = shortcut }
+                )
+            }
+
             // Bottom spacing for extended FAB
             Spacer(modifier = Modifier.height(84.dp))
         }
         }
+    }
+
+    // ── Category Creation Dialog ─────────────────────────────────────────────
+    if (showCreateCategoryDialog) {
+        FrostedDialog(
+            onDismissRequest = { showCreateCategoryDialog = false },
+            title = { Text("New Category") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Add a custom category under ${activeStudioTab.title}:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = contentSecondary
+                    )
+                    OutlinedTextField(
+                        value = newCategoryInputName,
+                        onValueChange = { newCategoryInputName = it },
+                        placeholder = { Text("e.g. World Lore, Letters, Spells...") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val trimmed = newCategoryInputName.trim()
+                        if (trimmed.isNotEmpty()) {
+                            val tabKey = when (activeStudioTab) {
+                                StudioTab.QUICK_ACTIONS -> "action"
+                                StudioTab.SNIPPETS -> "snippet"
+                                StudioTab.TEMPLATES -> "template"
+                            }
+                            vm.addCategory(tabKey, trimmed)
+                            Toast.makeText(context, "Category \"$trimmed\" created", Toast.LENGTH_SHORT).show()
+                        }
+                        showCreateCategoryDialog = false
+                        newCategoryInputName = ""
+                    },
+                    enabled = newCategoryInputName.isNotBlank()
+                ) {
+                    Text("Create")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateCategoryDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     // ── Dialogs ──────────────────────────────────────────────────────────────
@@ -760,6 +1090,8 @@ fun ShortcutsScreen(
         val target = editingShortcut
         CreateOrEditShortcutSheet(
             existing = target,
+            initialItemType = if (target != null) target.itemType else itemTypeForSheet,
+            customCategories = customCategories,
             onDismiss = {
                 editingShortcut = null
                 isCreatingNew = false
@@ -3268,9 +3600,16 @@ private fun SheetSectionLabelRow(
 @Composable
 private fun CreateOrEditShortcutSheet(
     existing: ShortcutAction?,
+    initialItemType: String = existing?.itemType ?: "action",
+    customCategories: Map<String, List<String>> = emptyMap(),
     onDismiss: () -> Unit,
     onSave: (ShortcutAction) -> Unit
 ) {
+    var itemType by remember(existing) { mutableStateOf(existing?.itemType ?: initialItemType) }
+    var showInQuickActions by remember(existing) { mutableStateOf(existing?.showInQuickActions ?: (itemType == "action")) }
+    var useCustomIcon by remember(existing) { mutableStateOf(existing?.useCustomIcon ?: false) }
+    var templateDescription by remember(existing) { mutableStateOf(existing?.templateDescription ?: "") }
+
     // 2: Separate `label` (description in Shortcut Studio) from `icon` (actual shortcut symbol)
     var label by remember(existing) { mutableStateOf(existing?.resolvedLabel() ?: "") }
     var kind by remember(existing) {
@@ -3313,6 +3652,35 @@ private fun CreateOrEditShortcutSheet(
         existing?.keywords ?: emptyList()
     }
     val keywordsList = remember(existing) { mutableStateListOf<String>().apply { addAll(initialKeywords) } }
+    val availableCategories = remember(itemType, customCategories) {
+        when (itemType) {
+            "snippet" -> {
+                val builtIn = listOf(
+                    DefaultShortcuts.CAT_CORRESPONDENCE to "Correspondence",
+                    DefaultShortcuts.CAT_NARRATIVE to "Narrative",
+                    DefaultShortcuts.CAT_NOTES to "Notes"
+                )
+                val custom = (customCategories["snippet"] ?: emptyList()).map { it to it }
+                builtIn + custom
+            }
+            "template" -> {
+                val builtIn = listOf(
+                    DefaultShortcuts.CAT_TMPL_STRUCTURE to "Scene Structure",
+                    DefaultShortcuts.CAT_TMPL_CHARACTERS to "Characters",
+                    DefaultShortcuts.CAT_TMPL_WORLDBUILDING to "Worldbuilding",
+                    DefaultShortcuts.CAT_TMPL_DIALOGUE to "Dialogue"
+                )
+                val custom = (customCategories["template"] ?: emptyList()).map { it to it }
+                builtIn + custom
+            }
+            else -> {
+                val builtIn = STUDIO_CATEGORIES.map { it.id to it.filterLabel }
+                val custom = (customCategories["action"] ?: emptyList()).map { it to it }
+                builtIn + custom
+            }
+        }
+    }
+
     var newKeywordText by remember(existing) { mutableStateOf("") }
     var showCategoryMenu by remember { mutableStateOf(false) }
 
@@ -3564,6 +3932,55 @@ private fun CreateOrEditShortcutSheet(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
+                    // ── Item Type Switcher: Quick Action / Snippet / Template ─
+                    Surface(
+                        shape = CircleShape,
+                        color = surfaceLowest,
+                        border = BorderStroke(1.dp, borderSubtle),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(40.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(3.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            listOf(
+                                "action" to "Quick Action",
+                                "snippet" to "Snippet",
+                                "template" to "Template"
+                            ).forEach { (typeKey, typeLabel) ->
+                                val isSelected = itemType == typeKey
+                                Surface(
+                                    shape = CircleShape,
+                                    color = if (isSelected) accentPrimary else Color.Transparent,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxHeight()
+                                        .clickable {
+                                            itemType = typeKey
+                                            if (typeKey != "action") {
+                                                kind = "insert"
+                                                if (category == DefaultShortcuts.CAT_CUSTOM) {
+                                                    category = if (typeKey == "snippet") DefaultShortcuts.CAT_CORRESPONDENCE else DefaultShortcuts.CAT_TMPL_STRUCTURE
+                                                }
+                                            }
+                                        }
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = typeLabel,
+                                            fontSize = 11.5.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) onAccent else textSecondary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // ── 3: Fixed-Height PREVIEW Card (Line Breaks Shown as ↵ Symbol) ──────────
                     Surface(
                         shape = ScribeShapeTokens.CardSmall,
@@ -3693,6 +4110,7 @@ private fun CreateOrEditShortcutSheet(
                         }
                     }
 
+if (itemType == "action") {
                     // ── 4 & 5: Animated TYPE Selector + Narrow Hint Card ─────────────────────
                     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         SheetSectionLabelRow(title = "TYPE")
@@ -4375,6 +4793,267 @@ private fun CreateOrEditShortcutSheet(
                             )
                         }
                     }
+                    } else {
+                        // ── Snippet & Template Input Form ───────────────────────────
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            // 1. Label / Name
+                            OutlinedTextField(
+                                value = label,
+                                onValueChange = { label = it },
+                                label = { Text("Name / Title") },
+                                placeholder = { Text(if (itemType == "snippet") "e.g. Formal Sign-off, Action Beat" else "e.g. Scene Beats, Character Profile") },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                singleLine = true
+                            )
+
+                            // 2. Summary / Description (templateDescription)
+                            OutlinedTextField(
+                                value = templateDescription,
+                                onValueChange = { templateDescription = it },
+                                label = { Text("Preview Summary / Label") },
+                                placeholder = { Text("Short description for compact card preview") },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                singleLine = true
+                            )
+
+                            // 3. Multi-line Content
+                            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                if (itemType == "template") {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Insert tag:",
+                                            fontSize = 11.sp,
+                                            color = textTertiary
+                                        )
+                                        listOf("{{name}}", "[INSERT]", "[DATE]", "{{choice}}", "[TODO]").forEach { tag ->
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = accentContainer.copy(alpha = 0.35f),
+                                                border = BorderStroke(0.5.dp, accentPrimary.copy(alpha = 0.3f)),
+                                                modifier = Modifier.clickable {
+                                                    payload = if (payload.isEmpty()) tag else "$payload $tag"
+                                                }
+                                            ) {
+                                                Text(
+                                                    text = tag,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = accentPrimary,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                OutlinedTextField(
+                                    value = payload,
+                                    onValueChange = { payload = it },
+                                    label = { Text(if (itemType == "snippet") "Snippet Text" else "Template Content") },
+                                    placeholder = { Text("Enter text content...") },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 120.dp, max = 220.dp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    minLines = 4,
+                                    maxLines = 8
+                                )
+                            }
+
+                            // 4. Pin to Quick Actions Bar toggle
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = surfaceLowest,
+                                border = BorderStroke(0.6.dp, borderSubtle),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Pin to Quick Actions Bar",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = textPrimary
+                                        )
+                                        Text(
+                                            text = "Display on floating accessory bar during writing",
+                                            fontSize = 11.sp,
+                                            color = textSecondary
+                                        )
+                                    }
+                                    Switch(
+                                        checked = showInQuickActions,
+                                        onCheckedChange = { showInQuickActions = it }
+                                    )
+                                }
+                            }
+
+                            // 5. Display Style toggle: Badge vs Custom Icon
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = surfaceLowest,
+                                border = BorderStroke(0.6.dp, borderSubtle),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = "Display Style in Bar",
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = textPrimary
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        val badgeText = if (itemType == "snippet") "[ Snip ]" else "[ Tmpl ]"
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (!useCustomIcon) accentPrimary.copy(alpha = 0.15f) else Color.Transparent,
+                                            border = BorderStroke(0.7.dp, if (!useCustomIcon) accentPrimary else borderSubtle),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable { useCustomIcon = false }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = badgeText,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (!useCustomIcon) accentPrimary else textSecondary
+                                                )
+                                                Text(
+                                                    text = "Badge",
+                                                    fontSize = 11.5.sp,
+                                                    color = if (!useCustomIcon) textPrimary else textSecondary
+                                                )
+                                            }
+                                        }
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (useCustomIcon) accentPrimary.copy(alpha = 0.15f) else Color.Transparent,
+                                            border = BorderStroke(0.7.dp, if (useCustomIcon) accentPrimary else borderSubtle),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clickable { useCustomIcon = true }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = iconText.ifBlank { "★" },
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = if (useCustomIcon) accentPrimary else textSecondary
+                                                )
+                                                Text(
+                                                    text = "Custom Glyph",
+                                                    fontSize = 11.5.sp,
+                                                    color = if (useCustomIcon) textPrimary else textSecondary
+                                                )
+                                            }
+                                        }
+                                    }
+                                    if (useCustomIcon) {
+                                        OutlinedTextField(
+                                            value = iconText,
+                                            onValueChange = { iconText = it },
+                                            label = { Text("Icon Glyph") },
+                                            placeholder = { Text("e.g. ✍, ✦, 📋, “ ”") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(8.dp),
+                                            singleLine = true
+                                        )
+                                    }
+                                }
+                            }
+
+                            // 6. Category Selection
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedCard(
+                                    onClick = { showCategoryMenu = true },
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = "Category",
+                                                fontSize = 11.sp,
+                                                color = textTertiary
+                                            )
+                                            Text(
+                                                text = availableCategories.find { it.first == category }?.second ?: category,
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = textPrimary
+                                            )
+                                        }
+                                        Icon(
+                                            imageVector = Icons.Default.ArrowDropDown,
+                                            contentDescription = null,
+                                            tint = textSecondary
+                                        )
+                                    }
+                                }
+                                DropdownMenu(
+                                    expanded = showCategoryMenu,
+                                    onDismissRequest = { showCategoryMenu = false }
+                                ) {
+                                    availableCategories.forEach { (catId, catLabel) ->
+                                        DropdownMenuItem(
+                                            text = { Text(catLabel) },
+                                            onClick = {
+                                                category = catId
+                                                showCategoryMenu = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            // 7. Keywords
+                            OutlinedTextField(
+                                value = newKeywordText,
+                                onValueChange = { newKeywordText = it },
+                                label = { Text("Keywords (optional, comma-separated)") },
+                                placeholder = { Text("e.g. closing, formal, letter") },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                singleLine = true
+                            )
+                        }
+                    }
                 }
 
                 // 2D: Subtle top bar downward shadow gradient using semantic token
@@ -4449,13 +5128,17 @@ private fun CreateOrEditShortcutSheet(
                                         ShortcutAction(
                                             id = existing?.id ?: (System.currentTimeMillis().toString() + Math.random().toString().takeLast(4)),
                                             label = label.trim(),
-                                            icon = effectiveIcon,
-                                            kind = kind,
+                                            icon = if (itemType == "action") effectiveIcon else if (useCustomIcon) iconText.trim().ifBlank { if (itemType == "snippet") "Snip" else "Tmpl" } else "",
+                                            kind = if (itemType == "action") kind else "insert",
                                             payload = payload,
-                                            closing = if (kind == "pair" || kind == "wrap") closing.ifBlank { null } else null,
+                                            closing = if (itemType == "action" && (kind == "pair" || kind == "wrap")) closing.ifBlank { null } else null,
                                             category = category,
                                             isEnabled = existing?.isEnabled ?: true,
-                                            keywords = finalKeywords
+                                            keywords = finalKeywords,
+                                            itemType = itemType,
+                                            showInQuickActions = if (itemType == "action") true else showInQuickActions,
+                                            useCustomIcon = if (itemType == "action") false else useCustomIcon,
+                                            templateDescription = templateDescription.trim()
                                         )
                                     )
                                 }
@@ -4477,6 +5160,717 @@ private fun CreateOrEditShortcutSheet(
                 }
             }
         }
+        }
+    }
+}
+
+
+// ── Snippets Studio Tab Content ──────────────────────────────────────────────
+@Composable
+private fun SnippetsStudioTabContent(
+    snippets: List<ShortcutAction>,
+    customCategories: List<String>,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    selectedCategory: String,
+    onSelectCategory: (String) -> Unit,
+    onToggleEnabled: (ShortcutAction) -> Unit,
+    onTogglePin: (ShortcutAction) -> Unit,
+    onEdit: (ShortcutAction) -> Unit,
+    onDelete: (ShortcutAction) -> Unit
+) {
+    val colors = ScribeTheme.colors
+    val cardBg = colors.surfaces.surface
+    val subtleBorder = colors.borders.subtle
+    val contentPrimary = colors.content.primary
+    val contentSecondary = colors.content.secondary
+    val contentTertiary = colors.content.tertiary
+    val accentPrimary = colors.interaction.primary
+    val onAccent = colors.content.onAccent
+    val glyphBoxBg = colors.surfaces.surfaceLowest
+
+    val cleanQuery = searchQuery.trim().lowercase()
+
+    val allCategoriesMeta = remember(customCategories) {
+        val builtIn = SNIPPET_CATEGORIES
+        val customMeta = customCategories.map { customCat ->
+            CategoryMeta(
+                id = customCat,
+                title = customCat,
+                subtitle = "Custom user category",
+                iconVector = Icons.Default.BookmarkBorder,
+                filterLabel = customCat
+            )
+        }
+        builtIn + customMeta
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        ShortcutSearchField(
+            query = searchQuery,
+            onQueryChange = onSearchQueryChange
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val isAll = selectedCategory == "all"
+            Surface(
+                onClick = { onSelectCategory("all") },
+                shape = CircleShape,
+                color = if (isAll) accentPrimary else glyphBoxBg,
+                border = BorderStroke(0.8.dp, if (isAll) accentPrimary else subtleBorder),
+                modifier = Modifier.height(36.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 18.dp)) {
+                    Text(
+                        text = "All",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (isAll) onAccent else contentPrimary
+                    )
+                }
+            }
+
+            allCategoriesMeta.forEach { meta ->
+                val isSelected = selectedCategory == meta.id
+                Surface(
+                    onClick = { onSelectCategory(if (isSelected) "all" else meta.id) },
+                    shape = CircleShape,
+                    color = if (isSelected) accentPrimary else glyphBoxBg,
+                    border = BorderStroke(0.8.dp, if (isSelected) accentPrimary else subtleBorder),
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 16.dp)) {
+                        Text(
+                            text = meta.filterLabel,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (isSelected) onAccent else contentPrimary
+                        )
+                    }
+                }
+            }
+        }
+
+        val filteredSnippets = remember(snippets, cleanQuery, selectedCategory) {
+            snippets.filter { snip ->
+                val matchesCat = if (selectedCategory == "all") true else snip.category == selectedCategory
+                if (!matchesCat) return@filter false
+                if (cleanQuery.isBlank()) return@filter true
+                snip.resolvedLabel().lowercase().contains(cleanQuery) ||
+                    snip.templateDescription.lowercase().contains(cleanQuery) ||
+                    snip.payload.lowercase().contains(cleanQuery) ||
+                    snip.category.lowercase().contains(cleanQuery) ||
+                    snip.keywords.any { it.lowercase().contains(cleanQuery) }
+            }
+        }
+
+        if (filteredSnippets.isEmpty()) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = ScribeShapeTokens.CardMedium,
+                color = cardBg,
+                border = BorderStroke(0.5.dp, subtleBorder.copy(alpha = 0.6f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.BookmarkBorder,
+                        contentDescription = null,
+                        modifier = Modifier.size(32.dp),
+                        tint = contentTertiary
+                    )
+                    Text(
+                        text = if (cleanQuery.isNotBlank()) "No snippets matching \"$searchQuery\"" else "No snippets in this category",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = contentSecondary
+                    )
+                }
+            }
+        } else {
+            val grouped = remember(filteredSnippets) { filteredSnippets.groupBy { it.category } }
+            allCategoriesMeta.filter { it.id in grouped.keys || selectedCategory == it.id }.forEach { catMeta ->
+                val categoryItems = grouped[catMeta.id] ?: emptyList()
+                if (categoryItems.isNotEmpty()) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = ScribeShapeTokens.CardMedium,
+                        color = cardBg,
+                        border = BorderStroke(0.5.dp, subtleBorder.copy(alpha = 0.6f))
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    catMeta.iconVector?.let { vec ->
+                                        Icon(vec, contentDescription = null, tint = accentPrimary, modifier = Modifier.size(18.dp))
+                                    }
+                                    Column {
+                                        Text(catMeta.title, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = contentPrimary)
+                                        Text(catMeta.subtitle, fontSize = 11.sp, color = contentSecondary)
+                                    }
+                                }
+                                Surface(
+                                    shape = CircleShape,
+                                    color = glyphBoxBg,
+                                    border = BorderStroke(0.5.dp, subtleBorder)
+                                ) {
+                                    Text(
+                                        text = "${categoryItems.size}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = contentSecondary,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            categoryItems.forEachIndexed { idx, item ->
+                                SnippetListItemCard(
+                                    shortcut = item,
+                                    onToggleEnabled = { onToggleEnabled(item) },
+                                    onTogglePin = { onTogglePin(item) },
+                                    onEdit = { onEdit(item) },
+                                    onDelete = { onDelete(item) }
+                                )
+                                if (idx < categoryItems.lastIndex) {
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(vertical = 8.dp),
+                                        thickness = 0.5.dp,
+                                        color = subtleBorder.copy(alpha = 0.4f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SnippetListItemCard(
+    shortcut: ShortcutAction,
+    onToggleEnabled: () -> Unit,
+    onTogglePin: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val colors = ScribeTheme.colors
+    val subtleBorder = colors.borders.subtle
+    val contentPrimary = colors.content.primary
+    val contentSecondary = colors.content.secondary
+    val accentPrimary = colors.interaction.primary
+    val glyphBoxBg = colors.surfaces.surfaceLowest
+    val badgeBg = colors.interaction.primaryContainer
+    val badgeContent = colors.interaction.onPrimaryContainer
+    var showMenu by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (shortcut.useCustomIcon) glyphBoxBg else badgeBg)
+                        .border(0.6.dp, subtleBorder.copy(alpha = 0.5f), RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (!shortcut.useCustomIcon) "[ Snip ]" else shortcut.resolvedIcon(),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = if (!shortcut.useCustomIcon) 10.5.sp else 14.sp,
+                        color = if (!shortcut.useCustomIcon) badgeContent else contentPrimary,
+                        maxLines = 1
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = shortcut.resolvedLabel(),
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 13.5.sp,
+                        color = contentPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = shortcut.templateDescription.ifBlank { "Personal snippet" },
+                        fontSize = 11.5.sp,
+                        color = contentSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = onTogglePin,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PushPin,
+                        contentDescription = "Pin to bar",
+                        tint = if (shortcut.showInQuickActions) accentPrimary else contentSecondary.copy(alpha = 0.35f),
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+
+                Switch(
+                    checked = shortcut.isEnabled,
+                    onCheckedChange = { onToggleEnabled() },
+                    modifier = Modifier.scale(0.8f)
+                )
+
+                Box {
+                    IconButton(
+                        onClick = { showMenu = true },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "More",
+                            tint = contentSecondary,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+                    FrostedDropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Edit") },
+                            onClick = {
+                                showMenu = false
+                                onEdit()
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Edit, contentDescription = null, tint = accentPrimary)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete", color = colors.semantic.error) },
+                            onClick = {
+                                showMenu = false
+                                onDelete()
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = colors.semantic.error)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(6.dp),
+            color = glyphBoxBg,
+            border = BorderStroke(0.5.dp, subtleBorder.copy(alpha = 0.4f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 50.dp, top = 6.dp)
+        ) {
+            Text(
+                text = shortcut.payload.replace("
+", "↵ ").replace("
+", "↵ ").trim(),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                fontSize = 11.5.sp,
+                fontFamily = FontFamily.Monospace,
+                color = contentSecondary,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+            )
+        }
+    }
+}
+
+// ── Templates Studio Tab Content ─────────────────────────────────────────────
+@Composable
+private fun TemplatesStudioTabContent(
+    templates: List<ShortcutAction>,
+    customCategories: List<String>,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    selectedCategory: String,
+    onSelectCategory: (String) -> Unit,
+    onToggleEnabled: (ShortcutAction) -> Unit,
+    onTogglePin: (ShortcutAction) -> Unit,
+    onEdit: (ShortcutAction) -> Unit,
+    onDelete: (ShortcutAction) -> Unit
+) {
+    val colors = ScribeTheme.colors
+    val cardBg = colors.surfaces.surface
+    val subtleBorder = colors.borders.subtle
+    val contentPrimary = colors.content.primary
+    val contentSecondary = colors.content.secondary
+    val contentTertiary = colors.content.tertiary
+    val accentPrimary = colors.interaction.primary
+    val onAccent = colors.content.onAccent
+    val glyphBoxBg = colors.surfaces.surfaceLowest
+
+    val cleanQuery = searchQuery.trim().lowercase()
+
+    val allCategoriesMeta = remember(customCategories) {
+        val builtIn = TEMPLATE_CATEGORIES
+        val customMeta = customCategories.map { customCat ->
+            CategoryMeta(
+                id = customCat,
+                title = customCat,
+                subtitle = "Custom user category",
+                iconVector = Icons.Default.Description,
+                filterLabel = customCat
+            )
+        }
+        builtIn + customMeta
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        ShortcutSearchField(
+            query = searchQuery,
+            onQueryChange = onSearchQueryChange
+        )
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val isAll = selectedCategory == "all"
+            Surface(
+                onClick = { onSelectCategory("all") },
+                shape = CircleShape,
+                color = if (isAll) accentPrimary else glyphBoxBg,
+                border = BorderStroke(0.8.dp, if (isAll) accentPrimary else subtleBorder),
+                modifier = Modifier.height(36.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 18.dp)) {
+                    Text(
+                        text = "All",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (isAll) onAccent else contentPrimary
+                    )
+                }
+            }
+
+            allCategoriesMeta.forEach { meta ->
+                val isSelected = selectedCategory == meta.id
+                Surface(
+                    onClick = { onSelectCategory(if (isSelected) "all" else meta.id) },
+                    shape = CircleShape,
+                    color = if (isSelected) accentPrimary else glyphBoxBg,
+                    border = BorderStroke(0.8.dp, if (isSelected) accentPrimary else subtleBorder),
+                    modifier = Modifier.height(36.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 16.dp)) {
+                        Text(
+                            text = meta.filterLabel,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = if (isSelected) onAccent else contentPrimary
+                        )
+                    }
+                }
+            }
+        }
+
+        val filteredTemplates = remember(templates, cleanQuery, selectedCategory) {
+            templates.filter { tmpl ->
+                val matchesCat = if (selectedCategory == "all") true else tmpl.category == selectedCategory
+                if (!matchesCat) return@filter false
+                if (cleanQuery.isBlank()) return@filter true
+                tmpl.resolvedLabel().lowercase().contains(cleanQuery) ||
+                    tmpl.templateDescription.lowercase().contains(cleanQuery) ||
+                    tmpl.payload.lowercase().contains(cleanQuery) ||
+                    tmpl.category.lowercase().contains(cleanQuery) ||
+                    tmpl.keywords.any { it.lowercase().contains(cleanQuery) }
+            }
+        }
+
+        if (filteredTemplates.isEmpty()) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = ScribeShapeTokens.CardMedium,
+                color = cardBg,
+                border = BorderStroke(0.5.dp, subtleBorder.copy(alpha = 0.6f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Description,
+                        contentDescription = null,
+                        modifier = Modifier.size(32.dp),
+                        tint = contentTertiary
+                    )
+                    Text(
+                        text = if (cleanQuery.isNotBlank()) "No templates matching \"$searchQuery\"" else "No templates in this category",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = contentSecondary
+                    )
+                }
+            }
+        } else {
+            val grouped = remember(filteredTemplates) { filteredTemplates.groupBy { it.category } }
+            allCategoriesMeta.filter { it.id in grouped.keys || selectedCategory == it.id }.forEach { catMeta ->
+                val categoryItems = grouped[catMeta.id] ?: emptyList()
+                if (categoryItems.isNotEmpty()) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = ScribeShapeTokens.CardMedium,
+                        color = cardBg,
+                        border = BorderStroke(0.5.dp, subtleBorder.copy(alpha = 0.6f))
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    catMeta.iconVector?.let { vec ->
+                                        Icon(vec, contentDescription = null, tint = accentPrimary, modifier = Modifier.size(18.dp))
+                                    }
+                                    Column {
+                                        Text(catMeta.title, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = contentPrimary)
+                                        Text(catMeta.subtitle, fontSize = 11.sp, color = contentSecondary)
+                                    }
+                                }
+                                Surface(
+                                    shape = CircleShape,
+                                    color = glyphBoxBg,
+                                    border = BorderStroke(0.5.dp, subtleBorder)
+                                ) {
+                                    Text(
+                                        text = "${categoryItems.size}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = contentSecondary,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+
+                            categoryItems.forEachIndexed { idx, item ->
+                                TemplateListItemCard(
+                                    shortcut = item,
+                                    onToggleEnabled = { onToggleEnabled(item) },
+                                    onTogglePin = { onTogglePin(item) },
+                                    onEdit = { onEdit(item) },
+                                    onDelete = { onDelete(item) }
+                                )
+                                if (idx < categoryItems.lastIndex) {
+                                    HorizontalDivider(
+                                        modifier = Modifier.padding(vertical = 8.dp),
+                                        thickness = 0.5.dp,
+                                        color = subtleBorder.copy(alpha = 0.4f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TemplateListItemCard(
+    shortcut: ShortcutAction,
+    onToggleEnabled: () -> Unit,
+    onTogglePin: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val colors = ScribeTheme.colors
+    val subtleBorder = colors.borders.subtle
+    val contentPrimary = colors.content.primary
+    val contentSecondary = colors.content.secondary
+    val accentPrimary = colors.interaction.primary
+    val glyphBoxBg = colors.surfaces.surfaceLowest
+    val badgeBg = colors.interaction.primaryContainer
+    val badgeContent = colors.interaction.onPrimaryContainer
+    var showMenu by remember { mutableStateOf(false) }
+    var isExpanded by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (shortcut.useCustomIcon) glyphBoxBg else badgeBg)
+                        .border(0.6.dp, subtleBorder.copy(alpha = 0.5f), RoundedCornerShape(10.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (!shortcut.useCustomIcon) "[ Tmpl ]" else shortcut.resolvedIcon(),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = if (!shortcut.useCustomIcon) 10.sp else 14.sp,
+                        color = if (!shortcut.useCustomIcon) badgeContent else contentPrimary,
+                        maxLines = 1
+                    )
+                }
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = shortcut.resolvedLabel(),
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 13.5.sp,
+                        color = contentPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = shortcut.templateDescription.ifBlank { "Writing template" },
+                        fontSize = 11.5.sp,
+                        color = contentSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = onTogglePin,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PushPin,
+                        contentDescription = "Pin to bar",
+                        tint = if (shortcut.showInQuickActions) accentPrimary else contentSecondary.copy(alpha = 0.35f),
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
+
+                Switch(
+                    checked = shortcut.isEnabled,
+                    onCheckedChange = { onToggleEnabled() },
+                    modifier = Modifier.scale(0.8f)
+                )
+
+                Box {
+                    IconButton(
+                        onClick = { showMenu = true },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MoreVert,
+                            contentDescription = "More",
+                            tint = contentSecondary,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+                    FrostedDropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Edit") },
+                            onClick = {
+                                showMenu = false
+                                onEdit()
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.Edit, contentDescription = null, tint = accentPrimary)
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete", color = colors.semantic.error) },
+                            onClick = {
+                                showMenu = false
+                                onDelete()
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Default.DeleteOutline, contentDescription = null, tint = colors.semantic.error)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = glyphBoxBg,
+            border = BorderStroke(0.5.dp, subtleBorder.copy(alpha = 0.4f)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 50.dp, top = 6.dp)
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) {
+                Text(
+                    text = shortcut.payload.trim(),
+                    maxLines = if (isExpanded) Int.MAX_VALUE else 3,
+                    overflow = TextOverflow.Ellipsis,
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = contentSecondary
+                )
+                if (shortcut.payload.lines().size > 3 || shortcut.payload.length > 120) {
+                    Text(
+                        text = if (isExpanded) "Collapse preview ▴" else "Show full template ▾",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = accentPrimary,
+                        modifier = Modifier
+                            .padding(top = 4.dp)
+                            .clickable { isExpanded = !isExpanded }
+                    )
+                }
+            }
         }
     }
 }
