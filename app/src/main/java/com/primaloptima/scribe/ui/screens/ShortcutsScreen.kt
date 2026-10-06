@@ -67,6 +67,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.lerp
@@ -304,6 +305,79 @@ fun ShortcutsScreen(
         shortcuts.groupBy { it.category }
     }
 
+    // ── Smooth Elastic Stretch Overscroll Engine ─────────────────────────────
+    // Elastic stretch overscroll: stretches content from top/bottom pivot without rigid translation or coroutine churn.
+    // Preserves native 120Hz flings and smooth scrolling.
+    val stretchPullY = remember { Animatable(0f) }
+    val maxStretchPullPx = with(density) { 96.dp.toPx() }
+
+    val stretchScrollConnection = remember(scope, maxStretchPullPx, isPillDragging) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (isPillDragging) return Offset.Zero
+                val current = stretchPullY.value
+                // Only consume scroll in onPreScroll if we are currently stretched and the user pulls back towards resting state
+                if (abs(current) > 0.5f && available.y != 0f && sign(available.y) != sign(current)) {
+                    val next = if (current > 0f) {
+                        (current + available.y * 1.25f).coerceAtLeast(0f)
+                    } else {
+                        (current + available.y * 1.25f).coerceAtMost(0f)
+                    }
+                    scope.launch { stretchPullY.snapTo(next) }
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource
+            ): Offset {
+                if (isPillDragging) return Offset.Zero
+                // Only trigger overscroll if there is unconsumed available delta from direct user dragging
+                if (available.y != 0f && source == NestedScrollSource.UserInput) {
+                    val current = stretchPullY.value
+                    val factor = (1f - (abs(current) / (maxStretchPullPx * 2.5f))).coerceIn(0.12f, 0.45f)
+                    val next = (current + available.y * factor)
+                        .coerceIn(-maxStretchPullPx * 2.5f, maxStretchPullPx * 2.5f)
+                    scope.launch { stretchPullY.snapTo(next) }
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                // If stretched past resting position, spring smoothly back to rest
+                if (abs(stretchPullY.value) > 0.5f) {
+                    stretchPullY.animateTo(
+                        targetValue = 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    )
+                    return available
+                }
+                // When in normal scroll range, NEVER consume fling velocity — allow natural 120Hz momentum!
+                return Velocity.Zero
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (abs(stretchPullY.value) > 0.5f) {
+                    stretchPullY.animateTo(
+                        targetValue = 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        )
+                    )
+                }
+                return available
+            }
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         topBar = {
@@ -328,7 +402,7 @@ fun ShortcutsScreen(
                     )
                 },
                 actionsContent = {
-                    Box {
+                    Box(contentAlignment = Alignment.TopEnd) {
                         IconButton(onClick = { showTopMenu = true }) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
@@ -399,14 +473,39 @@ fun ShortcutsScreen(
         containerColor = canvasBg,
         contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime)
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .verticalScroll(scrollState, enabled = !isPillDragging)
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .nestedScroll(stretchScrollConnection)
+                .clipToBounds()
         ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        val pull = stretchPullY.value
+                        if (abs(pull) > 0.5f) {
+                            val normalizedPull = (abs(pull) / maxStretchPullPx).coerceIn(0f, 2.5f)
+                            // Elastic stretch elongation (up to ~6.5% stretch)
+                            val stretchFactor = (1f - exp(-normalizedPull * 0.45f)) * 0.065f
+                            scaleY = 1f + stretchFactor
+                            transformOrigin = if (pull > 0f) {
+                                TransformOrigin(0.5f, 0f)
+                            } else {
+                                TransformOrigin(0.5f, 1f)
+                            }
+                            translationY = sign(pull) * (abs(pull) * 0.25f).coerceAtMost(with(density) { 20.dp.toPx() })
+                        } else {
+                            scaleY = 1f
+                            translationY = 0f
+                            transformOrigin = TransformOrigin.Center
+                        }
+                    }
+                    .verticalScroll(scrollState, enabled = !isPillDragging)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
             // ── 1. YOUR WRITING BAR (Hero Section) ───────────────────────────
             WritingBarHeroSection(
                 activeShortcuts = activeBarShortcuts,
@@ -652,6 +751,7 @@ fun ShortcutsScreen(
 
             // Bottom spacing for extended FAB
             Spacer(modifier = Modifier.height(84.dp))
+        }
         }
     }
 
@@ -2851,7 +2951,7 @@ private fun ShortcutCompactRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Three-dot options menu
-            Box {
+            Box(contentAlignment = Alignment.TopEnd) {
                 IconButton(
                     onClick = { showMenu = true },
                     modifier = Modifier.size(28.dp)
@@ -2864,44 +2964,42 @@ private fun ShortcutCompactRow(
                     )
                 }
 
-                if (showMenu) {
-                    FrostedDropdownMenu(
-                        expanded = true,
-                        onDismissRequest = { showMenu = false }
-                    ) {
+                FrostedDropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Edit") },
+                        onClick = {
+                            showMenu = false
+                            onEdit()
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = contentPrimary
+                            )
+                        }
+                    )
+
+                    if (onDelete != null) {
                         DropdownMenuItem(
-                            text = { Text("Edit") },
+                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                             onClick = {
                                 showMenu = false
-                                onEdit()
+                                onDelete()
                             },
                             leadingIcon = {
                                 Icon(
-                                    imageVector = Icons.Default.Edit,
+                                    imageVector = Icons.Default.Delete,
                                     contentDescription = null,
                                     modifier = Modifier.size(16.dp),
-                                    tint = contentPrimary
+                                    tint = MaterialTheme.colorScheme.error
                                 )
                             }
                         )
-
-                        if (onDelete != null) {
-                            DropdownMenuItem(
-                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                                onClick = {
-                                    showMenu = false
-                                    onDelete()
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(16.dp),
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                }
-                            )
-                        }
                     }
                 }
             }
@@ -3440,10 +3538,21 @@ private fun CreateOrEditShortcutSheet(
                         .graphicsLayer {
                             if (isScrollNeeded) {
                                 val raw = rawOverscrollY.value
-                                translationY = if (abs(raw) < 0.5f) 0f
-                                else sign(raw) * maxRubberBandPx * (1f - exp(-abs(raw) / (maxRubberBandPx * 2.0f)))
+                                if (abs(raw) > 0.5f) {
+                                    val normalizedPull = (abs(raw) / maxRubberBandPx).coerceIn(0f, 2.5f)
+                                    val stretchFactor = (1f - exp(-normalizedPull * 0.45f)) * 0.055f
+                                    scaleY = 1f + stretchFactor
+                                    transformOrigin = if (raw > 0f) TransformOrigin(0.5f, 0f) else TransformOrigin(0.5f, 1f)
+                                    translationY = sign(raw) * (abs(raw) * 0.22f).coerceAtMost(with(density) { 14.dp.toPx() })
+                                } else {
+                                    scaleY = 1f
+                                    translationY = 0f
+                                    transformOrigin = TransformOrigin.Center
+                                }
                             } else {
+                                scaleY = 1f
                                 translationY = 0f
+                                transformOrigin = TransformOrigin.Center
                             }
                         }
                         .animateContentSize(

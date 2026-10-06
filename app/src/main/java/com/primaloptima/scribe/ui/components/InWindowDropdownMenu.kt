@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
@@ -136,8 +137,6 @@ fun InWindowMenuHost(
         val marginPx = with(density) { 8.dp.toPx() }
         val maxMenuHeightDp = (max(200f, screenHeightPx - marginPx * 4) / density.density).dp
 
-        var menuSizePx by remember(activeMenu.id) { mutableStateOf(IntSize(0, 0)) }
-
         val anchor = activeMenu.anchorBoundsInWindow
         val offsetPxX = with(density) { activeMenu.offset.x.toPx() }
         val offsetPxY = with(density) { activeMenu.offset.y.toPx() }
@@ -145,27 +144,9 @@ fun InWindowMenuHost(
         // Compute optimal horizontal placement & transform origin
         val isRightAligned = anchor.right > screenWidthPx / 2f
         val horizontalOrigin = if (isRightAligned) 1f else 0f
-        val targetX = if (isRightAligned) {
-            anchor.right - menuSizePx.width + offsetPxX
-        } else {
-            anchor.left + offsetPxX
-        }
-        val clampedX = max(marginPx, min(targetX, screenWidthPx - menuSizePx.width - marginPx))
 
-        // Compute optimal vertical placement & transform origin
         val spaceBelow = screenHeightPx - anchor.bottom
         val spaceAbove = anchor.top
-        val fitsBelow = (anchor.bottom + menuSizePx.height + offsetPxY) <= (screenHeightPx - marginPx)
-        val fitsAbove = (anchor.top - menuSizePx.height - offsetPxY) >= marginPx
-
-        val openBelow = fitsBelow || (spaceBelow >= spaceAbove && !fitsAbove)
-        val verticalOrigin = if (openBelow) 0f else 1f
-        val targetY = if (openBelow) {
-            anchor.bottom + offsetPxY
-        } else {
-            anchor.top - menuSizePx.height - offsetPxY
-        }
-        val clampedY = max(marginPx, min(targetY, screenHeightPx - menuSizePx.height - marginPx))
 
         // Full-screen transparent touch dismiss layer
         Box(
@@ -183,38 +164,65 @@ fun InWindowMenuHost(
             MutableTransitionState(false).apply { targetState = true }
         }
 
-        AnimatedVisibility(
-            visibleState = transitionState,
-            enter = fadeIn(animationSpec = tween(120, easing = FastOutSlowInEasing)) +
-                    scaleIn(
-                        initialScale = 0.85f,
-                        transformOrigin = TransformOrigin(horizontalOrigin, verticalOrigin),
-                        animationSpec = tween(150, easing = FastOutSlowInEasing)
-                    ),
-            exit = fadeOut(animationSpec = tween(90)) +
-                    scaleOut(
-                        targetScale = 0.88f,
-                        transformOrigin = TransformOrigin(horizontalOrigin, verticalOrigin),
-                        animationSpec = tween(90)
-                    ),
+        Box(
             modifier = Modifier
-                .offset { IntOffset(clampedX.roundToInt(), clampedY.roundToInt()) }
-                .onGloballyPositioned { coords ->
-                    if (coords.size.width > 0 && coords.size.height > 0 && coords.size != menuSizePx) {
-                        menuSizePx = coords.size
+                .fillMaxSize()
+                .layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints)
+                    val menuW = placeable.width
+                    val menuH = placeable.height
+
+                    val targetX = if (isRightAligned) {
+                        anchor.right - menuW + offsetPxX
+                    } else {
+                        anchor.left + offsetPxX
+                    }
+                    val clampedX = max(marginPx, min(targetX, screenWidthPx - menuW - marginPx))
+
+                    val fitsBelow = (anchor.bottom + menuH + offsetPxY) <= (screenHeightPx - marginPx)
+                    val fitsAbove = (anchor.top - menuH - offsetPxY) >= marginPx
+                    val openBelow = fitsBelow || (spaceBelow >= spaceAbove && !fitsAbove)
+
+                    val targetY = if (openBelow) {
+                        anchor.bottom + offsetPxY
+                    } else {
+                        anchor.top - menuH - offsetPxY
+                    }
+                    val clampedY = max(marginPx, min(targetY, screenHeightPx - menuH - marginPx))
+
+                    layout(constraints.maxWidth, constraints.maxHeight) {
+                        placeable.place(clampedX.roundToInt(), clampedY.roundToInt())
                     }
                 }
         ) {
-            Box(
-                modifier = Modifier
-                    .width(IntrinsicSize.Max)
-                    .widthIn(min = 120.dp, max = 280.dp)
-                    .heightIn(max = maxMenuHeightDp)
-                    .frostedMenu(hazeState = hazeState, shape = activeMenu.shape, isDark = isDark)
-                    .pointerInput(activeMenu.id) {
-                        detectTapGestures { /* consume taps inside menu */ }
-                    }
+            val openBelow = (anchor.bottom + 180f + offsetPxY) <= (screenHeightPx - marginPx) || (spaceBelow >= spaceAbove)
+            val verticalOrigin = if (openBelow) 0f else 1f
+
+            AnimatedVisibility(
+                visibleState = transitionState,
+                enter = fadeIn(animationSpec = tween(120, easing = FastOutSlowInEasing)) +
+                        scaleIn(
+                            initialScale = 0.85f,
+                            transformOrigin = TransformOrigin(horizontalOrigin, verticalOrigin),
+                            animationSpec = tween(150, easing = FastOutSlowInEasing)
+                        ),
+                exit = fadeOut(animationSpec = tween(90)) +
+                        scaleOut(
+                            targetScale = 0.88f,
+                            transformOrigin = TransformOrigin(horizontalOrigin, verticalOrigin),
+                            animationSpec = tween(90)
+                        )
             ) {
+                Box(
+                    modifier = Modifier
+                        .width(IntrinsicSize.Max)
+                        .widthIn(min = 120.dp, max = 280.dp)
+                        .heightIn(max = maxMenuHeightDp)
+                        .frostedMenu(hazeState = hazeState, shape = activeMenu.shape, isDark = isDark)
+                        .pointerInput(activeMenu.id) {
+                            detectTapGestures { /* consume taps inside menu */ }
+                        }
+                ) {
                 val contentColor = autoTextColor(solidSurface)
                 CompositionLocalProvider(LocalContentColor provides contentColor) {
                     Column(
@@ -229,6 +237,7 @@ fun InWindowMenuHost(
             }
         }
     }
+}
 }
 
 /**
