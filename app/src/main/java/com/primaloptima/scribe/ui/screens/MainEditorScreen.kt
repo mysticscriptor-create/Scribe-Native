@@ -280,9 +280,9 @@ fun MainEditorScreen(
     val templates  by shortcutsVm.templates.collectAsStateWithLifecycle()
     val customCategories by shortcutsVm.customCategories.collectAsStateWithLifecycle()
 
-    var activeAccessoryDrawer by rememberSaveable { mutableStateOf<AccessoryDrawerMode?>(null) }
-    var drawerSearchQuery by rememberSaveable { mutableStateOf("") }
-    var selectedDrawerCategory by rememberSaveable { mutableStateOf("all") }
+    var activeAccessoryDrawer by remember { mutableStateOf<AccessoryDrawerMode?>(null) }
+    var drawerSearchQuery by remember { mutableStateOf("") }
+    var selectedDrawerCategory by remember { mutableStateOf("all") }
 
     val floatingWindows    by editorVm.floatingWindows.collectAsStateWithLifecycle()
     val workbenchState     by editorVm.workbenchState.collectAsStateWithLifecycle()
@@ -303,7 +303,7 @@ fun MainEditorScreen(
 
     var showRenameDialog     by remember { mutableStateOf(false) }
     var showCreateNoteDialog by remember { mutableStateOf(false) }
-    var activeSheetPage      by rememberSaveable { mutableStateOf<EditorSheetPage?>(null) }
+    var activeSheetPage      by remember { mutableStateOf<EditorSheetPage?>(null) }
     var wasSheetOpen         by remember { mutableStateOf(false) }
 
     val dataStore = remember { (context.applicationContext as? ScribeApp)?.dataStore ?: ScribeDataStore(context) }
@@ -960,7 +960,7 @@ fun MainEditorScreen(
     val imeBottomDp = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
     val configuration = LocalConfiguration.current
     val maxDrawerHeightDp = (configuration.screenHeightDp.dp * 0.5f).coerceAtLeast(300.dp)
-    var lastKeyboardHeightDp by rememberSaveable { mutableStateOf(290.dp) }
+    var lastKeyboardHeightDp by remember { mutableStateOf(290.dp) }
 
     LaunchedEffect(imeBottomDp, isKeyboardVisible) {
         if (isKeyboardVisible && imeBottomDp > 120.dp) {

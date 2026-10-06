@@ -259,10 +259,10 @@ fun EditorUnifiedBottomSheet(
     val configuration = LocalConfiguration.current
     val maxSheetHeight = (configuration.screenHeightDp.dp * 0.88f)
 
-    var typographyTool by rememberSaveable { mutableStateOf<TypographyTool?>(null) }
-    var typographyTarget by rememberSaveable { mutableStateOf(TypographyTarget.DOCUMENT) }
+    var typographyTool by remember { mutableStateOf<TypographyTool?>(null) }
+    var typographyTarget by remember { mutableStateOf(TypographyTarget.DOCUMENT) }
     var alignmentTarget by rememberSaveable { mutableStateOf("document") }
-    var colorRole by rememberSaveable { mutableStateOf(ColorRole.TITLE_1) }
+    var colorRole by remember { mutableStateOf(ColorRole.TITLE_1) }
     var isEditingHex by rememberSaveable { mutableStateOf(false) }
     var customHexInput by rememberSaveable { mutableStateOf("") }
     var showExportOptions by rememberSaveable { mutableStateOf(false) }

@@ -282,7 +282,7 @@ fun ShortcutsScreen(
     val snippets by vm.snippets.collectAsStateWithLifecycle()
     val templates by vm.templates.collectAsStateWithLifecycle()
 
-    var activeStudioTab by rememberSaveable { mutableStateOf(StudioTab.QUICK_ACTIONS) }
+    var activeStudioTab by remember { mutableStateOf(StudioTab.QUICK_ACTIONS) }
     var isQuickActionsCategoriesExpanded by rememberSaveable { mutableStateOf(false) }
     var showFabMenu by remember { mutableStateOf(false) }
     var showCreateCategoryDialog by remember { mutableStateOf(false) }
@@ -328,14 +328,14 @@ fun ShortcutsScreen(
 
     // ── Category Collapse State ──────────────────────────────────────────────
     // Match reference: Dialogue expanded, remaining categories collapsed
-    var collapsedCategories by rememberSaveable {
+    var collapsedCategories by remember {
         mutableStateOf(
             STUDIO_CATEGORIES.drop(1).map { it.id }.toSet()
         )
     }
 
     // ── Category Expanded Items Limit State (Show more (5) v) ────────────────
-    var expandedLimits by rememberSaveable {
+    var expandedLimits by remember {
         mutableStateOf(mapOf<String, Int>())
     }
 
