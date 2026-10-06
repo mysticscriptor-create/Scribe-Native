@@ -360,7 +360,13 @@ fun ShortcutsScreen(
             )
         },
         floatingActionButton = {
-            if (!isEditMode) {
+            AnimatedVisibility(
+                visible = !isEditMode,
+                enter = fadeIn(animationSpec = tween(200, easing = FastOutSlowInEasing)) +
+                        scaleIn(animationSpec = tween(200, easing = FastOutSlowInEasing), initialScale = 0.8f),
+                exit = fadeOut(animationSpec = tween(150, easing = FastOutSlowInEasing)) +
+                       scaleOut(animationSpec = tween(150, easing = FastOutSlowInEasing), targetScale = 0.8f)
+            ) {
                 Surface(
                     onClick = { isCreatingNew = true },
                     shape = CircleShape,
@@ -504,61 +510,136 @@ fun ShortcutsScreen(
                                         )
                                     } else {
                                         val displayLimit = expandedLimits[catMeta.id] ?: 5
-                                        val visibleShortcuts = if (cleanQuery.isNotBlank() || selectedFilterCategory != "all") {
-                                            categoryShortcuts
-                                        } else {
-                                            categoryShortcuts.take(displayLimit)
-                                        }
-
-                                        visibleShortcuts.forEachIndexed { index, shortcut ->
-                                            val isShortcutActive = shortcut.isEnabled && !isCatDisabled
-                                            ShortcutCompactRow(
-                                                shortcut = shortcut,
-                                                isActive = isShortcutActive,
-                                                onToggle = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    vm.toggleShortcutEnabled(shortcut.id)
-                                                },
-                                                onEdit = { editingShortcut = shortcut },
-                                                onDelete = if (shortcut.category == DefaultShortcuts.CAT_CUSTOM) {
-                                                    { deleteCandidate = shortcut }
-                                                } else null
-                                            )
-                                            if (index < visibleShortcuts.lastIndex) {
-                                                HorizontalDivider(
-                                                    modifier = Modifier.padding(start = 52.dp, end = 6.dp),
-                                                    thickness = 0.5.dp,
-                                                    color = subtleBorder.copy(alpha = 0.5f)
+                                        if (cleanQuery.isNotBlank() || selectedFilterCategory != "all") {
+                                            categoryShortcuts.forEachIndexed { index, shortcut ->
+                                                val isShortcutActive = shortcut.isEnabled && !isCatDisabled
+                                                ShortcutCompactRow(
+                                                    shortcut = shortcut,
+                                                    isActive = isShortcutActive,
+                                                    onToggle = {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                        vm.toggleShortcutEnabled(shortcut.id)
+                                                    },
+                                                    onEdit = { editingShortcut = shortcut },
+                                                    onDelete = if (shortcut.category == DefaultShortcuts.CAT_CUSTOM) {
+                                                        { deleteCandidate = shortcut }
+                                                    } else null
                                                 )
+                                                if (index < categoryShortcuts.lastIndex) {
+                                                    HorizontalDivider(
+                                                        modifier = Modifier.padding(start = 52.dp, end = 6.dp),
+                                                        thickness = 0.5.dp,
+                                                        color = subtleBorder.copy(alpha = 0.5f)
+                                                    )
+                                                }
                                             }
-                                        }
+                                        } else {
+                                            // Base initial items (first 5)
+                                            val baseShortcuts = categoryShortcuts.take(5)
+                                            baseShortcuts.forEachIndexed { index, shortcut ->
+                                                val isShortcutActive = shortcut.isEnabled && !isCatDisabled
+                                                ShortcutCompactRow(
+                                                    shortcut = shortcut,
+                                                    isActive = isShortcutActive,
+                                                    onToggle = {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                        vm.toggleShortcutEnabled(shortcut.id)
+                                                    },
+                                                    onEdit = { editingShortcut = shortcut },
+                                                    onDelete = if (shortcut.category == DefaultShortcuts.CAT_CUSTOM) {
+                                                        { deleteCandidate = shortcut }
+                                                    } else null
+                                                )
+                                                if (index < baseShortcuts.lastIndex) {
+                                                    HorizontalDivider(
+                                                        modifier = Modifier.padding(start = 52.dp, end = 6.dp),
+                                                        thickness = 0.5.dp,
+                                                        color = subtleBorder.copy(alpha = 0.5f)
+                                                    )
+                                                }
+                                            }
 
-                                        // "Show more (N) v" Expand Toggle if more items exist
-                                        if (cleanQuery.isBlank() && selectedFilterCategory == "all" && categoryShortcuts.size > displayLimit) {
-                                            val remaining = categoryShortcuts.size - displayLimit
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .clickable {
-                                                        expandedLimits = expandedLimits + (catMeta.id to (displayLimit + 10))
+                                            // Subsequent chunks (groups of 10) smoothly animated on "Show more"
+                                            val remainingShortcuts = categoryShortcuts.drop(5)
+                                            if (remainingShortcuts.isNotEmpty()) {
+                                                val chunks = remainingShortcuts.chunked(10)
+                                                chunks.forEachIndexed { chunkIndex, chunkItems ->
+                                                    val isChunkVisible = displayLimit >= (5 + (chunkIndex + 1) * 10)
+                                                    AnimatedVisibility(
+                                                        visible = isChunkVisible,
+                                                        enter = expandVertically(
+                                                            animationSpec = tween(260, easing = FastOutSlowInEasing)
+                                                        ) + fadeIn(animationSpec = tween(260, easing = FastOutSlowInEasing)),
+                                                        exit = shrinkVertically(
+                                                            animationSpec = tween(260, easing = FastOutSlowInEasing)
+                                                        ) + fadeOut(animationSpec = tween(200, easing = FastOutSlowInEasing))
+                                                    ) {
+                                                        Column {
+                                                            HorizontalDivider(
+                                                                modifier = Modifier.padding(start = 52.dp, end = 6.dp),
+                                                                thickness = 0.5.dp,
+                                                                color = subtleBorder.copy(alpha = 0.5f)
+                                                            )
+                                                            chunkItems.forEachIndexed { itemIndex, shortcut ->
+                                                                val isShortcutActive = shortcut.isEnabled && !isCatDisabled
+                                                                ShortcutCompactRow(
+                                                                    shortcut = shortcut,
+                                                                    isActive = isShortcutActive,
+                                                                    onToggle = {
+                                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                                        vm.toggleShortcutEnabled(shortcut.id)
+                                                                    },
+                                                                    onEdit = { editingShortcut = shortcut },
+                                                                    onDelete = if (shortcut.category == DefaultShortcuts.CAT_CUSTOM) {
+                                                                        { deleteCandidate = shortcut }
+                                                                    } else null
+                                                                )
+                                                                if (itemIndex < chunkItems.lastIndex) {
+                                                                    HorizontalDivider(
+                                                                        modifier = Modifier.padding(start = 52.dp, end = 6.dp),
+                                                                        thickness = 0.5.dp,
+                                                                        color = subtleBorder.copy(alpha = 0.5f)
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
                                                     }
-                                                    .padding(vertical = 8.dp),
-                                                horizontalArrangement = Arrangement.Center,
-                                                verticalAlignment = Alignment.CenterVertically
+                                                }
+                                            }
+
+                                            // "Show more (N) v" Expand Toggle if more items exist
+                                            AnimatedVisibility(
+                                                visible = categoryShortcuts.size > displayLimit,
+                                                enter = fadeIn(animationSpec = tween(200, easing = FastOutSlowInEasing)) +
+                                                        expandVertically(animationSpec = tween(200, easing = FastOutSlowInEasing)),
+                                                exit = fadeOut(animationSpec = tween(150, easing = FastOutSlowInEasing)) +
+                                                       shrinkVertically(animationSpec = tween(150, easing = FastOutSlowInEasing))
                                             ) {
-                                                Text(
-                                                    text = "Show more ($remaining)",
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Medium,
-                                                    color = contentTertiary
-                                                )
-                                                Spacer(modifier = Modifier.width(4.dp))
-                                                Icon(
-                                                    imageVector = Icons.Default.KeyboardArrowDown,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(16.dp),
-                                                    tint = contentTertiary
-                                                )
+                                                val remaining = categoryShortcuts.size - displayLimit
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clickable {
+                                                            expandedLimits = expandedLimits + (catMeta.id to (displayLimit + 10))
+                                                        }
+                                                        .padding(vertical = 8.dp),
+                                                    horizontalArrangement = Arrangement.Center,
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(
+                                                        text = "Show more ($remaining)",
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Medium,
+                                                        color = contentTertiary
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Icon(
+                                                        imageVector = Icons.Default.KeyboardArrowDown,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(16.dp),
+                                                        tint = contentTertiary
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -735,14 +816,6 @@ private fun WritingBarHeroSection(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(
-                    if (isEditMode) Modifier.animateContentSize(
-                        animationSpec = spring(
-                            stiffness = Spring.StiffnessMediumLow,
-                            dampingRatio = Spring.DampingRatioNoBouncy
-                        )
-                    ) else Modifier
-                )
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
@@ -802,43 +875,74 @@ private fun WritingBarHeroSection(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                // Trailing Buttons: "Edit" in normal state; "Cancel" + "Done" in edit state
-                if (!isEditMode) {
-                    if (activeShortcuts.isNotEmpty()) {
-                        Surface(
-                            onClick = onStartEdit,
-                            shape = CircleShape,
-                            color = glyphBoxBg,
-                            border = BorderStroke(0.5.dp, subtleBorder),
-                            modifier = Modifier.height(32.dp)
+                // Trailing Buttons: "Edit" in normal state (smooth animated fade/expand)
+                AnimatedVisibility(
+                    visible = !isEditMode && activeShortcuts.isNotEmpty(),
+                    enter = fadeIn(animationSpec = tween(200, easing = FastOutSlowInEasing)) +
+                            expandHorizontally(animationSpec = tween(200, easing = FastOutSlowInEasing)),
+                    exit = fadeOut(animationSpec = tween(150, easing = FastOutSlowInEasing)) +
+                           shrinkHorizontally(animationSpec = tween(150, easing = FastOutSlowInEasing))
+                ) {
+                    Surface(
+                        onClick = onStartEdit,
+                        shape = CircleShape,
+                        color = glyphBoxBg,
+                        border = BorderStroke(0.5.dp, subtleBorder),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Edit,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(13.dp),
-                                    tint = contentPrimary
-                                )
-                                Text(
-                                    text = "Edit",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = contentPrimary
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.Edit,
+                                contentDescription = null,
+                                modifier = Modifier.size(13.dp),
+                                tint = contentPrimary
+                            )
+                            Text(
+                                text = "Edit",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = contentPrimary
+                            )
                         }
                     }
-                } else {
-                    // Actions moved to bottom footer row
                 }
             }
 
-            // Body: Compact Horizontal Bar vs Expanded Edit FlowGrid
-            if (!isEditMode) {
+            // Body: Compact Horizontal Bar vs Expanded Edit FlowGrid (smooth expanding & collapsing transitions)
+            AnimatedContent(
+                targetState = isEditMode,
+                transitionSpec = {
+                    if (targetState) {
+                        (expandVertically(
+                            animationSpec = tween(260, easing = FastOutSlowInEasing),
+                            expandFrom = Alignment.Top
+                        ) + fadeIn(animationSpec = tween(260, easing = FastOutSlowInEasing)))
+                            .togetherWith(
+                                shrinkVertically(
+                                    animationSpec = tween(220, easing = FastOutSlowInEasing),
+                                    shrinkTowards = Alignment.Top
+                                ) + fadeOut(animationSpec = tween(180, easing = FastOutSlowInEasing))
+                            )
+                    } else {
+                        (expandVertically(
+                            animationSpec = tween(260, easing = FastOutSlowInEasing),
+                            expandFrom = Alignment.Top
+                        ) + fadeIn(animationSpec = tween(260, easing = FastOutSlowInEasing)))
+                            .togetherWith(
+                                shrinkVertically(
+                                    animationSpec = tween(220, easing = FastOutSlowInEasing),
+                                    shrinkTowards = Alignment.Top
+                                ) + fadeOut(animationSpec = tween(180, easing = FastOutSlowInEasing))
+                            )
+                    }
+                },
+                label = "writingBarEditModeTransition"
+            ) { inEditMode ->
+                if (!inEditMode) {
                 if (activeShortcuts.isEmpty()) {
                     Column(
                         modifier = Modifier
@@ -1181,6 +1285,7 @@ private fun WritingBarHeroSection(
                         }
                     }
                 }
+            }
             }
         }
     }
