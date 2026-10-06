@@ -218,7 +218,7 @@ fun ShortcutsScreen(
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
     val scope = coroutineScope
-    val listState = rememberLazyListState()
+    val scrollState = rememberScrollState()
 
     // ── Semantic Color Tokens ────────────────────────────────────────────────
     val colors = ScribeTheme.colors
@@ -245,48 +245,6 @@ fun ShortcutsScreen(
         isEditMode = false
         isPillDragging = false
     }
-
-    // ── GPU-Accelerated Scrolling FAB Controller ─────────────────────────────
-    // Uses graphicsLayer RenderNode translation/alpha so Scaffold never triggers
-    // re-measure/re-layout passes during momentum flings.
-    var isFabVisible by remember { mutableStateOf(true) }
-
-    val fabScrollConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source != NestedScrollSource.UserInput) return Offset.Zero
-                if (available.y < -6f) {
-                    if (isFabVisible) isFabVisible = false
-                } else if (available.y > 6f) {
-                    if (!isFabVisible) isFabVisible = true
-                }
-                return Offset.Zero
-            }
-        }
-    }
-
-    val isAtTop by remember {
-        derivedStateOf { listState.firstVisibleItemIndex == 0 }
-    }
-    LaunchedEffect(isAtTop) {
-        if (isAtTop && !isFabVisible) {
-            isFabVisible = true
-        }
-    }
-
-    val fabOffsetY by animateFloatAsState(
-        targetValue = if (isFabVisible && !isEditMode) 0f else 120f,
-        animationSpec = spring(
-            stiffness = Spring.StiffnessMediumLow,
-            dampingRatio = Spring.DampingRatioNoBouncy
-        ),
-        label = "fabOffsetY"
-    )
-    val fabAlpha by animateFloatAsState(
-        targetValue = if (isFabVisible && !isEditMode) 1f else 0f,
-        animationSpec = tween(160, easing = FastOutSlowInEasing),
-        label = "fabAlpha"
-    )
 
     // ── Category Collapse State ──────────────────────────────────────────────
     // Match reference: Dialogue expanded, remaining categories collapsed
@@ -401,219 +359,205 @@ fun ShortcutsScreen(
             )
         },
         floatingActionButton = {
-            Surface(
-                onClick = { isCreatingNew = true },
-                shape = CircleShape,
-                color = accentPrimary,
-                shadowElevation = 6.dp,
-                modifier = Modifier
-                    .padding(bottom = 8.dp, end = 4.dp)
-                    .graphicsLayer {
-                        translationY = fabOffsetY
-                        alpha = fabAlpha
-                    }
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+            if (!isEditMode) {
+                Surface(
+                    onClick = { isCreatingNew = true },
+                    shape = CircleShape,
+                    color = accentPrimary,
+                    shadowElevation = 6.dp,
+                    modifier = Modifier.padding(bottom = 8.dp, end = 4.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Create Shortcut",
-                        tint = onAccent,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Text(
-                        text = "Create Shortcut",
-                        fontSize = 13.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = onAccent,
-                        maxLines = 1
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Create Shortcut",
+                            tint = onAccent,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = "Create Shortcut",
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = onAccent,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
         },
         containerColor = canvasBg,
         contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime)
     ) { paddingValues ->
-        LazyColumn(
-            state = listState,
-            userScrollEnabled = !isPillDragging,
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-                .nestedScroll(fabScrollConnection),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                .verticalScroll(scrollState, enabled = !isPillDragging)
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-                // ── 1. YOUR WRITING BAR (Hero Section) ───────────────────────────
-                item(key = "hero_writing_bar") {
-                    WritingBarHeroSection(
-                        activeShortcuts = activeBarShortcuts,
-                        isEditMode = isEditMode,
-                        onDraggingStateChanged = { isDragging -> isPillDragging = isDragging },
-                        onStartEdit = {
-                            isEditMode = true
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        },
-                        onCommitEdit = { finalShortcuts ->
-                            vm.commitActiveBarOrder(finalShortcuts.map { it.id })
-                            isEditMode = false
-                            isPillDragging = false
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        },
-                        onCancelEdit = {
-                            isEditMode = false
-                            isPillDragging = false
-                        },
-                        onScrollToLibrary = {
-                            scope.launch {
-                                listState.animateScrollToItem(1)
-                            }
-                        }
-                    )
-                }
-
-                // ── 2. SEARCH & PILL FILTERS ─────────────────────────────────────
-                item(key = "search_and_filters") {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        // Search Bar (Rounded pill shape)
-                        ShortcutSearchField(
-                            query = searchQuery,
-                            onQueryChange = { searchQuery = it }
-                        )
-
-                        // Horizontal Filter Chips Row: [All] [Punctuation] [Dialogue] [Editing] [Symbols] ...
-                        ShortcutCategoryFilters(
-                            selectedCategory = selectedFilterCategory,
-                            onSelectCategory = { selectedFilterCategory = it }
-                        )
+            // ── 1. YOUR WRITING BAR (Hero Section) ───────────────────────────
+            WritingBarHeroSection(
+                activeShortcuts = activeBarShortcuts,
+                isEditMode = isEditMode,
+                onDraggingStateChanged = { isDragging -> isPillDragging = isDragging },
+                onStartEdit = {
+                    isEditMode = true
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                },
+                onCommitEdit = { finalShortcuts ->
+                    vm.commitActiveBarOrder(finalShortcuts.map { it.id })
+                    isEditMode = false
+                    isPillDragging = false
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                },
+                onCancelEdit = {
+                    isEditMode = false
+                    isPillDragging = false
+                },
+                onScrollToLibrary = {
+                    scope.launch {
+                        val targetPx = with(density) { 220.dp.roundToPx() }
+                        scrollState.animateScrollTo(targetPx)
                     }
                 }
+            )
 
-                // ── 3. SHORTCUT LIBRARY SECTIONS ─────────────────────────────────
-                val displayedCategories = if (selectedFilterCategory != null && selectedFilterCategory != "all" && selectedFilterCategory != "in_bar") {
-                    STUDIO_CATEGORIES.filter { it.id == selectedFilterCategory }
-                } else {
-                    STUDIO_CATEGORIES
-                }
+            // ── 2. SEARCH & PILL FILTERS ─────────────────────────────────────
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // Search Bar (Rounded pill shape)
+                ShortcutSearchField(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it }
+                )
 
-                displayedCategories.forEach { catMeta ->
-                    val categoryShortcuts = shortcutsByCategory[catMeta.id] ?: emptyList()
-                    val allInThisCat = allShortcutsByCategory[catMeta.id] ?: emptyList()
-                    val isCatDisabled = disabledCategories.contains(catMeta.id)
-                    val totalInThisCat = allInThisCat.size
-                    val isCollapsed = collapsedCategories.contains(catMeta.id) && cleanQuery.isBlank() && selectedFilterCategory == "all"
+                // Horizontal Filter Chips Row: [All] [Punctuation] [Dialogue] [Editing] [Symbols] ...
+                ShortcutCategoryFilters(
+                    selectedCategory = selectedFilterCategory,
+                    onSelectCategory = { selectedFilterCategory = it }
+                )
+            }
 
-                    if (categoryShortcuts.isNotEmpty() || (cleanQuery.isBlank() && selectedFilterCategory in listOf("all", catMeta.id))) {
-                        item(
-                            key = "cat_card_${catMeta.id}",
-                            contentType = if (isCollapsed) "category_card_collapsed" else "category_card_expanded"
+            // ── 3. SHORTCUT LIBRARY SECTIONS ─────────────────────────────────
+            val displayedCategories = if (selectedFilterCategory != null && selectedFilterCategory != "all" && selectedFilterCategory != "in_bar") {
+                STUDIO_CATEGORIES.filter { it.id == selectedFilterCategory }
+            } else {
+                STUDIO_CATEGORIES
+            }
+
+            displayedCategories.forEach { catMeta ->
+                val categoryShortcuts = shortcutsByCategory[catMeta.id] ?: emptyList()
+                val allInThisCat = allShortcutsByCategory[catMeta.id] ?: emptyList()
+                val isCatDisabled = disabledCategories.contains(catMeta.id)
+                val totalInThisCat = allInThisCat.size
+                val isCollapsed = collapsedCategories.contains(catMeta.id) && cleanQuery.isBlank() && selectedFilterCategory == "all"
+
+                if (categoryShortcuts.isNotEmpty() || (cleanQuery.isBlank() && selectedFilterCategory in listOf("all", catMeta.id))) {
+                    // Enclosed Elegant Card Container
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = ScribeShapeTokens.CardMedium,
+                        color = cardBg,
+                        border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder.copy(alpha = 0.6f))
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp, horizontal = 14.dp)
                         ) {
-                            // Enclosed Elegant Card Container
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = ScribeShapeTokens.CardMedium,
-                                color = cardBg,
-                                border = androidx.compose.foundation.BorderStroke(0.5.dp, subtleBorder.copy(alpha = 0.6f))
+                            // Accordion Header Row
+                            ShortcutCategoryAccordionHeader(
+                                meta = catMeta,
+                                totalCount = totalInThisCat,
+                                isCategoryDisabled = isCatDisabled,
+                                isCollapsed = isCollapsed,
+                                onToggleCollapse = {
+                                    collapsedCategories = if (isCollapsed) {
+                                        collapsedCategories - catMeta.id
+                                    } else {
+                                        collapsedCategories + catMeta.id
+                                    }
+                                }
+                            )
+
+                            // Smooth Animated Expanded Shortcut List
+                            AnimatedVisibility(
+                                visible = !isCollapsed,
+                                enter = expandVertically(
+                                    animationSpec = tween(260, easing = FastOutSlowInEasing)
+                                ) + fadeIn(animationSpec = tween(260, easing = FastOutSlowInEasing)),
+                                exit = shrinkVertically(
+                                    animationSpec = tween(260, easing = FastOutSlowInEasing)
+                                ) + fadeOut(animationSpec = tween(200, easing = FastOutSlowInEasing))
                             ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 12.dp, horizontal = 14.dp)
-                                ) {
-                                    // Accordion Header Row
-                                    ShortcutCategoryAccordionHeader(
-                                        meta = catMeta,
-                                        totalCount = totalInThisCat,
-                                        isCategoryDisabled = isCatDisabled,
-                                        isCollapsed = isCollapsed,
-                                        onToggleCollapse = {
-                                            collapsedCategories = if (isCollapsed) {
-                                                collapsedCategories - catMeta.id
-                                            } else {
-                                                collapsedCategories + catMeta.id
+                                Column {
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    if (categoryShortcuts.isEmpty() && catMeta.id == DefaultShortcuts.CAT_CUSTOM) {
+                                        EmptyCustomCategoryNotice(
+                                            onCreateClick = { isCreatingNew = true }
+                                        )
+                                    } else {
+                                        val displayLimit = expandedLimits[catMeta.id] ?: 5
+                                        val visibleShortcuts = if (cleanQuery.isNotBlank() || selectedFilterCategory != "all") {
+                                            categoryShortcuts
+                                        } else {
+                                            categoryShortcuts.take(displayLimit)
+                                        }
+
+                                        visibleShortcuts.forEachIndexed { index, shortcut ->
+                                            val isShortcutActive = shortcut.isEnabled && !isCatDisabled
+                                            ShortcutCompactRow(
+                                                shortcut = shortcut,
+                                                isActive = isShortcutActive,
+                                                onToggle = {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    vm.toggleShortcutEnabled(shortcut.id)
+                                                },
+                                                onEdit = { editingShortcut = shortcut },
+                                                onDelete = if (shortcut.category == DefaultShortcuts.CAT_CUSTOM) {
+                                                    { deleteCandidate = shortcut }
+                                                } else null
+                                            )
+                                            if (index < visibleShortcuts.lastIndex) {
+                                                HorizontalDivider(
+                                                    modifier = Modifier.padding(start = 52.dp, end = 6.dp),
+                                                    thickness = 0.5.dp,
+                                                    color = subtleBorder.copy(alpha = 0.5f)
+                                                )
                                             }
                                         }
-                                    )
 
-                                    // Smooth Animated Expanded Shortcut List
-                                    AnimatedVisibility(
-                                        visible = !isCollapsed,
-                                        enter = expandVertically(
-                                            animationSpec = tween(260, easing = FastOutSlowInEasing)
-                                        ) + fadeIn(animationSpec = tween(260, easing = FastOutSlowInEasing)),
-                                        exit = shrinkVertically(
-                                            animationSpec = tween(260, easing = FastOutSlowInEasing)
-                                        ) + fadeOut(animationSpec = tween(200, easing = FastOutSlowInEasing))
-                                    ) {
-                                        Column {
-                                            Spacer(modifier = Modifier.height(10.dp))
-
-                                            if (categoryShortcuts.isEmpty() && catMeta.id == DefaultShortcuts.CAT_CUSTOM) {
-                                                EmptyCustomCategoryNotice(
-                                                    onCreateClick = { isCreatingNew = true }
+                                        // "Show more (N) v" Expand Toggle if more items exist
+                                        if (cleanQuery.isBlank() && selectedFilterCategory == "all" && categoryShortcuts.size > displayLimit) {
+                                            val remaining = categoryShortcuts.size - displayLimit
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable {
+                                                        expandedLimits = expandedLimits + (catMeta.id to (displayLimit + 10))
+                                                    }
+                                                    .padding(vertical = 8.dp),
+                                                horizontalArrangement = Arrangement.Center,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "Show more ($remaining)",
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = contentTertiary
                                                 )
-                                            } else {
-                                                val displayLimit = expandedLimits[catMeta.id] ?: 5
-                                                val visibleShortcuts = if (cleanQuery.isNotBlank() || selectedFilterCategory != "all") {
-                                                    categoryShortcuts
-                                                } else {
-                                                    categoryShortcuts.take(displayLimit)
-                                                }
-
-                                                visibleShortcuts.forEachIndexed { index, shortcut ->
-                                                    val isShortcutActive = shortcut.isEnabled && !isCatDisabled
-                                                    ShortcutCompactRow(
-                                                        shortcut = shortcut,
-                                                        isActive = isShortcutActive,
-                                                        onToggle = {
-                                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                            vm.toggleShortcutEnabled(shortcut.id)
-                                                        },
-                                                        onEdit = { editingShortcut = shortcut },
-                                                        onDelete = if (shortcut.category == DefaultShortcuts.CAT_CUSTOM) {
-                                                            { deleteCandidate = shortcut }
-                                                        } else null
-                                                    )
-                                                    if (index < visibleShortcuts.lastIndex) {
-                                                        HorizontalDivider(
-                                                            modifier = Modifier.padding(start = 52.dp, end = 6.dp),
-                                                            thickness = 0.5.dp,
-                                                            color = subtleBorder.copy(alpha = 0.5f)
-                                                        )
-                                                    }
-                                                }
-
-                                                // "Show more (N) v" Expand Toggle if more items exist
-                                                if (cleanQuery.isBlank() && selectedFilterCategory == "all" && categoryShortcuts.size > displayLimit) {
-                                                    val remaining = categoryShortcuts.size - displayLimit
-                                                    Row(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .clickable {
-                                                                expandedLimits = expandedLimits + (catMeta.id to (displayLimit + 10))
-                                                            }
-                                                            .padding(vertical = 8.dp),
-                                                        horizontalArrangement = Arrangement.Center,
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        Text(
-                                                            text = "Show more ($remaining)",
-                                                            fontSize = 12.sp,
-                                                            fontWeight = FontWeight.Medium,
-                                                            color = contentTertiary
-                                                        )
-                                                        Spacer(modifier = Modifier.width(4.dp))
-                                                        Icon(
-                                                            imageVector = Icons.Default.KeyboardArrowDown,
-                                                            contentDescription = null,
-                                                            modifier = Modifier.size(16.dp),
-                                                            tint = contentTertiary
-                                                        )
-                                                    }
-                                                }
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Icon(
+                                                    imageVector = Icons.Default.KeyboardArrowDown,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(16.dp),
+                                                    tint = contentTertiary
+                                                )
                                             }
                                         }
                                     }
@@ -622,12 +566,11 @@ fun ShortcutsScreen(
                         }
                     }
                 }
-
-                // Bottom spacing for extended FAB
-                item(key = "bottom_spacer") {
-                    Spacer(modifier = Modifier.height(84.dp))
-                }
             }
+
+            // Bottom spacing for extended FAB
+            Spacer(modifier = Modifier.height(84.dp))
+        }
     }
 
     // ── Dialogs ──────────────────────────────────────────────────────────────
