@@ -246,62 +246,47 @@ fun ShortcutsScreen(
         isPillDragging = false
     }
 
-    // ── Smart Scrolling FAB Controller (Zero-Jank Input-Only Dispatch) ────────
-    val density = LocalDensity.current
-    var isFabExtended by remember { mutableStateOf(true) }
+    // ── GPU-Accelerated Scrolling FAB Controller ─────────────────────────────
+    // Uses graphicsLayer RenderNode translation/alpha so Scaffold never triggers
+    // re-measure/re-layout passes during momentum flings.
     var isFabVisible by remember { mutableStateOf(true) }
 
-    val thresholdContractPx = with(density) { 24.dp.toPx() }
-    val thresholdHidePx = with(density) { 80.dp.toPx() }
-    val thresholdShowPx = with(density) { 36.dp.toPx() }
-
-    // Direct physical gesture tracking: only reacts to direct user touch drag (UserInput),
-    // never fires during inertial flings to prevent mid-fling animation jank.
     val fabScrollConnection = remember {
         object : NestedScrollConnection {
-            var accumulatedDown = 0f
-            var accumulatedUp = 0f
-
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (source != NestedScrollSource.UserInput) return Offset.Zero
-
-                val dy = available.y // dy < 0 means finger drags up, list scrolls down
-                if (dy < -2f) {
-                    accumulatedUp = 0f
-                    accumulatedDown += -dy
-                    if (accumulatedDown > thresholdContractPx && isFabExtended) {
-                        isFabExtended = false
-                    }
-                    if (accumulatedDown > thresholdHidePx && isFabVisible) {
-                        isFabVisible = false
-                    }
-                } else if (dy > 2f) {
-                    accumulatedDown = 0f
-                    accumulatedUp += dy
-                    if (accumulatedUp > thresholdShowPx && !isFabVisible) {
-                        isFabVisible = true
-                    }
-                    if (accumulatedUp > thresholdShowPx * 2f && !isFabExtended) {
-                        isFabExtended = true
-                    }
+                if (available.y < -6f) {
+                    if (isFabVisible) isFabVisible = false
+                } else if (available.y > 6f) {
+                    if (!isFabVisible) isFabVisible = true
                 }
                 return Offset.Zero
             }
         }
     }
 
-    // Derived state prevents evaluating on every scroll pixel
     val isAtTop by remember {
-        derivedStateOf {
-            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 8
-        }
+        derivedStateOf { listState.firstVisibleItemIndex == 0 }
     }
     LaunchedEffect(isAtTop) {
-        if (isAtTop) {
-            if (!isFabVisible) isFabVisible = true
-            if (!isFabExtended) isFabExtended = true
+        if (isAtTop && !isFabVisible) {
+            isFabVisible = true
         }
     }
+
+    val fabOffsetY by animateFloatAsState(
+        targetValue = if (isFabVisible && !isEditMode) 0f else 120f,
+        animationSpec = spring(
+            stiffness = Spring.StiffnessMediumLow,
+            dampingRatio = Spring.DampingRatioNoBouncy
+        ),
+        label = "fabOffsetY"
+    )
+    val fabAlpha by animateFloatAsState(
+        targetValue = if (isFabVisible && !isEditMode) 1f else 0f,
+        animationSpec = tween(160, easing = FastOutSlowInEasing),
+        label = "fabAlpha"
+    )
 
     // ── Category Collapse State ──────────────────────────────────────────────
     // Match reference: Dialogue expanded, remaining categories collapsed
@@ -416,59 +401,36 @@ fun ShortcutsScreen(
             )
         },
         floatingActionButton = {
-            AnimatedVisibility(
-                visible = isFabVisible && !isEditMode,
-                enter = slideInVertically(
-                    initialOffsetY = { it },
-                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioNoBouncy)
-                ) + fadeIn(animationSpec = tween(200)),
-                exit = slideOutVertically(
-                    targetOffsetY = { it },
-                    animationSpec = tween(200, easing = FastOutLinearInEasing)
-                ) + fadeOut(animationSpec = tween(150))
-            ) {
-                Surface(
-                    onClick = { isCreatingNew = true },
-                    shape = CircleShape,
-                    color = accentPrimary,
-                    shadowElevation = 6.dp,
-                    modifier = Modifier.padding(bottom = 8.dp, end = 4.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .animateContentSize(
-                                animationSpec = spring(
-                                    stiffness = Spring.StiffnessMediumLow,
-                                    dampingRatio = Spring.DampingRatioNoBouncy
-                                )
-                            )
-                            .padding(
-                                horizontal = if (isFabExtended) 18.dp else 16.dp,
-                                vertical = 14.dp
-                            ),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Create Shortcut",
-                            tint = onAccent,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        AnimatedVisibility(
-                            visible = isFabExtended,
-                            enter = fadeIn(animationSpec = tween(180)) + expandHorizontally(),
-                            exit = fadeOut(animationSpec = tween(140)) + shrinkHorizontally()
-                        ) {
-                            Text(
-                                text = "Create Shortcut",
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = onAccent,
-                                maxLines = 1
-                            )
-                        }
+            Surface(
+                onClick = { isCreatingNew = true },
+                shape = CircleShape,
+                color = accentPrimary,
+                shadowElevation = 6.dp,
+                modifier = Modifier
+                    .padding(bottom = 8.dp, end = 4.dp)
+                    .graphicsLayer {
+                        translationY = fabOffsetY
+                        alpha = fabAlpha
                     }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Create Shortcut",
+                        tint = onAccent,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = "Create Shortcut",
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = onAccent,
+                        maxLines = 1
+                    )
                 }
             }
         },
@@ -545,7 +507,10 @@ fun ShortcutsScreen(
                     val isCollapsed = collapsedCategories.contains(catMeta.id) && cleanQuery.isBlank() && selectedFilterCategory == "all"
 
                     if (categoryShortcuts.isNotEmpty() || (cleanQuery.isBlank() && selectedFilterCategory in listOf("all", catMeta.id))) {
-                        item(key = "cat_card_${catMeta.id}", contentType = "category_card") {
+                        item(
+                            key = "cat_card_${catMeta.id}",
+                            contentType = if (isCollapsed) "category_card_collapsed" else "category_card_expanded"
+                        ) {
                             // Enclosed Elegant Card Container
                             Surface(
                                 modifier = Modifier.fillMaxWidth(),
@@ -826,11 +791,13 @@ private fun WritingBarHeroSection(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .animateContentSize(
-                    animationSpec = spring(
-                        stiffness = Spring.StiffnessMediumLow,
-                        dampingRatio = Spring.DampingRatioNoBouncy
-                    )
+                .then(
+                    if (isEditMode) Modifier.animateContentSize(
+                        animationSpec = spring(
+                            stiffness = Spring.StiffnessMediumLow,
+                            dampingRatio = Spring.DampingRatioNoBouncy
+                        )
+                    ) else Modifier
                 )
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -2547,6 +2514,16 @@ private fun ShortcutSearchField(
 }
 
 // ── Category Filters Row ──────────────────────────────────────────────────────
+private val CATEGORY_FILTER_OPTIONS = listOf(
+    DefaultShortcuts.CAT_PUNCTUATION to "Punctuation",
+    DefaultShortcuts.CAT_DIALOGUE to "Dialogue",
+    DefaultShortcuts.CAT_FORMATTING to "Editing",
+    DefaultShortcuts.CAT_ARROWS to "Symbols",
+    DefaultShortcuts.CAT_BRACKETS to "Brackets",
+    DefaultShortcuts.CAT_STRUCTURE to "Structure",
+    DefaultShortcuts.CAT_CUSTOM to "Custom"
+)
+
 @Composable
 private fun ShortcutCategoryFilters(
     selectedCategory: String?,
@@ -2592,15 +2569,7 @@ private fun ShortcutCategoryFilters(
         }
 
         // Specific Taxonomy Filters matching Goal UI: Punctuation, Dialogue, Editing, Symbols...
-        listOf(
-            DefaultShortcuts.CAT_PUNCTUATION to "Punctuation",
-            DefaultShortcuts.CAT_DIALOGUE to "Dialogue",
-            DefaultShortcuts.CAT_FORMATTING to "Editing",
-            DefaultShortcuts.CAT_ARROWS to "Symbols",
-            DefaultShortcuts.CAT_BRACKETS to "Brackets",
-            DefaultShortcuts.CAT_STRUCTURE to "Structure",
-            DefaultShortcuts.CAT_CUSTOM to "Custom"
-        ).forEach { (catId, label) ->
+        CATEGORY_FILTER_OPTIONS.forEach { (catId, label) ->
             val isSelected = selectedCategory == catId
             Surface(
                 onClick = { onSelectCategory(if (isSelected) "all" else catId) },
@@ -2733,7 +2702,7 @@ private fun ShortcutCategoryAccordionHeader(
             contentDescription = if (isCollapsed) "Expand category" else "Collapse category",
             modifier = Modifier
                 .size(22.dp)
-                .rotate(chevronRotation),
+                .graphicsLayer { rotationZ = chevronRotation },
             tint = contentPrimary
         )
     }
@@ -2890,7 +2859,6 @@ private fun ShortcutCompactRow(
 
             // Circular toggle button: Active (filled circle with checkmark) vs Inactive (subtle circle with plus)
             Surface(
-                onClick = onToggle,
                 shape = CircleShape,
                 color = if (isActive) accentPrimary else colors.surfaces.surfaceLowest,
                 border = BorderStroke(
