@@ -41,6 +41,10 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.material3.ripple
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.coerceAtLeast
+import androidx.compose.ui.unit.coerceIn
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 
 import android.net.Uri
 import android.widget.Toast
@@ -272,6 +276,13 @@ fun MainEditorScreen(
     val allNotes   by noteListVm.notes.collectAsStateWithLifecycle()
     val allFolders by noteListVm.folders.collectAsStateWithLifecycle()
     val shortcuts  by shortcutsVm.activeBarShortcuts.collectAsStateWithLifecycle()
+    val snippets   by shortcutsVm.snippets.collectAsStateWithLifecycle()
+    val templates  by shortcutsVm.templates.collectAsStateWithLifecycle()
+    val customCategories by shortcutsVm.customCategories.collectAsStateWithLifecycle()
+
+    var activeAccessoryDrawer by rememberSaveable { mutableStateOf<AccessoryDrawerMode?>(null) }
+    var drawerSearchQuery by rememberSaveable { mutableStateOf("") }
+    var selectedDrawerCategory by rememberSaveable { mutableStateOf("all") }
 
     val floatingWindows    by editorVm.floatingWindows.collectAsStateWithLifecycle()
     val workbenchState     by editorVm.workbenchState.collectAsStateWithLifecycle()
@@ -557,6 +568,10 @@ fun MainEditorScreen(
                 editorVm.saveCursorState(note.id, state)
             }
         }
+    }
+
+    BackHandler(enabled = activeAccessoryDrawer != null) {
+        activeAccessoryDrawer = null
     }
 
     BackHandler {
@@ -942,6 +957,24 @@ fun MainEditorScreen(
     val hazeState = LocalHazeState.current ?: dev.chrisbanes.haze.HazeState()
     val density = LocalDensity.current
 
+    val imeBottomDp = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    val configuration = LocalConfiguration.current
+    val maxDrawerHeightDp = (configuration.screenHeightDp.dp * 0.5f).coerceAtLeast(300.dp)
+    var lastKeyboardHeightDp by rememberSaveable { mutableStateOf(290.dp) }
+
+    LaunchedEffect(imeBottomDp, isKeyboardVisible) {
+        if (isKeyboardVisible && imeBottomDp > 120.dp) {
+            lastKeyboardHeightDp = imeBottomDp
+        }
+    }
+
+    var currentDrawerHeightDp by remember { mutableStateOf(lastKeyboardHeightDp) }
+    LaunchedEffect(lastKeyboardHeightDp, activeAccessoryDrawer) {
+        if (activeAccessoryDrawer != null) {
+            currentDrawerHeightDp = lastKeyboardHeightDp.coerceIn(220.dp, maxDrawerHeightDp)
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         // ── Editor-only background image ──────────────────────────────────────
         if (isEditorOnlyBg) {
@@ -1042,7 +1075,13 @@ fun MainEditorScreen(
                     val docTopInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
                     val docBottomNavInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                     val shortcutBarHeight = 44.dp
-                    val docBottomPadding = if (isKeyboardVisible) shortcutBarHeight else docBottomNavInset
+                    val docBottomPadding = if (isKeyboardVisible) {
+                        shortcutBarHeight
+                    } else if (activeAccessoryDrawer != null) {
+                        shortcutBarHeight + currentDrawerHeightDp
+                    } else {
+                        docBottomNavInset
+                    }
 
                     var lastAppliedPadding by remember { mutableFloatStateOf(-1f) }
                     var lastAppliedTextSize by remember { mutableFloatStateOf(-1f) }
@@ -1520,8 +1559,9 @@ fun MainEditorScreen(
                         }
                     }
 
-                    // ── Shortcut Bar (Floating Keyboard Accessory) ────────────
-                    if (isKeyboardVisible && shortcuts.isNotEmpty()) {
+                    // ── Shortcut Bar & Accessory Drawer (Floating Keyboard Accessory) ────────────
+                    val isBarVisible = (isKeyboardVisible || activeAccessoryDrawer != null) && shortcuts.isNotEmpty()
+                    if (isBarVisible) {
                         CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
                             val registerBounds = LocalInteractiveBoundsRegistry.current
                             DisposableEffect(Unit) {
@@ -1530,132 +1570,293 @@ fun MainEditorScreen(
                             var longPressedShortcut by remember { mutableStateOf<ShortcutAction?>(null) }
                             val haptic = LocalHapticFeedback.current
 
-                            Surface(
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 6.dp)
                                     .align(Alignment.BottomCenter)
-                                    .imePadding()
-                                    .onGloballyPositioned { coords ->
-                                        registerBounds("shortcut_bar", coords.boundsInRoot())
-                                    },
-                                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-                                tonalElevation = 4.dp,
-                                shadowElevation = 3.dp,
-                                border = androidx.compose.foundation.BorderStroke(
-                                    width = 0.6.dp,
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
-                                )
+                                    .then(
+                                        if (activeAccessoryDrawer == null) Modifier.imePadding()
+                                        else Modifier.navigationBarsPadding()
+                                    )
                             ) {
-                                Box(
+                                Surface(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .then(if (hazeState != null) Modifier.hazeEffect(hazeState) else Modifier)
+                                        .padding(horizontal = 6.dp)
+                                        .onGloballyPositioned { coords ->
+                                            registerBounds("shortcut_bar", coords.boundsInRoot())
+                                        },
+                                    shape = if (activeAccessoryDrawer != null) RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
+                                            else RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                                    tonalElevation = 4.dp,
+                                    shadowElevation = 3.dp,
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        width = 0.6.dp,
+                                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+                                    )
                                 ) {
-                                    Row(
+                                    Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .horizontalScroll(rememberScrollState())
-                                            .padding(horizontal = 10.dp, vertical = 7.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        verticalAlignment     = Alignment.CenterVertically
+                                            .then(if (hazeState != null) Modifier.hazeEffect(hazeState) else Modifier)
                                     ) {
-                                        // ── Undo / Redo Actions (Sora Editor Native Engine) ──────
-                                        val canUndo = soraEditorRef?.canUndo() == true
-                                        val canRedo = soraEditorRef?.canRedo() == true
-                                        val accentColor = ScribeTheme.colors.interaction.primary
-
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = if (canUndo) accentColor.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                                            contentColor = if (canUndo) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                            border = androidx.compose.foundation.BorderStroke(
-                                                0.5.dp,
-                                                if (canUndo) accentColor.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-                                            ),
+                                        Row(
                                             modifier = Modifier
-                                                .height(ScribeTheme.metrics.chipHeight)
-                                                .clickable(enabled = canUndo) {
-                                                    soraEditorRef?.undo()
-                                                }
+                                                .fillMaxWidth()
+                                                .horizontalScroll(rememberScrollState())
+                                                .padding(horizontal = 10.dp, vertical = 7.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalAlignment     = Alignment.CenterVertically
                                         ) {
-                                            Box(
-                                                contentAlignment = Alignment.Center,
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = ScribeTheme.spacing.micro)
-                                            ) {
-                                                Icon(
-                                                    Icons.AutoMirrored.Filled.Undo,
-                                                    contentDescription = "Undo",
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
+                                            // ── Undo / Redo Actions (Sora Editor Native Engine) ──────
+                                            val canUndo = soraEditorRef?.canUndo() == true
+                                            val canRedo = soraEditorRef?.canRedo() == true
+                                            val accentColor = ScribeTheme.colors.interaction.primary
 
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = if (canRedo) accentColor.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                                            contentColor = if (canRedo) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                            border = androidx.compose.foundation.BorderStroke(
-                                                0.5.dp,
-                                                if (canRedo) accentColor.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-                                            ),
-                                            modifier = Modifier
-                                                .height(ScribeTheme.metrics.chipHeight)
-                                                .clickable(enabled = canRedo) {
-                                                    soraEditorRef?.redo()
-                                                }
-                                        ) {
-                                            Box(
-                                                contentAlignment = Alignment.Center,
-                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = ScribeTheme.spacing.micro)
-                                            ) {
-                                                Icon(
-                                                    Icons.AutoMirrored.Filled.Redo,
-                                                    contentDescription = "Redo",
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                            }
-                                        }
-
-                                        Box(
-                                            modifier = Modifier
-                                                .height(18.dp)
-                                                .width(1.dp)
-                                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
-                                        )
-
-                                        var lastCategory: String? = null
-                                        shortcuts.forEach { shortcut ->
-                                            if (lastCategory != null && lastCategory != shortcut.category) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .height(18.dp)
-                                                        .width(1.dp)
-                                                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
-                                                )
-                                            }
-                                            lastCategory = shortcut.category
-
-                                            ShortcutBarChip(
-                                                shortcut = shortcut,
-                                                onClick = {
-                                                    when (shortcut.kind) {
-                                                        "wrap", "pair" -> {
-                                                            val open = shortcut.payload
-                                                            val close = shortcut.closing?.ifBlank { null } ?: shortcut.payload
-                                                            soraEditorRef?.applyFormat(open, close)
-                                                        }
-                                                        "prefix" -> soraEditorRef?.applySmartPrefix(shortcut.payload, shortcuts)
-                                                        else     -> soraEditorRef?.insertAtCursor(shortcut.payload)
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = if (canUndo) accentColor.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                                contentColor = if (canUndo) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                                border = androidx.compose.foundation.BorderStroke(
+                                                    0.5.dp,
+                                                    if (canUndo) accentColor.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                                                ),
+                                                modifier = Modifier
+                                                    .height(ScribeTheme.metrics.chipHeight)
+                                                    .clickable(enabled = canUndo) {
+                                                        soraEditorRef?.undo()
                                                     }
-                                                },
-                                                onLongClick = {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                    longPressedShortcut = shortcut
+                                            ) {
+                                                Box(
+                                                    contentAlignment = Alignment.Center,
+                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = ScribeTheme.spacing.micro)
+                                                ) {
+                                                    Icon(
+                                                        Icons.AutoMirrored.Filled.Undo,
+                                                        contentDescription = "Undo",
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
                                                 }
+                                            }
+
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = if (canRedo) accentColor.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                                contentColor = if (canRedo) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                                border = androidx.compose.foundation.BorderStroke(
+                                                    0.5.dp,
+                                                    if (canRedo) accentColor.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                                                ),
+                                                modifier = Modifier
+                                                    .height(ScribeTheme.metrics.chipHeight)
+                                                    .clickable(enabled = canRedo) {
+                                                        soraEditorRef?.redo()
+                                                    }
+                                            ) {
+                                                Box(
+                                                    contentAlignment = Alignment.Center,
+                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = ScribeTheme.spacing.micro)
+                                                ) {
+                                                    Icon(
+                                                        Icons.AutoMirrored.Filled.Redo,
+                                                        contentDescription = "Redo",
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .height(18.dp)
+                                                    .width(1.dp)
+                                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
                                             )
+
+                                            // ── Dedicated Switcher Buttons for Snippets & Templates ──
+                                            val isSnippetsOpen = activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS
+                                            val snippetBtnColor = Color(0xFF8B5CF6)
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = if (isSnippetsOpen) snippetBtnColor.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                                contentColor = if (isSnippetsOpen) snippetBtnColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                border = androidx.compose.foundation.BorderStroke(
+                                                    0.5.dp,
+                                                    if (isSnippetsOpen) snippetBtnColor.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                                                ),
+                                                modifier = Modifier
+                                                    .height(ScribeTheme.metrics.chipHeight)
+                                                    .clickable {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        if (isSnippetsOpen) {
+                                                            activeAccessoryDrawer = null
+                                                            soraEditorRef?.requestFocus()
+                                                            keyboardController?.show()
+                                                            try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+                                                        } else {
+                                                            keyboardController?.hide()
+                                                            try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
+                                                            activeAccessoryDrawer = AccessoryDrawerMode.SNIPPETS
+                                                            selectedDrawerCategory = "all"
+                                                            drawerSearchQuery = ""
+                                                        }
+                                                    }
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = ScribeTheme.spacing.micro)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Filled.Bookmarks,
+                                                        contentDescription = "Snippets Drawer",
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                    Text(
+                                                        text = "Snip",
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                }
+                                            }
+
+                                            val isTemplatesOpen = activeAccessoryDrawer == AccessoryDrawerMode.TEMPLATES
+                                            val templateBtnColor = Color(0xFFF59E0B)
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = if (isTemplatesOpen) templateBtnColor.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                                contentColor = if (isTemplatesOpen) templateBtnColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                border = androidx.compose.foundation.BorderStroke(
+                                                    0.5.dp,
+                                                    if (isTemplatesOpen) templateBtnColor.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                                                ),
+                                                modifier = Modifier
+                                                    .height(ScribeTheme.metrics.chipHeight)
+                                                    .clickable {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        if (isTemplatesOpen) {
+                                                            activeAccessoryDrawer = null
+                                                            soraEditorRef?.requestFocus()
+                                                            keyboardController?.show()
+                                                            try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+                                                        } else {
+                                                            keyboardController?.hide()
+                                                            try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
+                                                            activeAccessoryDrawer = AccessoryDrawerMode.TEMPLATES
+                                                            selectedDrawerCategory = "all"
+                                                            drawerSearchQuery = ""
+                                                        }
+                                                    }
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = ScribeTheme.spacing.micro)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Filled.Article,
+                                                        contentDescription = "Templates Drawer",
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                    Text(
+                                                        text = "Tmpl",
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                }
+                                            }
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .height(18.dp)
+                                                    .width(1.dp)
+                                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                                            )
+
+                                            var lastCategory: String? = null
+                                            shortcuts.forEach { shortcut ->
+                                                if (lastCategory != null && lastCategory != shortcut.category) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .height(18.dp)
+                                                            .width(1.dp)
+                                                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                                                    )
+                                                }
+                                                lastCategory = shortcut.category
+
+                                                ShortcutBarChip(
+                                                    shortcut = shortcut,
+                                                    onClick = {
+                                                        when (shortcut.kind) {
+                                                            "wrap", "pair" -> {
+                                                                val open = shortcut.payload
+                                                                val close = shortcut.closing?.ifBlank { null } ?: shortcut.payload
+                                                                soraEditorRef?.applyFormat(open, close)
+                                                            }
+                                                            "prefix" -> soraEditorRef?.applySmartPrefix(shortcut.payload, shortcuts)
+                                                            else     -> soraEditorRef?.insertAtCursor(shortcut.payload)
+                                                        }
+                                                    },
+                                                    onLongClick = {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        longPressedShortcut = shortcut
+                                                    }
+                                                )
+                                            }
                                         }
+                                    }
+                                }
+
+                                // ── Accessory Drawer (Directly beneath Shortcut Bar) ─────────
+                                AnimatedVisibility(
+                                    visible = activeAccessoryDrawer != null,
+                                    enter = expandVertically(animationSpec = tween(220)) + fadeIn(animationSpec = tween(180)),
+                                    exit = shrinkVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(140))
+                                ) {
+                                    activeAccessoryDrawer?.let { currentMode ->
+                                        AccessoryDrawer(
+                                            mode = currentMode,
+                                            currentHeightDp = currentDrawerHeightDp,
+                                            maxHeightDp = maxDrawerHeightDp,
+                                            onHeightChange = { currentDrawerHeightDp = it },
+                                            onSwitchMode = { newMode ->
+                                                activeAccessoryDrawer = newMode
+                                                selectedDrawerCategory = "all"
+                                                drawerSearchQuery = ""
+                                            },
+                                            onClose = {
+                                                activeAccessoryDrawer = null
+                                                soraEditorRef?.requestFocus()
+                                                keyboardController?.show()
+                                                try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+                                            },
+                                            onOpenShortcuts = {
+                                                activeAccessoryDrawer = null
+                                                onOpenShortcuts()
+                                            },
+                                            searchQuery = drawerSearchQuery,
+                                            onSearchQueryChange = { drawerSearchQuery = it },
+                                            selectedCategory = selectedDrawerCategory,
+                                            onCategorySelect = { selectedDrawerCategory = it },
+                                            snippets = snippets,
+                                            templates = templates,
+                                            customCategories = customCategories,
+                                            onTogglePin = { id -> shortcutsVm.toggleShortcutPin(id) },
+                                            onInsert = { shortcut ->
+                                                when (shortcut.kind) {
+                                                    "wrap", "pair" -> {
+                                                        val open = shortcut.payload
+                                                        val close = shortcut.closing?.ifBlank { null } ?: shortcut.payload
+                                                        soraEditorRef?.applyFormat(open, close)
+                                                    }
+                                                    "prefix" -> soraEditorRef?.applySmartPrefix(shortcut.payload, shortcuts)
+                                                    else     -> soraEditorRef?.insertAtCursor(shortcut.payload)
+                                                }
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                Toast.makeText(context, "Inserted: " + shortcut.resolvedLabel(), Toast.LENGTH_SHORT).show()
+                                            }
+                                        )
                                     }
                                 }
                             }
@@ -1690,7 +1891,11 @@ fun MainEditorScreen(
                                     },
                                     dismissButton = {
                                         TextButton(onClick = {
-                                            shortcutsVm.setShortcutEnabled(target.id, false)
+                                            if (target.itemType == "action") {
+                                                shortcutsVm.setShortcutEnabled(target.id, false)
+                                            } else {
+                                                shortcutsVm.toggleShortcutPin(target.id)
+                                            }
                                             longPressedShortcut = null
                                         }) {
                                             Text("Hide from Bar")
@@ -3104,26 +3309,48 @@ private fun ShortcutBarChip(
     onLongClick: () -> Unit
 ) {
     val accentColor = ScribeTheme.colors.interaction.primary
+    val isSnippet = shortcut.itemType == "snippet"
+    val isTemplate = shortcut.itemType == "template"
     val isDialogueOrSymbol = shortcut.category == "dialogue" || shortcut.category == "symbols" || shortcut.category == "brackets" || shortcut.category == "scene_breaks"
-    val chipBg = if (isDialogueOrSymbol) {
-        accentColor.copy(alpha = 0.12f)
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
-    }
-    val contentColor = if (isDialogueOrSymbol) {
-        accentColor
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
+
+    val (chipBg, contentColor, borderColor) = when {
+        isSnippet -> {
+            val snippetColor = Color(0xFF8B5CF6)
+            Triple(
+                snippetColor.copy(alpha = 0.16f),
+                snippetColor,
+                snippetColor.copy(alpha = 0.35f)
+            )
+        }
+        isTemplate -> {
+            val templateColor = Color(0xFFF59E0B)
+            Triple(
+                templateColor.copy(alpha = 0.16f),
+                templateColor,
+                templateColor.copy(alpha = 0.35f)
+            )
+        }
+        isDialogueOrSymbol -> {
+            Triple(
+                accentColor.copy(alpha = 0.12f),
+                accentColor,
+                accentColor.copy(alpha = 0.3f)
+            )
+        }
+        else -> {
+            Triple(
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
+                MaterialTheme.colorScheme.onSurfaceVariant,
+                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+            )
+        }
     }
 
     Surface(
-        shape = CircleShape,
+        shape = if (isSnippet || isTemplate) RoundedCornerShape(8.dp) else CircleShape,
         color = chipBg,
         contentColor = contentColor,
-        border = androidx.compose.foundation.BorderStroke(
-            0.5.dp,
-            if (isDialogueOrSymbol) accentColor.copy(alpha = 0.3f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-        ),
+        border = androidx.compose.foundation.BorderStroke(0.5.dp, borderColor),
         modifier = Modifier
             .height(ScribeTheme.metrics.chipHeight)
             .combinedClickable(
@@ -3133,14 +3360,476 @@ private fun ShortcutBarChip(
     ) {
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier.padding(horizontal = ScribeTheme.spacing.medium, vertical = ScribeTheme.spacing.micro)
+            modifier = Modifier.padding(
+                horizontal = if (isSnippet || isTemplate) 8.dp else ScribeTheme.spacing.medium,
+                vertical = ScribeTheme.spacing.micro
+            )
         ) {
+            val displayText = when {
+                isSnippet && !shortcut.useCustomIcon -> "[ Snip ]"
+                isTemplate && !shortcut.useCustomIcon -> "[ Tmpl ]"
+                else -> shortcut.resolvedIcon()
+            }
             Text(
-                text = shortcut.resolvedIcon(),
-                fontSize = 12.sp,
+                text = displayText,
+                fontSize = if (displayText.startsWith("[")) 11.sp else 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1
             )
+        }
+    }
+}
+
+enum class AccessoryDrawerMode {
+    SNIPPETS,
+    TEMPLATES
+}
+
+@Composable
+private fun AccessoryDrawer(
+    mode: AccessoryDrawerMode,
+    currentHeightDp: androidx.compose.ui.unit.Dp,
+    maxHeightDp: androidx.compose.ui.unit.Dp,
+    onHeightChange: (androidx.compose.ui.unit.Dp) -> Unit,
+    onSwitchMode: (AccessoryDrawerMode) -> Unit,
+    onClose: () -> Unit,
+    onOpenShortcuts: () -> Unit,
+    searchQuery: String,
+    onSearchQueryChange: (String) -> Unit,
+    selectedCategory: String,
+    onCategorySelect: (String) -> Unit,
+    snippets: List<ShortcutAction>,
+    templates: List<ShortcutAction>,
+    customCategories: Map<String, List<String>>,
+    onTogglePin: (String) -> Unit,
+    onInsert: (ShortcutAction) -> Unit
+) {
+    val isSnippet = mode == AccessoryDrawerMode.SNIPPETS
+    val currentItems = if (isSnippet) snippets else templates
+    val cleanQuery = searchQuery.trim().lowercase()
+
+    val snippetCategories = remember(customCategories) {
+        listOf(
+            "all" to "All",
+            com.primaloptima.scribe.util.DefaultShortcuts.CAT_CORRESPONDENCE to "Correspondence",
+            com.primaloptima.scribe.util.DefaultShortcuts.CAT_NARRATIVE to "Narrative",
+            com.primaloptima.scribe.util.DefaultShortcuts.CAT_NOTES to "Notes"
+        ) + (customCategories["snippet"] ?: emptyList()).map { it to it }
+    }
+
+    val templateCategories = remember(customCategories) {
+        listOf(
+            "all" to "All",
+            com.primaloptima.scribe.util.DefaultShortcuts.CAT_TMPL_STRUCTURE to "Structure",
+            com.primaloptima.scribe.util.DefaultShortcuts.CAT_TMPL_CHARACTERS to "Characters",
+            com.primaloptima.scribe.util.DefaultShortcuts.CAT_TMPL_WORLDBUILDING to "Worldbuilding",
+            com.primaloptima.scribe.util.DefaultShortcuts.CAT_TMPL_DIALOGUE to "Dialogue"
+        ) + (customCategories["template"] ?: emptyList()).map { it to it }
+    }
+
+    val filteredItems = remember(currentItems, cleanQuery, selectedCategory) {
+        currentItems.filter { item ->
+            val matchesCat = selectedCategory == "all" || item.category == selectedCategory
+            if (!matchesCat) return@filter false
+            if (cleanQuery.isBlank()) return@filter true
+            item.resolvedLabel().lowercase().contains(cleanQuery) ||
+                item.templateDescription.lowercase().contains(cleanQuery) ||
+                item.payload.lowercase().contains(cleanQuery)
+        }
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(currentHeightDp)
+            .padding(horizontal = 6.dp),
+        shape = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+        tonalElevation = 6.dp,
+        shadowElevation = 6.dp,
+        border = androidx.compose.foundation.BorderStroke(
+            width = 0.6.dp,
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        )
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Drag handle at top for vertical resize
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp, bottom = 4.dp)
+                    .pointerInput(maxHeightDp) {
+                        detectVerticalDragGestures { change, dragAmount ->
+                            change.consume()
+                            val deltaDp = -dragAmount.toDp()
+                            val newHeight = (currentHeightDp + deltaDp).coerceIn(220.dp, maxHeightDp)
+                            onHeightChange(newHeight)
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .background(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                            shape = CircleShape
+                        )
+                )
+            }
+
+            // Header: Switcher pills + action buttons
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Segmented Pill (Snippets vs Templates)
+                Row(
+                    modifier = Modifier
+                        .background(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                        .padding(2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    val isSnipSelected = mode == AccessoryDrawerMode.SNIPPETS
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isSnipSelected) ScribeTheme.colors.interaction.primary.copy(alpha = 0.16f) else Color.Transparent,
+                        contentColor = if (isSnipSelected) ScribeTheme.colors.interaction.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clickable { onSwitchMode(AccessoryDrawerMode.SNIPPETS) }
+                    ) {
+                        Text(
+                            text = "Snippets (${snippets.size})",
+                            fontSize = 12.sp,
+                            fontWeight = if (isSnipSelected) FontWeight.Bold else FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    val isTmplSelected = mode == AccessoryDrawerMode.TEMPLATES
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (isTmplSelected) ScribeTheme.colors.interaction.primary.copy(alpha = 0.16f) else Color.Transparent,
+                        contentColor = if (isTmplSelected) ScribeTheme.colors.interaction.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clickable { onSwitchMode(AccessoryDrawerMode.TEMPLATES) }
+                    ) {
+                        Text(
+                            text = "Templates (${templates.size})",
+                            fontSize = 12.sp,
+                            fontWeight = if (isTmplSelected) FontWeight.Bold else FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                // Right actions: Open Studio & Close / Restore Keyboard
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    IconButton(
+                        onClick = onOpenShortcuts,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Filled.Tune,
+                            contentDescription = "Open Shortcuts Studio",
+                            modifier = Modifier.size(17.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    IconButton(
+                        onClick = onClose,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Filled.Keyboard,
+                            contentDescription = "Restore Keyboard",
+                            modifier = Modifier.size(18.dp),
+                            tint = ScribeTheme.colors.interaction.primary
+                        )
+                    }
+                }
+            }
+
+            // Search input field
+            BasicTextField(
+                value = searchQuery,
+                onValueChange = onSearchQueryChange,
+                singleLine = true,
+                textStyle = TextStyle(
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 13.sp
+                ),
+                cursorBrush = SolidColor(ScribeTheme.colors.interaction.primary),
+                decorationBox = { innerTextField ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 4.dp)
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            Icons.Filled.Search,
+                            contentDescription = null,
+                            modifier = Modifier.size(15.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        )
+                        Box(modifier = Modifier.weight(1f)) {
+                            if (searchQuery.isEmpty()) {
+                                Text(
+                                    text = if (isSnippet) "Search snippets..." else "Search templates...",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                            }
+                            innerTextField()
+                        }
+                        if (searchQuery.isNotEmpty()) {
+                            Icon(
+                                Icons.Filled.Clear,
+                                contentDescription = "Clear search",
+                                modifier = Modifier
+                                    .size(16.dp)
+                                    .clickable { onSearchQueryChange("") },
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            )
+
+            // Category filter chips row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val categories = if (isSnippet) snippetCategories else templateCategories
+                categories.forEach { (catId, catLabel) ->
+                    val isSelected = selectedCategory == catId
+                    Surface(
+                        shape = CircleShape,
+                        color = if (isSelected) ScribeTheme.colors.interaction.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        contentColor = if (isSelected) ScribeTheme.colors.interaction.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        border = androidx.compose.foundation.BorderStroke(
+                            0.5.dp,
+                            if (isSelected) ScribeTheme.colors.interaction.primary.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                        ),
+                        modifier = Modifier.clickable { onCategorySelect(catId) }
+                    ) {
+                        Text(
+                            text = catLabel,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+            }
+
+            // Cards list
+            if (filteredItems.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Text(
+                            text = if (searchQuery.isNotBlank()) "No items matching \"$searchQuery\"" else "No items in this category",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        TextButton(onClick = onOpenShortcuts) {
+                            Text("Create in Shortcuts Studio")
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(filteredItems, key = { it.id }) { item ->
+                        AccessoryItemCard(
+                            item = item,
+                            isSnippet = isSnippet,
+                            onInsert = { onInsert(item) },
+                            onTogglePin = { onTogglePin(item.id) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccessoryItemCard(
+    item: ShortcutAction,
+    isSnippet: Boolean,
+    onInsert: () -> Unit,
+    onTogglePin: () -> Unit
+) {
+    val accentColor = ScribeTheme.colors.interaction.primary
+    val typeThemeColor = if (isSnippet) Color(0xFF8B5CF6) else Color(0xFFF59E0B)
+
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        border = androidx.compose.foundation.BorderStroke(
+            0.5.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onInsert)
+    ) {
+        Row(
+            modifier = Modifier.padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Icon / Badge 40dp Box
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(
+                        color = typeThemeColor.copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .border(
+                        0.5.dp,
+                        typeThemeColor.copy(alpha = 0.3f),
+                        RoundedCornerShape(8.dp)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                val iconText = when {
+                    !item.useCustomIcon -> if (isSnippet) "Snip" else "Tmpl"
+                    item.icon.isNotBlank() -> item.icon
+                    else -> item.resolvedIcon()
+                }
+                Text(
+                    text = iconText,
+                    fontSize = if (iconText.length > 2) 11.sp else 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = typeThemeColor,
+                    textAlign = TextAlign.Center
+                )
+            }
+
+            // Details Column
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = item.resolvedLabel(),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    // Category Badge
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                        border = androidx.compose.foundation.BorderStroke(0.4.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                    ) {
+                        Text(
+                            text = item.category.replaceFirstChar { it.uppercase() },
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+
+                if (item.templateDescription.isNotBlank()) {
+                    Text(
+                        text = item.templateDescription,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // Monospace preview box (clamped)
+                val previewLines = if (isSnippet) 2 else 3
+                val cleanPayloadPreview = item.payload.trim()
+                if (cleanPayloadPreview.isNotEmpty()) {
+                    Text(
+                        text = cleanPayloadPreview,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                        maxLines = previewLines,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                shape = RoundedCornerShape(4.dp)
+                            )
+                            .padding(horizontal = 6.dp, vertical = 3.dp)
+                    )
+                }
+            }
+
+            // Quick Pin Action
+            IconButton(
+                onClick = onTogglePin,
+                modifier = Modifier.size(32.dp)
+            ) {
+                if (item.showInQuickActions) {
+                    Icon(
+                        Icons.Filled.PushPin,
+                        contentDescription = "Pinned to Bar",
+                        modifier = Modifier.size(16.dp),
+                        tint = accentColor
+                    )
+                } else {
+                    Icon(
+                        Icons.Outlined.PushPin,
+                        contentDescription = "Pin to Bar",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                }
+            }
         }
     }
 }

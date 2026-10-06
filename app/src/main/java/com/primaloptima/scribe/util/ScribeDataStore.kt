@@ -179,10 +179,11 @@ class ScribeDataStore(private val context: Context) {
         store.data.first()[EXTERNAL_ROOT_JSON]
 
     suspend fun getShortcuts(): List<ShortcutAction> {
-        val json = store.data.first()[SHORTCUTS_JSON] ?: return DefaultShortcuts.all
+        val allDefaults = DefaultShortcuts.all + DefaultShortcuts.defaultSnippets + DefaultShortcuts.defaultTemplates
+        val json = store.data.first()[SHORTCUTS_JSON] ?: return allDefaults
         return try {
             val list = AppJson.decodeFromString<List<ShortcutAction>>(json)
-            val defaultMap = DefaultShortcuts.all.associateBy { it.id }
+            val defaultMap = allDefaults.associateBy { it.id }
 
             // Migration step 1: Migrate legacy category IDs and fill missing keywords
             val migratedList = list.map { action ->
