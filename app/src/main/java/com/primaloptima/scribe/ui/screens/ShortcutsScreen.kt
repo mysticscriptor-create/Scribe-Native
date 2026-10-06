@@ -1168,86 +1168,171 @@ private fun WritingBarHeroSection(
                         )
                     }
 
-                    // ── Bottom Footer: Bulb Hint Strip on Left + Action Buttons on Right ──
+                    // ── Bottom Footer: Bulb Hint Strip + Action Buttons ──
                     val hintColor = if (markedForRemovalIds.isNotEmpty()) colors.semantic.error else colors.semantic.warning
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Left hint strip with small warm bulb icon
+                    val isWideScreen = LocalConfiguration.current.screenWidthDp >= 520
+
+                    if (isWideScreen) {
+                        // Wide landscape / tablet screen: side-by-side with full space
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
                             modifier = Modifier
-                                .weight(1f)
-                                .clipToBounds()
+                                .fillMaxWidth()
+                                .padding(top = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Lightbulb,
-                                contentDescription = null,
-                                tint = hintColor,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Text(
-                                text = if (markedForRemovalIds.isNotEmpty()) {
-                                    "Tap Done to remove ${markedForRemovalIds.size} shortcut${if (markedForRemovalIds.size > 1) "s" else ""}"
-                                } else {
-                                    "Tap pill to remove • Drag to reorder"
-                                },
-                                fontSize = 11.5.sp,
-                                color = contentSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        // Right action buttons: Cancel and Done
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            TextButton(
-                                onClick = onCancelClick,
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                                modifier = Modifier.height(32.dp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clipToBounds()
                             ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lightbulb,
+                                    contentDescription = null,
+                                    tint = hintColor,
+                                    modifier = Modifier.size(15.dp)
+                                )
                                 Text(
-                                    text = "Cancel",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = contentSecondary
+                                    text = if (markedForRemovalIds.isNotEmpty()) {
+                                        "Tap Done to remove ${markedForRemovalIds.size} shortcut${if (markedForRemovalIds.size > 1) "s" else ""}"
+                                    } else {
+                                        "Tap pill to remove • Drag to reorder"
+                                    },
+                                    fontSize = 11.5.sp,
+                                    color = contentSecondary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
 
-                            Surface(
-                                onClick = onDoneClick,
-                                shape = CircleShape,
-                                color = accentPrimary,
-                                border = BorderStroke(0.5.dp, accentPrimary),
-                                modifier = Modifier.height(32.dp)
+                            Spacer(modifier = Modifier.width(10.dp))
+
+                            // Right action buttons: Cancel and Done
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                TextButton(
+                                    onClick = onCancelClick,
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(32.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(13.dp),
-                                        tint = onAccent
-                                    )
                                     Text(
-                                        text = "Done",
+                                        text = "Cancel",
                                         fontSize = 12.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = onAccent
+                                        fontWeight = FontWeight.Medium,
+                                        color = contentSecondary
                                     )
+                                }
+
+                                Surface(
+                                    onClick = onDoneClick,
+                                    shape = CircleShape,
+                                    color = accentPrimary,
+                                    border = BorderStroke(0.5.dp, accentPrimary),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(13.dp),
+                                            tint = onAccent
+                                        )
+                                        Text(
+                                            text = "Done",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = onAccent
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Standard mobile portrait layout: dedicated full-width hint row followed by action buttons
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 2.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Full-width Hint Row (never cut off)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lightbulb,
+                                    contentDescription = null,
+                                    tint = hintColor,
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Text(
+                                    text = if (markedForRemovalIds.isNotEmpty()) {
+                                        "Tap Done to remove ${markedForRemovalIds.size} shortcut${if (markedForRemovalIds.size > 1) "s" else ""}"
+                                    } else {
+                                        "Tap pill to remove • Drag to reorder"
+                                    },
+                                    fontSize = 11.5.sp,
+                                    color = contentSecondary,
+                                    maxLines = 2,
+                                    softWrap = true
+                                )
+                            }
+
+                            // Action buttons row (aligned to end)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextButton(
+                                    onClick = onCancelClick,
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Text(
+                                        text = "Cancel",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = contentSecondary
+                                    )
+                                }
+
+                                Spacer(modifier = Modifier.width(6.dp))
+
+                                Surface(
+                                    onClick = onDoneClick,
+                                    shape = CircleShape,
+                                    color = accentPrimary,
+                                    border = BorderStroke(0.5.dp, accentPrimary),
+                                    modifier = Modifier.height(32.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(13.dp),
+                                            tint = onAccent
+                                        )
+                                        Text(
+                                            text = "Done",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = onAccent
+                                        )
+                                    }
                                 }
                             }
                         }
