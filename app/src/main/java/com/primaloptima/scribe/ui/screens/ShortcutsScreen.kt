@@ -246,40 +246,43 @@ fun ShortcutsScreen(
         isPillDragging = false
     }
 
-    // ── Smart Scrolling FAB Controller ───────────────────────────────────────
+    // ── Smart Scrolling FAB Controller (Zero-Jank Input-Only Dispatch) ────────
     val density = LocalDensity.current
     var isFabExtended by remember { mutableStateOf(true) }
     var isFabVisible by remember { mutableStateOf(true) }
 
-    val thresholdContractPx = with(density) { 14.dp.toPx() }
-    val thresholdHidePx = with(density) { 72.dp.toPx() }
-    val thresholdShowPx = with(density) { 16.dp.toPx() }
+    val thresholdContractPx = with(density) { 24.dp.toPx() }
+    val thresholdHidePx = with(density) { 80.dp.toPx() }
+    val thresholdShowPx = with(density) { 36.dp.toPx() }
 
-    // Direct physical gesture tracking via NestedScrollConnection to prevent offset calculation jitter
+    // Direct physical gesture tracking: only reacts to direct user touch drag (UserInput),
+    // never fires during inertial flings to prevent mid-fling animation jank.
     val fabScrollConnection = remember {
         object : NestedScrollConnection {
             var accumulatedDown = 0f
             var accumulatedUp = 0f
 
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
+
                 val dy = available.y // dy < 0 means finger drags up, list scrolls down
-                if (dy < -1.5f) {
+                if (dy < -2f) {
                     accumulatedUp = 0f
                     accumulatedDown += -dy
-                    if (accumulatedDown > thresholdContractPx) {
+                    if (accumulatedDown > thresholdContractPx && isFabExtended) {
                         isFabExtended = false
                     }
-                    if (accumulatedDown > thresholdHidePx) {
+                    if (accumulatedDown > thresholdHidePx && isFabVisible) {
                         isFabVisible = false
                     }
-                } else if (dy > 1.5f) {
+                } else if (dy > 2f) {
                     accumulatedDown = 0f
                     accumulatedUp += dy
-                    if (accumulatedUp > thresholdShowPx) {
+                    if (accumulatedUp > thresholdShowPx && !isFabVisible) {
                         isFabVisible = true
-                        if (accumulatedUp > thresholdContractPx * 2.5f) {
-                            isFabExtended = true
-                        }
+                    }
+                    if (accumulatedUp > thresholdShowPx * 2f && !isFabExtended) {
+                        isFabExtended = true
                     }
                 }
                 return Offset.Zero
@@ -287,76 +290,16 @@ fun ShortcutsScreen(
         }
     }
 
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 12 }
-            .collect { isAtTop ->
-                if (isAtTop) {
-                    isFabExtended = true
-                    isFabVisible = true
-                }
-            }
+    // Derived state prevents evaluating on every scroll pixel
+    val isAtTop by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset <= 8
+        }
     }
-
-    // ── Elastic Stretch Overscroll Physics (Render-thread evaluated) ─────────
-    val rawOverscrollY = remember { Animatable(0f) }
-    val maxRubberBandPx = with(density) { 54.dp.toPx() }
-
-    val rubberBandScrollConnection = remember(coroutineScope, maxRubberBandPx) {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                val current = rawOverscrollY.value
-                if (abs(current) > 0.5f && available.y != 0f && sign(available.y) != sign(current)) {
-                    val next = if (current > 0f) {
-                        (current + available.y * 1.4f).coerceAtLeast(0f)
-                    } else {
-                        (current + available.y * 1.4f).coerceAtMost(0f)
-                    }
-                    coroutineScope.launch { rawOverscrollY.snapTo(next) }
-                    return Offset(0f, available.y)
-                }
-                return Offset.Zero
-            }
-
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource
-            ): Offset {
-                if (available.y != 0f && source == NestedScrollSource.UserInput) {
-                    val next = (rawOverscrollY.value + available.y)
-                        .coerceIn(-maxRubberBandPx * 3.5f, maxRubberBandPx * 3.5f)
-                    coroutineScope.launch { rawOverscrollY.snapTo(next) }
-                    return Offset(0f, available.y)
-                }
-                return Offset.Zero
-            }
-
-            override suspend fun onPreFling(available: Velocity): Velocity {
-                if (abs(rawOverscrollY.value) > 0.5f) {
-                    rawOverscrollY.animateTo(
-                        targetValue = 0f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        )
-                    )
-                    return available
-                }
-                return Velocity.Zero
-            }
-
-            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                if (abs(rawOverscrollY.value) > 0.5f) {
-                    rawOverscrollY.animateTo(
-                        targetValue = 0f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioNoBouncy,
-                            stiffness = Spring.StiffnessMediumLow
-                        )
-                    )
-                }
-                return available
-            }
+    LaunchedEffect(isAtTop) {
+        if (isAtTop) {
+            if (!isFabVisible) isFabVisible = true
+            if (!isFabExtended) isFabExtended = true
         }
     }
 
@@ -532,26 +475,16 @@ fun ShortcutsScreen(
         containerColor = canvasBg,
         contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime)
     ) { paddingValues ->
-        CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
-            LazyColumn(
-                state = listState,
-                userScrollEnabled = !isPillDragging,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues)
-                    .nestedScroll(fabScrollConnection)
-                    .nestedScroll(rubberBandScrollConnection)
-                    .graphicsLayer {
-                        val raw = rawOverscrollY.value
-                        translationY = if (abs(raw) < 0.5f) {
-                            0f
-                        } else {
-                            sign(raw) * maxRubberBandPx * (1f - exp(-abs(raw) / (maxRubberBandPx * 2.0f)))
-                        }
-                    },
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
+        LazyColumn(
+            state = listState,
+            userScrollEnabled = !isPillDragging,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .nestedScroll(fabScrollConnection),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
                 // ── 1. YOUR WRITING BAR (Hero Section) ───────────────────────────
                 item(key = "hero_writing_bar") {
                     WritingBarHeroSection(
@@ -612,7 +545,7 @@ fun ShortcutsScreen(
                     val isCollapsed = collapsedCategories.contains(catMeta.id) && cleanQuery.isBlank() && selectedFilterCategory == "all"
 
                     if (categoryShortcuts.isNotEmpty() || (cleanQuery.isBlank() && selectedFilterCategory in listOf("all", catMeta.id))) {
-                        item(key = "cat_card_${catMeta.id}") {
+                        item(key = "cat_card_${catMeta.id}", contentType = "category_card") {
                             // Enclosed Elegant Card Container
                             Surface(
                                 modifier = Modifier.fillMaxWidth(),
@@ -730,7 +663,6 @@ fun ShortcutsScreen(
                     Spacer(modifier = Modifier.height(84.dp))
                 }
             }
-        }
     }
 
     // ── Dialogs ──────────────────────────────────────────────────────────────
@@ -2914,42 +2846,44 @@ private fun ShortcutCompactRow(
                     )
                 }
 
-                FrostedDropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Edit") },
-                        onClick = {
-                            showMenu = false
-                            onEdit()
-                        },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Edit,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = contentPrimary
-                            )
-                        }
-                    )
-
-                    if (onDelete != null) {
+                if (showMenu) {
+                    FrostedDropdownMenu(
+                        expanded = true,
+                        onDismissRequest = { showMenu = false }
+                    ) {
                         DropdownMenuItem(
-                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                            text = { Text("Edit") },
                             onClick = {
                                 showMenu = false
-                                onDelete()
+                                onEdit()
                             },
                             leadingIcon = {
                                 Icon(
-                                    imageVector = Icons.Default.Delete,
+                                    imageVector = Icons.Default.Edit,
                                     contentDescription = null,
                                     modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.error
+                                    tint = contentPrimary
                                 )
                             }
                         )
+
+                        if (onDelete != null) {
+                            DropdownMenuItem(
+                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                onClick = {
+                                    showMenu = false
+                                    onDelete()
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            )
+                        }
                     }
                 }
             }

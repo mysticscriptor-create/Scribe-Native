@@ -253,31 +253,35 @@ fun FrostedInWindowDropdownMenu(
     var anchorBounds by remember { mutableStateOf<Rect?>(null) }
     val menuId = remember { UUID.randomUUID().toString() }
 
-    // Anchor position tracker placed alongside trigger button
+    // Anchor position tracker placed alongside trigger button (only tracks when expanded to eliminate scroll layout churn)
     Spacer(
         modifier = Modifier
             .size(0.dp)
-            .onGloballyPositioned { coords ->
-                val parentCoords = coords.parentCoordinates
-                if (parentCoords != null) {
-                    val pos = parentCoords.positionInWindow()
-                    val size = parentCoords.size
-                    anchorBounds = Rect(
-                        left = pos.x,
-                        top = pos.y,
-                        right = pos.x + size.width,
-                        bottom = pos.y + size.height
-                    )
-                } else {
-                    val pos = coords.positionInWindow()
-                    anchorBounds = Rect(
-                        left = pos.x,
-                        top = pos.y,
-                        right = pos.x,
-                        bottom = pos.y
-                    )
-                }
-            }
+            .then(
+                if (expanded) {
+                    Modifier.onGloballyPositioned { coords ->
+                        val parentCoords = coords.parentCoordinates
+                        if (parentCoords != null) {
+                            val pos = parentCoords.positionInWindow()
+                            val size = parentCoords.size
+                            anchorBounds = Rect(
+                                left = pos.x,
+                                top = pos.y,
+                                right = pos.x + size.width,
+                                bottom = pos.y + size.height
+                            )
+                        } else {
+                            val pos = coords.positionInWindow()
+                            anchorBounds = Rect(
+                                left = pos.x,
+                                top = pos.y,
+                                right = pos.x,
+                                bottom = pos.y
+                            )
+                        }
+                    }
+                } else Modifier
+            )
     )
 
     if (menuHost != null) {
