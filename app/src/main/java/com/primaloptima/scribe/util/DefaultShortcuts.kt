@@ -713,8 +713,119 @@ object DefaultShortcuts {
         )
     )
 
+    val defaultSnippets: List<ShortcutAction> = listOf(
+        ShortcutAction(
+            id = "snip_sig_sincerely",
+            label = "Sign-off: Sincerely",
+            icon = "✍",
+            kind = "insert",
+            payload = "\n\nSincerely,\n",
+            category = "correspondence",
+            isEnabled = true,
+            itemType = "snippet",
+            showInQuickActions = false,
+            useCustomIcon = false,
+            templateDescription = "Formal letter closing with line breaks"
+        ),
+        ShortcutAction(
+            id = "snip_pov_separator",
+            label = "POV Switch",
+            icon = "✦",
+            kind = "insert",
+            payload = "\n\n* * *\n\n",
+            category = "narrative",
+            isEnabled = true,
+            itemType = "snippet",
+            showInQuickActions = false,
+            useCustomIcon = false,
+            templateDescription = "Centered asterisks for point-of-view changes"
+        ),
+        ShortcutAction(
+            id = "snip_dialogue_beat",
+            label = "Action Beat",
+            icon = "—",
+            kind = "insert",
+            payload = "—he paused, considering his words—",
+            category = "narrative",
+            isEnabled = true,
+            itemType = "snippet",
+            showInQuickActions = false,
+            useCustomIcon = false,
+            templateDescription = "Em-dash enclosed narrative pause"
+        ),
+        ShortcutAction(
+            id = "snip_quick_note",
+            label = "Writer's Note",
+            icon = "✎",
+            kind = "wrap",
+            payload = "/* NOTE: ",
+            closing = " */",
+            category = "notes",
+            isEnabled = true,
+            itemType = "snippet",
+            showInQuickActions = false,
+            useCustomIcon = false,
+            templateDescription = "Comment wrapper for drafting notes"
+        )
+    )
+
+    val defaultTemplates: List<ShortcutAction> = listOf(
+        ShortcutAction(
+            id = "tmpl_scene_beats",
+            label = "Scene Beats",
+            icon = "📋",
+            kind = "insert",
+            payload = "## Scene Goal\n- Protagonist Want:\n- Obstacle / Conflict:\n- Outcome / Shift:\n\n### Narrative Beats\n1. Opening Hook:\n2. Rising Complication:\n3. Crisis / Turning Point:\n4. Climax / Revelation:\n5. Resolution & Cliffhanger:\n",
+            category = "structure",
+            isEnabled = true,
+            itemType = "template",
+            showInQuickActions = false,
+            useCustomIcon = false,
+            templateDescription = "5-beat storytelling breakdown for scene planning"
+        ),
+        ShortcutAction(
+            id = "tmpl_character_dossier",
+            label = "Character Profile",
+            icon = "👤",
+            kind = "insert",
+            payload = "### Character Profile\n- Name: \n- Role: \n- Core Motivation: \n- Fatal Flaw: \n- Distinctive Voice / Habit: \n- Secret: \n",
+            category = "characters",
+            isEnabled = true,
+            itemType = "template",
+            showInQuickActions = false,
+            useCustomIcon = false,
+            templateDescription = "Quick character creation sheet with motivation and voice"
+        ),
+        ShortcutAction(
+            id = "tmpl_litrpg_status",
+            label = "Status / Stat Window",
+            icon = "📊",
+            kind = "insert",
+            payload = "┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\n┃ STATUS: [NAME]               ┃\n┃ Level: 1      Class: [None] ┃\n┃ HP: 100/100   MP: 50/50     ┃\n┃ STR: 10       DEX: 10       ┃\n┃ INT: 10       VIT: 10       ┃\n┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\n",
+            category = "worldbuilding",
+            isEnabled = true,
+            itemType = "template",
+            showInQuickActions = false,
+            useCustomIcon = false,
+            templateDescription = "Formatted stat box for LitRPG and Progression Fantasy"
+        ),
+        ShortcutAction(
+            id = "tmpl_dialogue_spar",
+            label = "Dialogue Sparring Frame",
+            icon = "💬",
+            kind = "insert",
+            payload = "“[Statement of assertion],” [Name] said.\n\n“[Subtextual challenge],” replied [Other Name].\n\n[Physical action beat demonstrating tension].\n\n“[The revelation or concession].”\n",
+            category = "dialogue",
+            isEnabled = true,
+            itemType = "template",
+            showInQuickActions = false,
+            useCustomIcon = false,
+            templateDescription = "Back-and-forth dialogue exchange with action beat"
+        )
+    )
+
     private val byIdMap: Map<String, ShortcutAction> by lazy {
-        all.associateBy { it.id }
+        (all + defaultSnippets + defaultTemplates).associateBy { it.id }
     }
 
     fun findById(id: String): ShortcutAction? = byIdMap[id]
@@ -722,15 +833,27 @@ object DefaultShortcuts {
 
 /**
  * Resolves the short icon/glyph for a shortcut (used in the 40dp icon badge and Writing Bar).
- * Never falls back to `label` so description text never leaks into the icon.
+ * For snippets and templates without custom icons, returns badges like "[ Snip ]" or "[ Tmpl ]".
  */
 fun ShortcutAction.resolvedIcon(): String {
+    if (itemType == "snippet" && !useCustomIcon) {
+        return "Snip"
+    }
+    if (itemType == "template" && !useCustomIcon) {
+        return "Tmpl"
+    }
     if (icon.isNotBlank()) return icon
     val def = DefaultShortcuts.findById(id)
     if (def != null && def.icon.isNotBlank() && payload == def.payload && closing == def.closing) {
         return def.icon
     }
-    return DefaultShortcuts.autoDetectIcon(kind, payload, closing).ifBlank { "•" }
+    return DefaultShortcuts.autoDetectIcon(kind, payload, closing).ifBlank {
+        when (itemType) {
+            "snippet" -> "Snip"
+            "template" -> "Tmpl"
+            else -> "•"
+        }
+    }
 }
 
 /**

@@ -26,12 +26,32 @@ class ShortcutsViewModel(application: Application) : AndroidViewModel(applicatio
     private val _disabledCategories = MutableStateFlow<Set<String>>(emptySet())
     val disabledCategories: StateFlow<Set<String>> = _disabledCategories.asStateFlow()
 
+    private val _customCategories = MutableStateFlow<Map<String, List<String>>>(emptyMap())
+    val customCategories: StateFlow<Map<String, List<String>>> = _customCategories.asStateFlow()
+
     /**
      * Active shortcuts for display on the editor accessory bar:
-     * strictly those enabled, belonging to non-disabled categories, in their customized user order.
+     * Actions enabled and not disabled, OR Snippets/Templates with showInQuickActions enabled.
      */
     val activeBarShortcuts: StateFlow<List<ShortcutAction>> = combine(_shortcuts, _disabledCategories) { list, disabledCats ->
-        list.filter { it.isEnabled && it.category !in disabledCats }
+        list.filter { item ->
+            val isEligible = if (item.itemType == "action") {
+                item.isEnabled && item.category !in disabledCats
+            } else {
+                item.isEnabled && item.showInQuickActions && item.category !in disabledCats
+            }
+            isEligible
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** All snippets */
+    val snippets: StateFlow<List<ShortcutAction>> = _shortcuts.combine(_disabledCategories) { list, _ ->
+        list.filter { it.itemType == "snippet" }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** All templates */
+    val templates: StateFlow<List<ShortcutAction>> = _shortcuts.combine(_disabledCategories) { list, _ ->
+        list.filter { it.itemType == "template" }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
@@ -163,7 +183,7 @@ class ShortcutsViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             dataStore.setDisabledCategoriesJson(AppJson.encodeToString(emptySet<String>()))
         }
-        save(DefaultShortcuts.all)
+        save(DefaultShortcuts.all + DefaultShortcuts.defaultSnippets + DefaultShortcuts.defaultTemplates)
     }
 
     private fun save(list: List<ShortcutAction>) {

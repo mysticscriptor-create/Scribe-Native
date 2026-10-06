@@ -20,12 +20,20 @@ data class ShortcutAction(
     val payload: String,
     /** Non-null for wrap/pair */
     val closing: String? = null,
-    /** Category: "dialogue" | "brackets" | "punctuation" | "scene_breaks" | "structure" | "formatting" | "arrows" | "math" | "currency" | "custom" */
+    /** Category: "dialogue" | "brackets" | "punctuation" | "scene_breaks" | "structure" | "formatting" | "arrows" | "math" | "currency" | "custom" or user custom categories */
     val category: String = "custom",
     /** Whether enabled for display in the shortcut bar */
     val isEnabled: Boolean = true,
     /** Optional discovery keywords / aliases for real-time search */
-    val keywords: List<String> = emptyList()
+    val keywords: List<String> = emptyList(),
+    /** "action" | "snippet" | "template" */
+    val itemType: String = "action",
+    /** Whether snippets or templates are also shown in the Quick Actions bar */
+    val showInQuickActions: Boolean = false,
+    /** Whether to display custom icon glyph instead of badge [Snip]/[Tmpl] */
+    val useCustomIcon: Boolean = false,
+    /** Short preview or description label for long snippets/templates */
+    val templateDescription: String = ""
 )
 
 // ── Pinned item ───────────────────────────────────────────────────────────────

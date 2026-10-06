@@ -213,15 +213,16 @@ class ScribeDataStore(private val context: Context) {
                 )
             }
 
-            // Migration step 2: Merge any newly available default shortcuts
+            // Migration step 2: Merge any newly available default shortcuts, snippets, and templates
+            val allDefaults = DefaultShortcuts.all + DefaultShortcuts.defaultSnippets + DefaultShortcuts.defaultTemplates
             val existingIds = migratedList.map { it.id }.toSet()
-            val missingDefaults = DefaultShortcuts.all.filter { it.id !in existingIds }
+            val missingDefaults = allDefaults.filter { it.id !in existingIds }
             if (missingDefaults.isNotEmpty()) {
                 migratedList + missingDefaults
             } else {
                 migratedList
             }
-        } catch (_: Exception) { DefaultShortcuts.all }
+        } catch (_: Exception) { DefaultShortcuts.all + DefaultShortcuts.defaultSnippets + DefaultShortcuts.defaultTemplates }
     }
 
     suspend fun getDisabledCategories(): Set<String> {
