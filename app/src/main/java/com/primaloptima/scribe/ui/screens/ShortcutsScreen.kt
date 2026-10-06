@@ -215,6 +215,7 @@ fun ShortcutsScreen(
     val activeBarShortcuts by vm.activeBarShortcuts.collectAsStateWithLifecycle()
     val disabledCategories by vm.disabledCategories.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
     val coroutineScope = rememberCoroutineScope()
     val scope = coroutineScope
