@@ -62,6 +62,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -5500,9 +5501,7 @@ private fun SnippetListItemCard(
                 .padding(start = 50.dp, top = 6.dp)
         ) {
             Text(
-                text = shortcut.payload.replace("
-", "↵ ").replace("
-", "↵ ").trim(),
+                text = shortcut.payload.replace("\r\n", "↵ ").replace("\n", "↵ ").replace("\r", "↵ ").trim(),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 fontSize = 11.5.sp,
