@@ -63,6 +63,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
@@ -282,7 +284,6 @@ fun MainEditorScreen(
 
     var activeAccessoryDrawer by remember { mutableStateOf<AccessoryDrawerMode?>(null) }
     var drawerSearchQuery by remember { mutableStateOf("") }
-    var selectedDrawerCategory by remember { mutableStateOf("all") }
 
     val floatingWindows    by editorVm.floatingWindows.collectAsStateWithLifecycle()
     val workbenchState     by editorVm.workbenchState.collectAsStateWithLifecycle()
@@ -1697,7 +1698,6 @@ fun MainEditorScreen(
                                                             keyboardController?.hide()
                                                             try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
                                                             activeAccessoryDrawer = AccessoryDrawerMode.SNIPPETS
-                                                            selectedDrawerCategory = "all"
                                                             drawerSearchQuery = ""
                                                         }
                                                     }
@@ -1743,7 +1743,6 @@ fun MainEditorScreen(
                                                             keyboardController?.hide()
                                                             try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
                                                             activeAccessoryDrawer = AccessoryDrawerMode.TEMPLATES
-                                                            selectedDrawerCategory = "all"
                                                             drawerSearchQuery = ""
                                                         }
                                                     }
@@ -1818,30 +1817,22 @@ fun MainEditorScreen(
                                         AccessoryDrawer(
                                             mode = currentMode,
                                             currentHeightDp = currentDrawerHeightDp,
-                                            maxHeightDp = maxDrawerHeightDp,
-                                            onHeightChange = { currentDrawerHeightDp = it },
-                                            onSwitchMode = { newMode ->
-                                                activeAccessoryDrawer = newMode
-                                                selectedDrawerCategory = "all"
-                                                drawerSearchQuery = ""
-                                            },
                                             onClose = {
                                                 activeAccessoryDrawer = null
+                                                drawerSearchQuery = ""
                                                 soraEditorRef?.requestFocus()
                                                 keyboardController?.show()
                                                 try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
                                             },
                                             onOpenShortcuts = {
                                                 activeAccessoryDrawer = null
+                                                drawerSearchQuery = ""
                                                 onOpenShortcuts()
                                             },
                                             searchQuery = drawerSearchQuery,
                                             onSearchQueryChange = { drawerSearchQuery = it },
-                                            selectedCategory = selectedDrawerCategory,
-                                            onCategorySelect = { selectedDrawerCategory = it },
                                             snippets = snippets,
                                             templates = templates,
-                                            customCategories = customCategories,
                                             onTogglePin = { id -> shortcutsVm.toggleShortcutPin(id) },
                                             onInsert = { shortcut ->
                                                 when (shortcut.kind) {
@@ -3389,18 +3380,12 @@ enum class AccessoryDrawerMode {
 private fun AccessoryDrawer(
     mode: AccessoryDrawerMode,
     currentHeightDp: androidx.compose.ui.unit.Dp,
-    maxHeightDp: androidx.compose.ui.unit.Dp,
-    onHeightChange: (androidx.compose.ui.unit.Dp) -> Unit,
-    onSwitchMode: (AccessoryDrawerMode) -> Unit,
     onClose: () -> Unit,
     onOpenShortcuts: () -> Unit,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
-    selectedCategory: String,
-    onCategorySelect: (String) -> Unit,
     snippets: List<ShortcutAction>,
     templates: List<ShortcutAction>,
-    customCategories: Map<String, List<String>>,
     onTogglePin: (String) -> Unit,
     onInsert: (ShortcutAction) -> Unit
 ) {
@@ -3408,35 +3393,62 @@ private fun AccessoryDrawer(
     val currentItems = if (isSnippet) snippets else templates
     val cleanQuery = searchQuery.trim().lowercase()
 
-    val snippetCategories = remember(customCategories) {
-        listOf(
-            "all" to "All",
-            com.primaloptima.scribe.util.DefaultShortcuts.CAT_CORRESPONDENCE to "Correspondence",
-            com.primaloptima.scribe.util.DefaultShortcuts.CAT_NARRATIVE to "Narrative",
-            com.primaloptima.scribe.util.DefaultShortcuts.CAT_NOTES to "Notes"
-        ) + (customCategories["snippet"] ?: emptyList()).map { it to it }
-    }
-
-    val templateCategories = remember(customCategories) {
-        listOf(
-            "all" to "All",
-            com.primaloptima.scribe.util.DefaultShortcuts.CAT_TMPL_STRUCTURE to "Structure",
-            com.primaloptima.scribe.util.DefaultShortcuts.CAT_TMPL_CHARACTERS to "Characters",
-            com.primaloptima.scribe.util.DefaultShortcuts.CAT_TMPL_WORLDBUILDING to "Worldbuilding",
-            com.primaloptima.scribe.util.DefaultShortcuts.CAT_TMPL_DIALOGUE to "Dialogue"
-        ) + (customCategories["template"] ?: emptyList()).map { it to it }
-    }
-
-    val filteredItems = remember(currentItems, cleanQuery, selectedCategory) {
-        currentItems.filter { item ->
-            val matchesCat = selectedCategory == "all" || item.category == selectedCategory
-            if (!matchesCat) return@filter false
-            if (cleanQuery.isBlank()) return@filter true
-            item.resolvedLabel().lowercase().contains(cleanQuery) ||
-                item.templateDescription.lowercase().contains(cleanQuery) ||
-                item.payload.lowercase().contains(cleanQuery)
+    val filteredItems = remember(currentItems, cleanQuery) {
+        if (cleanQuery.isBlank()) {
+            currentItems
+        } else {
+            currentItems.filter { item ->
+                item.resolvedLabel().lowercase().contains(cleanQuery) ||
+                    item.templateDescription.lowercase().contains(cleanQuery) ||
+                    item.category.lowercase().contains(cleanQuery) ||
+                    item.payload.lowercase().contains(cleanQuery)
+            }
         }
     }
+
+    var isSearchActive by remember { mutableStateOf(searchQuery.isNotBlank()) }
+    val searchFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(isSearchActive) {
+        if (isSearchActive) {
+            try { searchFocusRequester.requestFocus() } catch (_: Exception) {}
+        }
+    }
+
+    val listState = rememberLazyListState()
+    var isScrollingDown by remember { mutableStateOf(false) }
+
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < -6f) {
+                    isScrollingDown = true
+                } else if (available.y > 6f) {
+                    isScrollingDown = false
+                }
+                return Offset.Zero
+            }
+        }
+    }
+
+    val isAtTop by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 15
+        }
+    }
+
+    val showChip = isSearchActive || !isScrollingDown || isAtTop
+
+    val chipAlpha by animateFloatAsState(
+        targetValue = if (showChip) 1f else 0f,
+        animationSpec = tween(durationMillis = 200),
+        label = "chipAlpha"
+    )
+    val chipScale by animateFloatAsState(
+        targetValue = if (showChip) 1f else 0.75f,
+        animationSpec = tween(durationMillis = 200),
+        label = "chipScale"
+    )
 
     Surface(
         modifier = Modifier
@@ -3452,215 +3464,28 @@ private fun AccessoryDrawer(
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
         )
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Drag handle at top for vertical resize
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 6.dp, bottom = 4.dp)
-                    .pointerInput(maxHeightDp) {
-                        detectVerticalDragGestures { change, dragAmount ->
-                            change.consume()
-                            val deltaDp = -dragAmount.toDp()
-                            val newHeight = (currentHeightDp + deltaDp).coerceIn(220.dp, maxHeightDp)
-                            onHeightChange(newHeight)
-                        }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(36.dp)
-                        .height(4.dp)
-                        .background(
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
-                            shape = CircleShape
-                        )
-                )
-            }
-
-            // Header: Switcher pills + action buttons
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Segmented Pill (Snippets vs Templates)
-                Row(
-                    modifier = Modifier
-                        .background(
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            shape = RoundedCornerShape(10.dp)
-                        )
-                        .padding(2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    val isSnipSelected = mode == AccessoryDrawerMode.SNIPPETS
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (isSnipSelected) ScribeTheme.colors.interaction.primary.copy(alpha = 0.16f) else Color.Transparent,
-                        contentColor = if (isSnipSelected) ScribeTheme.colors.interaction.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.clickable { onSwitchMode(AccessoryDrawerMode.SNIPPETS) }
-                    ) {
-                        Text(
-                            text = "Snippets (${snippets.size})",
-                            fontSize = 12.sp,
-                            fontWeight = if (isSnipSelected) FontWeight.Bold else FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                    }
-
-                    val isTmplSelected = mode == AccessoryDrawerMode.TEMPLATES
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = if (isTmplSelected) ScribeTheme.colors.interaction.primary.copy(alpha = 0.16f) else Color.Transparent,
-                        contentColor = if (isTmplSelected) ScribeTheme.colors.interaction.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.clickable { onSwitchMode(AccessoryDrawerMode.TEMPLATES) }
-                    ) {
-                        Text(
-                            text = "Templates (${templates.size})",
-                            fontSize = 12.sp,
-                            fontWeight = if (isTmplSelected) FontWeight.Bold else FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-
-                // Right actions: Open Studio & Close / Restore Keyboard
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    IconButton(
-                        onClick = onOpenShortcuts,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            Icons.Filled.Tune,
-                            contentDescription = "Open Shortcuts Studio",
-                            modifier = Modifier.size(17.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-
-                    IconButton(
-                        onClick = onClose,
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            Icons.Filled.Keyboard,
-                            contentDescription = "Restore Keyboard",
-                            modifier = Modifier.size(18.dp),
-                            tint = ScribeTheme.colors.interaction.primary
-                        )
-                    }
-                }
-            }
-
-            // Search input field
-            BasicTextField(
-                value = searchQuery,
-                onValueChange = onSearchQueryChange,
-                singleLine = true,
-                textStyle = TextStyle(
-                    color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = 13.sp
-                ),
-                cursorBrush = SolidColor(ScribeTheme.colors.interaction.primary),
-                decorationBox = { innerTextField ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 4.dp)
-                            .background(
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            Icons.Filled.Search,
-                            contentDescription = null,
-                            modifier = Modifier.size(15.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                        )
-                        Box(modifier = Modifier.weight(1f)) {
-                            if (searchQuery.isEmpty()) {
-                                Text(
-                                    text = if (isSnippet) "Search snippets..." else "Search templates...",
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                )
-                            }
-                            innerTextField()
-                        }
-                        if (searchQuery.isNotEmpty()) {
-                            Icon(
-                                Icons.Filled.Clear,
-                                contentDescription = "Clear search",
-                                modifier = Modifier
-                                    .size(16.dp)
-                                    .clickable { onSearchQueryChange("") },
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            )
-
-            // Category filter chips row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val categories = if (isSnippet) snippetCategories else templateCategories
-                categories.forEach { (catId, catLabel) ->
-                    val isSelected = selectedCategory == catId
-                    Surface(
-                        shape = CircleShape,
-                        color = if (isSelected) ScribeTheme.colors.interaction.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                        contentColor = if (isSelected) ScribeTheme.colors.interaction.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        border = androidx.compose.foundation.BorderStroke(
-                            0.5.dp,
-                            if (isSelected) ScribeTheme.colors.interaction.primary.copy(alpha = 0.4f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-                        ),
-                        modifier = Modifier.clickable { onCategorySelect(catId) }
-                    ) {
-                        Text(
-                            text = catLabel,
-                            fontSize = 11.sp,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp)
-                        )
-                    }
-                }
-            }
-
-            // Cards list
+        Box(modifier = Modifier.fillMaxSize()) {
+            // Cards list / Empty state that scrolls behind
             if (filteredItems.isEmpty()) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
+                        .fillMaxSize()
+                        .padding(top = 48.dp, bottom = 12.dp, start = 16.dp, end = 16.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.padding(16.dp)
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = if (searchQuery.isNotBlank()) "No items matching \"$searchQuery\"" else "No items in this category",
+                            text = if (cleanQuery.isNotBlank()) {
+                                "No items matching \"$searchQuery\""
+                            } else {
+                                if (isSnippet) "No snippets available" else "No templates available"
+                            },
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
                         )
                         TextButton(onClick = onOpenShortcuts) {
                             Text("Create in Shortcuts Studio")
@@ -3669,10 +3494,16 @@ private fun AccessoryDrawer(
                 }
             } else {
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        .fillMaxSize()
+                        .nestedScroll(nestedScrollConnection),
+                    contentPadding = PaddingValues(
+                        start = 12.dp,
+                        end = 12.dp,
+                        top = 50.dp,
+                        bottom = 12.dp
+                    ),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     items(filteredItems, key = { it.id }) { item ->
@@ -3682,6 +3513,168 @@ private fun AccessoryDrawer(
                             onInsert = { onInsert(item) },
                             onTogglePin = { onTogglePin(item.id) }
                         )
+                    }
+                }
+            }
+
+            // Top-right floating chip / morphing search bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp, start = 10.dp, end = 10.dp),
+                contentAlignment = Alignment.TopEnd
+            ) {
+                Surface(
+                    shape = if (isSearchActive) RoundedCornerShape(12.dp) else CircleShape,
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                    shadowElevation = 4.dp,
+                    tonalElevation = 4.dp,
+                    border = androidx.compose.foundation.BorderStroke(
+                        0.6.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                    ),
+                    modifier = Modifier
+                        .graphicsLayer {
+                            alpha = chipAlpha
+                            scaleX = chipScale
+                            scaleY = chipScale
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
+                        }
+                        .animateContentSize(animationSpec = tween(durationMillis = 220))
+                        .then(
+                            if (isSearchActive) Modifier.fillMaxWidth().height(38.dp)
+                            else Modifier.wrapContentWidth().height(34.dp)
+                        )
+                ) {
+                    if (isSearchActive) {
+                        // Expanded Search Bar
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.Search,
+                                contentDescription = "Search",
+                                modifier = Modifier.size(16.dp),
+                                tint = ScribeTheme.colors.interaction.primary
+                            )
+                            Box(modifier = Modifier.weight(1f)) {
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        text = if (isSnippet) "Search snippets..." else "Search templates...",
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                }
+                                BasicTextField(
+                                    value = searchQuery,
+                                    onValueChange = onSearchQueryChange,
+                                    singleLine = true,
+                                    textStyle = TextStyle(
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        fontSize = 13.sp
+                                    ),
+                                    cursorBrush = SolidColor(ScribeTheme.colors.interaction.primary),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .focusRequester(searchFocusRequester)
+                                )
+                            }
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(
+                                    onClick = { onSearchQueryChange("") },
+                                    modifier = Modifier.size(26.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Clear,
+                                        contentDescription = "Clear search",
+                                        modifier = Modifier.size(15.dp),
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            IconButton(
+                                onClick = {
+                                    onSearchQueryChange("")
+                                    isSearchActive = false
+                                },
+                                modifier = Modifier.size(26.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = "Close search",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    } else {
+                        // Compact Top-Right Floating Capsule
+                        Row(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .padding(horizontal = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            // 1. Search Icon
+                            IconButton(
+                                onClick = { isSearchActive = true },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Search,
+                                    contentDescription = "Search",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            // Divider
+                            Box(
+                                modifier = Modifier
+                                    .height(14.dp)
+                                    .width(0.6.dp)
+                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                            )
+
+                            // 2. Settings / Shortcuts Studio Icon
+                            IconButton(
+                                onClick = onOpenShortcuts,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Tune,
+                                    contentDescription = "Shortcuts Studio",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            // Divider
+                            Box(
+                                modifier = Modifier
+                                    .height(14.dp)
+                                    .width(0.6.dp)
+                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                            )
+
+                            // 3. Keyboard Restore Icon
+                            IconButton(
+                                onClick = onClose,
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Keyboard,
+                                    contentDescription = "Restore Keyboard",
+                                    modifier = Modifier.size(17.dp),
+                                    tint = ScribeTheme.colors.interaction.primary
+                                )
+                            }
+                        }
                     }
                 }
             }
