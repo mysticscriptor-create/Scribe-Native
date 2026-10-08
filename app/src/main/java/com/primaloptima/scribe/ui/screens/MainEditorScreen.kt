@@ -1007,11 +1007,11 @@ fun MainEditorScreen(
 
     val compactHeightDp = lastKeyboardHeightDp.coerceIn(240.dp, (configuration.screenHeightDp.dp * 0.60f))
 
-    // Capture steady-state keyboard height without recording intermediate closing/collapsing frames
+    // Capture steady-state keyboard height ONLY if the height actually changed (Suggestion 2)
     LaunchedEffect(imeBottomDp, isKeyboardVisible, docBottomNavInset, isHidingKeyboardForDrawer) {
         if (isKeyboardVisible && !isHidingKeyboardForDrawer && imeBottomDp > 120.dp) {
             val aboveNav = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
-            if (aboveNav > lastKeyboardHeightDp && aboveNav >= 220.dp) {
+            if (aboveNav >= 220.dp && kotlin.math.abs(aboveNav.value - lastKeyboardHeightDp.value) >= 4f) {
                 lastKeyboardHeightDp = aboveNav
                 dataStore.setLastKeyboardHeight(aboveNav.value)
             }
@@ -1020,10 +1020,10 @@ fun MainEditorScreen(
 
     LaunchedEffect(isAwaitingKeyboardOpen, isKeyboardVisible, imeAboveNavDp, compactHeightDp) {
         if (isAwaitingKeyboardOpen) {
-            if (isKeyboardVisible && imeAboveNavDp >= (compactHeightDp - 20.dp)) {
+            if (isKeyboardVisible && imeAboveNavDp >= (compactHeightDp - 2.dp)) {
                 isAwaitingKeyboardOpen = false
             } else {
-                kotlinx.coroutines.delay(500)
+                kotlinx.coroutines.delay(600)
                 isAwaitingKeyboardOpen = false
             }
         }
@@ -1037,7 +1037,7 @@ fun MainEditorScreen(
 
     LaunchedEffect(isKeyboardVisible, imeAboveNavDp, isHidingKeyboardForDrawer, compactHeightDp) {
         if (activeAccessoryDrawer != null && !isWritingBarSearchActive && !isHidingKeyboardForDrawer) {
-            if (isKeyboardVisible && imeAboveNavDp >= (compactHeightDp - 20.dp)) {
+            if (isKeyboardVisible && imeAboveNavDp >= (compactHeightDp - 2.dp)) {
                 activeAccessoryDrawer = null
                 drawerState = AccessoryDrawerState.COMPACT
             }
@@ -1163,8 +1163,8 @@ fun MainEditorScreen(
                     val isBarVisible = (isKeyboardVisible || activeAccessoryDrawer != null || isAwaitingKeyboardOpen) && shortcuts.isNotEmpty()
                     val effectiveBottomSurfaceHeight = when {
                         activeAccessoryDrawer != null -> if (drawerState == AccessoryDrawerState.COMPACT) compactHeightDp else animatedDrawerHeight
-                        isAwaitingKeyboardOpen -> maxOf(compactHeightDp, imeAboveNavDp)
-                        isKeyboardVisible -> imeAboveNavDp
+                        isAwaitingKeyboardOpen -> compactHeightDp
+                        isKeyboardVisible -> compactHeightDp
                         else -> 0.dp
                     }
                     val docBottomPadding = if (!isBarVisible) {
@@ -1824,7 +1824,7 @@ fun MainEditorScreen(
                                                         } else {
                                                             // Opening drawer from keyboard / idle
                                                             isHidingKeyboardForDrawer = isKeyboardVisible || imeAboveNavDp > 40.dp
-                                                            if (imeAboveNavDp >= 220.dp) {
+                                                            if (imeAboveNavDp >= 220.dp && kotlin.math.abs(imeAboveNavDp.value - lastKeyboardHeightDp.value) >= 4f) {
                                                                 lastKeyboardHeightDp = imeAboveNavDp
                                                                 scope.launch { dataStore.setLastKeyboardHeight(imeAboveNavDp.value) }
                                                             }
@@ -1890,7 +1890,7 @@ fun MainEditorScreen(
                                                         } else {
                                                             // Opening drawer from keyboard / idle
                                                             isHidingKeyboardForDrawer = isKeyboardVisible || imeAboveNavDp > 40.dp
-                                                            if (imeAboveNavDp >= 220.dp) {
+                                                            if (imeAboveNavDp >= 220.dp && kotlin.math.abs(imeAboveNavDp.value - lastKeyboardHeightDp.value) >= 4f) {
                                                                 lastKeyboardHeightDp = imeAboveNavDp
                                                                 scope.launch { dataStore.setLastKeyboardHeight(imeAboveNavDp.value) }
                                                             }
@@ -2146,15 +2146,24 @@ fun MainEditorScreen(
                                     }
                                 }
 
-                                // ── Stable Bottom Input Region (Keyboard Spacer or Accessory Drawer) ──
+                                // ── Stable Bottom Input Region (Accessory Drawer persistently behind Keyboard - Suggestion 1) ──
+                                val bottomSurfaceHeight = if (drawerState == AccessoryDrawerState.COMPACT) compactHeightDp else animatedDrawerHeight
+                                var lastActiveDrawerMode by remember { mutableStateOf(AccessoryDrawerMode.SNIPPETS) }
                                 if (activeAccessoryDrawer != null) {
+                                    lastActiveDrawerMode = activeAccessoryDrawer!!
+                                }
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(bottomSurfaceHeight)
+                                ) {
                                     AccessoryDrawer(
-                                        mode = activeAccessoryDrawer!!,
-                                        currentHeightDp = if (drawerState == AccessoryDrawerState.COMPACT) compactHeightDp else animatedDrawerHeight,
+                                        mode = activeAccessoryDrawer ?: lastActiveDrawerMode,
+                                        currentHeightDp = bottomSurfaceHeight,
                                         drawerState = drawerState,
                                         onDrawerStateChange = { drawerState = it },
                                         onOpenShortcuts = {
-                                            shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
+                                            shortcutsVm.targetStudioTab = if ((activeAccessoryDrawer ?: lastActiveDrawerMode) == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
                                             activeAccessoryDrawer = null
                                             isHidingKeyboardForDrawer = false
                                             drawerSearchQuery = ""
@@ -2182,13 +2191,6 @@ fun MainEditorScreen(
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             Toast.makeText(context, "Inserted: " + shortcut.resolvedLabel(), Toast.LENGTH_SHORT).show()
                                         }
-                                    )
-                                } else {
-                                    val placeholderHeight = if (isAwaitingKeyboardOpen) maxOf(compactHeightDp, imeAboveNavDp) else imeAboveNavDp
-                                    Spacer(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(placeholderHeight)
                                     )
                                 }
                             }
