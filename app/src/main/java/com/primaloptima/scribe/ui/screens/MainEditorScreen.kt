@@ -1007,23 +1007,37 @@ fun MainEditorScreen(
 
     val compactHeightDp = lastKeyboardHeightDp.coerceIn(240.dp, (configuration.screenHeightDp.dp * 0.60f))
 
-    // Capture steady-state keyboard height ONLY if the height actually changed (Suggestion 2)
+    // Capture steady-state keyboard height once settled, saving to DataStore only on change (Suggestion 2)
     LaunchedEffect(imeBottomDp, isKeyboardVisible, docBottomNavInset, isHidingKeyboardForDrawer) {
         if (isKeyboardVisible && !isHidingKeyboardForDrawer && imeBottomDp > 120.dp) {
             val aboveNav = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
-            if (aboveNav >= 220.dp && kotlin.math.abs(aboveNav.value - lastKeyboardHeightDp.value) >= 4f) {
-                lastKeyboardHeightDp = aboveNav
-                dataStore.setLastKeyboardHeight(aboveNav.value)
+            if (aboveNav >= 200.dp) {
+                // Debounce to ensure IME animation has completed and settled
+                kotlinx.coroutines.delay(120)
+                if (kotlin.math.abs(aboveNav.value - lastKeyboardHeightDp.value) >= 0.5f) {
+                    lastKeyboardHeightDp = aboveNav
+                }
+                if (kotlin.math.abs(aboveNav.value - savedKeyboardHeightFloat) >= 1f) {
+                    dataStore.setLastKeyboardHeight(aboveNav.value)
+                }
             }
         }
     }
 
-    LaunchedEffect(isAwaitingKeyboardOpen, isKeyboardVisible, imeAboveNavDp, compactHeightDp) {
+    // Await keyboard restore from accessory drawer without any premature jump
+    LaunchedEffect(isAwaitingKeyboardOpen, isKeyboardVisible, imeAboveNavDp) {
         if (isAwaitingKeyboardOpen) {
-            if (isKeyboardVisible && imeAboveNavDp >= (compactHeightDp - 2.dp)) {
+            if (isKeyboardVisible && imeAboveNavDp > 150.dp) {
+                // Wait for the soft keyboard slide-up animation to finish settling
+                kotlinx.coroutines.delay(100)
+                // Synchronize in-memory height with the exact final IME height
+                lastKeyboardHeightDp = imeAboveNavDp
+                if (kotlin.math.abs(imeAboveNavDp.value - savedKeyboardHeightFloat) >= 1f) {
+                    dataStore.setLastKeyboardHeight(imeAboveNavDp.value)
+                }
                 isAwaitingKeyboardOpen = false
             } else {
-                kotlinx.coroutines.delay(600)
+                kotlinx.coroutines.delay(650)
                 isAwaitingKeyboardOpen = false
             }
         }
@@ -1035,9 +1049,11 @@ fun MainEditorScreen(
         }
     }
 
-    LaunchedEffect(isKeyboardVisible, imeAboveNavDp, isHidingKeyboardForDrawer, compactHeightDp) {
+    LaunchedEffect(isKeyboardVisible, imeAboveNavDp, isHidingKeyboardForDrawer) {
         if (activeAccessoryDrawer != null && !isWritingBarSearchActive && !isHidingKeyboardForDrawer) {
-            if (isKeyboardVisible && imeAboveNavDp >= (compactHeightDp - 2.dp)) {
+            if (isKeyboardVisible && imeAboveNavDp >= 200.dp) {
+                kotlinx.coroutines.delay(100)
+                lastKeyboardHeightDp = imeAboveNavDp
                 activeAccessoryDrawer = null
                 drawerState = AccessoryDrawerState.COMPACT
             }
@@ -1160,11 +1176,11 @@ fun MainEditorScreen(
                         animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
                         label = "drawerHeight"
                     )
-                    val isBarVisible = (isKeyboardVisible || activeAccessoryDrawer != null || isAwaitingKeyboardOpen) && shortcuts.isNotEmpty()
+                    val isBarVisible = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen) && shortcuts.isNotEmpty()
                     val effectiveBottomSurfaceHeight = when {
                         activeAccessoryDrawer != null -> if (drawerState == AccessoryDrawerState.COMPACT) compactHeightDp else animatedDrawerHeight
                         isAwaitingKeyboardOpen -> compactHeightDp
-                        isKeyboardVisible -> compactHeightDp
+                        isKeyboardVisible || imeAboveNavDp > 10.dp -> compactHeightDp
                         else -> 0.dp
                     }
                     val docBottomPadding = if (!isBarVisible) {
@@ -1823,10 +1839,13 @@ fun MainEditorScreen(
                                                             previewItem = null
                                                         } else {
                                                             // Opening drawer from keyboard / idle
+                                                            isAwaitingKeyboardOpen = false
                                                             isHidingKeyboardForDrawer = isKeyboardVisible || imeAboveNavDp > 40.dp
-                                                            if (imeAboveNavDp >= 220.dp && kotlin.math.abs(imeAboveNavDp.value - lastKeyboardHeightDp.value) >= 4f) {
+                                                            if (imeAboveNavDp >= 200.dp) {
                                                                 lastKeyboardHeightDp = imeAboveNavDp
-                                                                scope.launch { dataStore.setLastKeyboardHeight(imeAboveNavDp.value) }
+                                                                if (kotlin.math.abs(imeAboveNavDp.value - savedKeyboardHeightFloat) >= 1f) {
+                                                                    scope.launch { dataStore.setLastKeyboardHeight(imeAboveNavDp.value) }
+                                                                }
                                                             }
                                                             keyboardController?.hide()
                                                             try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
@@ -1889,10 +1908,13 @@ fun MainEditorScreen(
                                                             previewItem = null
                                                         } else {
                                                             // Opening drawer from keyboard / idle
+                                                            isAwaitingKeyboardOpen = false
                                                             isHidingKeyboardForDrawer = isKeyboardVisible || imeAboveNavDp > 40.dp
-                                                            if (imeAboveNavDp >= 220.dp && kotlin.math.abs(imeAboveNavDp.value - lastKeyboardHeightDp.value) >= 4f) {
+                                                            if (imeAboveNavDp >= 200.dp) {
                                                                 lastKeyboardHeightDp = imeAboveNavDp
-                                                                scope.launch { dataStore.setLastKeyboardHeight(imeAboveNavDp.value) }
+                                                                if (kotlin.math.abs(imeAboveNavDp.value - savedKeyboardHeightFloat) >= 1f) {
+                                                                    scope.launch { dataStore.setLastKeyboardHeight(imeAboveNavDp.value) }
+                                                                }
                                                             }
                                                             keyboardController?.hide()
                                                             try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
@@ -2146,51 +2168,62 @@ fun MainEditorScreen(
                                     }
                                 }
 
-                                // ── Stable Bottom Input Region (Accessory Drawer persistently behind Keyboard - Suggestion 1) ──
-                                val bottomSurfaceHeight = if (drawerState == AccessoryDrawerState.COMPACT) compactHeightDp else animatedDrawerHeight
-                                var lastActiveDrawerMode by remember { mutableStateOf(AccessoryDrawerMode.SNIPPETS) }
-                                if (activeAccessoryDrawer != null) {
-                                    lastActiveDrawerMode = activeAccessoryDrawer!!
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(bottomSurfaceHeight)
-                                ) {
-                                    AccessoryDrawer(
-                                        mode = activeAccessoryDrawer ?: lastActiveDrawerMode,
-                                        currentHeightDp = bottomSurfaceHeight,
-                                        drawerState = drawerState,
-                                        onDrawerStateChange = { drawerState = it },
-                                        onOpenShortcuts = {
-                                            shortcutsVm.targetStudioTab = if ((activeAccessoryDrawer ?: lastActiveDrawerMode) == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
-                                            activeAccessoryDrawer = null
-                                            isHidingKeyboardForDrawer = false
-                                            drawerSearchQuery = ""
-                                            isWritingBarSearchActive = false
-                                            previewItem = null
-                                            onOpenShortcuts()
-                                        },
-                                        searchQuery = drawerSearchQuery,
-                                        previewItem = previewItem,
-                                        onPreviewItemChange = { previewItem = it },
-                                        snippets = snippets,
-                                        templates = templates,
-                                        shortcutsVm = shortcutsVm,
-                                        onTogglePin = { id -> shortcutsVm.toggleShortcutPin(id) },
-                                        onInsert = { shortcut ->
-                                            when (shortcut.kind) {
-                                                "wrap", "pair" -> {
-                                                    val open = shortcut.payload
-                                                    val close = shortcut.closing?.ifBlank { null } ?: shortcut.payload
-                                                    soraEditorRef?.applyFormat(open, close)
+                                // ── Stable Bottom Input Region ──
+                                val isDrawerActive = activeAccessoryDrawer != null || isAwaitingKeyboardOpen
+                                if (isDrawerActive) {
+                                    val bottomSurfaceHeight = if (drawerState == AccessoryDrawerState.COMPACT) compactHeightDp else animatedDrawerHeight
+                                    var lastActiveDrawerMode by remember { mutableStateOf(AccessoryDrawerMode.SNIPPETS) }
+                                    if (activeAccessoryDrawer != null) {
+                                        lastActiveDrawerMode = activeAccessoryDrawer!!
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(bottomSurfaceHeight)
+                                    ) {
+                                        AccessoryDrawer(
+                                            mode = activeAccessoryDrawer ?: lastActiveDrawerMode,
+                                            currentHeightDp = bottomSurfaceHeight,
+                                            drawerState = drawerState,
+                                            onDrawerStateChange = { drawerState = it },
+                                            onOpenShortcuts = {
+                                                shortcutsVm.targetStudioTab = if ((activeAccessoryDrawer ?: lastActiveDrawerMode) == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
+                                                activeAccessoryDrawer = null
+                                                isAwaitingKeyboardOpen = false
+                                                isHidingKeyboardForDrawer = false
+                                                drawerSearchQuery = ""
+                                                isWritingBarSearchActive = false
+                                                previewItem = null
+                                                onOpenShortcuts()
+                                            },
+                                            searchQuery = drawerSearchQuery,
+                                            previewItem = previewItem,
+                                            onPreviewItemChange = { previewItem = it },
+                                            snippets = snippets,
+                                            templates = templates,
+                                            shortcutsVm = shortcutsVm,
+                                            onTogglePin = { id -> shortcutsVm.toggleShortcutPin(id) },
+                                            onInsert = { shortcut ->
+                                                when (shortcut.kind) {
+                                                    "wrap", "pair" -> {
+                                                        val open = shortcut.payload
+                                                        val close = shortcut.closing?.ifBlank { null } ?: shortcut.payload
+                                                        soraEditorRef?.applyFormat(open, close)
+                                                    }
+                                                    "prefix" -> soraEditorRef?.applySmartPrefix(shortcut.payload, shortcuts)
+                                                    else     -> soraEditorRef?.insertAtCursor(shortcut.payload)
                                                 }
-                                                "prefix" -> soraEditorRef?.applySmartPrefix(shortcut.payload, shortcuts)
-                                                else     -> soraEditorRef?.insertAtCursor(shortcut.payload)
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                Toast.makeText(context, "Inserted: " + shortcut.resolvedLabel(), Toast.LENGTH_SHORT).show()
                                             }
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            Toast.makeText(context, "Inserted: " + shortcut.resolvedLabel(), Toast.LENGTH_SHORT).show()
-                                        }
+                                        )
+                                    }
+                                } else {
+                                    // Normal keyboard mode: Spacer smoothly tracks the soft keyboard insets frame-by-frame
+                                    Spacer(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(imeAboveNavDp)
                                     )
                                 }
                             }
