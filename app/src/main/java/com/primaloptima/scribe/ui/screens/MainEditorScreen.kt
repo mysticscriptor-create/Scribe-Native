@@ -596,6 +596,7 @@ fun MainEditorScreen(
     }
     BackHandler(enabled = previewItem == null && !isWritingBarSearchActive && drawerState == AccessoryDrawerState.COMPACT && activeAccessoryDrawer != null) {
         activeAccessoryDrawer = null
+        drawerState = AccessoryDrawerState.COMPACT
         isAwaitingKeyboardOpen = true
         drawerSearchQuery = ""
         isWritingBarSearchActive = false
@@ -987,25 +988,36 @@ fun MainEditorScreen(
     val isKeyboardVisible = WindowInsets.isImeVisible
     val hazeState = LocalHazeState.current ?: dev.chrisbanes.haze.HazeState()
     val density = LocalDensity.current
-
     val imeBottomDp = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    val docBottomNavInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val imeAboveNavDp = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
     val configuration = LocalConfiguration.current
+    var lastKeyboardHeightDp by remember { mutableStateOf(270.dp) }
+    val compactHeightDp = lastKeyboardHeightDp.coerceIn(240.dp, 330.dp)
 
-    var lastKeyboardHeightDp by remember { mutableStateOf(280.dp) }
-    LaunchedEffect(imeBottomDp, isKeyboardVisible) {
+    LaunchedEffect(imeBottomDp, isKeyboardVisible, docBottomNavInset) {
         if (isKeyboardVisible && imeBottomDp > 120.dp) {
-            lastKeyboardHeightDp = imeBottomDp
+            val aboveNav = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
+            if (aboveNav > 160.dp) {
+                lastKeyboardHeightDp = aboveNav
+            }
         }
     }
 
-    LaunchedEffect(isAwaitingKeyboardOpen, isKeyboardVisible, imeBottomDp) {
+    LaunchedEffect(isAwaitingKeyboardOpen, isKeyboardVisible, imeAboveNavDp, compactHeightDp) {
         if (isAwaitingKeyboardOpen) {
-            if (isKeyboardVisible && imeBottomDp > 120.dp) {
+            if (isKeyboardVisible && imeAboveNavDp >= (compactHeightDp - 20.dp)) {
                 isAwaitingKeyboardOpen = false
             } else {
-                kotlinx.coroutines.delay(400)
+                kotlinx.coroutines.delay(500)
                 isAwaitingKeyboardOpen = false
             }
+        }
+    }
+
+    LaunchedEffect(isKeyboardVisible, imeAboveNavDp) {
+        if (activeAccessoryDrawer != null && !isWritingBarSearchActive && isKeyboardVisible && imeAboveNavDp >= (compactHeightDp - 20.dp)) {
+            activeAccessoryDrawer = null
         }
     }
 
@@ -1107,33 +1119,30 @@ fun MainEditorScreen(
 
                     // ── Unified Continuous Document Canvas ─────────────────────────
                     val docTopInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-                    val docBottomNavInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                     val shortcutBarHeight = 44.dp
-
-                    val compactHeightDp = lastKeyboardHeightDp.coerceIn(240.dp, 330.dp)
                     val expandedHeightDp = (configuration.screenHeightDp.dp * 0.48f).coerceIn(360.dp, 440.dp)
                     val fullHeightDp = (configuration.screenHeightDp.dp * 0.70f).coerceIn(480.dp, 600.dp)
-
                     val targetDrawerHeight = when (drawerState) {
                         AccessoryDrawerState.COMPACT -> compactHeightDp
                         AccessoryDrawerState.EXPANDED -> expandedHeightDp
                         AccessoryDrawerState.FULL -> fullHeightDp
                     }
+                    val isKeyboardActive = isKeyboardVisible || isAwaitingKeyboardOpen || imeAboveNavDp > 40.dp
                     val animatedDrawerHeight by animateDpAsState(
-                        targetValue = if (activeAccessoryDrawer != null) targetDrawerHeight else (if (isAwaitingKeyboardOpen) compactHeightDp else 0.dp),
+                        targetValue = when {
+                            activeAccessoryDrawer != null -> targetDrawerHeight
+                            isKeyboardActive -> compactHeightDp
+                            else -> 0.dp
+                        },
                         animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
                         label = "drawerHeight"
                     )
-
-                    val imeAboveNavDp = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
-
                     val effectiveBottomSurfaceHeight = when {
                         activeAccessoryDrawer != null -> animatedDrawerHeight
-                        isAwaitingKeyboardOpen -> compactHeightDp
+                        isAwaitingKeyboardOpen -> maxOf(compactHeightDp, imeAboveNavDp)
                         isKeyboardVisible -> imeAboveNavDp
-                        else -> 0.dp
+                        else -> animatedDrawerHeight
                     }
-
                     val docBottomPadding = shortcutBarHeight + docBottomNavInset + effectiveBottomSurfaceHeight
 
                     var lastAppliedPadding by remember { mutableFloatStateOf(-1f) }
@@ -1770,18 +1779,23 @@ fun MainEditorScreen(
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                         if (isSnippetsOpen) {
                                                             activeAccessoryDrawer = null
+                                                            drawerState = AccessoryDrawerState.COMPACT
                                                             isAwaitingKeyboardOpen = true
                                                             isWritingBarSearchActive = false
                                                             drawerSearchQuery = ""
+                                                            previewItem = null
                                                             soraEditorRef?.requestFocus()
                                                             keyboardController?.show()
                                                             try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
                                                         } else {
                                                             keyboardController?.hide()
                                                             try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
+                                                            (soraEditorRef as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.showCursorSilently()
                                                             activeAccessoryDrawer = AccessoryDrawerMode.SNIPPETS
+                                                            drawerState = AccessoryDrawerState.COMPACT
                                                             isWritingBarSearchActive = false
                                                             drawerSearchQuery = ""
+                                                            previewItem = null
                                                         }
                                                     }
                                             ) {
@@ -1819,18 +1833,23 @@ fun MainEditorScreen(
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                         if (isTemplatesOpen) {
                                                             activeAccessoryDrawer = null
+                                                            drawerState = AccessoryDrawerState.COMPACT
                                                             isAwaitingKeyboardOpen = true
                                                             isWritingBarSearchActive = false
                                                             drawerSearchQuery = ""
+                                                            previewItem = null
                                                             soraEditorRef?.requestFocus()
                                                             keyboardController?.show()
                                                             try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
                                                         } else {
                                                             keyboardController?.hide()
                                                             try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
+                                                            (soraEditorRef as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.showCursorSilently()
                                                             activeAccessoryDrawer = AccessoryDrawerMode.TEMPLATES
+                                                            drawerState = AccessoryDrawerState.COMPACT
                                                             isWritingBarSearchActive = false
                                                             drawerSearchQuery = ""
+                                                            previewItem = null
                                                         }
                                                     }
                                             ) {
@@ -2008,6 +2027,7 @@ fun MainEditorScreen(
                                                             .height(ScribeTheme.metrics.chipHeight)
                                                             .clickable {
                                                                 activeAccessoryDrawer = null
+                                                                drawerState = AccessoryDrawerState.COMPACT
                                                                 isAwaitingKeyboardOpen = true
                                                                 drawerSearchQuery = ""
                                                                 isWritingBarSearchActive = false
@@ -2110,7 +2130,7 @@ fun MainEditorScreen(
                                         }
                                     )
                                 } else {
-                                    val placeholderHeight = if (isAwaitingKeyboardOpen) compactHeightDp else imeAboveNavDp
+                                    val placeholderHeight = if (isAwaitingKeyboardOpen) maxOf(compactHeightDp, imeAboveNavDp) else imeAboveNavDp
                                     Spacer(
                                         modifier = Modifier
                                             .fillMaxWidth()

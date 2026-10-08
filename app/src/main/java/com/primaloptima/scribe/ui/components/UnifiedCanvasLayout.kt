@@ -493,7 +493,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         topEdgeEffect?.setSize(w, h)
-        if (oldh > 0 && h != oldh) {
+        if (oldh > 0 && kotlin.math.abs(h - oldh) > 2) {
             val dh = oldh - h
             if (dh > 0) {
                 // Viewport shrinking (keyboard appearing)
