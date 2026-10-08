@@ -292,17 +292,6 @@ fun MainEditorScreen(
     var previewItem by remember { mutableStateOf<ShortcutAction?>(null) }
     var isAwaitingKeyboardOpen by remember { mutableStateOf(false) }
 
-    LaunchedEffect(isAwaitingKeyboardOpen, isKeyboardVisible, imeBottomDp) {
-        if (isAwaitingKeyboardOpen) {
-            if (isKeyboardVisible && imeBottomDp > 120.dp) {
-                isAwaitingKeyboardOpen = false
-            } else {
-                kotlinx.coroutines.delay(400)
-                isAwaitingKeyboardOpen = false
-            }
-        }
-    }
-
     LaunchedEffect(isWritingBarSearchActive) {
         if (isWritingBarSearchActive) {
             try { writingBarSearchFocusRequester.requestFocus() } catch (_: Exception) {}
@@ -1006,6 +995,17 @@ fun MainEditorScreen(
     LaunchedEffect(imeBottomDp, isKeyboardVisible) {
         if (isKeyboardVisible && imeBottomDp > 120.dp) {
             lastKeyboardHeightDp = imeBottomDp
+        }
+    }
+
+    LaunchedEffect(isAwaitingKeyboardOpen, isKeyboardVisible, imeBottomDp) {
+        if (isAwaitingKeyboardOpen) {
+            if (isKeyboardVisible && imeBottomDp > 120.dp) {
+                isAwaitingKeyboardOpen = false
+            } else {
+                kotlinx.coroutines.delay(400)
+                isAwaitingKeyboardOpen = false
+            }
         }
     }
 
