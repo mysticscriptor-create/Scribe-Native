@@ -282,7 +282,13 @@ fun ShortcutsScreen(
     val snippets by vm.snippets.collectAsStateWithLifecycle()
     val templates by vm.templates.collectAsStateWithLifecycle()
 
-    var activeStudioTab by remember { mutableStateOf(StudioTab.QUICK_ACTIONS) }
+    var activeStudioTab by remember { mutableStateOf(vm.targetStudioTab ?: StudioTab.QUICK_ACTIONS) }
+    LaunchedEffect(vm.targetStudioTab) {
+        vm.targetStudioTab?.let { tab ->
+            activeStudioTab = tab
+            vm.targetStudioTab = null
+        }
+    }
     var isQuickActionsCategoriesExpanded by rememberSaveable { mutableStateOf(false) }
     var showFabMenu by remember { mutableStateOf(false) }
     var showCreateCategoryDialog by remember { mutableStateOf(false) }

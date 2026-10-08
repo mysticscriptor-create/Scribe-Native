@@ -29,6 +29,10 @@ class ShortcutsViewModel(application: Application) : AndroidViewModel(applicatio
     private val _customCategories = MutableStateFlow<Map<String, List<String>>>(emptyMap())
     val customCategories: StateFlow<Map<String, List<String>>> = _customCategories.asStateFlow()
 
+    var lastSnippetCategory: String = "all"
+    var lastTemplateCategory: String = "all"
+    var targetStudioTab: com.primaloptima.scribe.ui.screens.StudioTab? = null
+
     /**
      * Active shortcuts for display on the editor accessory bar:
      * Actions enabled and not disabled, OR Snippets/Templates with showInQuickActions enabled.

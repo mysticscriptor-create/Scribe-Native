@@ -64,6 +64,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -283,7 +285,9 @@ fun MainEditorScreen(
     val customCategories by shortcutsVm.customCategories.collectAsStateWithLifecycle()
 
     var activeAccessoryDrawer by remember { mutableStateOf<AccessoryDrawerMode?>(null) }
+    var drawerState by remember { mutableStateOf(AccessoryDrawerState.COMPACT) }
     var drawerSearchQuery by remember { mutableStateOf("") }
+    var isWritingBarSearchActive by remember { mutableStateOf(false) }
 
     val floatingWindows    by editorVm.floatingWindows.collectAsStateWithLifecycle()
     val workbenchState     by editorVm.workbenchState.collectAsStateWithLifecycle()
@@ -571,8 +575,20 @@ fun MainEditorScreen(
         }
     }
 
-    BackHandler(enabled = activeAccessoryDrawer != null) {
+    BackHandler(enabled = isWritingBarSearchActive) {
+        isWritingBarSearchActive = false
+        drawerSearchQuery = ""
+    }
+    BackHandler(enabled = !isWritingBarSearchActive && drawerState != AccessoryDrawerState.COMPACT) {
+        drawerState = AccessoryDrawerState.COMPACT
+    }
+    BackHandler(enabled = !isWritingBarSearchActive && drawerState == AccessoryDrawerState.COMPACT && activeAccessoryDrawer != null) {
         activeAccessoryDrawer = null
+        drawerSearchQuery = ""
+        isWritingBarSearchActive = false
+        soraEditorRef?.requestFocus()
+        keyboardController?.show()
+        try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
     }
 
     BackHandler {
@@ -960,19 +976,11 @@ fun MainEditorScreen(
 
     val imeBottomDp = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
     val configuration = LocalConfiguration.current
-    val maxDrawerHeightDp = (configuration.screenHeightDp.dp * 0.5f).coerceAtLeast(300.dp)
-    var lastKeyboardHeightDp by remember { mutableStateOf(290.dp) }
 
+    var lastKeyboardHeightDp by remember { mutableStateOf(280.dp) }
     LaunchedEffect(imeBottomDp, isKeyboardVisible) {
         if (isKeyboardVisible && imeBottomDp > 120.dp) {
             lastKeyboardHeightDp = imeBottomDp
-        }
-    }
-
-    var currentDrawerHeightDp by remember { mutableStateOf(lastKeyboardHeightDp) }
-    LaunchedEffect(lastKeyboardHeightDp, activeAccessoryDrawer) {
-        if (activeAccessoryDrawer != null) {
-            currentDrawerHeightDp = lastKeyboardHeightDp.coerceIn(220.dp, maxDrawerHeightDp)
         }
     }
 
@@ -1076,13 +1084,30 @@ fun MainEditorScreen(
                     val docTopInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
                     val docBottomNavInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
                     val shortcutBarHeight = 44.dp
-                    val docBottomPadding = if (isKeyboardVisible) {
-                        shortcutBarHeight
-                    } else if (activeAccessoryDrawer != null) {
-                        shortcutBarHeight + currentDrawerHeightDp
-                    } else {
-                        docBottomNavInset
+
+                    val compactHeightDp = lastKeyboardHeightDp.coerceIn(240.dp, 330.dp)
+                    val expandedHeightDp = (configuration.screenHeightDp.dp * 0.48f).coerceIn(360.dp, 440.dp)
+                    val fullHeightDp = (configuration.screenHeightDp.dp * 0.70f).coerceIn(480.dp, 600.dp)
+
+                    val targetDrawerHeight = when (drawerState) {
+                        AccessoryDrawerState.COMPACT -> compactHeightDp
+                        AccessoryDrawerState.EXPANDED -> expandedHeightDp
+                        AccessoryDrawerState.FULL -> fullHeightDp
                     }
+
+                    val animatedDrawerHeight by animateDpAsState(
+                        targetValue = if (activeAccessoryDrawer != null) targetDrawerHeight else 0.dp,
+                        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
+                        label = "drawerHeight"
+                    )
+
+                    val effectiveBottomSurfaceHeight = maxOf(
+                        imeBottomDp,
+                        animatedDrawerHeight,
+                        docBottomNavInset
+                    )
+
+                    val docBottomPadding = shortcutBarHeight + effectiveBottomSurfaceHeight
 
                     var lastAppliedPadding by remember { mutableFloatStateOf(-1f) }
                     var lastAppliedTextSize by remember { mutableFloatStateOf(-1f) }
@@ -1544,7 +1569,6 @@ fun MainEditorScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(top = docTopInset, bottom = docBottomPadding)
-                            .imePadding()
                             .clipToBounds()
                     )
 
@@ -1691,6 +1715,8 @@ fun MainEditorScreen(
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                         if (isSnippetsOpen) {
                                                             activeAccessoryDrawer = null
+                                                            isWritingBarSearchActive = false
+                                                            drawerSearchQuery = ""
                                                             soraEditorRef?.requestFocus()
                                                             keyboardController?.show()
                                                             try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
@@ -1698,6 +1724,7 @@ fun MainEditorScreen(
                                                             keyboardController?.hide()
                                                             try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
                                                             activeAccessoryDrawer = AccessoryDrawerMode.SNIPPETS
+                                                            isWritingBarSearchActive = false
                                                             drawerSearchQuery = ""
                                                         }
                                                     }
@@ -1736,6 +1763,8 @@ fun MainEditorScreen(
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                         if (isTemplatesOpen) {
                                                             activeAccessoryDrawer = null
+                                                            isWritingBarSearchActive = false
+                                                            drawerSearchQuery = ""
                                                             soraEditorRef?.requestFocus()
                                                             keyboardController?.show()
                                                             try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
@@ -1743,6 +1772,7 @@ fun MainEditorScreen(
                                                             keyboardController?.hide()
                                                             try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
                                                             activeAccessoryDrawer = AccessoryDrawerMode.TEMPLATES
+                                                            isWritingBarSearchActive = false
                                                             drawerSearchQuery = ""
                                                         }
                                                     }
@@ -1816,21 +1846,26 @@ fun MainEditorScreen(
                                     activeAccessoryDrawer?.let { currentMode ->
                                         AccessoryDrawer(
                                             mode = currentMode,
-                                            currentHeightDp = currentDrawerHeightDp,
+                                            currentHeightDp = targetDrawerHeight,
                                             onClose = {
                                                 activeAccessoryDrawer = null
                                                 drawerSearchQuery = ""
+                                                isWritingBarSearchActive = false
                                                 soraEditorRef?.requestFocus()
                                                 keyboardController?.show()
                                                 try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
                                             },
                                             onOpenShortcuts = {
+                                                shortcutsVm.targetStudioTab = if (currentMode == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
                                                 activeAccessoryDrawer = null
                                                 drawerSearchQuery = ""
+                                                isWritingBarSearchActive = false
                                                 onOpenShortcuts()
                                             },
                                             searchQuery = drawerSearchQuery,
                                             onSearchQueryChange = { drawerSearchQuery = it },
+                                            isSearchActive = isWritingBarSearchActive,
+                                            onSearchActiveChange = { isWritingBarSearchActive = it },
                                             snippets = snippets,
                                             templates = templates,
                                             onTogglePin = { id -> shortcutsVm.toggleShortcutPin(id) },
@@ -3371,6 +3406,12 @@ private fun ShortcutBarChip(
     }
 }
 
+enum class AccessoryDrawerState {
+    COMPACT,
+    EXPANDED,
+    FULL
+}
+
 enum class AccessoryDrawerMode {
     SNIPPETS,
     TEMPLATES
@@ -3384,6 +3425,8 @@ private fun AccessoryDrawer(
     onOpenShortcuts: () -> Unit,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
+    isSearchActive: Boolean,
+    onSearchActiveChange: (Boolean) -> Unit,
     snippets: List<ShortcutAction>,
     templates: List<ShortcutAction>,
     onTogglePin: (String) -> Unit,
@@ -3406,7 +3449,6 @@ private fun AccessoryDrawer(
         }
     }
 
-    var isSearchActive by remember { mutableStateOf(searchQuery.isNotBlank()) }
     val searchFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(isSearchActive) {
@@ -3599,7 +3641,7 @@ private fun AccessoryDrawer(
                             IconButton(
                                 onClick = {
                                     onSearchQueryChange("")
-                                    isSearchActive = false
+                                    onSearchActiveChange(false)
                                 },
                                 modifier = Modifier.size(26.dp)
                             ) {
@@ -3622,7 +3664,7 @@ private fun AccessoryDrawer(
                         ) {
                             // 1. Search Icon
                             IconButton(
-                                onClick = { isSearchActive = true },
+                                onClick = { onSearchActiveChange(true) },
                                 modifier = Modifier.size(28.dp)
                             ) {
                                 Icon(
