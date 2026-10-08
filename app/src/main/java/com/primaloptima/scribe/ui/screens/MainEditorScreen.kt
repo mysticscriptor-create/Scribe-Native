@@ -288,7 +288,14 @@ fun MainEditorScreen(
     var drawerState by remember { mutableStateOf(AccessoryDrawerState.COMPACT) }
     var drawerSearchQuery by remember { mutableStateOf("") }
     var isWritingBarSearchActive by remember { mutableStateOf(false) }
+    val writingBarSearchFocusRequester = remember { FocusRequester() }
     var previewItem by remember { mutableStateOf<ShortcutAction?>(null) }
+
+    LaunchedEffect(isWritingBarSearchActive) {
+        if (isWritingBarSearchActive) {
+            try { writingBarSearchFocusRequester.requestFocus() } catch (_: Exception) {}
+        }
+    }
 
     val floatingWindows    by editorVm.floatingWindows.collectAsStateWithLifecycle()
     val workbenchState     by editorVm.workbenchState.collectAsStateWithLifecycle()
@@ -1799,6 +1806,184 @@ fun MainEditorScreen(
                                                 }
                                             }
 
+                                            // ── Phase 6 & 7: Writing Bar Transformation for Drawer Controls ──
+                                            if (activeAccessoryDrawer != null) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .height(18.dp)
+                                                        .width(1.dp)
+                                                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                                                )
+
+                                                if (isWritingBarSearchActive) {
+                                                    Surface(
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                                                        border = androidx.compose.foundation.BorderStroke(
+                                                            0.5.dp,
+                                                            ScribeTheme.colors.interaction.primary.copy(alpha = 0.5f)
+                                                        ),
+                                                        modifier = Modifier
+                                                            .height(ScribeTheme.metrics.chipHeight)
+                                                            .widthIn(min = 160.dp, max = 220.dp)
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxSize()
+                                                                .padding(horizontal = 6.dp),
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                        ) {
+                                                            Icon(
+                                                                Icons.Filled.Search,
+                                                                contentDescription = "Search",
+                                                                modifier = Modifier.size(13.dp),
+                                                                tint = ScribeTheme.colors.interaction.primary
+                                                            )
+                                                            Box(modifier = Modifier.weight(1f)) {
+                                                                if (drawerSearchQuery.isEmpty()) {
+                                                                    Text(
+                                                                        text = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) "Search snips..." else "Search tmpl...",
+                                                                        fontSize = 11.sp,
+                                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                                                    )
+                                                                }
+                                                                BasicTextField(
+                                                                    value = drawerSearchQuery,
+                                                                    onValueChange = { drawerSearchQuery = it },
+                                                                    singleLine = true,
+                                                                    textStyle = TextStyle(
+                                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                                        fontSize = 12.sp
+                                                                    ),
+                                                                    cursorBrush = SolidColor(ScribeTheme.colors.interaction.primary),
+                                                                    modifier = Modifier
+                                                                        .fillMaxWidth()
+                                                                        .focusRequester(writingBarSearchFocusRequester)
+                                                                )
+                                                            }
+                                                            if (drawerSearchQuery.isNotEmpty()) {
+                                                                IconButton(
+                                                                    onClick = { drawerSearchQuery = "" },
+                                                                    modifier = Modifier.size(20.dp)
+                                                                ) {
+                                                                    Icon(
+                                                                        Icons.Filled.Clear,
+                                                                        contentDescription = "Clear",
+                                                                        modifier = Modifier.size(12.dp),
+                                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                                    )
+                                                                }
+                                                            }
+                                                            IconButton(
+                                                                onClick = {
+                                                                    drawerSearchQuery = ""
+                                                                    isWritingBarSearchActive = false
+                                                                },
+                                                                modifier = Modifier.size(20.dp)
+                                                            ) {
+                                                                Icon(
+                                                                    Icons.Filled.Close,
+                                                                    contentDescription = "Close",
+                                                                    modifier = Modifier.size(13.dp),
+                                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                } else {
+                                                    // Search Pill (🔍)
+                                                    Surface(
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        border = androidx.compose.foundation.BorderStroke(
+                                                            0.5.dp,
+                                                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                                                        ),
+                                                        modifier = Modifier
+                                                            .height(ScribeTheme.metrics.chipHeight)
+                                                            .clickable { isWritingBarSearchActive = true }
+                                                    ) {
+                                                        Box(
+                                                            contentAlignment = Alignment.Center,
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = ScribeTheme.spacing.micro)
+                                                        ) {
+                                                            Icon(
+                                                                Icons.Filled.Search,
+                                                                contentDescription = "Search",
+                                                                modifier = Modifier.size(14.dp)
+                                                            )
+                                                        }
+                                                    }
+
+                                                    // Manage Pill (⚙ / Tune)
+                                                    Surface(
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        border = androidx.compose.foundation.BorderStroke(
+                                                            0.5.dp,
+                                                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                                                        ),
+                                                        modifier = Modifier
+                                                            .height(ScribeTheme.metrics.chipHeight)
+                                                            .clickable {
+                                                                shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
+                                                                activeAccessoryDrawer = null
+                                                                drawerSearchQuery = ""
+                                                                isWritingBarSearchActive = false
+                                                                previewItem = null
+                                                                onOpenShortcuts()
+                                                            }
+                                                    ) {
+                                                        Box(
+                                                            contentAlignment = Alignment.Center,
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = ScribeTheme.spacing.micro)
+                                                        ) {
+                                                            Icon(
+                                                                Icons.Filled.Tune,
+                                                                contentDescription = "Shortcuts Studio",
+                                                                modifier = Modifier.size(14.dp)
+                                                            )
+                                                        }
+                                                    }
+
+                                                    // Keyboard Pill (⌨)
+                                                    Surface(
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        color = ScribeTheme.colors.interaction.primary.copy(alpha = 0.14f),
+                                                        contentColor = ScribeTheme.colors.interaction.primary,
+                                                        border = androidx.compose.foundation.BorderStroke(
+                                                            0.5.dp,
+                                                            ScribeTheme.colors.interaction.primary.copy(alpha = 0.35f)
+                                                        ),
+                                                        modifier = Modifier
+                                                            .height(ScribeTheme.metrics.chipHeight)
+                                                            .clickable {
+                                                                activeAccessoryDrawer = null
+                                                                drawerSearchQuery = ""
+                                                                isWritingBarSearchActive = false
+                                                                previewItem = null
+                                                                soraEditorRef?.requestFocus()
+                                                                keyboardController?.show()
+                                                                try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+                                                            }
+                                                    ) {
+                                                        Box(
+                                                            contentAlignment = Alignment.Center,
+                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = ScribeTheme.spacing.micro)
+                                                        ) {
+                                                            Icon(
+                                                                Icons.Filled.Keyboard,
+                                                                contentDescription = "Restore Keyboard",
+                                                                modifier = Modifier.size(15.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+
                                             Box(
                                                 modifier = Modifier
                                                     .height(18.dp)
@@ -1847,16 +2032,6 @@ fun MainEditorScreen(
                                         mode = activeAccessoryDrawer!!,
                                         currentHeightDp = targetDrawerHeight,
                                         drawerState = drawerState,
-                                        onDrawerStateChange = { drawerState = it },
-                                        onClose = {
-                                            activeAccessoryDrawer = null
-                                            drawerSearchQuery = ""
-                                            isWritingBarSearchActive = false
-                                            previewItem = null
-                                            soraEditorRef?.requestFocus()
-                                            keyboardController?.show()
-                                            try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
-                                        },
                                         onOpenShortcuts = {
                                             shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
                                             activeAccessoryDrawer = null
@@ -1866,9 +2041,6 @@ fun MainEditorScreen(
                                             onOpenShortcuts()
                                         },
                                         searchQuery = drawerSearchQuery,
-                                        onSearchQueryChange = { drawerSearchQuery = it },
-                                        isSearchActive = isWritingBarSearchActive,
-                                        onSearchActiveChange = { isWritingBarSearchActive = it },
                                         previewItem = previewItem,
                                         onPreviewItemChange = { previewItem = it },
                                         snippets = snippets,
@@ -3433,13 +3605,8 @@ private fun AccessoryDrawer(
     mode: AccessoryDrawerMode,
     currentHeightDp: androidx.compose.ui.unit.Dp,
     drawerState: AccessoryDrawerState,
-    onDrawerStateChange: (AccessoryDrawerState) -> Unit,
-    onClose: () -> Unit,
     onOpenShortcuts: () -> Unit,
     searchQuery: String,
-    onSearchQueryChange: (String) -> Unit,
-    isSearchActive: Boolean,
-    onSearchActiveChange: (Boolean) -> Unit,
     previewItem: ShortcutAction?,
     onPreviewItemChange: (ShortcutAction?) -> Unit,
     snippets: List<ShortcutAction>,
@@ -3474,44 +3641,7 @@ private fun AccessoryDrawer(
         listOf("all") + currentItems.map { it.category }.filter { it.isNotBlank() }.distinct()
     }
 
-    val searchFocusRequester = remember { FocusRequester() }
-    LaunchedEffect(isSearchActive) {
-        if (isSearchActive) {
-            try { searchFocusRequester.requestFocus() } catch (_: Exception) {}
-        }
-    }
-
     val listState = rememberLazyListState()
-    var isScrollingDown by remember { mutableStateOf(false) }
-    val nestedScrollConnection = remember {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (available.y < -6f) {
-                    isScrollingDown = true
-                } else if (available.y > 6f) {
-                    isScrollingDown = false
-                }
-                return Offset.Zero
-            }
-        }
-    }
-    val isAtTop by remember {
-        derivedStateOf {
-            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 15
-        }
-    }
-
-    val showChip = isSearchActive || !isScrollingDown || isAtTop
-    val chipAlpha by animateFloatAsState(
-        targetValue = if (showChip) 1f else 0f,
-        animationSpec = tween(durationMillis = 200),
-        label = "chipAlpha"
-    )
-    val chipScale by animateFloatAsState(
-        targetValue = if (showChip) 1f else 0.75f,
-        animationSpec = tween(durationMillis = 200),
-        label = "chipScale"
-    )
 
     Surface(
         modifier = Modifier
@@ -3577,7 +3707,7 @@ private fun AccessoryDrawer(
                     }
                 }
 
-                // Cards list / Empty state that scrolls behind
+                // Cards list / Empty state
                 if (filteredItems.isEmpty()) {
                     Box(
                         modifier = Modifier
@@ -3610,12 +3740,11 @@ private fun AccessoryDrawer(
                         state = listState,
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxWidth()
-                            .nestedScroll(nestedScrollConnection),
+                            .fillMaxWidth(),
                         contentPadding = PaddingValues(
                             start = 12.dp,
                             end = 12.dp,
-                            top = if (drawerState == AccessoryDrawerState.COMPACT) 48.dp else 8.dp,
+                            top = 8.dp,
                             bottom = 12.dp
                         ),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -3628,190 +3757,6 @@ private fun AccessoryDrawer(
                                 onTogglePin = { onTogglePin(item.id) },
                                 onPreview = { onPreviewItemChange(item) }
                             )
-                        }
-                    }
-                }
-            }
-
-            // Top-right floating chip / morphing search bar
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp, start = 10.dp, end = 10.dp),
-                contentAlignment = Alignment.TopEnd
-            ) {
-                Surface(
-                    shape = if (isSearchActive) RoundedCornerShape(12.dp) else CircleShape,
-                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
-                    shadowElevation = 4.dp,
-                    tonalElevation = 4.dp,
-                    border = androidx.compose.foundation.BorderStroke(
-                        0.6.dp,
-                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-                    ),
-                    modifier = Modifier
-                        .graphicsLayer {
-                            alpha = chipAlpha
-                            scaleX = chipScale
-                            scaleY = chipScale
-                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(1f, 0f)
-                        }
-                        .animateContentSize(animationSpec = tween(durationMillis = 220))
-                        .then(
-                            if (isSearchActive) Modifier.fillMaxWidth().height(38.dp)
-                            else Modifier.wrapContentWidth().height(34.dp)
-                        )
-                ) {
-                    if (isSearchActive) {
-                        // Expanded Search Bar
-                        Row(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(horizontal = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                Icons.Filled.Search,
-                                contentDescription = "Search",
-                                modifier = Modifier.size(16.dp),
-                                tint = ScribeTheme.colors.interaction.primary
-                            )
-                            Box(modifier = Modifier.weight(1f)) {
-                                if (searchQuery.isEmpty()) {
-                                    Text(
-                                        text = if (isSnippet) "Search snippets..." else "Search templates...",
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                    )
-                                }
-                                BasicTextField(
-                                    value = searchQuery,
-                                    onValueChange = onSearchQueryChange,
-                                    singleLine = true,
-                                    textStyle = TextStyle(
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        fontSize = 13.sp
-                                    ),
-                                    cursorBrush = SolidColor(ScribeTheme.colors.interaction.primary),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .focusRequester(searchFocusRequester)
-                                )
-                            }
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(
-                                    onClick = { onSearchQueryChange("") },
-                                    modifier = Modifier.size(26.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Filled.Clear,
-                                        contentDescription = "Clear search",
-                                        modifier = Modifier.size(15.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                            IconButton(
-                                onClick = {
-                                    onSearchQueryChange("")
-                                    onSearchActiveChange(false)
-                                },
-                                modifier = Modifier.size(26.dp)
-                            ) {
-                                Icon(
-                                    Icons.Filled.Close,
-                                    contentDescription = "Close search",
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    } else {
-                        // Compact Top-Right Floating Capsule
-                        Row(
-                            modifier = Modifier
-                                .fillMaxHeight()
-                                .padding(horizontal = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            // 1. Search Icon
-                            IconButton(
-                                onClick = { onSearchActiveChange(true) },
-                                modifier = Modifier.size(28.dp)
-                            ) {
-                                Icon(
-                                    Icons.Filled.Search,
-                                    contentDescription = "Search",
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            // Divider
-                            Box(
-                                modifier = Modifier
-                                    .height(14.dp)
-                                    .width(0.6.dp)
-                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
-                            )
-                            // 2. Expand / Collapse State Toggle
-                            IconButton(
-                                onClick = {
-                                    val nextState = when (drawerState) {
-                                        AccessoryDrawerState.COMPACT -> AccessoryDrawerState.EXPANDED
-                                        AccessoryDrawerState.EXPANDED -> AccessoryDrawerState.FULL
-                                        AccessoryDrawerState.FULL -> AccessoryDrawerState.COMPACT
-                                    }
-                                    onDrawerStateChange(nextState)
-                                },
-                                modifier = Modifier.size(28.dp)
-                            ) {
-                                Icon(
-                                    if (drawerState == AccessoryDrawerState.FULL) Icons.Filled.UnfoldLess else Icons.Filled.UnfoldMore,
-                                    contentDescription = "Resize Drawer",
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            // Divider
-                            Box(
-                                modifier = Modifier
-                                    .height(14.dp)
-                                    .width(0.6.dp)
-                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
-                            )
-                            // 3. Settings / Shortcuts Studio Icon
-                            IconButton(
-                                onClick = onOpenShortcuts,
-                                modifier = Modifier.size(28.dp)
-                            ) {
-                                Icon(
-                                    Icons.Filled.Tune,
-                                    contentDescription = "Shortcuts Studio",
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            // Divider
-                            Box(
-                                modifier = Modifier
-                                    .height(14.dp)
-                                    .width(0.6.dp)
-                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
-                            )
-                            // 4. Keyboard Restore Icon
-                            IconButton(
-                                onClick = onClose,
-                                modifier = Modifier.size(28.dp)
-                            ) {
-                                Icon(
-                                    Icons.Filled.Keyboard,
-                                    contentDescription = "Restore Keyboard",
-                                    modifier = Modifier.size(17.dp),
-                                    tint = ScribeTheme.colors.interaction.primary
-                                )
-                            }
                         }
                     }
                 }
