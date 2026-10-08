@@ -291,6 +291,7 @@ fun MainEditorScreen(
     val writingBarSearchFocusRequester = remember { FocusRequester() }
     var previewItem by remember { mutableStateOf<ShortcutAction?>(null) }
     var isAwaitingKeyboardOpen by remember { mutableStateOf(false) }
+    var isHidingKeyboardForDrawer by remember { mutableStateOf(false) }
 
     LaunchedEffect(isWritingBarSearchActive) {
         if (isWritingBarSearchActive) {
@@ -598,6 +599,7 @@ fun MainEditorScreen(
         activeAccessoryDrawer = null
         drawerState = AccessoryDrawerState.COMPACT
         isAwaitingKeyboardOpen = true
+        isHidingKeyboardForDrawer = false
         drawerSearchQuery = ""
         isWritingBarSearchActive = false
         previewItem = null
@@ -993,7 +995,7 @@ fun MainEditorScreen(
     val imeAboveNavDp = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
     val configuration = LocalConfiguration.current
     var lastKeyboardHeightDp by remember { mutableStateOf(270.dp) }
-    val compactHeightDp = lastKeyboardHeightDp.coerceIn(240.dp, 330.dp)
+    val compactHeightDp = lastKeyboardHeightDp.coerceIn(180.dp, (configuration.screenHeightDp.dp * 0.60f))
 
     LaunchedEffect(imeBottomDp, isKeyboardVisible, docBottomNavInset) {
         if (isKeyboardVisible && imeBottomDp > 120.dp) {
@@ -1016,8 +1018,20 @@ fun MainEditorScreen(
     }
 
     LaunchedEffect(isKeyboardVisible, imeAboveNavDp) {
-        if (activeAccessoryDrawer != null && !isWritingBarSearchActive && isKeyboardVisible && imeAboveNavDp >= (compactHeightDp - 20.dp)) {
-            activeAccessoryDrawer = null
+        if (!isKeyboardVisible && imeAboveNavDp <= 10.dp) {
+            isHidingKeyboardForDrawer = false
+        }
+    }
+
+    LaunchedEffect(isKeyboardVisible, imeAboveNavDp, isHidingKeyboardForDrawer, compactHeightDp) {
+        if (activeAccessoryDrawer != null && !isWritingBarSearchActive && !isHidingKeyboardForDrawer) {
+            if (isKeyboardVisible && imeAboveNavDp > 40.dp && drawerState != AccessoryDrawerState.COMPACT) {
+                drawerState = AccessoryDrawerState.COMPACT
+            }
+            if (isKeyboardVisible && imeAboveNavDp >= (compactHeightDp - 20.dp)) {
+                activeAccessoryDrawer = null
+                drawerState = AccessoryDrawerState.COMPACT
+            }
         }
     }
 
@@ -1120,8 +1134,8 @@ fun MainEditorScreen(
                     // ── Unified Continuous Document Canvas ─────────────────────────
                     val docTopInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
                     val shortcutBarHeight = 44.dp
-                    val expandedHeightDp = (configuration.screenHeightDp.dp * 0.48f).coerceIn(360.dp, 440.dp)
-                    val fullHeightDp = (configuration.screenHeightDp.dp * 0.70f).coerceIn(480.dp, 600.dp)
+                    val expandedHeightDp = maxOf(compactHeightDp + 60.dp, (configuration.screenHeightDp.dp * 0.48f).coerceIn(360.dp, 480.dp))
+                    val fullHeightDp = (configuration.screenHeightDp.dp * 0.72f).coerceIn(480.dp, 650.dp)
                     val targetDrawerHeight = when (drawerState) {
                         AccessoryDrawerState.COMPACT -> compactHeightDp
                         AccessoryDrawerState.EXPANDED -> expandedHeightDp
@@ -1781,6 +1795,7 @@ fun MainEditorScreen(
                                                             activeAccessoryDrawer = null
                                                             drawerState = AccessoryDrawerState.COMPACT
                                                             isAwaitingKeyboardOpen = true
+                                                            isHidingKeyboardForDrawer = false
                                                             isWritingBarSearchActive = false
                                                             drawerSearchQuery = ""
                                                             previewItem = null
@@ -1788,6 +1803,10 @@ fun MainEditorScreen(
                                                             keyboardController?.show()
                                                             try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
                                                         } else {
+                                                            isHidingKeyboardForDrawer = isKeyboardVisible || imeAboveNavDp > 40.dp
+                                                            if (imeAboveNavDp > 160.dp) {
+                                                                lastKeyboardHeightDp = imeAboveNavDp
+                                                            }
                                                             keyboardController?.hide()
                                                             try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
                                                             (soraEditorRef as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.showCursorSilently()
@@ -1835,6 +1854,7 @@ fun MainEditorScreen(
                                                             activeAccessoryDrawer = null
                                                             drawerState = AccessoryDrawerState.COMPACT
                                                             isAwaitingKeyboardOpen = true
+                                                            isHidingKeyboardForDrawer = false
                                                             isWritingBarSearchActive = false
                                                             drawerSearchQuery = ""
                                                             previewItem = null
@@ -1842,6 +1862,10 @@ fun MainEditorScreen(
                                                             keyboardController?.show()
                                                             try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
                                                         } else {
+                                                            isHidingKeyboardForDrawer = isKeyboardVisible || imeAboveNavDp > 40.dp
+                                                            if (imeAboveNavDp > 160.dp) {
+                                                                lastKeyboardHeightDp = imeAboveNavDp
+                                                            }
                                                             keyboardController?.hide()
                                                             try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
                                                             (soraEditorRef as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.showCursorSilently()
@@ -1996,6 +2020,7 @@ fun MainEditorScreen(
                                                             .clickable {
                                                                 shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
                                                                 activeAccessoryDrawer = null
+                                                                isHidingKeyboardForDrawer = false
                                                                 drawerSearchQuery = ""
                                                                 isWritingBarSearchActive = false
                                                                 previewItem = null
@@ -2029,6 +2054,7 @@ fun MainEditorScreen(
                                                                 activeAccessoryDrawer = null
                                                                 drawerState = AccessoryDrawerState.COMPACT
                                                                 isAwaitingKeyboardOpen = true
+                                                                isHidingKeyboardForDrawer = false
                                                                 drawerSearchQuery = ""
                                                                 isWritingBarSearchActive = false
                                                                 previewItem = null
@@ -2103,6 +2129,7 @@ fun MainEditorScreen(
                                         onOpenShortcuts = {
                                             shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
                                             activeAccessoryDrawer = null
+                                            isHidingKeyboardForDrawer = false
                                             drawerSearchQuery = ""
                                             isWritingBarSearchActive = false
                                             previewItem = null
