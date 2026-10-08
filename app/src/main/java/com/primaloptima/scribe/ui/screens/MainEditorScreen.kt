@@ -290,6 +290,18 @@ fun MainEditorScreen(
     var isWritingBarSearchActive by remember { mutableStateOf(false) }
     val writingBarSearchFocusRequester = remember { FocusRequester() }
     var previewItem by remember { mutableStateOf<ShortcutAction?>(null) }
+    var isAwaitingKeyboardOpen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isAwaitingKeyboardOpen, isKeyboardVisible, imeBottomDp) {
+        if (isAwaitingKeyboardOpen) {
+            if (isKeyboardVisible && imeBottomDp > 120.dp) {
+                isAwaitingKeyboardOpen = false
+            } else {
+                kotlinx.coroutines.delay(400)
+                isAwaitingKeyboardOpen = false
+            }
+        }
+    }
 
     LaunchedEffect(isWritingBarSearchActive) {
         if (isWritingBarSearchActive) {
@@ -595,6 +607,7 @@ fun MainEditorScreen(
     }
     BackHandler(enabled = previewItem == null && !isWritingBarSearchActive && drawerState == AccessoryDrawerState.COMPACT && activeAccessoryDrawer != null) {
         activeAccessoryDrawer = null
+        isAwaitingKeyboardOpen = true
         drawerSearchQuery = ""
         isWritingBarSearchActive = false
         previewItem = null
@@ -1106,19 +1119,19 @@ fun MainEditorScreen(
                         AccessoryDrawerState.EXPANDED -> expandedHeightDp
                         AccessoryDrawerState.FULL -> fullHeightDp
                     }
-
                     val animatedDrawerHeight by animateDpAsState(
-                        targetValue = if (activeAccessoryDrawer != null) targetDrawerHeight else 0.dp,
+                        targetValue = if (activeAccessoryDrawer != null) targetDrawerHeight else (if (isAwaitingKeyboardOpen) compactHeightDp else 0.dp),
                         animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
                         label = "drawerHeight"
                     )
 
                     val imeAboveNavDp = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
 
-                    val effectiveBottomSurfaceHeight = if (activeAccessoryDrawer != null) {
-                        animatedDrawerHeight
-                    } else {
-                        imeAboveNavDp
+                    val effectiveBottomSurfaceHeight = when {
+                        activeAccessoryDrawer != null -> animatedDrawerHeight
+                        isAwaitingKeyboardOpen -> compactHeightDp
+                        isKeyboardVisible -> imeAboveNavDp
+                        else -> 0.dp
                     }
 
                     val docBottomPadding = shortcutBarHeight + docBottomNavInset + effectiveBottomSurfaceHeight
@@ -1599,7 +1612,7 @@ fun MainEditorScreen(
                     }
 
                     // ── Shortcut Bar & Accessory Drawer (Floating Keyboard Accessory) ────────────
-                    val isBarVisible = (isKeyboardVisible || activeAccessoryDrawer != null) && shortcuts.isNotEmpty()
+                    val isBarVisible = (isKeyboardVisible || activeAccessoryDrawer != null || isAwaitingKeyboardOpen) && shortcuts.isNotEmpty()
                     if (isBarVisible) {
                         CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
                             val registerBounds = LocalInteractiveBoundsRegistry.current
@@ -1615,6 +1628,37 @@ fun MainEditorScreen(
                                     .align(Alignment.BottomCenter)
                                     .navigationBarsPadding()
                             ) {
+                                // ── Phase 5: Expandable Floating Item Preview Overlay (Above Shortcut Bar, No Dark Scrim) ──
+                                AnimatedVisibility(
+                                    visible = previewItem != null,
+                                    enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(tween(180)),
+                                    exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(tween(140)),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    if (previewItem != null) {
+                                        AccessoryItemPreviewCard(
+                                            item = previewItem!!,
+                                            isSnippet = activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS,
+                                            onDismiss = { previewItem = null },
+                                            onInsert = {
+                                                val shortcut = previewItem!!
+                                                when (shortcut.kind) {
+                                                    "wrap", "pair" -> {
+                                                        val open = shortcut.payload
+                                                        val close = shortcut.closing?.ifBlank { null } ?: shortcut.payload
+                                                        soraEditorRef?.applyFormat(open, close)
+                                                    }
+                                                    "prefix" -> soraEditorRef?.applySmartPrefix(shortcut.payload, shortcuts)
+                                                    else     -> soraEditorRef?.insertAtCursor(shortcut.payload)
+                                                }
+                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                previewItem = null
+                                                Toast.makeText(context, "Inserted: " + shortcut.resolvedLabel(), Toast.LENGTH_SHORT).show()
+                                            },
+                                            onTogglePin = { shortcutsVm.toggleShortcutPin(previewItem!!.id) }
+                                        )
+                                    }
+                                }
                                 Surface(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1726,6 +1770,7 @@ fun MainEditorScreen(
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                         if (isSnippetsOpen) {
                                                             activeAccessoryDrawer = null
+                                                            isAwaitingKeyboardOpen = true
                                                             isWritingBarSearchActive = false
                                                             drawerSearchQuery = ""
                                                             soraEditorRef?.requestFocus()
@@ -1774,6 +1819,7 @@ fun MainEditorScreen(
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                         if (isTemplatesOpen) {
                                                             activeAccessoryDrawer = null
+                                                            isAwaitingKeyboardOpen = true
                                                             isWritingBarSearchActive = false
                                                             drawerSearchQuery = ""
                                                             soraEditorRef?.requestFocus()
@@ -1962,6 +2008,7 @@ fun MainEditorScreen(
                                                             .height(ScribeTheme.metrics.chipHeight)
                                                             .clickable {
                                                                 activeAccessoryDrawer = null
+                                                                isAwaitingKeyboardOpen = true
                                                                 drawerSearchQuery = ""
                                                                 isWritingBarSearchActive = false
                                                                 previewItem = null
@@ -2030,8 +2077,9 @@ fun MainEditorScreen(
                                 if (activeAccessoryDrawer != null) {
                                     AccessoryDrawer(
                                         mode = activeAccessoryDrawer!!,
-                                        currentHeightDp = targetDrawerHeight,
+                                        currentHeightDp = animatedDrawerHeight,
                                         drawerState = drawerState,
+                                        onDrawerStateChange = { drawerState = it },
                                         onOpenShortcuts = {
                                             shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
                                             activeAccessoryDrawer = null
@@ -2062,10 +2110,11 @@ fun MainEditorScreen(
                                         }
                                     )
                                 } else {
+                                    val placeholderHeight = if (isAwaitingKeyboardOpen) compactHeightDp else imeAboveNavDp
                                     Spacer(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(imeAboveNavDp)
+                                            .height(placeholderHeight)
                                     )
                                 }
                             }
@@ -3605,6 +3654,7 @@ private fun AccessoryDrawer(
     mode: AccessoryDrawerMode,
     currentHeightDp: androidx.compose.ui.unit.Dp,
     drawerState: AccessoryDrawerState,
+    onDrawerStateChange: (AccessoryDrawerState) -> Unit,
     onOpenShortcuts: () -> Unit,
     searchQuery: String,
     previewItem: ShortcutAction?,
@@ -3617,6 +3667,7 @@ private fun AccessoryDrawer(
 ) {
     val isSnippet = mode == AccessoryDrawerMode.SNIPPETS
     val currentItems = if (isSnippet) snippets else templates
+    val coroutineScope = rememberCoroutineScope()
 
     // Phase 3: Category browsing memory
     var selectedCategory by remember(mode) {
@@ -3657,248 +3708,172 @@ private fun AccessoryDrawer(
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
         )
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                // Phase 2: Category Filter Row in Expanded or Full state
-                AnimatedVisibility(
-                    visible = drawerState != AccessoryDrawerState.COMPACT,
-                    enter = expandVertically(animationSpec = tween(180)) + fadeIn(),
-                    exit = shrinkVertically(animationSpec = tween(140)) + fadeOut()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState())
-                            .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        availableCategories.forEach { cat ->
-                            val isSelected = selectedCategory.equals(cat, ignoreCase = true)
-                            val catLabel = if (cat == "all") "All" else cat.replaceFirstChar { it.uppercase() }
-                            Surface(
-                                shape = CircleShape,
-                                color = if (isSelected) ScribeTheme.colors.interaction.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                                contentColor = if (isSelected) ScribeTheme.colors.interaction.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                border = androidx.compose.foundation.BorderStroke(
-                                    0.5.dp,
-                                    if (isSelected) ScribeTheme.colors.interaction.primary.copy(alpha = 0.45f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-                                ),
-                                modifier = Modifier
-                                    .height(28.dp)
-                                    .clickable {
-                                        selectedCategory = cat
-                                        if (isSnippet) shortcutsVm.lastSnippetCategory = cat
-                                        else shortcutsVm.lastTemplateCategory = cat
-                                    }
-                            ) {
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier.padding(horizontal = 10.dp)
-                                ) {
-                                    Text(
-                                        text = catLabel,
-                                        fontSize = 11.sp,
-                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-                                    )
-                                }
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Phase 2: Drag Handle & State Toggle Bar (Header)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(26.dp)
+                    .pointerInput(drawerState) {
+                        detectVerticalDragGestures { _, dragAmount ->
+                            if (dragAmount < -12f) {
+                                if (drawerState == AccessoryDrawerState.COMPACT) onDrawerStateChange(AccessoryDrawerState.EXPANDED)
+                                else if (drawerState == AccessoryDrawerState.EXPANDED) onDrawerStateChange(AccessoryDrawerState.FULL)
+                            } else if (dragAmount > 12f) {
+                                if (drawerState == AccessoryDrawerState.FULL) onDrawerStateChange(AccessoryDrawerState.EXPANDED)
+                                else if (drawerState == AccessoryDrawerState.EXPANDED) onDrawerStateChange(AccessoryDrawerState.COMPACT)
                             }
                         }
-                    }
-                }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                // Drag handle pill in center
+                Box(
+                    modifier = Modifier
+                        .width(36.dp)
+                        .height(4.dp)
+                        .background(
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                            RoundedCornerShape(2.dp)
+                        )
+                        .clickable {
+                            val next = when (drawerState) {
+                                AccessoryDrawerState.COMPACT -> AccessoryDrawerState.EXPANDED
+                                AccessoryDrawerState.EXPANDED -> AccessoryDrawerState.FULL
+                                AccessoryDrawerState.FULL -> AccessoryDrawerState.COMPACT
+                            }
+                            onDrawerStateChange(next)
+                        }
+                )
 
-                // Cards list / Empty state
-                if (filteredItems.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = if (cleanQuery.isNotBlank()) {
-                                    "No items matching \"$searchQuery\""
-                                } else {
-                                    if (isSnippet) "No snippets available" else "No templates available"
-                                },
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center
-                            )
-                            TextButton(onClick = onOpenShortcuts) {
-                                Text("Create in Shortcuts Studio")
-                            }
+                // Expand / Collapse Chevron button on the right
+                IconButton(
+                    onClick = {
+                        val next = when (drawerState) {
+                            AccessoryDrawerState.COMPACT -> AccessoryDrawerState.EXPANDED
+                            AccessoryDrawerState.EXPANDED -> AccessoryDrawerState.FULL
+                            AccessoryDrawerState.FULL -> AccessoryDrawerState.COMPACT
                         }
+                        onDrawerStateChange(next)
+                    },
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 4.dp)
+                        .size(24.dp)
+                ) {
+                    val chevronIcon = if (drawerState == AccessoryDrawerState.FULL) {
+                        Icons.Filled.KeyboardArrowDown
+                    } else {
+                        Icons.Filled.KeyboardArrowUp
                     }
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        contentPadding = PaddingValues(
-                            start = 12.dp,
-                            end = 12.dp,
-                            top = 8.dp,
-                            bottom = 12.dp
-                        ),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        items(filteredItems, key = { it.id }) { item ->
-                            AccessoryItemCard(
-                                item = item,
-                                isSnippet = isSnippet,
-                                onInsert = { onInsert(item) },
-                                onTogglePin = { onTogglePin(item.id) },
-                                onPreview = { onPreviewItemChange(item) }
-                            )
+                    Icon(
+                        imageVector = chevronIcon,
+                        contentDescription = "Toggle Drawer State",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    )
+                }
+            }
+
+            // Phase 2: Category Filter Row in Expanded or Full state
+            AnimatedVisibility(
+                visible = drawerState != AccessoryDrawerState.COMPACT,
+                enter = expandVertically(animationSpec = tween(180)) + fadeIn(),
+                exit = shrinkVertically(animationSpec = tween(140)) + fadeOut()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    availableCategories.forEach { cat ->
+                        val isSelected = selectedCategory.equals(cat, ignoreCase = true)
+                        val catLabel = if (cat == "all") "All" else cat.replaceFirstChar { it.uppercase() }
+                        Surface(
+                            shape = CircleShape,
+                            color = if (isSelected) ScribeTheme.colors.interaction.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                            contentColor = if (isSelected) ScribeTheme.colors.interaction.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            border = androidx.compose.foundation.BorderStroke(
+                                0.5.dp,
+                                if (isSelected) ScribeTheme.colors.interaction.primary.copy(alpha = 0.45f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                            ),
+                            modifier = Modifier
+                                .height(28.dp)
+                                .clickable {
+                                    selectedCategory = cat
+                                    if (isSnippet) shortcutsVm.updateLastSnippetCategory(cat)
+                                    else shortcutsVm.updateLastTemplateCategory(cat)
+                                    coroutineScope.launch { listState.scrollToItem(0) }
+                                }
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.padding(horizontal = 10.dp)
+                            ) {
+                                Text(
+                                    text = catLabel,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                                )
+                            }
                         }
                     }
                 }
             }
 
-            // Phase 5: Expandable Floating Item Preview Modal Overlay
-            if (previewItem != null) {
+            // Cards list / Empty state
+            if (filteredItems.isEmpty()) {
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.42f))
-                        .clickable { onPreviewItemChange(null) }
-                        .padding(12.dp),
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 8.dp,
-                        shadowElevation = 8.dp,
-                        border = androidx.compose.foundation.BorderStroke(
-                            0.6.dp,
-                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(enabled = false) {}
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp)
-                        ) {
-                            // Header
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = previewItem.resolvedLabel(),
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = previewItem.category.replaceFirstChar { it.uppercase() } + " • " + (if (isSnippet) "Snippet" else "Template"),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { onPreviewItemChange(null) },
-                                    modifier = Modifier.size(28.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Filled.Close,
-                                        contentDescription = "Close Preview",
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
-
-                            if (previewItem.templateDescription.isNotBlank()) {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = previewItem.templateDescription,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            // Payload Preview Container
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(max = 140.dp)
-                                    .background(
-                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                                        shape = RoundedCornerShape(8.dp)
-                                    )
-                                    .border(
-                                        0.5.dp,
-                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .padding(8.dp)
-                            ) {
-                                Text(
-                                    text = previewItem.payload,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.verticalScroll(rememberScrollState())
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            // Footer Actions
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                OutlinedButton(
-                                    onClick = { onTogglePin(previewItem.id) },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Icon(
-                                        if (previewItem.showInQuickActions) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(15.dp),
-                                        tint = if (previewItem.showInQuickActions) ScribeTheme.colors.interaction.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(if (previewItem.showInQuickActions) "Pinned" else "Pin to Bar", fontSize = 12.sp)
-                                }
-
-                                Button(
-                                    onClick = {
-                                        onInsert(previewItem)
-                                        onPreviewItemChange(null)
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Filled.Add,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Insert at Cursor", fontSize = 12.sp)
-                                }
-                            }
+                        Text(
+                            text = if (cleanQuery.isNotBlank()) {
+                                "No items matching \"$searchQuery\""
+                            } else {
+                                if (isSnippet) "No snippets available" else "No templates available"
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                        TextButton(onClick = onOpenShortcuts) {
+                            Text("Create in Shortcuts Studio")
                         }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    contentPadding = PaddingValues(
+                        start = 10.dp,
+                        end = 10.dp,
+                        top = 4.dp,
+                        bottom = 12.dp
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(filteredItems, key = { it.id }) { item ->
+                        AccessoryItemCard(
+                            item = item,
+                            isSnippet = isSnippet,
+                            onInsert = { onInsert(item) },
+                            onTogglePin = { onTogglePin(item.id) },
+                            onPreview = { onPreviewItemChange(item) }
+                        )
                     }
                 }
             }
@@ -3906,7 +3881,7 @@ private fun AccessoryDrawer(
     }
 }
 
-// Phase 4: Ultra-compact, clean item row with 3 distinct interaction zones
+// Phase 4 & Phase 6: Ultra-compact, clean item row with 3 distinct interaction zones and generous touch targets
 @Composable
 private fun AccessoryItemCard(
     item: ShortcutAction,
@@ -3916,7 +3891,6 @@ private fun AccessoryItemCard(
     onPreview: () -> Unit
 ) {
     val accentColor = ScribeTheme.colors.interaction.primary
-    val typeThemeColor = if (isSnippet) Color(0xFF8B5CF6) else Color(0xFFF59E0B)
 
     Surface(
         shape = RoundedCornerShape(10.dp),
@@ -3925,48 +3899,21 @@ private fun AccessoryItemCard(
             0.5.dp,
             MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)
         ),
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onInsert)
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Zone 1: Subtle Badge
-            Box(
-                modifier = Modifier
-                    .size(28.dp)
-                    .background(
-                        color = typeThemeColor.copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(6.dp)
-                    )
-                    .border(
-                        0.5.dp,
-                        typeThemeColor.copy(alpha = 0.25f),
-                        RoundedCornerShape(6.dp)
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                val iconText = when {
-                    !item.useCustomIcon -> if (isSnippet) "S" else "T"
-                    item.icon.isNotBlank() -> item.icon
-                    else -> item.resolvedIcon().take(1)
-                }
-                Text(
-                    text = iconText,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = typeThemeColor,
-                    textAlign = TextAlign.Center
-                )
-            }
-
-            // Zone 1: Title & Category subtitle
+            // Zone 1: Body / Title & Subtitle (Tapping inserts immediately)
             Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(1.dp)
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(onClick = onInsert)
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
                     text = item.resolvedLabel(),
@@ -3988,39 +3935,175 @@ private fun AccessoryItemCard(
                 }
             }
 
-            // Zone 2: Pin Action (36dp touch target)
+            // Zone 2: Pin Action (44dp touch target to prevent mis-taps)
             IconButton(
                 onClick = onTogglePin,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(44.dp)
             ) {
                 if (item.showInQuickActions) {
                     Icon(
                         Icons.Filled.PushPin,
                         contentDescription = "Pinned to Bar",
-                        modifier = Modifier.size(16.dp),
+                        modifier = Modifier.size(17.dp),
                         tint = accentColor
                     )
                 } else {
                     Icon(
                         Icons.Outlined.PushPin,
                         contentDescription = "Pin to Bar",
-                        modifier = Modifier.size(16.dp),
+                        modifier = Modifier.size(17.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
                     )
                 }
             }
 
-            // Zone 3: Trailing Chevron Preview Action
+            // Zone 3: Trailing Chevron Preview Action (44dp touch target)
             IconButton(
                 onClick = onPreview,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(44.dp)
             ) {
                 Icon(
                     Icons.AutoMirrored.Filled.KeyboardArrowRight,
                     contentDescription = "Preview",
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(19.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
+            }
+        }
+    }
+}
+
+// Phase 5: Expandable Floating Item Preview Overlay (grows upward from shortcut bar, no dark scrim)
+@Composable
+private fun AccessoryItemPreviewCard(
+    item: ShortcutAction,
+    isSnippet: Boolean,
+    onDismiss: () -> Unit,
+    onInsert: () -> Unit,
+    onTogglePin: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 8.dp,
+        shadowElevation = 8.dp,
+        border = androidx.compose.foundation.BorderStroke(
+            0.6.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 6.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = item.resolvedLabel(),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = item.category.replaceFirstChar { it.uppercase() } + " • " + (if (isSnippet) "Snippet" else "Template"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "Close Preview",
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            if (item.templateDescription.isNotBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = item.templateDescription,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Payload Preview Container (natural height up to 220dp with internal scrolling)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 60.dp, max = 220.dp)
+                    .background(
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .border(
+                        0.5.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                        RoundedCornerShape(8.dp)
+                    )
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = item.payload,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Footer Actions
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(
+                    onClick = onTogglePin,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(
+                        if (item.showInQuickActions) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp),
+                        tint = if (item.showInQuickActions) ScribeTheme.colors.interaction.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(if (item.showInQuickActions) "Pinned" else "Pin to Bar", fontSize = 12.sp)
+                }
+
+                Button(
+                    onClick = onInsert,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Insert at Cursor", fontSize = 12.sp)
+                }
             }
         }
     }

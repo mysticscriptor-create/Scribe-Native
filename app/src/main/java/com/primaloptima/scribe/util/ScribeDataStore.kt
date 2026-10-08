@@ -74,6 +74,8 @@ class ScribeDataStore(private val context: Context) {
         val SHORTCUTS_JSON     = stringPreferencesKey("shortcuts_json")
         val DISABLED_CATEGORIES_JSON = stringPreferencesKey("disabled_categories_json")
         val CUSTOM_CATEGORIES_JSON = stringPreferencesKey("custom_categories_json")
+        val LAST_SNIPPET_CAT   = stringPreferencesKey("last_snippet_cat")
+        val LAST_TEMPLATE_CAT  = stringPreferencesKey("last_template_cat")
         val PINNED_JSON        = stringPreferencesKey("pinned_json")
 
         // Companion panel — pinned notes slots (persisted as JSON list of note IDs)
@@ -247,6 +249,20 @@ class ScribeDataStore(private val context: Context) {
 
     suspend fun setCustomCategoriesJson(json: String) {
         store.edit { it[CUSTOM_CATEGORIES_JSON] = json }
+    }
+
+    suspend fun getLastSnippetCategory(): String =
+        store.data.first()[LAST_SNIPPET_CAT] ?: "all"
+
+    suspend fun getLastTemplateCategory(): String =
+        store.data.first()[LAST_TEMPLATE_CAT] ?: "all"
+
+    suspend fun setLastSnippetCategory(cat: String) = store.edit {
+        it[LAST_SNIPPET_CAT] = cat
+    }
+
+    suspend fun setLastTemplateCategory(cat: String) = store.edit {
+        it[LAST_TEMPLATE_CAT] = cat
     }
 
     suspend fun getBookGoal(bookId: String): BookGoal {

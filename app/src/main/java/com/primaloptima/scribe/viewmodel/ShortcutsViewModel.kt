@@ -76,12 +76,28 @@ class ShortcutsViewModel(application: Application) : AndroidViewModel(applicatio
             _shortcuts.value = loadedShortcuts
             _disabledCategories.value = migratedDisabledCats
             _customCategories.value = loadedCustomCategories
+            lastSnippetCategory = dataStore.getLastSnippetCategory()
+            lastTemplateCategory = dataStore.getLastTemplateCategory()
 
             // Persist the migrated states quietly
             save(loadedShortcuts)
             if (migratedDisabledCats != rawDisabledCats) {
                 dataStore.setDisabledCategoriesJson(AppJson.encodeToString(migratedDisabledCats))
             }
+        }
+    }
+
+    fun updateLastSnippetCategory(category: String) {
+        lastSnippetCategory = category
+        viewModelScope.launch {
+            dataStore.setLastSnippetCategory(category)
+        }
+    }
+
+    fun updateLastTemplateCategory(category: String) {
+        lastTemplateCategory = category
+        viewModelScope.launch {
+            dataStore.setLastTemplateCategory(category)
         }
     }
 
