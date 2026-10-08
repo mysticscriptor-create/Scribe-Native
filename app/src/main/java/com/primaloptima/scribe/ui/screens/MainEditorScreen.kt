@@ -994,21 +994,24 @@ fun MainEditorScreen(
     val docBottomNavInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val imeAboveNavDp = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
     val configuration = LocalConfiguration.current
-    val savedKeyboardHeightFloat by dataStore.lastKeyboardHeightFlow.collectAsState(initial = 270f)
-    var lastKeyboardHeightDp by remember { mutableStateOf(270.dp) }
+    val savedKeyboardHeightFloat by dataStore.lastKeyboardHeightFlow.collectAsState(initial = 280f)
+    var lastKeyboardHeightDp by remember {
+        mutableStateOf(if (savedKeyboardHeightFloat >= 220f) savedKeyboardHeightFloat.dp else 280.dp)
+    }
 
     LaunchedEffect(savedKeyboardHeightFloat) {
-        if (savedKeyboardHeightFloat in 160f..600f) {
+        if (savedKeyboardHeightFloat in 220f..600f) {
             lastKeyboardHeightDp = savedKeyboardHeightFloat.dp
         }
     }
 
-    val compactHeightDp = lastKeyboardHeightDp.coerceIn(180.dp, (configuration.screenHeightDp.dp * 0.60f))
+    val compactHeightDp = lastKeyboardHeightDp.coerceIn(240.dp, (configuration.screenHeightDp.dp * 0.60f))
 
-    LaunchedEffect(imeBottomDp, isKeyboardVisible, docBottomNavInset) {
-        if (isKeyboardVisible && imeBottomDp > 120.dp) {
+    // Capture steady-state keyboard height without recording intermediate closing/collapsing frames
+    LaunchedEffect(imeBottomDp, isKeyboardVisible, docBottomNavInset, isHidingKeyboardForDrawer) {
+        if (isKeyboardVisible && !isHidingKeyboardForDrawer && imeBottomDp > 120.dp) {
             val aboveNav = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
-            if (aboveNav > 160.dp) {
+            if (aboveNav > lastKeyboardHeightDp && aboveNav >= 220.dp) {
                 lastKeyboardHeightDp = aboveNav
                 dataStore.setLastKeyboardHeight(aboveNav.value)
             }
@@ -1027,16 +1030,13 @@ fun MainEditorScreen(
     }
 
     LaunchedEffect(isKeyboardVisible, imeAboveNavDp) {
-        if (!isKeyboardVisible && imeAboveNavDp <= 10.dp) {
+        if (!isKeyboardVisible && imeAboveNavDp <= 5.dp) {
             isHidingKeyboardForDrawer = false
         }
     }
 
     LaunchedEffect(isKeyboardVisible, imeAboveNavDp, isHidingKeyboardForDrawer, compactHeightDp) {
         if (activeAccessoryDrawer != null && !isWritingBarSearchActive && !isHidingKeyboardForDrawer) {
-            if (isKeyboardVisible && imeAboveNavDp > 40.dp && drawerState != AccessoryDrawerState.COMPACT) {
-                drawerState = AccessoryDrawerState.COMPACT
-            }
             if (isKeyboardVisible && imeAboveNavDp >= (compactHeightDp - 20.dp)) {
                 activeAccessoryDrawer = null
                 drawerState = AccessoryDrawerState.COMPACT
@@ -1815,15 +1815,21 @@ fun MainEditorScreen(
                                                             soraEditorRef?.requestFocus()
                                                             keyboardController?.show()
                                                             try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+                                                        } else if (activeAccessoryDrawer != null) {
+                                                            // Seamless switch between open drawers: zero keyboard/cursor flicker
+                                                            activeAccessoryDrawer = AccessoryDrawerMode.SNIPPETS
+                                                            isWritingBarSearchActive = false
+                                                            drawerSearchQuery = ""
+                                                            previewItem = null
                                                         } else {
+                                                            // Opening drawer from keyboard / idle
                                                             isHidingKeyboardForDrawer = isKeyboardVisible || imeAboveNavDp > 40.dp
-                                                            if (imeAboveNavDp > 160.dp) {
+                                                            if (imeAboveNavDp >= 220.dp) {
                                                                 lastKeyboardHeightDp = imeAboveNavDp
                                                                 scope.launch { dataStore.setLastKeyboardHeight(imeAboveNavDp.value) }
                                                             }
                                                             keyboardController?.hide()
                                                             try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
-                                                            (soraEditorRef as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.showCursorSilently()
                                                             activeAccessoryDrawer = AccessoryDrawerMode.SNIPPETS
                                                             drawerState = AccessoryDrawerState.COMPACT
                                                             isWritingBarSearchActive = false
@@ -1875,15 +1881,21 @@ fun MainEditorScreen(
                                                             soraEditorRef?.requestFocus()
                                                             keyboardController?.show()
                                                             try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+                                                        } else if (activeAccessoryDrawer != null) {
+                                                            // Seamless switch between open drawers: zero keyboard/cursor flicker
+                                                            activeAccessoryDrawer = AccessoryDrawerMode.TEMPLATES
+                                                            isWritingBarSearchActive = false
+                                                            drawerSearchQuery = ""
+                                                            previewItem = null
                                                         } else {
+                                                            // Opening drawer from keyboard / idle
                                                             isHidingKeyboardForDrawer = isKeyboardVisible || imeAboveNavDp > 40.dp
-                                                            if (imeAboveNavDp > 160.dp) {
+                                                            if (imeAboveNavDp >= 220.dp) {
                                                                 lastKeyboardHeightDp = imeAboveNavDp
                                                                 scope.launch { dataStore.setLastKeyboardHeight(imeAboveNavDp.value) }
                                                             }
                                                             keyboardController?.hide()
                                                             try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
-                                                            (soraEditorRef as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.showCursorSilently()
                                                             activeAccessoryDrawer = AccessoryDrawerMode.TEMPLATES
                                                             drawerState = AccessoryDrawerState.COMPACT
                                                             isWritingBarSearchActive = false
