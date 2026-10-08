@@ -288,6 +288,7 @@ fun MainEditorScreen(
     var drawerState by remember { mutableStateOf(AccessoryDrawerState.COMPACT) }
     var drawerSearchQuery by remember { mutableStateOf("") }
     var isWritingBarSearchActive by remember { mutableStateOf(false) }
+    var previewItem by remember { mutableStateOf<ShortcutAction?>(null) }
 
     val floatingWindows    by editorVm.floatingWindows.collectAsStateWithLifecycle()
     val workbenchState     by editorVm.workbenchState.collectAsStateWithLifecycle()
@@ -575,17 +576,21 @@ fun MainEditorScreen(
         }
     }
 
-    BackHandler(enabled = isWritingBarSearchActive) {
+    BackHandler(enabled = previewItem != null) {
+        previewItem = null
+    }
+    BackHandler(enabled = previewItem == null && isWritingBarSearchActive) {
         isWritingBarSearchActive = false
         drawerSearchQuery = ""
     }
-    BackHandler(enabled = !isWritingBarSearchActive && drawerState != AccessoryDrawerState.COMPACT) {
+    BackHandler(enabled = previewItem == null && !isWritingBarSearchActive && drawerState != AccessoryDrawerState.COMPACT) {
         drawerState = AccessoryDrawerState.COMPACT
     }
-    BackHandler(enabled = !isWritingBarSearchActive && drawerState == AccessoryDrawerState.COMPACT && activeAccessoryDrawer != null) {
+    BackHandler(enabled = previewItem == null && !isWritingBarSearchActive && drawerState == AccessoryDrawerState.COMPACT && activeAccessoryDrawer != null) {
         activeAccessoryDrawer = null
         drawerSearchQuery = ""
         isWritingBarSearchActive = false
+        previewItem = null
         soraEditorRef?.requestFocus()
         keyboardController?.show()
         try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
@@ -1101,13 +1106,15 @@ fun MainEditorScreen(
                         label = "drawerHeight"
                     )
 
-                    val effectiveBottomSurfaceHeight = maxOf(
-                        imeBottomDp,
-                        animatedDrawerHeight,
-                        docBottomNavInset
-                    )
+                    val imeAboveNavDp = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
 
-                    val docBottomPadding = shortcutBarHeight + effectiveBottomSurfaceHeight
+                    val effectiveBottomSurfaceHeight = if (activeAccessoryDrawer != null) {
+                        animatedDrawerHeight
+                    } else {
+                        imeAboveNavDp
+                    }
+
+                    val docBottomPadding = shortcutBarHeight + docBottomNavInset + effectiveBottomSurfaceHeight
 
                     var lastAppliedPadding by remember { mutableFloatStateOf(-1f) }
                     var lastAppliedTextSize by remember { mutableFloatStateOf(-1f) }
@@ -1599,10 +1606,7 @@ fun MainEditorScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .align(Alignment.BottomCenter)
-                                    .then(
-                                        if (activeAccessoryDrawer == null) Modifier.imePadding()
-                                        else Modifier.navigationBarsPadding()
-                                    )
+                                    .navigationBarsPadding()
                             ) {
                                 Surface(
                                     modifier = Modifier
@@ -1837,53 +1841,60 @@ fun MainEditorScreen(
                                     }
                                 }
 
-                                // ── Accessory Drawer (Directly beneath Shortcut Bar) ─────────
-                                AnimatedVisibility(
-                                    visible = activeAccessoryDrawer != null,
-                                    enter = expandVertically(animationSpec = tween(220)) + fadeIn(animationSpec = tween(180)),
-                                    exit = shrinkVertically(animationSpec = tween(180)) + fadeOut(animationSpec = tween(140))
-                                ) {
-                                    activeAccessoryDrawer?.let { currentMode ->
-                                        AccessoryDrawer(
-                                            mode = currentMode,
-                                            currentHeightDp = targetDrawerHeight,
-                                            onClose = {
-                                                activeAccessoryDrawer = null
-                                                drawerSearchQuery = ""
-                                                isWritingBarSearchActive = false
-                                                soraEditorRef?.requestFocus()
-                                                keyboardController?.show()
-                                                try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
-                                            },
-                                            onOpenShortcuts = {
-                                                shortcutsVm.targetStudioTab = if (currentMode == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
-                                                activeAccessoryDrawer = null
-                                                drawerSearchQuery = ""
-                                                isWritingBarSearchActive = false
-                                                onOpenShortcuts()
-                                            },
-                                            searchQuery = drawerSearchQuery,
-                                            onSearchQueryChange = { drawerSearchQuery = it },
-                                            isSearchActive = isWritingBarSearchActive,
-                                            onSearchActiveChange = { isWritingBarSearchActive = it },
-                                            snippets = snippets,
-                                            templates = templates,
-                                            onTogglePin = { id -> shortcutsVm.toggleShortcutPin(id) },
-                                            onInsert = { shortcut ->
-                                                when (shortcut.kind) {
-                                                    "wrap", "pair" -> {
-                                                        val open = shortcut.payload
-                                                        val close = shortcut.closing?.ifBlank { null } ?: shortcut.payload
-                                                        soraEditorRef?.applyFormat(open, close)
-                                                    }
-                                                    "prefix" -> soraEditorRef?.applySmartPrefix(shortcut.payload, shortcuts)
-                                                    else     -> soraEditorRef?.insertAtCursor(shortcut.payload)
+                                // ── Stable Bottom Input Region (Keyboard Spacer or Accessory Drawer) ──
+                                if (activeAccessoryDrawer != null) {
+                                    AccessoryDrawer(
+                                        mode = activeAccessoryDrawer!!,
+                                        currentHeightDp = targetDrawerHeight,
+                                        drawerState = drawerState,
+                                        onDrawerStateChange = { drawerState = it },
+                                        onClose = {
+                                            activeAccessoryDrawer = null
+                                            drawerSearchQuery = ""
+                                            isWritingBarSearchActive = false
+                                            previewItem = null
+                                            soraEditorRef?.requestFocus()
+                                            keyboardController?.show()
+                                            try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+                                        },
+                                        onOpenShortcuts = {
+                                            shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
+                                            activeAccessoryDrawer = null
+                                            drawerSearchQuery = ""
+                                            isWritingBarSearchActive = false
+                                            previewItem = null
+                                            onOpenShortcuts()
+                                        },
+                                        searchQuery = drawerSearchQuery,
+                                        onSearchQueryChange = { drawerSearchQuery = it },
+                                        isSearchActive = isWritingBarSearchActive,
+                                        onSearchActiveChange = { isWritingBarSearchActive = it },
+                                        previewItem = previewItem,
+                                        onPreviewItemChange = { previewItem = it },
+                                        snippets = snippets,
+                                        templates = templates,
+                                        shortcutsVm = shortcutsVm,
+                                        onTogglePin = { id -> shortcutsVm.toggleShortcutPin(id) },
+                                        onInsert = { shortcut ->
+                                            when (shortcut.kind) {
+                                                "wrap", "pair" -> {
+                                                    val open = shortcut.payload
+                                                    val close = shortcut.closing?.ifBlank { null } ?: shortcut.payload
+                                                    soraEditorRef?.applyFormat(open, close)
                                                 }
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                Toast.makeText(context, "Inserted: " + shortcut.resolvedLabel(), Toast.LENGTH_SHORT).show()
+                                                "prefix" -> soraEditorRef?.applySmartPrefix(shortcut.payload, shortcuts)
+                                                else     -> soraEditorRef?.insertAtCursor(shortcut.payload)
                                             }
-                                        )
-                                    }
+                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            Toast.makeText(context, "Inserted: " + shortcut.resolvedLabel(), Toast.LENGTH_SHORT).show()
+                                        }
+                                    )
+                                } else {
+                                    Spacer(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(imeAboveNavDp)
+                                    )
                                 }
                             }
 
@@ -3421,36 +3432,49 @@ enum class AccessoryDrawerMode {
 private fun AccessoryDrawer(
     mode: AccessoryDrawerMode,
     currentHeightDp: androidx.compose.ui.unit.Dp,
+    drawerState: AccessoryDrawerState,
+    onDrawerStateChange: (AccessoryDrawerState) -> Unit,
     onClose: () -> Unit,
     onOpenShortcuts: () -> Unit,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     isSearchActive: Boolean,
     onSearchActiveChange: (Boolean) -> Unit,
+    previewItem: ShortcutAction?,
+    onPreviewItemChange: (ShortcutAction?) -> Unit,
     snippets: List<ShortcutAction>,
     templates: List<ShortcutAction>,
+    shortcutsVm: ShortcutsViewModel,
     onTogglePin: (String) -> Unit,
     onInsert: (ShortcutAction) -> Unit
 ) {
     val isSnippet = mode == AccessoryDrawerMode.SNIPPETS
     val currentItems = if (isSnippet) snippets else templates
-    val cleanQuery = searchQuery.trim().lowercase()
 
-    val filteredItems = remember(currentItems, cleanQuery) {
-        if (cleanQuery.isBlank()) {
-            currentItems
-        } else {
-            currentItems.filter { item ->
+    // Phase 3: Category browsing memory
+    var selectedCategory by remember(mode) {
+        mutableStateOf(if (isSnippet) shortcutsVm.lastSnippetCategory else shortcutsVm.lastTemplateCategory)
+    }
+
+    val cleanQuery = searchQuery.trim().lowercase()
+    val filteredItems = remember(currentItems, cleanQuery, selectedCategory) {
+        currentItems.filter { item ->
+            val matchesCategory = (selectedCategory == "all") || item.category.equals(selectedCategory, ignoreCase = true)
+            val matchesQuery = cleanQuery.isBlank() || (
                 item.resolvedLabel().lowercase().contains(cleanQuery) ||
-                    item.templateDescription.lowercase().contains(cleanQuery) ||
-                    item.category.lowercase().contains(cleanQuery) ||
-                    item.payload.lowercase().contains(cleanQuery)
-            }
+                item.templateDescription.lowercase().contains(cleanQuery) ||
+                item.category.lowercase().contains(cleanQuery) ||
+                item.payload.lowercase().contains(cleanQuery)
+            )
+            matchesCategory && matchesQuery
         }
     }
 
-    val searchFocusRequester = remember { FocusRequester() }
+    val availableCategories = remember(currentItems) {
+        listOf("all") + currentItems.map { it.category }.filter { it.isNotBlank() }.distinct()
+    }
 
+    val searchFocusRequester = remember { FocusRequester() }
     LaunchedEffect(isSearchActive) {
         if (isSearchActive) {
             try { searchFocusRequester.requestFocus() } catch (_: Exception) {}
@@ -3459,7 +3483,6 @@ private fun AccessoryDrawer(
 
     val listState = rememberLazyListState()
     var isScrollingDown by remember { mutableStateOf(false) }
-
     val nestedScrollConnection = remember {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
@@ -3472,7 +3495,6 @@ private fun AccessoryDrawer(
             }
         }
     }
-
     val isAtTop by remember {
         derivedStateOf {
             listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 15
@@ -3480,7 +3502,6 @@ private fun AccessoryDrawer(
     }
 
     val showChip = isSearchActive || !isScrollingDown || isAtTop
-
     val chipAlpha by animateFloatAsState(
         targetValue = if (showChip) 1f else 0f,
         animationSpec = tween(durationMillis = 200),
@@ -3507,54 +3528,107 @@ private fun AccessoryDrawer(
         )
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // Cards list / Empty state that scrolls behind
-            if (filteredItems.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(top = 48.dp, bottom = 12.dp, start = 16.dp, end = 16.dp),
-                    contentAlignment = Alignment.Center
+            Column(modifier = Modifier.fillMaxSize()) {
+                // Phase 2: Category Filter Row in Expanded or Full state
+                AnimatedVisibility(
+                    visible = drawerState != AccessoryDrawerState.COMPACT,
+                    enter = expandVertically(animationSpec = tween(180)) + fadeIn(),
+                    exit = shrinkVertically(animationSpec = tween(140)) + fadeOut()
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = if (cleanQuery.isNotBlank()) {
-                                "No items matching \"$searchQuery\""
-                            } else {
-                                if (isSnippet) "No snippets available" else "No templates available"
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
-                        TextButton(onClick = onOpenShortcuts) {
-                            Text("Create in Shortcuts Studio")
+                        availableCategories.forEach { cat ->
+                            val isSelected = selectedCategory.equals(cat, ignoreCase = true)
+                            val catLabel = if (cat == "all") "All" else cat.replaceFirstChar { it.uppercase() }
+                            Surface(
+                                shape = CircleShape,
+                                color = if (isSelected) ScribeTheme.colors.interaction.primary.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                contentColor = if (isSelected) ScribeTheme.colors.interaction.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                border = androidx.compose.foundation.BorderStroke(
+                                    0.5.dp,
+                                    if (isSelected) ScribeTheme.colors.interaction.primary.copy(alpha = 0.45f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                                ),
+                                modifier = Modifier
+                                    .height(28.dp)
+                                    .clickable {
+                                        selectedCategory = cat
+                                        if (isSnippet) shortcutsVm.lastSnippetCategory = cat
+                                        else shortcutsVm.lastTemplateCategory = cat
+                                    }
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(horizontal = 10.dp)
+                                ) {
+                                    Text(
+                                        text = catLabel,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+                                    )
+                                }
+                            }
                         }
                     }
                 }
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .nestedScroll(nestedScrollConnection),
-                    contentPadding = PaddingValues(
-                        start = 12.dp,
-                        end = 12.dp,
-                        top = 50.dp,
-                        bottom = 12.dp
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(filteredItems, key = { it.id }) { item ->
-                        AccessoryItemCard(
-                            item = item,
-                            isSnippet = isSnippet,
-                            onInsert = { onInsert(item) },
-                            onTogglePin = { onTogglePin(item.id) }
-                        )
+
+                // Cards list / Empty state that scrolls behind
+                if (filteredItems.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = if (cleanQuery.isNotBlank()) {
+                                    "No items matching \"$searchQuery\""
+                                } else {
+                                    if (isSnippet) "No snippets available" else "No templates available"
+                                },
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
+                            TextButton(onClick = onOpenShortcuts) {
+                                Text("Create in Shortcuts Studio")
+                            }
+                        }
+                    }
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .nestedScroll(nestedScrollConnection),
+                        contentPadding = PaddingValues(
+                            start = 12.dp,
+                            end = 12.dp,
+                            top = if (drawerState == AccessoryDrawerState.COMPACT) 48.dp else 8.dp,
+                            bottom = 12.dp
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(filteredItems, key = { it.id }) { item ->
+                            AccessoryItemCard(
+                                item = item,
+                                isSnippet = isSnippet,
+                                onInsert = { onInsert(item) },
+                                onTogglePin = { onTogglePin(item.id) },
+                                onPreview = { onPreviewItemChange(item) }
+                            )
+                        }
                     }
                 }
             }
@@ -3674,7 +3748,6 @@ private fun AccessoryDrawer(
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-
                             // Divider
                             Box(
                                 modifier = Modifier
@@ -3682,8 +3755,33 @@ private fun AccessoryDrawer(
                                     .width(0.6.dp)
                                     .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
                             )
-
-                            // 2. Settings / Shortcuts Studio Icon
+                            // 2. Expand / Collapse State Toggle
+                            IconButton(
+                                onClick = {
+                                    val nextState = when (drawerState) {
+                                        AccessoryDrawerState.COMPACT -> AccessoryDrawerState.EXPANDED
+                                        AccessoryDrawerState.EXPANDED -> AccessoryDrawerState.FULL
+                                        AccessoryDrawerState.FULL -> AccessoryDrawerState.COMPACT
+                                    }
+                                    onDrawerStateChange(nextState)
+                                },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    if (drawerState == AccessoryDrawerState.FULL) Icons.Filled.UnfoldLess else Icons.Filled.UnfoldMore,
+                                    contentDescription = "Resize Drawer",
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            // Divider
+                            Box(
+                                modifier = Modifier
+                                    .height(14.dp)
+                                    .width(0.6.dp)
+                                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                            )
+                            // 3. Settings / Shortcuts Studio Icon
                             IconButton(
                                 onClick = onOpenShortcuts,
                                 modifier = Modifier.size(28.dp)
@@ -3695,7 +3793,6 @@ private fun AccessoryDrawer(
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-
                             // Divider
                             Box(
                                 modifier = Modifier
@@ -3703,8 +3800,7 @@ private fun AccessoryDrawer(
                                     .width(0.6.dp)
                                     .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
                             )
-
-                            // 3. Keyboard Restore Icon
+                            // 4. Keyboard Restore Icon
                             IconButton(
                                 onClick = onClose,
                                 modifier = Modifier.size(28.dp)
@@ -3720,134 +3816,237 @@ private fun AccessoryDrawer(
                     }
                 }
             }
+
+            // Phase 5: Expandable Floating Item Preview Modal Overlay
+            if (previewItem != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.42f))
+                        .clickable { onPreviewItemChange(null) }
+                        .padding(12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 8.dp,
+                        shadowElevation = 8.dp,
+                        border = androidx.compose.foundation.BorderStroke(
+                            0.6.dp,
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = false) {}
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
+                        ) {
+                            // Header
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = previewItem.resolvedLabel(),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = previewItem.category.replaceFirstChar { it.uppercase() } + " • " + (if (isSnippet) "Snippet" else "Template"),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { onPreviewItemChange(null) },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Close,
+                                        contentDescription = "Close Preview",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+
+                            if (previewItem.templateDescription.isNotBlank()) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = previewItem.templateDescription,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            // Payload Preview Container
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 140.dp)
+                                    .background(
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                        shape = RoundedCornerShape(8.dp)
+                                    )
+                                    .border(
+                                        0.5.dp,
+                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .padding(8.dp)
+                            ) {
+                                Text(
+                                    text = previewItem.payload,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.verticalScroll(rememberScrollState())
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Footer Actions
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                OutlinedButton(
+                                    onClick = { onTogglePin(previewItem.id) },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(
+                                        if (previewItem.showInQuickActions) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp),
+                                        tint = if (previewItem.showInQuickActions) ScribeTheme.colors.interaction.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(if (previewItem.showInQuickActions) "Pinned" else "Pin to Bar", fontSize = 12.sp)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        onInsert(previewItem)
+                                        onPreviewItemChange(null)
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Add,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Insert at Cursor", fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
+// Phase 4: Ultra-compact, clean item row with 3 distinct interaction zones
 @Composable
 private fun AccessoryItemCard(
     item: ShortcutAction,
     isSnippet: Boolean,
     onInsert: () -> Unit,
-    onTogglePin: () -> Unit
+    onTogglePin: () -> Unit,
+    onPreview: () -> Unit
 ) {
     val accentColor = ScribeTheme.colors.interaction.primary
     val typeThemeColor = if (isSnippet) Color(0xFF8B5CF6) else Color(0xFFF59E0B)
 
     Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
         border = androidx.compose.foundation.BorderStroke(
             0.5.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)
         ),
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onInsert)
     ) {
         Row(
-            modifier = Modifier.padding(10.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Icon / Badge 40dp Box
+            // Zone 1: Subtle Badge
             Box(
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(28.dp)
                     .background(
                         color = typeThemeColor.copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(8.dp)
+                        shape = RoundedCornerShape(6.dp)
                     )
                     .border(
                         0.5.dp,
-                        typeThemeColor.copy(alpha = 0.3f),
-                        RoundedCornerShape(8.dp)
+                        typeThemeColor.copy(alpha = 0.25f),
+                        RoundedCornerShape(6.dp)
                     ),
                 contentAlignment = Alignment.Center
             ) {
                 val iconText = when {
-                    !item.useCustomIcon -> if (isSnippet) "Snip" else "Tmpl"
+                    !item.useCustomIcon -> if (isSnippet) "S" else "T"
                     item.icon.isNotBlank() -> item.icon
-                    else -> item.resolvedIcon()
+                    else -> item.resolvedIcon().take(1)
                 }
                 Text(
                     text = iconText,
-                    fontSize = if (iconText.length > 2) 11.sp else 16.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = typeThemeColor,
                     textAlign = TextAlign.Center
                 )
             }
 
-            // Details Column
+            // Zone 1: Title & Category subtitle
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(2.dp)
+                verticalArrangement = Arrangement.spacedBy(1.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
+                Text(
+                    text = item.resolvedLabel(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                val subtitle = item.templateDescription.ifBlank { item.category.replaceFirstChar { it.uppercase() } }
+                if (subtitle.isNotBlank()) {
                     Text(
-                        text = item.resolvedLabel(),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    // Category Badge
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                        border = androidx.compose.foundation.BorderStroke(0.4.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
-                    ) {
-                        Text(
-                            text = item.category.replaceFirstChar { it.uppercase() },
-                            fontSize = 10.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
-                        )
-                    }
-                }
-
-                if (item.templateDescription.isNotBlank()) {
-                    Text(
-                        text = item.templateDescription,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-
-                // Monospace preview box (clamped)
-                val previewLines = if (isSnippet) 2 else 3
-                val cleanPayloadPreview = item.payload.trim()
-                if (cleanPayloadPreview.isNotEmpty()) {
-                    Text(
-                        text = cleanPayloadPreview,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                        maxLines = previewLines,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                                shape = RoundedCornerShape(4.dp)
-                            )
-                            .padding(horizontal = 6.dp, vertical = 3.dp)
-                    )
-                }
             }
 
-            // Quick Pin Action
+            // Zone 2: Pin Action (36dp touch target)
             IconButton(
                 onClick = onTogglePin,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(36.dp)
             ) {
                 if (item.showInQuickActions) {
                     Icon(
@@ -3861,9 +4060,22 @@ private fun AccessoryItemCard(
                         Icons.Outlined.PushPin,
                         contentDescription = "Pin to Bar",
                         modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
                     )
                 }
+            }
+
+            // Zone 3: Trailing Chevron Preview Action
+            IconButton(
+                onClick = onPreview,
+                modifier = Modifier.size(36.dp)
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = "Preview",
+                    modifier = Modifier.size(18.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
             }
         }
     }
