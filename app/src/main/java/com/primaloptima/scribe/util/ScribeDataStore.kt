@@ -66,6 +66,7 @@ class ScribeDataStore(private val context: Context) {
         val LINE_SPACING       = stringPreferencesKey("line_spacing")
         val EDITOR_FONT_SIZE   = intPreferencesKey("editor_font_size")
         val MANUSCRIPT_ORNAMENT_ID = stringPreferencesKey("manuscript_ornament_id")
+        val LAST_KEYBOARD_HEIGHT   = floatPreferencesKey("last_keyboard_height")
 
         // Writing stats
         val DAILY_GOAL         = intPreferencesKey("daily_goal")
@@ -124,6 +125,7 @@ class ScribeDataStore(private val context: Context) {
     val lineSpacingFlow: Flow<String>        = store.data.map { it[LINE_SPACING] ?: "comfortable" }
     val editorFontSizeFlow: Flow<Int>        = store.data.map { it[EDITOR_FONT_SIZE] ?: 16 }
     val manuscriptOrnamentIdFlow: Flow<String> = store.data.map { it[MANUSCRIPT_ORNAMENT_ID] ?: "classic_diamond" }
+    val lastKeyboardHeightFlow: Flow<Float>    = store.data.map { it[LAST_KEYBOARD_HEIGHT] ?: 270f }
 
     val dailyGoalFlow: Flow<Int>             = store.data.map { it[DAILY_GOAL] ?: 500 }
     val shortcutsJsonFlow: Flow<String?>     = store.data.map { it[SHORTCUTS_JSON] }
@@ -309,6 +311,7 @@ class ScribeDataStore(private val context: Context) {
     suspend fun setLineSpacing(v: String) = store.edit { it[LINE_SPACING] = v }
 
     suspend fun setEditorFontSize(size: Int) = store.edit { it[EDITOR_FONT_SIZE] = size.coerceIn(12, 28) }
+    suspend fun setLastKeyboardHeight(heightDp: Float) = store.edit { it[LAST_KEYBOARD_HEIGHT] = heightDp }
 
     suspend fun setDailyGoal(goal: Int) = store.edit { it[DAILY_GOAL] = maxOf(50, goal) }
 

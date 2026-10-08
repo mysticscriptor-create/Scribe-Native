@@ -994,7 +994,15 @@ fun MainEditorScreen(
     val docBottomNavInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val imeAboveNavDp = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
     val configuration = LocalConfiguration.current
+    val savedKeyboardHeightFloat by dataStore.lastKeyboardHeightFlow.collectAsState(initial = 270f)
     var lastKeyboardHeightDp by remember { mutableStateOf(270.dp) }
+
+    LaunchedEffect(savedKeyboardHeightFloat) {
+        if (savedKeyboardHeightFloat in 160f..600f) {
+            lastKeyboardHeightDp = savedKeyboardHeightFloat.dp
+        }
+    }
+
     val compactHeightDp = lastKeyboardHeightDp.coerceIn(180.dp, (configuration.screenHeightDp.dp * 0.60f))
 
     LaunchedEffect(imeBottomDp, isKeyboardVisible, docBottomNavInset) {
@@ -1002,6 +1010,7 @@ fun MainEditorScreen(
             val aboveNav = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
             if (aboveNav > 160.dp) {
                 lastKeyboardHeightDp = aboveNav
+                dataStore.setLastKeyboardHeight(aboveNav.value)
             }
         }
     }
@@ -1151,13 +1160,18 @@ fun MainEditorScreen(
                         animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing),
                         label = "drawerHeight"
                     )
+                    val isBarVisible = (isKeyboardVisible || activeAccessoryDrawer != null || isAwaitingKeyboardOpen) && shortcuts.isNotEmpty()
                     val effectiveBottomSurfaceHeight = when {
-                        activeAccessoryDrawer != null -> animatedDrawerHeight
+                        activeAccessoryDrawer != null -> if (drawerState == AccessoryDrawerState.COMPACT) compactHeightDp else animatedDrawerHeight
                         isAwaitingKeyboardOpen -> maxOf(compactHeightDp, imeAboveNavDp)
                         isKeyboardVisible -> imeAboveNavDp
-                        else -> animatedDrawerHeight
+                        else -> 0.dp
                     }
-                    val docBottomPadding = shortcutBarHeight + docBottomNavInset + effectiveBottomSurfaceHeight
+                    val docBottomPadding = if (!isBarVisible) {
+                        docBottomNavInset
+                    } else {
+                        shortcutBarHeight + docBottomNavInset + effectiveBottomSurfaceHeight
+                    }
 
                     var lastAppliedPadding by remember { mutableFloatStateOf(-1f) }
                     var lastAppliedTextSize by remember { mutableFloatStateOf(-1f) }
@@ -1635,7 +1649,6 @@ fun MainEditorScreen(
                     }
 
                     // ── Shortcut Bar & Accessory Drawer (Floating Keyboard Accessory) ────────────
-                    val isBarVisible = (isKeyboardVisible || activeAccessoryDrawer != null || isAwaitingKeyboardOpen) && shortcuts.isNotEmpty()
                     if (isBarVisible) {
                         CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
                             val registerBounds = LocalInteractiveBoundsRegistry.current
@@ -1806,6 +1819,7 @@ fun MainEditorScreen(
                                                             isHidingKeyboardForDrawer = isKeyboardVisible || imeAboveNavDp > 40.dp
                                                             if (imeAboveNavDp > 160.dp) {
                                                                 lastKeyboardHeightDp = imeAboveNavDp
+                                                                scope.launch { dataStore.setLastKeyboardHeight(imeAboveNavDp.value) }
                                                             }
                                                             keyboardController?.hide()
                                                             try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
@@ -1865,6 +1879,7 @@ fun MainEditorScreen(
                                                             isHidingKeyboardForDrawer = isKeyboardVisible || imeAboveNavDp > 40.dp
                                                             if (imeAboveNavDp > 160.dp) {
                                                                 lastKeyboardHeightDp = imeAboveNavDp
+                                                                scope.launch { dataStore.setLastKeyboardHeight(imeAboveNavDp.value) }
                                                             }
                                                             keyboardController?.hide()
                                                             try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
@@ -2123,7 +2138,7 @@ fun MainEditorScreen(
                                 if (activeAccessoryDrawer != null) {
                                     AccessoryDrawer(
                                         mode = activeAccessoryDrawer!!,
-                                        currentHeightDp = animatedDrawerHeight,
+                                        currentHeightDp = if (drawerState == AccessoryDrawerState.COMPACT) compactHeightDp else animatedDrawerHeight,
                                         drawerState = drawerState,
                                         onDrawerStateChange = { drawerState = it },
                                         onOpenShortcuts = {
@@ -3760,7 +3775,7 @@ private fun AccessoryDrawer(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(26.dp)
+                    .height(20.dp)
                     .pointerInput(drawerState) {
                         detectVerticalDragGestures { _, dragAmount ->
                             if (dragAmount < -12f) {
