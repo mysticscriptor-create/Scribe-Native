@@ -606,18 +606,23 @@ fun MainEditorScreen(
         }
     }
 
-    BackHandler(enabled = previewItem != null) {
+    BackHandler(enabled = activeCardPreview != null || previewItem != null) {
+        if (activeCardPreview != null) {
+            isPreviewExpanded = false
+        }
         previewItem = null
     }
-    BackHandler(enabled = previewItem == null && isWritingBarSearchActive) {
+    BackHandler(enabled = activeCardPreview == null && previewItem == null && isWritingBarSearchActive) {
         isWritingBarSearchActive = false
         drawerSearchQuery = ""
     }
-    BackHandler(enabled = previewItem == null && !isWritingBarSearchActive && drawerState != AccessoryDrawerState.COMPACT) {
+    BackHandler(enabled = activeCardPreview == null && previewItem == null && !isWritingBarSearchActive && drawerState != AccessoryDrawerState.COMPACT) {
         drawerState = AccessoryDrawerState.COMPACT
     }
-    BackHandler(enabled = previewItem == null && !isWritingBarSearchActive && drawerState == AccessoryDrawerState.COMPACT && activeAccessoryDrawer != null) {
+    BackHandler(enabled = activeCardPreview == null && previewItem == null && !isWritingBarSearchActive && drawerState == AccessoryDrawerState.COMPACT && activeAccessoryDrawer != null) {
         activeAccessoryDrawer = null
+        activeCardPreview = null
+        isPreviewExpanded = false
         drawerState = AccessoryDrawerState.COMPACT
         isAwaitingKeyboardOpen = true
         isHidingKeyboardForDrawer = false
@@ -1189,6 +1194,7 @@ fun MainEditorScreen(
                     }
                     val drawerHeightDpAnim = remember { Animatable(compactHeightDp.value) }
                     var isDrawerDragging by remember { mutableStateOf(false) }
+                    var dragLiveHeightDp by remember { mutableFloatStateOf(compactHeightDp.value) }
 
                     LaunchedEffect(drawerState, compactHeightDp, expandedHeightDp, fullHeightDp, activeAccessoryDrawer) {
                         if (activeAccessoryDrawer != null && !isDrawerDragging) {
@@ -1197,21 +1203,27 @@ fun MainEditorScreen(
                                 AccessoryDrawerState.EXPANDED -> expandedHeightDp.value
                                 AccessoryDrawerState.FULL -> fullHeightDp.value
                             }
-                            drawerHeightDpAnim.animateTo(
-                                targetValue = target,
-                                animationSpec = spring(
-                                    stiffness = Spring.StiffnessMediumLow,
-                                    dampingRatio = Spring.DampingRatioNoBouncy
+                            if (drawerHeightDpAnim.targetValue != target) {
+                                drawerHeightDpAnim.animateTo(
+                                    targetValue = target,
+                                    animationSpec = spring(
+                                        stiffness = Spring.StiffnessMediumLow,
+                                        dampingRatio = Spring.DampingRatioNoBouncy
+                                    )
                                 )
-                            )
+                            }
                         } else if (activeAccessoryDrawer == null) {
                             drawerHeightDpAnim.snapTo(compactHeightDp.value)
+                            dragLiveHeightDp = compactHeightDp.value
                         }
                     }
 
                     val isBarVisible = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen) && shortcuts.isNotEmpty()
                     val effectiveBottomSurfaceHeight = when {
-                        activeAccessoryDrawer != null -> drawerHeightDpAnim.value.dp.coerceIn(compactHeightDp, fullHeightDp)
+                        activeAccessoryDrawer != null -> {
+                            val liveH = if (isDrawerDragging) dragLiveHeightDp.dp else drawerHeightDpAnim.value.dp
+                            liveH.coerceIn(compactHeightDp, fullHeightDp)
+                        }
                         isAwaitingKeyboardOpen -> compactHeightDp
                         isKeyboardVisible || imeAboveNavDp > 10.dp -> compactHeightDp
                         else -> 0.dp
@@ -2218,7 +2230,7 @@ fun MainEditorScreen(
                                 // ── Stable Bottom Input Region ──
                                 val isDrawerActive = activeAccessoryDrawer != null || isAwaitingKeyboardOpen
                                 if (isDrawerActive) {
-                                    val bottomSurfaceHeight = drawerHeightDpAnim.value.dp.coerceIn(compactHeightDp, fullHeightDp)
+                                    val bottomSurfaceHeight = (if (isDrawerDragging) dragLiveHeightDp.dp else drawerHeightDpAnim.value.dp).coerceIn(compactHeightDp, fullHeightDp)
                                     var lastActiveDrawerMode by remember { mutableStateOf(AccessoryDrawerMode.SNIPPETS) }
                                     if (activeAccessoryDrawer != null) {
                                         lastActiveDrawerMode = activeAccessoryDrawer!!
@@ -2233,28 +2245,30 @@ fun MainEditorScreen(
                                             currentHeightDp = bottomSurfaceHeight,
                                             drawerState = drawerState,
                                             onDrawerStateChange = { drawerState = it },
+                                            onDragStart = {
+                                                isDrawerDragging = true
+                                                dragLiveHeightDp = drawerHeightDpAnim.value
+                                            },
                                             onDragDelta = { deltaPx ->
                                                 isDrawerDragging = true
                                                 val deltaDp = deltaPx / density.density
-                                                scope.launch {
-                                                    drawerHeightDpAnim.snapTo(
-                                                        (drawerHeightDpAnim.value - deltaDp).coerceIn(compactHeightDp.value, fullHeightDp.value)
-                                                    )
-                                                }
+                                                dragLiveHeightDp = (dragLiveHeightDp - deltaDp).coerceIn(compactHeightDp.value, fullHeightDp.value)
                                             },
                                             onDragEndWithVelocity = { vyPx ->
-                                                isDrawerDragging = false
                                                 val vyDp = vyPx / density.density
-                                                val currentH = drawerHeightDpAnim.value
+                                                val currentH = dragLiveHeightDp
                                                 val targetState = when {
-                                                    vyDp < -350f -> {
+                                                    // Fling upward: rapid upward movement (-vyDp > 300)
+                                                    vyDp < -300f -> {
                                                         if (currentH < expandedHeightDp.value * 0.95f) AccessoryDrawerState.EXPANDED
                                                         else AccessoryDrawerState.FULL
                                                     }
-                                                    vyDp > 350f -> {
+                                                    // Fling downward: rapid downward movement (vyDp > 300)
+                                                    vyDp > 300f -> {
                                                         if (currentH > expandedHeightDp.value * 1.05f) AccessoryDrawerState.EXPANDED
                                                         else AccessoryDrawerState.COMPACT
                                                     }
+                                                    // Release without fast fling: snap to nearest height
                                                     else -> {
                                                         val dCompact = kotlin.math.abs(currentH - compactHeightDp.value)
                                                         val dExpanded = kotlin.math.abs(currentH - expandedHeightDp.value)
@@ -2273,6 +2287,8 @@ fun MainEditorScreen(
                                                     AccessoryDrawerState.FULL -> fullHeightDp.value
                                                 }
                                                 scope.launch {
+                                                    drawerHeightDpAnim.snapTo(currentH)
+                                                    isDrawerDragging = false
                                                     drawerHeightDpAnim.animateTo(
                                                         targetValue = targetHeight,
                                                         initialVelocity = -vyDp,
@@ -2781,7 +2797,7 @@ fun MainEditorScreen(
             )
 
             val hCompactPx = anchor.height
-            val hExpandedTargetPx = with(currentDensity) { 280.dp.toPx() }
+            val hExpandedTargetPx = with(currentDensity) { 320.dp.toPx() }
             val maxAvailableHeightPx = (anchor.bottom - docTopInset.toPx() - 16.dp.toPx()).coerceAtLeast(hCompactPx)
             val hTargetPx = minOf(hExpandedTargetPx, maxAvailableHeightPx)
             val currentHeightPx = hCompactPx + (hTargetPx - hCompactPx) * cardPreviewProgress
@@ -3932,6 +3948,7 @@ private fun AccessoryDrawer(
     currentHeightDp: androidx.compose.ui.unit.Dp,
     drawerState: AccessoryDrawerState,
     onDrawerStateChange: (AccessoryDrawerState) -> Unit,
+    onDragStart: () -> Unit,
     onDragDelta: (Float) -> Unit,
     onDragEndWithVelocity: (Float) -> Unit,
     onOpenShortcuts: () -> Unit,
@@ -3989,6 +4006,7 @@ private fun AccessoryDrawer(
         Column(modifier = Modifier.fillMaxSize()) {
             // Phase 2: Drag Handle & State Toggle Bar (Header with Velocity & Fling)
             val drawerVelocityTracker = remember { androidx.compose.ui.input.pointer.util.VelocityTracker() }
+            var cumulativeDragY by remember { mutableFloatStateOf(0f) }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -3996,7 +4014,9 @@ private fun AccessoryDrawer(
                     .pointerInput(Unit) {
                         detectVerticalDragGestures(
                             onDragStart = {
+                                cumulativeDragY = 0f
                                 drawerVelocityTracker.resetTracking()
+                                onDragStart()
                             },
                             onDragEnd = {
                                 val vy = drawerVelocityTracker.calculateVelocity().y
@@ -4007,7 +4027,8 @@ private fun AccessoryDrawer(
                             },
                             onVerticalDrag = { change, dragAmount ->
                                 change.consume()
-                                drawerVelocityTracker.addPosition(change.uptimeMillis, change.position)
+                                cumulativeDragY += dragAmount
+                                drawerVelocityTracker.addPosition(change.uptimeMillis, androidx.compose.ui.geometry.Offset(0f, cumulativeDragY))
                                 onDragDelta(dragAmount)
                             }
                         )
@@ -4026,19 +4047,21 @@ private fun AccessoryDrawer(
                 )
 
                 // Expand / Collapse Chevron button on the right
-                IconButton(
-                    onClick = {
-                        val next = when (drawerState) {
-                            AccessoryDrawerState.COMPACT -> AccessoryDrawerState.EXPANDED
-                            AccessoryDrawerState.EXPANDED -> AccessoryDrawerState.FULL
-                            AccessoryDrawerState.FULL -> AccessoryDrawerState.COMPACT
-                        }
-                        onDrawerStateChange(next)
-                    },
+                Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(end = 4.dp)
-                        .size(24.dp)
+                        .size(26.dp)
+                        .clip(CircleShape)
+                        .clickable {
+                            val next = when (drawerState) {
+                                AccessoryDrawerState.COMPACT -> AccessoryDrawerState.EXPANDED
+                                AccessoryDrawerState.EXPANDED -> AccessoryDrawerState.FULL
+                                AccessoryDrawerState.FULL -> AccessoryDrawerState.COMPACT
+                            }
+                            onDrawerStateChange(next)
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
                     val chevronIcon = if (drawerState == AccessoryDrawerState.FULL) {
                         Icons.Filled.KeyboardArrowDown
@@ -4048,8 +4071,8 @@ private fun AccessoryDrawer(
                     Icon(
                         imageVector = chevronIcon,
                         contentDescription = "Toggle Drawer State",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
                 }
             }
@@ -4225,25 +4248,32 @@ private fun AccessoryItemCard(
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier.padding(end = 4.dp)
             ) {
-                IconButton(
-                    onClick = onTogglePin,
-                    modifier = Modifier.size(30.dp)
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onTogglePin),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.Filled.PushPin,
+                        imageVector = if (item.showInQuickActions) Icons.Filled.PushPin else Icons.Outlined.PushPin,
                         contentDescription = if (item.showInQuickActions) "Pinned to Bar" else "Pin to Bar",
                         modifier = Modifier.size(18.dp),
-                        tint = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                        tint = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
                     )
                 }
-                IconButton(
-                    onClick = {
-                        cardBoundsInRoot?.let { onPreview(it) }
-                    },
-                    modifier = Modifier.size(30.dp)
+                Spacer(modifier = Modifier.height(2.dp))
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .clickable {
+                            cardBoundsInRoot?.let { onPreview(it) }
+                        },
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.Default.OpenInFull,
+                        imageVector = Icons.Default.OpenInFull,
                         contentDescription = "Expand Preview",
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
@@ -4265,12 +4295,13 @@ private fun AccessoryExpandedCardOverlay(
     onTogglePin: () -> Unit
 ) {
     val accentColor = ScribeTheme.colors.interaction.primary
+    val cornerRadius = (10 + 4 * expansionProgress).dp
 
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(cornerRadius),
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 10.dp,
-        shadowElevation = (6 + 8 * expansionProgress).dp,
+        tonalElevation = (4 + 8 * expansionProgress).dp,
+        shadowElevation = (4 + 10 * expansionProgress).dp,
         border = androidx.compose.foundation.BorderStroke(
             0.6.dp,
             MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
@@ -4282,13 +4313,33 @@ private fun AccessoryExpandedCardOverlay(
                 .fillMaxSize()
                 .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
-            // Header: Title, Category Badge, and Close/Shrink Button
+            // Header: Back button, Title & Category Badge, and Close/Shrink Button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                // Back button (tapping shrinks card back into compact mode)
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onDismiss),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 8.dp)
+                ) {
                     Text(
                         text = item.resolvedLabel(),
                         style = MaterialTheme.typography.titleMedium,
@@ -4302,13 +4353,18 @@ private fun AccessoryExpandedCardOverlay(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                IconButton(
-                    onClick = onDismiss,
-                    modifier = Modifier.size(30.dp)
+
+                // Close / Shrink button
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onDismiss),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        Icons.Filled.Close,
-                        contentDescription = "Shrink Preview",
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Close",
                         modifier = Modifier.size(18.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -4316,8 +4372,8 @@ private fun AccessoryExpandedCardOverlay(
             }
 
             // Expanded body: fades in smoothly as the card grows
-            if (expansionProgress > 0.2f) {
-                val contentAlpha = ((expansionProgress - 0.2f) / 0.8f).coerceIn(0f, 1f)
+            if (expansionProgress > 0.15f) {
+                val contentAlpha = ((expansionProgress - 0.15f) / 0.85f).coerceIn(0f, 1f)
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -4376,7 +4432,7 @@ private fun AccessoryExpandedCardOverlay(
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Icon(
-                                Icons.Filled.PushPin,
+                                imageVector = if (item.showInQuickActions) Icons.Filled.PushPin else Icons.Outlined.PushPin,
                                 contentDescription = null,
                                 modifier = Modifier.size(15.dp),
                                 tint = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
@@ -4388,14 +4444,21 @@ private fun AccessoryExpandedCardOverlay(
                                 color = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
+
                         Button(
                             onClick = onInsert,
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(8.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = accentColor)
                         ) {
+                            Icon(
+                                imageVector = Icons.Filled.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Insert",
+                                text = "Insert at Cursor",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onPrimary
