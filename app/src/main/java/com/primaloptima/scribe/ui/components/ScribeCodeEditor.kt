@@ -1167,10 +1167,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
         }
 
         // Focus-aware keyboard adjustment: when keyboard appears (height decreases)
-        // and the document has focus, reveal the cursor above the keyboard.
+        // and the document has focus, reveal the cursor above the keyboard and shortcut bar in one unified step.
         if (isFocused && h < oldh) {
             post {
-                ensureSelectionVisible()
                 (parent as? UnifiedCanvasLayout)?.ensureCursorVisibleAboveKeyboard()
             }
         }
@@ -1183,6 +1182,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
     override fun ensureSelectionVisible() {
         // Only scroll to selection if this editor actually has keyboard focus
         if (!isFocused) return
+        val parentCanvas = parent as? UnifiedCanvasLayout
+        if (parentCanvas != null) {
+            parentCanvas.ensureCursorVisibleAboveKeyboard()
+            return
+        }
         super.ensureSelectionVisible()
     }
 

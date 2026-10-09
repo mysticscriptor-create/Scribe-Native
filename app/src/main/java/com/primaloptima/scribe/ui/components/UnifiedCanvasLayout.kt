@@ -390,7 +390,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val screenTop = screenBottom - rowHeight
 
         val visibleHeight = height
-        val marginPx = (4 * resources.displayMetrics.density).roundToInt()
+        val marginPx = (14 * resources.displayMetrics.density).roundToInt()
 
         if (visibleHeight > 0) {
             if (screenBottom > visibleHeight - marginPx) {
@@ -578,8 +578,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val screenTop = (headerHeight - scrollD) + rectangle.top
             val screenBottom = (headerHeight - scrollD) + rectangle.bottom
             val visibleHeight = height
-            if (screenBottom > visibleHeight) {
-                val delta = (screenBottom - visibleHeight).toFloat()
+            val marginPx = (14 * resources.displayMetrics.density).roundToInt()
+            if (screenBottom > visibleHeight - marginPx) {
+                val delta = (screenBottom - (visibleHeight - marginPx)).toFloat()
                 scrollCanvasBy(delta)
                 return true
             } else if (screenTop < 0 && (scrollD > 0 || editor.offsetY > 0)) {
