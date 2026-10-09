@@ -213,18 +213,18 @@ import com.primaloptima.scribe.ui.theme.FontHelper
 import io.github.rosemoe.sora.event.TextSizeChangeEvent
 
 
-@OptIn(
-    ExperimentalMaterial3Api::class,
-    ExperimentalMaterial3AdaptiveApi::class,
-    androidx.compose.foundation.ExperimentalFoundationApi::class,
-    androidx.compose.foundation.layout.ExperimentalLayoutApi::class
-)
 data class CardPreviewAnchor(
     val item: ShortcutAction,
     val sourceRect: androidx.compose.ui.geometry.Rect,
     val isSnippet: Boolean
 )
 
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalMaterial3AdaptiveApi::class,
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class
+)
 @Composable
 fun MainEditorScreen(
     editorVm: EditorViewModel,
@@ -242,6 +242,7 @@ fun MainEditorScreen(
     onOpenSheets: () -> Unit
 ) {
     val context = LocalContext.current
+    val haptic  = LocalHapticFeedback.current
     val scope   = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -2796,9 +2797,12 @@ fun MainEditorScreen(
                     }
             )
 
+            val statusBarTopDp = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
             val hCompactPx = anchor.height
             val hExpandedTargetPx = with(currentDensity) { 320.dp.toPx() }
-            val maxAvailableHeightPx = (anchor.bottom - docTopInset.toPx() - 16.dp.toPx()).coerceAtLeast(hCompactPx)
+            val maxAvailableHeightPx = with(currentDensity) {
+                (anchor.bottom - statusBarTopDp.toPx() - 16.dp.toPx()).coerceAtLeast(hCompactPx)
+            }
             val hTargetPx = minOf(hExpandedTargetPx, maxAvailableHeightPx)
             val currentHeightPx = hCompactPx + (hTargetPx - hCompactPx) * cardPreviewProgress
             val currentTopPx = anchor.bottom - currentHeightPx
