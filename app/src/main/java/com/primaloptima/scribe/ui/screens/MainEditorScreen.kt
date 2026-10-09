@@ -219,6 +219,12 @@ import io.github.rosemoe.sora.event.TextSizeChangeEvent
     androidx.compose.foundation.ExperimentalFoundationApi::class,
     androidx.compose.foundation.layout.ExperimentalLayoutApi::class
 )
+data class CardPreviewAnchor(
+    val item: ShortcutAction,
+    val sourceRect: androidx.compose.ui.geometry.Rect,
+    val isSnippet: Boolean
+)
+
 @Composable
 fun MainEditorScreen(
     editorVm: EditorViewModel,
@@ -290,6 +296,21 @@ fun MainEditorScreen(
     var isWritingBarSearchActive by remember { mutableStateOf(false) }
     val writingBarSearchFocusRequester = remember { FocusRequester() }
     var previewItem by remember { mutableStateOf<ShortcutAction?>(null) }
+    var activeCardPreview by remember { mutableStateOf<CardPreviewAnchor?>(null) }
+    var isPreviewExpanded by remember { mutableStateOf(false) }
+    val cardPreviewProgress by animateFloatAsState(
+        targetValue = if (isPreviewExpanded) 1f else 0f,
+        animationSpec = spring(
+            stiffness = Spring.StiffnessMediumLow,
+            dampingRatio = Spring.DampingRatioNoBouncy
+        ),
+        label = "cardExpansionProgress",
+        finishedListener = { progress ->
+            if (progress == 0f) {
+                activeCardPreview = null
+            }
+        }
+    )
     var isAwaitingKeyboardOpen by remember { mutableStateOf(false) }
     var isHidingKeyboardForDrawer by remember { mutableStateOf(false) }
 
@@ -1166,25 +1187,31 @@ fun MainEditorScreen(
                         AccessoryDrawerState.EXPANDED -> expandedHeightDp
                         AccessoryDrawerState.FULL -> fullHeightDp
                     }
-                    var drawerDragDeltaPx by remember { mutableFloatStateOf(0f) }
+                    val drawerHeightDpAnim = remember { Animatable(compactHeightDp.value) }
                     var isDrawerDragging by remember { mutableStateOf(false) }
-                    val liveDrawerHeightDp = (targetDrawerHeight - (drawerDragDeltaPx / density.density).dp).coerceIn(compactHeightDp, fullHeightDp)
-                    val isKeyboardActive = isKeyboardVisible || isAwaitingKeyboardOpen || imeAboveNavDp > 40.dp
-                    val animatedDrawerHeight by animateDpAsState(
-                        targetValue = when {
-                            activeAccessoryDrawer != null -> targetDrawerHeight
-                            isKeyboardActive -> compactHeightDp
-                            else -> 0.dp
-                        },
-                        animationSpec = spring(
-                            stiffness = Spring.StiffnessMediumLow,
-                            dampingRatio = Spring.DampingRatioNoBouncy
-                        ),
-                        label = "drawerHeight"
-                    )
+
+                    LaunchedEffect(drawerState, compactHeightDp, expandedHeightDp, fullHeightDp, activeAccessoryDrawer) {
+                        if (activeAccessoryDrawer != null && !isDrawerDragging) {
+                            val target = when (drawerState) {
+                                AccessoryDrawerState.COMPACT -> compactHeightDp.value
+                                AccessoryDrawerState.EXPANDED -> expandedHeightDp.value
+                                AccessoryDrawerState.FULL -> fullHeightDp.value
+                            }
+                            drawerHeightDpAnim.animateTo(
+                                targetValue = target,
+                                animationSpec = spring(
+                                    stiffness = Spring.StiffnessMediumLow,
+                                    dampingRatio = Spring.DampingRatioNoBouncy
+                                )
+                            )
+                        } else if (activeAccessoryDrawer == null) {
+                            drawerHeightDpAnim.snapTo(compactHeightDp.value)
+                        }
+                    }
+
                     val isBarVisible = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen) && shortcuts.isNotEmpty()
                     val effectiveBottomSurfaceHeight = when {
-                        activeAccessoryDrawer != null -> if (isDrawerDragging) liveDrawerHeightDp else if (drawerState == AccessoryDrawerState.COMPACT) compactHeightDp else animatedDrawerHeight
+                        activeAccessoryDrawer != null -> drawerHeightDpAnim.value.dp.coerceIn(compactHeightDp, fullHeightDp)
                         isAwaitingKeyboardOpen -> compactHeightDp
                         isKeyboardVisible || imeAboveNavDp > 10.dp -> compactHeightDp
                         else -> 0.dp
@@ -1686,37 +1713,7 @@ fun MainEditorScreen(
                                     .align(Alignment.BottomCenter)
                                     .navigationBarsPadding()
                             ) {
-                                // ── Phase 5: Expandable Floating Item Preview Overlay (Above Shortcut Bar, No Dark Scrim) ──
-                                AnimatedVisibility(
-                                    visible = previewItem != null,
-                                    enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(tween(180)),
-                                    exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(tween(140)),
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                ) {
-                                    if (previewItem != null) {
-                                        AccessoryItemPreviewCard(
-                                            item = previewItem!!,
-                                            isSnippet = activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS,
-                                            onDismiss = { previewItem = null },
-                                            onInsert = {
-                                                val shortcut = previewItem!!
-                                                when (shortcut.kind) {
-                                                    "wrap", "pair" -> {
-                                                        val open = shortcut.payload
-                                                        val close = shortcut.closing?.ifBlank { null } ?: shortcut.payload
-                                                        soraEditorRef?.applyFormat(open, close)
-                                                    }
-                                                    "prefix" -> soraEditorRef?.applySmartPrefix(shortcut.payload, shortcuts)
-                                                    else     -> soraEditorRef?.insertAtCursor(shortcut.payload)
-                                                }
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                previewItem = null
-                                                Toast.makeText(context, "Inserted: " + shortcut.resolvedLabel(), Toast.LENGTH_SHORT).show()
-                                            },
-                                            onTogglePin = { shortcutsVm.toggleShortcutPin(previewItem!!.id) }
-                                        )
-                                    }
-                                }
+
                                 Surface(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -2054,41 +2051,7 @@ fun MainEditorScreen(
                                                             )
                                                         }
                                                     }
-                                                    // Keyboard Pill (⌨)
-                                                    Surface(
-                                                        shape = RoundedCornerShape(8.dp),
-                                                        color = ScribeTheme.colors.interaction.primary.copy(alpha = 0.14f),
-                                                        contentColor = ScribeTheme.colors.interaction.primary,
-                                                        border = androidx.compose.foundation.BorderStroke(
-                                                            0.5.dp,
-                                                            ScribeTheme.colors.interaction.primary.copy(alpha = 0.35f)
-                                                        ),
-                                                        modifier = Modifier
-                                                            .height(ScribeTheme.metrics.chipHeight)
-                                                            .clickable {
-                                                                activeAccessoryDrawer = null
-                                                                drawerState = AccessoryDrawerState.COMPACT
-                                                                isAwaitingKeyboardOpen = true
-                                                                isHidingKeyboardForDrawer = false
-                                                                drawerSearchQuery = ""
-                                                                isWritingBarSearchActive = false
-                                                                previewItem = null
-                                                                soraEditorRef?.requestFocus()
-                                                                keyboardController?.show()
-                                                                try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
-                                                            }
-                                                    ) {
-                                                        Box(
-                                                            contentAlignment = Alignment.Center,
-                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = ScribeTheme.spacing.micro)
-                                                        ) {
-                                                            Icon(
-                                                                Icons.Filled.Keyboard,
-                                                                contentDescription = "Restore Keyboard",
-                                                                modifier = Modifier.size(15.dp)
-                                                            )
-                                                        }
-                                                    }
+
                                                 }
                                             }
                                             Box(
@@ -2255,7 +2218,7 @@ fun MainEditorScreen(
                                 // ── Stable Bottom Input Region ──
                                 val isDrawerActive = activeAccessoryDrawer != null || isAwaitingKeyboardOpen
                                 if (isDrawerActive) {
-                                    val bottomSurfaceHeight = if (isDrawerDragging) liveDrawerHeightDp else if (drawerState == AccessoryDrawerState.COMPACT) compactHeightDp else animatedDrawerHeight
+                                    val bottomSurfaceHeight = drawerHeightDpAnim.value.dp.coerceIn(compactHeightDp, fullHeightDp)
                                     var lastActiveDrawerMode by remember { mutableStateOf(AccessoryDrawerMode.SNIPPETS) }
                                     if (activeAccessoryDrawer != null) {
                                         lastActiveDrawerMode = activeAccessoryDrawer!!
@@ -2270,21 +2233,54 @@ fun MainEditorScreen(
                                             currentHeightDp = bottomSurfaceHeight,
                                             drawerState = drawerState,
                                             onDrawerStateChange = { drawerState = it },
-                                            onDragDelta = { delta ->
+                                            onDragDelta = { deltaPx ->
                                                 isDrawerDragging = true
-                                                drawerDragDeltaPx += delta
+                                                val deltaDp = deltaPx / density.density
+                                                scope.launch {
+                                                    drawerHeightDpAnim.snapTo(
+                                                        (drawerHeightDpAnim.value - deltaDp).coerceIn(compactHeightDp.value, fullHeightDp.value)
+                                                    )
+                                                }
                                             },
-                                            onDragEnd = {
-                                                if (isDrawerDragging) {
-                                                    val finalH = liveDrawerHeightDp
-                                                    val nearest = when {
-                                                        finalH < (compactHeightDp + expandedHeightDp) / 2 -> AccessoryDrawerState.COMPACT
-                                                        finalH < (expandedHeightDp + fullHeightDp) / 2 -> AccessoryDrawerState.EXPANDED
-                                                        else -> AccessoryDrawerState.FULL
+                                            onDragEndWithVelocity = { vyPx ->
+                                                isDrawerDragging = false
+                                                val vyDp = vyPx / density.density
+                                                val currentH = drawerHeightDpAnim.value
+                                                val targetState = when {
+                                                    vyDp < -350f -> {
+                                                        if (currentH < expandedHeightDp.value * 0.95f) AccessoryDrawerState.EXPANDED
+                                                        else AccessoryDrawerState.FULL
                                                     }
-                                                    drawerState = nearest
-                                                    drawerDragDeltaPx = 0f
-                                                    isDrawerDragging = false
+                                                    vyDp > 350f -> {
+                                                        if (currentH > expandedHeightDp.value * 1.05f) AccessoryDrawerState.EXPANDED
+                                                        else AccessoryDrawerState.COMPACT
+                                                    }
+                                                    else -> {
+                                                        val dCompact = kotlin.math.abs(currentH - compactHeightDp.value)
+                                                        val dExpanded = kotlin.math.abs(currentH - expandedHeightDp.value)
+                                                        val dFull = kotlin.math.abs(currentH - fullHeightDp.value)
+                                                        when {
+                                                            dCompact <= dExpanded && dCompact <= dFull -> AccessoryDrawerState.COMPACT
+                                                            dExpanded <= dFull -> AccessoryDrawerState.EXPANDED
+                                                            else -> AccessoryDrawerState.FULL
+                                                        }
+                                                    }
+                                                }
+                                                drawerState = targetState
+                                                val targetHeight = when (targetState) {
+                                                    AccessoryDrawerState.COMPACT -> compactHeightDp.value
+                                                    AccessoryDrawerState.EXPANDED -> expandedHeightDp.value
+                                                    AccessoryDrawerState.FULL -> fullHeightDp.value
+                                                }
+                                                scope.launch {
+                                                    drawerHeightDpAnim.animateTo(
+                                                        targetValue = targetHeight,
+                                                        initialVelocity = -vyDp,
+                                                        animationSpec = spring(
+                                                            stiffness = Spring.StiffnessMediumLow,
+                                                            dampingRatio = Spring.DampingRatioNoBouncy
+                                                        )
+                                                    )
                                                 }
                                             },
                                             onOpenShortcuts = {
@@ -2295,11 +2291,19 @@ fun MainEditorScreen(
                                                 drawerSearchQuery = ""
                                                 isWritingBarSearchActive = false
                                                 previewItem = null
+                                                activeCardPreview = null
+                                                isPreviewExpanded = false
                                                 onOpenShortcuts()
                                             },
                                             searchQuery = drawerSearchQuery,
-                                            previewItem = previewItem,
-                                            onPreviewItemChange = { previewItem = it },
+                                            onCardPreview = { action, rect ->
+                                                activeCardPreview = CardPreviewAnchor(
+                                                    item = action,
+                                                    sourceRect = rect,
+                                                    isSnippet = (activeAccessoryDrawer ?: lastActiveDrawerMode) == AccessoryDrawerMode.SNIPPETS
+                                                )
+                                                isPreviewExpanded = true
+                                            },
                                             snippets = snippets,
                                             templates = templates,
                                             shortcutsVm = shortcutsVm,
@@ -2754,6 +2758,69 @@ fun MainEditorScreen(
                         }
                     },
                     onDismiss = { showOrnamentPicker = false }
+                )
+            }
+        }
+        // ── Phase 5: Bottom-Anchored Upward Expanding Card Overlay ("Over" Drawer) ──
+        if (activeCardPreview != null) {
+            val preview = activeCardPreview!!
+            val anchor = preview.sourceRect
+            val currentDensity = LocalDensity.current
+
+            // Tap-outside translucent backdrop that shrinks the card back
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.25f * cardPreviewProgress))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) {
+                        isPreviewExpanded = false
+                    }
+            )
+
+            val hCompactPx = anchor.height
+            val hExpandedTargetPx = with(currentDensity) { 280.dp.toPx() }
+            val maxAvailableHeightPx = (anchor.bottom - docTopInset.toPx() - 16.dp.toPx()).coerceAtLeast(hCompactPx)
+            val hTargetPx = minOf(hExpandedTargetPx, maxAvailableHeightPx)
+            val currentHeightPx = hCompactPx + (hTargetPx - hCompactPx) * cardPreviewProgress
+            val currentTopPx = anchor.bottom - currentHeightPx
+
+            Box(
+                modifier = Modifier
+                    .offset {
+                        androidx.compose.ui.unit.IntOffset(
+                            x = anchor.left.roundToInt(),
+                            y = currentTopPx.roundToInt()
+                        )
+                    }
+                    .width(with(currentDensity) { anchor.width.toDp() })
+                    .height(with(currentDensity) { currentHeightPx.toDp() })
+            ) {
+                AccessoryExpandedCardOverlay(
+                    item = preview.item,
+                    isSnippet = preview.isSnippet,
+                    expansionProgress = cardPreviewProgress,
+                    onDismiss = { isPreviewExpanded = false },
+                    onInsert = {
+                        val shortcut = preview.item
+                        when (shortcut.kind) {
+                            "wrap", "pair" -> {
+                                val open = shortcut.payload
+                                val close = shortcut.closing?.ifBlank { null } ?: shortcut.payload
+                                soraEditorRef?.applyFormat(open, close)
+                            }
+                            "prefix" -> soraEditorRef?.applySmartPrefix(shortcut.payload, shortcuts)
+                            else     -> soraEditorRef?.insertAtCursor(shortcut.payload)
+                        }
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        Toast.makeText(context, "Inserted: " + shortcut.resolvedLabel(), Toast.LENGTH_SHORT).show()
+                        isPreviewExpanded = false
+                    },
+                    onTogglePin = {
+                        shortcutsVm.toggleShortcutPin(preview.item.id)
+                    }
                 )
             }
         }
@@ -3866,11 +3933,10 @@ private fun AccessoryDrawer(
     drawerState: AccessoryDrawerState,
     onDrawerStateChange: (AccessoryDrawerState) -> Unit,
     onDragDelta: (Float) -> Unit,
-    onDragEnd: () -> Unit,
+    onDragEndWithVelocity: (Float) -> Unit,
     onOpenShortcuts: () -> Unit,
     searchQuery: String,
-    previewItem: ShortcutAction?,
-    onPreviewItemChange: (ShortcutAction?) -> Unit,
+    onCardPreview: (ShortcutAction, androidx.compose.ui.geometry.Rect) -> Unit,
     snippets: List<ShortcutAction>,
     templates: List<ShortcutAction>,
     shortcutsVm: ShortcutsViewModel,
@@ -3921,17 +3987,27 @@ private fun AccessoryDrawer(
         )
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Phase 2: Drag Handle & State Toggle Bar (Header)
+            // Phase 2: Drag Handle & State Toggle Bar (Header with Velocity & Fling)
+            val drawerVelocityTracker = remember { androidx.compose.ui.input.pointer.util.VelocityTracker() }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(24.dp)
-                    .pointerInput(drawerState) {
+                    .height(28.dp)
+                    .pointerInput(Unit) {
                         detectVerticalDragGestures(
-                            onDragEnd = { onDragEnd() },
-                            onDragCancel = { onDragEnd() },
+                            onDragStart = {
+                                drawerVelocityTracker.resetTracking()
+                            },
+                            onDragEnd = {
+                                val vy = drawerVelocityTracker.calculateVelocity().y
+                                onDragEndWithVelocity(vy)
+                            },
+                            onDragCancel = {
+                                onDragEndWithVelocity(0f)
+                            },
                             onVerticalDrag = { change, dragAmount ->
                                 change.consume()
+                                drawerVelocityTracker.addPosition(change.uptimeMillis, change.position)
                                 onDragDelta(dragAmount)
                             }
                         )
@@ -3941,20 +4017,12 @@ private fun AccessoryDrawer(
                 // Drag handle pill in center
                 Box(
                     modifier = Modifier
-                        .width(36.dp)
+                        .width(38.dp)
                         .height(4.dp)
                         .background(
-                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f),
                             RoundedCornerShape(2.dp)
                         )
-                        .clickable {
-                            val next = when (drawerState) {
-                                AccessoryDrawerState.COMPACT -> AccessoryDrawerState.EXPANDED
-                                AccessoryDrawerState.EXPANDED -> AccessoryDrawerState.FULL
-                                AccessoryDrawerState.FULL -> AccessoryDrawerState.COMPACT
-                            }
-                            onDrawerStateChange(next)
-                        }
                 )
 
                 // Expand / Collapse Chevron button on the right
@@ -4083,7 +4151,7 @@ private fun AccessoryDrawer(
                             isSnippet = isSnippet,
                             onInsert = { onInsert(item) },
                             onTogglePin = { onTogglePin(item.id) },
-                            onPreview = { onPreviewItemChange(item) }
+                            onPreview = { rect -> onCardPreview(item, rect) }
                         )
                     }
                 }
@@ -4099,9 +4167,10 @@ private fun AccessoryItemCard(
     isSnippet: Boolean,
     onInsert: () -> Unit,
     onTogglePin: () -> Unit,
-    onPreview: () -> Unit
+    onPreview: (androidx.compose.ui.geometry.Rect) -> Unit
 ) {
     val accentColor = ScribeTheme.colors.interaction.primary
+    var cardBoundsInRoot by remember { mutableStateOf<androidx.compose.ui.geometry.Rect?>(null) }
 
     Surface(
         shape = RoundedCornerShape(10.dp),
@@ -4110,7 +4179,11 @@ private fun AccessoryItemCard(
             0.5.dp,
             MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.22f)
         ),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { coordinates ->
+                cardBoundsInRoot = coordinates.boundsInRoot()
+            }
     ) {
         Row(
             modifier = Modifier
@@ -4146,7 +4219,7 @@ private fun AccessoryItemCard(
                 }
             }
 
-            // Zone 2 & 3: Right Actions Column (Top: Pin, Bottom: Chevron ›)
+            // Zone 2 & 3: Right Actions Column (Top: Pin, Bottom: Expand/Preview)
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
@@ -4154,33 +4227,26 @@ private fun AccessoryItemCard(
             ) {
                 IconButton(
                     onClick = onTogglePin,
-                    modifier = Modifier.size(26.dp)
-                ) {
-                    if (item.showInQuickActions) {
-                        Icon(
-                            Icons.Filled.PushPin,
-                            contentDescription = "Pinned to Bar",
-                            modifier = Modifier.size(15.dp),
-                            tint = accentColor
-                        )
-                    } else {
-                        Icon(
-                            Icons.Outlined.PushPin,
-                            contentDescription = "Pin to Bar",
-                            modifier = Modifier.size(15.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-                        )
-                    }
-                }
-                IconButton(
-                    onClick = onPreview,
-                    modifier = Modifier.size(26.dp)
+                    modifier = Modifier.size(30.dp)
                 ) {
                     Icon(
-                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = "Preview",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        Icons.Filled.PushPin,
+                        contentDescription = if (item.showInQuickActions) "Pinned to Bar" else "Pin to Bar",
+                        modifier = Modifier.size(18.dp),
+                        tint = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                    )
+                }
+                IconButton(
+                    onClick = {
+                        cardBoundsInRoot?.let { onPreview(it) }
+                    },
+                    modifier = Modifier.size(30.dp)
+                ) {
+                    Icon(
+                        Icons.Default.OpenInFull,
+                        contentDescription = "Expand Preview",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
                     )
                 }
             }
@@ -4188,34 +4254,35 @@ private fun AccessoryItemCard(
     }
 }
 
-// Phase 5: Expandable Floating Item Preview Overlay (grows upward from shortcut bar, no dark scrim)
+// Phase 5: Bottom-Anchored Upward Expanding Card Overlay ("Over" Drawer)
 @Composable
-private fun AccessoryItemPreviewCard(
+private fun AccessoryExpandedCardOverlay(
     item: ShortcutAction,
     isSnippet: Boolean,
+    expansionProgress: Float,
     onDismiss: () -> Unit,
     onInsert: () -> Unit,
     onTogglePin: () -> Unit
 ) {
+    val accentColor = ScribeTheme.colors.interaction.primary
+
     Surface(
-        shape = RoundedCornerShape(14.dp),
+        shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp,
-        shadowElevation = 8.dp,
+        tonalElevation = 10.dp,
+        shadowElevation = (6 + 8 * expansionProgress).dp,
         border = androidx.compose.foundation.BorderStroke(
             0.6.dp,
             MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
         ),
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 6.dp)
+        modifier = Modifier.fillMaxSize()
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp)
+                .fillMaxSize()
+                .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
-            // Header
+            // Header: Title, Category Badge, and Close/Shrink Button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -4237,87 +4304,104 @@ private fun AccessoryItemPreviewCard(
                 }
                 IconButton(
                     onClick = onDismiss,
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(30.dp)
                 ) {
                     Icon(
                         Icons.Filled.Close,
-                        contentDescription = "Close Preview",
-                        modifier = Modifier.size(18.dp)
+                        contentDescription = "Shrink Preview",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
 
-            if (item.templateDescription.isNotBlank()) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = item.templateDescription,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Payload Preview Container (natural height up to 220dp with internal scrolling)
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 60.dp, max = 220.dp)
-                    .background(
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                    .border(
-                        0.5.dp,
-                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-                        RoundedCornerShape(8.dp)
-                    )
-                    .padding(8.dp)
-            ) {
-                Text(
-                    text = item.payload,
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.verticalScroll(rememberScrollState())
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Footer Actions
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedButton(
-                    onClick = onTogglePin,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(8.dp)
+            // Expanded body: fades in smoothly as the card grows
+            if (expansionProgress > 0.2f) {
+                val contentAlpha = ((expansionProgress - 0.2f) / 0.8f).coerceIn(0f, 1f)
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .graphicsLayer { alpha = contentAlpha }
                 ) {
-                    Icon(
-                        if (item.showInQuickActions) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                        contentDescription = null,
-                        modifier = Modifier.size(15.dp),
-                        tint = if (item.showInQuickActions) ScribeTheme.colors.interaction.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(if (item.showInQuickActions) "Pinned" else "Pin to Bar", fontSize = 12.sp)
-                }
+                    if (item.templateDescription.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = item.templateDescription,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
 
-                Button(
-                    onClick = onInsert,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Icon(
-                        Icons.Filled.Add,
-                        contentDescription = null,
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Insert at Cursor", fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Payload Preview Box
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .border(
+                                0.5.dp,
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                                RoundedCornerShape(8.dp)
+                            )
+                            .padding(8.dp)
+                    ) {
+                        Text(
+                            text = item.payload,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.verticalScroll(rememberScrollState())
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Footer Actions: Pin toggle and Insert button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = onTogglePin,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.PushPin,
+                                contentDescription = null,
+                                modifier = Modifier.size(15.dp),
+                                tint = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = if (item.showInQuickActions) "Pinned" else "Pin to Bar",
+                                fontSize = 12.sp,
+                                color = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Button(
+                            onClick = onInsert,
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = accentColor)
+                        ) {
+                            Text(
+                                text = "Insert",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                    }
                 }
             }
         }
