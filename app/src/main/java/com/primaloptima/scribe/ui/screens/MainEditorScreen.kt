@@ -41,7 +41,8 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.material3.ripple
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.AnnotatedString
@@ -1991,15 +1992,15 @@ fun MainEditorScreen(
                                                     )
                                                 ),
                                                 exit = androidx.compose.animation.shrinkHorizontally(
-                                                    animationSpec = androidx.compose.animation.core.tween(
-                                                        durationMillis = 150,
-                                                        easing = androidx.compose.animation.core.FastOutSlowInEasing
+                                                    animationSpec = spring(
+                                                        stiffness = Spring.StiffnessMediumLow,
+                                                        dampingRatio = Spring.DampingRatioNoBouncy
                                                     ),
                                                     shrinkTowards = Alignment.Start
                                                 ) + androidx.compose.animation.fadeOut(
-                                                    animationSpec = androidx.compose.animation.core.tween(
-                                                        durationMillis = 150,
-                                                        easing = androidx.compose.animation.core.FastOutSlowInEasing
+                                                    animationSpec = spring(
+                                                        stiffness = Spring.StiffnessMediumLow,
+                                                        dampingRatio = Spring.DampingRatioNoBouncy
                                                     )
                                                 )
                                             ) {
@@ -2835,19 +2836,28 @@ fun MainEditorScreen(
             }
             val hTargetPx = minOf(hExpandedTargetPx, maxAvailableHeightPx)
 
-            val currentHeightPx = hCompactPx + (hTargetPx - hCompactPx) * cardPreviewProgress
-            val currentTopPx = anchor.bottom - currentHeightPx
-
             Box(
                 modifier = Modifier
                     .offset {
+                        val progress = cardPreviewProgress
+                        val heightPx = hCompactPx + (hTargetPx - hCompactPx) * progress
+                        val topPx = anchor.bottom - heightPx
                         androidx.compose.ui.unit.IntOffset(
                             x = anchor.left.roundToInt(),
-                            y = currentTopPx.roundToInt()
+                            y = topPx.roundToInt()
                         )
                     }
-                    .width(with(currentDensity) { anchor.width.toDp() })
-                    .height(with(currentDensity) { currentHeightPx.toDp() })
+                    .layout { measurable, _ ->
+                        val progress = cardPreviewProgress
+                        val heightPx = (hCompactPx + (hTargetPx - hCompactPx) * progress).roundToInt()
+                        val widthPx = anchor.width.roundToInt()
+                        val placeable = measurable.measure(
+                            androidx.compose.ui.unit.Constraints.fixed(widthPx, heightPx)
+                        )
+                        layout(placeable.width, placeable.height) {
+                            placeable.placeRelative(0, 0)
+                        }
+                    }
             ) {
                 AccessoryExpandedCardOverlay(
                     item = preview.item,
@@ -4252,15 +4262,14 @@ private fun AccessoryItemCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.Top
         ) {
             // Zone 1: Body / Title & Subtitle (Tapping inserts immediately)
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .clickable(onClick = onInsert)
-                    .padding(vertical = 4.dp),
+                    .clickable(onClick = onInsert),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
@@ -4286,7 +4295,7 @@ private fun AccessoryItemCard(
             // Zone 2 & 3: Right Actions Column (Top: Pin, Bottom: Expand/Preview)
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
+                verticalArrangement = Arrangement.Top,
                 modifier = Modifier.padding(end = 4.dp)
             ) {
                 Box(
@@ -4338,12 +4347,14 @@ private fun AccessoryExpandedCardOverlay(
 ) {
     val accentColor = ScribeTheme.colors.interaction.primary
     val cornerRadius = (10 + 4 * expansionProgress).dp
-    val baseCardColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f).compositeOver(MaterialTheme.colorScheme.surface)
-    val cardBorderAlpha = 0.22f + 0.23f * expansionProgress
+    val baseCardColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+    val elevatedCardColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f).compositeOver(MaterialTheme.colorScheme.surface)
+    val cardBgColor = lerp(baseCardColor, elevatedCardColor, expansionProgress)
+    val cardBorderAlpha = 0.22f + 0.18f * expansionProgress
 
     Surface(
         shape = RoundedCornerShape(cornerRadius),
-        color = baseCardColor,
+        color = cardBgColor,
         tonalElevation = (8 * expansionProgress).dp,
         shadowElevation = (10 * expansionProgress).dp,
         border = androidx.compose.foundation.BorderStroke(
@@ -4356,51 +4367,49 @@ private fun AccessoryExpandedCardOverlay(
             modifier = Modifier.fillMaxSize()
         ) {
             // ── Expanded Body: Payload Preview Box (fades in smoothly via draw phase) ──
-            if (expansionProgress > 0.04f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        start = 12.dp,
+                        end = 12.dp,
+                        top = 52.dp,
+                        bottom = 44.dp
+                    )
+                    .graphicsLayer {
+                        alpha = ((expansionProgress - 0.12f) / 0.88f).coerceIn(0f, 1f)
+                    }
+            ) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(
-                            start = 12.dp,
-                            end = 12.dp,
-                            top = 50.dp,
-                            bottom = 40.dp
+                        .background(
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                            shape = RoundedCornerShape(8.dp)
                         )
-                        .graphicsLayer {
-                            alpha = ((expansionProgress - 0.10f) / 0.90f).coerceIn(0f, 1f)
-                        }
+                        .border(
+                            0.5.dp,
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .padding(horizontal = 10.dp, vertical = 8.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                                shape = RoundedCornerShape(8.dp)
-                            )
-                            .border(
-                                0.5.dp,
-                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
-                                RoundedCornerShape(8.dp)
-                            )
-                            .padding(horizontal = 10.dp, vertical = 8.dp)
-                    ) {
-                        CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
-                            Text(
-                                text = item.payload,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 12.sp,
-                                lineHeight = 16.sp,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier.verticalScroll(rememberScrollState())
-                            )
-                        }
+                    CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
+                        Text(
+                            text = item.payload,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.verticalScroll(rememberScrollState())
+                        )
                     }
                 }
             }
 
             // ── Header: Title & Subtitle ──
             // At progress = 0: perfectly aligns with compact card (start = 12.dp, top = 8.dp, end = 44.dp)
-            // As card expands upward: anchors to top of expanding card, smoothly becoming expanded header
+            // As card expands upward: anchors to top of expanding card, moving upward smoothly with the expanding header
             Box(
                 modifier = Modifier
                     .align(Alignment.TopStart)
@@ -4438,114 +4447,125 @@ private fun AccessoryExpandedCardOverlay(
                 }
             }
 
-            // ── Expanded Footer Actions: Pin & Insert buttons ──
-            // Smoothly fades in as card expands to the left of the shrink icon
-            if (expansionProgress > 0.10f) {
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth()
-                        .padding(start = 12.dp, end = 44.dp, bottom = 4.dp)
-                        .height(30.dp)
-                        .graphicsLayer {
-                            alpha = ((expansionProgress - 0.20f) / 0.80f).coerceIn(0f, 1f)
-                        },
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedButton(
-                        onClick = onTogglePin,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(30.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                    ) {
-                        Icon(
-                            imageVector = if (item.showInQuickActions) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = if (item.showInQuickActions) "Pinned" else "Pin",
-                            fontSize = 11.sp,
-                            color = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+            // ── Header Compact Pin Icon: Anchored to Header (top = 8.dp, end = 8.dp) ──
+            // Matches compact card at progress = 0 to the exact pixel.
+            // Stays anchored to the top header and moves upward together with Title/Subtitle.
+            // Smoothly fades out in draw phase as the expanded footer actions take over.
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 8.dp, end = 8.dp)
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .graphicsLayer {
+                        alpha = (1f - (expansionProgress / 0.35f)).coerceIn(0f, 1f)
                     }
-                    Button(
-                        onClick = onInsert,
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(30.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = accentColor),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Add,
-                            contentDescription = null,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "Insert",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onPrimary
-                        )
-                    }
-                }
+                    .clickable(enabled = expansionProgress < 0.20f, onClick = onTogglePin),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (item.showInQuickActions) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                    contentDescription = if (item.showInQuickActions) "Pinned" else "Pin",
+                    modifier = Modifier.size(18.dp),
+                    tint = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                )
             }
 
-            // ── Compact Pin Icon: Exactly anchored at (end = 8.dp, bottom = 36.dp) ──
-            // Matches compact card at progress = 0 to the exact pixel.
-            // Stays stationary and smoothly fades out in place as card expands.
-            // Smoothly fades back in as card shrinks. Never jumps!
-            if (expansionProgress < 0.35f) {
-                Box(
+            // ── Expanded Footer Actions: Pin & Insert buttons ──
+            // Smoothly fades in via draw phase as card expands to the left of the shrink icon
+            Row(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .fillMaxWidth()
+                    .padding(start = 12.dp, end = 44.dp, bottom = 8.dp)
+                    .height(30.dp)
+                    .graphicsLayer {
+                        alpha = ((expansionProgress - 0.25f) / 0.75f).coerceIn(0f, 1f)
+                    },
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(
+                    onClick = onTogglePin,
+                    enabled = expansionProgress > 0.6f,
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 8.dp, bottom = 36.dp)
-                        .size(30.dp)
-                        .clip(CircleShape)
-                        .graphicsLayer {
-                            alpha = (1f - (expansionProgress / 0.22f)).coerceIn(0f, 1f)
-                        }
-                        .clickable(enabled = expansionProgress < 0.20f, onClick = onTogglePin),
-                    contentAlignment = Alignment.Center
+                        .weight(1f)
+                        .height(30.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                 ) {
                     Icon(
                         imageVector = if (item.showInQuickActions) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                        contentDescription = if (item.showInQuickActions) "Pinned" else "Pin",
-                        modifier = Modifier.size(18.dp),
-                        tint = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (item.showInQuickActions) "Pinned" else "Pin",
+                        fontSize = 11.sp,
+                        color = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Button(
+                    onClick = onInsert,
+                    enabled = expansionProgress > 0.6f,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(30.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Insert",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onPrimary
                     )
                 }
             }
 
-            // ── Morphing Expand/Shrink Action Icon: Exactly anchored at (end = 8.dp, bottom = 4.dp) ──
+            // ── Morphing Expand/Shrink Action Icon: Exactly anchored at (end = 8.dp, bottom = 8.dp) ──
             // Matches compact card at progress = 0 to the exact pixel.
             // Sits stationary at bottom-right and smoothly rotates 180° in place.
-            // Morphs between OpenInFull and CloseFullscreen. Never jumps!
+            // Morphs between OpenInFull and CloseFullscreen via silky draw-phase crossfade. Never jumps!
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 8.dp, bottom = 4.dp)
+                    .padding(end = 8.dp, bottom = 8.dp)
                     .size(30.dp)
                     .clip(CircleShape)
+                    .graphicsLayer {
+                        rotationZ = 180f * expansionProgress
+                    }
                     .clickable(onClick = onDismiss),
                 contentAlignment = Alignment.Center
             ) {
-                val isMorphed = expansionProgress > 0.5f
                 Icon(
-                    imageVector = if (isMorphed) Icons.Default.CloseFullscreen else Icons.Default.OpenInFull,
-                    contentDescription = if (isMorphed) "Shrink" else "Expand",
+                    imageVector = Icons.Default.OpenInFull,
+                    contentDescription = "Expand",
                     modifier = Modifier
                         .size(18.dp)
                         .graphicsLayer {
-                            rotationZ = 180f * expansionProgress
+                            alpha = (1f - expansionProgress * 2.2f).coerceIn(0f, 1f)
+                        },
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
+                )
+                Icon(
+                    imageVector = Icons.Default.CloseFullscreen,
+                    contentDescription = "Shrink",
+                    modifier = Modifier
+                        .size(18.dp)
+                        .graphicsLayer {
+                            alpha = ((expansionProgress - 0.45f) * 2.2f).coerceIn(0f, 1f)
                         },
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
                 )
