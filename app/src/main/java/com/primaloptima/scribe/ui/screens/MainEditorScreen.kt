@@ -60,6 +60,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalOverscrollConfiguration
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -2784,11 +2786,10 @@ fun MainEditorScreen(
             val anchor = preview.sourceRect
             val currentDensity = LocalDensity.current
 
-            // Tap-outside translucent backdrop that shrinks the card back
+            // Tap-outside dismiss area (no scrim) that shrinks the card back
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.25f * cardPreviewProgress))
                     .clickable(
                         indication = null,
                         interactionSource = remember { MutableInteractionSource() }
@@ -2799,7 +2800,29 @@ fun MainEditorScreen(
 
             val statusBarTopDp = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
             val hCompactPx = anchor.height
-            val hExpandedTargetPx = with(currentDensity) { 320.dp.toPx() }
+
+            // Calculate content-based expanded height:
+            // Expands according to contents (compact for 1-2 lines, taller for longer content, capped by max available height)
+            val cardWidthDp = with(currentDensity) { anchor.width.toDp() }
+            val contentWidthDp = (cardWidthDp - 44.dp).coerceAtLeast(100.dp)
+            val charsPerLine = (contentWidthDp.value / 7.2f).toInt().coerceAtLeast(15)
+            val lineList = preview.item.payload.split("
+")
+            val totalLines = lineList.sumOf { line ->
+                if (line.isEmpty()) 1 else ((line.length + charsPerLine - 1) / charsPerLine).coerceAtLeast(1)
+            }
+
+            val headerHeightDp = 38.dp
+            val descHeightDp = if (preview.item.templateDescription.isNotBlank()) 22.dp else 0.dp
+            val spacersHeightDp = 18.dp
+            val payloadTextHeightDp = (totalLines * 16.5f).dp
+            val payloadBoxHeightDp = payloadTextHeightDp + 18.dp
+            val footerHeightDp = 40.dp
+            val cardPaddingDp = 20.dp
+
+            val naturalExpandedHeightDp = (cardPaddingDp + headerHeightDp + descHeightDp + spacersHeightDp + payloadBoxHeightDp + footerHeightDp).coerceAtLeast(130.dp)
+
+            val hExpandedTargetPx = with(currentDensity) { naturalExpandedHeightDp.toPx() }
             val maxAvailableHeightPx = with(currentDensity) {
                 (anchor.bottom - statusBarTopDp.toPx() - 16.dp.toPx()).coerceAtLeast(hCompactPx)
             }
@@ -4261,7 +4284,7 @@ private fun AccessoryItemCard(
                 ) {
                     Icon(
                         imageVector = if (item.showInQuickActions) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                        contentDescription = if (item.showInQuickActions) "Pinned to Bar" else "Pin to Bar",
+                        contentDescription = if (item.showInQuickActions) "Pinned" else "Pin",
                         modifier = Modifier.size(18.dp),
                         tint = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
                     )
@@ -4289,6 +4312,7 @@ private fun AccessoryItemCard(
 }
 
 // Phase 5: Bottom-Anchored Upward Expanding Card Overlay ("Over" Drawer)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AccessoryExpandedCardOverlay(
     item: ShortcutAction,
@@ -4317,32 +4341,15 @@ private fun AccessoryExpandedCardOverlay(
                 .fillMaxSize()
                 .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
-            // Header: Back button, Title & Category Badge, and Close/Shrink Button
+            // Header: Title & Category Badge (back arrow and close button removed per user request)
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Back button (tapping shrinks card back into compact mode)
-                Box(
-                    modifier = Modifier
-                        .size(30.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onDismiss),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
                 Column(
                     modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 8.dp)
+                        .fillMaxWidth()
+                        .padding(horizontal = 2.dp, vertical = 2.dp)
                 ) {
                     Text(
                         text = item.resolvedLabel(),
@@ -4355,22 +4362,6 @@ private fun AccessoryExpandedCardOverlay(
                         text = item.category.replaceFirstChar { it.uppercase() } + " • " + (if (isSnippet) "Snippet" else "Template"),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                // Close / Shrink button
-                Box(
-                    modifier = Modifier
-                        .size(30.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onDismiss),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Close,
-                        contentDescription = "Close",
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -4397,7 +4388,7 @@ private fun AccessoryExpandedCardOverlay(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Payload Preview Box
+                    // Payload Preview Box (with overscroll shadow removed)
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -4413,18 +4404,20 @@ private fun AccessoryExpandedCardOverlay(
                             )
                             .padding(8.dp)
                     ) {
-                        Text(
-                            text = item.payload,
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.verticalScroll(rememberScrollState())
-                        )
+                        CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
+                            Text(
+                                text = item.payload,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.verticalScroll(rememberScrollState())
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Footer Actions: Pin toggle and Insert button
+                    // Footer Actions: Pin, Insert, and bottom-right morphing Shrink icon
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -4433,7 +4426,8 @@ private fun AccessoryExpandedCardOverlay(
                         OutlinedButton(
                             onClick = onTogglePin,
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp)
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                         ) {
                             Icon(
                                 imageVector = if (item.showInQuickActions) Icons.Filled.PushPin else Icons.Outlined.PushPin,
@@ -4443,7 +4437,7 @@ private fun AccessoryExpandedCardOverlay(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = if (item.showInQuickActions) "Pinned" else "Pin to Bar",
+                                text = if (item.showInQuickActions) "Pinned" else "Pin",
                                 fontSize = 12.sp,
                                 color = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -4453,7 +4447,8 @@ private fun AccessoryExpandedCardOverlay(
                             onClick = onInsert,
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = accentColor)
+                            colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Add,
@@ -4462,10 +4457,26 @@ private fun AccessoryExpandedCardOverlay(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = "Insert at Cursor",
+                                text = "Insert",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+
+                        // Morphing Shrink icon staying at its anchor position on the bottom right
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .clickable(onClick = onDismiss),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CloseFullscreen,
+                                contentDescription = "Shrink Preview",
+                                modifier = Modifier.size(18.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
