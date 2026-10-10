@@ -42,6 +42,8 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.material3.ripple
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.coerceAtLeast
 import androidx.compose.ui.unit.coerceIn
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -2780,6 +2782,7 @@ fun MainEditorScreen(
                 )
             }
         }
+        val textMeasurer = rememberTextMeasurer()
         // ── Phase 5: Bottom-Anchored Upward Expanding Card Overlay ("Over" Drawer) ──
         if (activeCardPreview != null) {
             val preview = activeCardPreview!!
@@ -2801,31 +2804,36 @@ fun MainEditorScreen(
             val statusBarTopDp = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
             val hCompactPx = anchor.height
 
-            // Calculate content-based expanded height:
-            // Expands according to contents (compact for 1-2 lines, taller for longer content, capped by max available height)
+            // Calculate content-based expanded height using exact typography measurement:
+            // Text is accurately measured under actual width constraints so contents are fully shown without forced scrolling
             val cardWidthDp = with(currentDensity) { anchor.width.toDp() }
-            val contentWidthDp = (cardWidthDp - 44.dp).coerceAtLeast(100.dp)
-            val charsPerLine = (contentWidthDp.value / 7.2f).toInt().coerceAtLeast(15)
-            val lineList = preview.item.payload.lines()
-            val totalLines = lineList.sumOf { line ->
-                if (line.isEmpty()) 1 else ((line.length + charsPerLine - 1) / charsPerLine).coerceAtLeast(1)
+            val textAvailableWidthPx = with(currentDensity) {
+                (cardWidthDp - 42.dp).coerceAtLeast(80.dp).toPx().toInt()
             }
+            val measuredPayload = textMeasurer.measure(
+                text = AnnotatedString(preview.item.payload),
+                style = TextStyle(
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                ),
+                constraints = Constraints(maxWidth = textAvailableWidthPx)
+            )
+            val payloadTextHeightDp = with(currentDensity) { measuredPayload.size.height.toDp() }
+            val payloadBoxHeightDp = payloadTextHeightDp + 22.dp
 
-            val headerHeightDp = 38.dp
-            val descHeightDp = if (preview.item.templateDescription.isNotBlank()) 22.dp else 0.dp
-            val spacersHeightDp = 18.dp
-            val payloadTextHeightDp = (totalLines * 16.5f).dp
-            val payloadBoxHeightDp = payloadTextHeightDp + 18.dp
-            val footerHeightDp = 40.dp
-            val cardPaddingDp = 20.dp
-
-            val naturalExpandedHeightDp = (cardPaddingDp + headerHeightDp + descHeightDp + spacersHeightDp + payloadBoxHeightDp + footerHeightDp).coerceAtLeast(130.dp)
+            val headerHeightDp = 42.dp
+            val footerHeightDp = 36.dp
+            val spacersHeightDp = 16.dp
+            val cardVerticalPaddingDp = 12.dp
+            val naturalExpandedHeightDp = (cardVerticalPaddingDp + headerHeightDp + spacersHeightDp + payloadBoxHeightDp + footerHeightDp).coerceAtLeast(130.dp)
 
             val hExpandedTargetPx = with(currentDensity) { naturalExpandedHeightDp.toPx() }
             val maxAvailableHeightPx = with(currentDensity) {
                 (anchor.bottom - statusBarTopDp.toPx() - 16.dp.toPx()).coerceAtLeast(hCompactPx)
             }
             val hTargetPx = minOf(hExpandedTargetPx, maxAvailableHeightPx)
+
             val currentHeightPx = hCompactPx + (hTargetPx - hCompactPx) * cardPreviewProgress
             val currentTopPx = anchor.bottom - currentHeightPx
 
@@ -4338,53 +4346,50 @@ private fun AccessoryExpandedCardOverlay(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 14.dp, vertical = 10.dp)
+                .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 4.dp)
         ) {
-            // Header: Title & Category Badge (back arrow and close button removed per user request)
+            // Header: Title & Subtitle - matches compact card left margin at exactly 12.dp without shift
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 2.dp, vertical = 2.dp)
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     Text(
                         text = item.resolvedLabel(),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
+                    val subtitle = item.templateDescription.ifBlank {
+                        item.category.replaceFirstChar { it.uppercase() } + " • " + (if (isSnippet) "Snippet" else "Template")
+                    }
                     Text(
-                        text = item.category.replaceFirstChar { it.uppercase() } + " • " + (if (isSnippet) "Snippet" else "Template"),
+                        text = subtitle,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
 
             // Expanded body: fades in smoothly as the card grows
-            if (expansionProgress > 0.15f) {
-                val contentAlpha = ((expansionProgress - 0.15f) / 0.85f).coerceIn(0f, 1f)
+            if (expansionProgress > 0.05f) {
+                val contentAlpha = ((expansionProgress - 0.05f) / 0.95f).coerceIn(0f, 1f)
                 Column(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
+                        .padding(end = 4.dp)
                         .graphicsLayer { alpha = contentAlpha }
                 ) {
-                    if (item.templateDescription.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = item.templateDescription,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
                     Spacer(modifier = Modifier.height(8.dp))
 
                     // Payload Preview Box (with overscroll shadow removed)
@@ -4401,84 +4406,111 @@ private fun AccessoryExpandedCardOverlay(
                                 MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
                                 RoundedCornerShape(8.dp)
                             )
-                            .padding(8.dp)
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
                     ) {
                         CompositionLocalProvider(LocalOverscrollConfiguration provides null) {
                             Text(
                                 text = item.payload,
-                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                fontFamily = FontFamily.Monospace,
                                 fontSize = 12.sp,
+                                lineHeight = 16.sp,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.verticalScroll(rememberScrollState())
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            } else {
+                Spacer(modifier = Modifier.weight(1f))
+            }
 
-                    // Footer Actions: Pin, Insert, and bottom-right morphing Shrink icon
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+            // Footer Actions: Pin, Insert, and bottom-right morphing Shrink icon
+            // Placed at bottom so action icon matches compact card anchor (end = 8.dp, bottom = 4.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(34.dp)
+                    .padding(end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Pin & Insert buttons (fade in smoothly alongside the morphing icon)
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .graphicsLayer { alpha = ((expansionProgress - 0.15f) / 0.85f).coerceIn(0f, 1f) },
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = onTogglePin,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(34.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                     ) {
-                        OutlinedButton(
-                            onClick = onTogglePin,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (item.showInQuickActions) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                                contentDescription = null,
-                                modifier = Modifier.size(15.dp),
-                                tint = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = if (item.showInQuickActions) "Pinned" else "Pin",
-                                fontSize = 12.sp,
-                                color = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-
-                        Button(
-                            onClick = onInsert,
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = accentColor),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Add,
-                                contentDescription = null,
-                                modifier = Modifier.size(15.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "Insert",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onPrimary
-                            )
-                        }
-
-                        // Morphing Shrink icon staying at its anchor position on the bottom right
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .clickable(onClick = onDismiss),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CloseFullscreen,
-                                contentDescription = "Shrink Preview",
-                                modifier = Modifier.size(18.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
+                        Icon(
+                            imageVector = if (item.showInQuickActions) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                            contentDescription = null,
+                            modifier = Modifier.size(15.dp),
+                            tint = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (item.showInQuickActions) "Pinned" else "Pin",
+                            fontSize = 12.sp,
+                            color = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
+
+                    Button(
+                        onClick = onInsert,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(34.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = null,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Insert",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Morphing Expand/Shrink action icon:
+                // Sits at EXACT anchor location: end = 8.dp (outer 4.dp + row 4.dp), bottom = 4.dp, size = 30.dp, icon = 18.dp
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onDismiss),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val isMorphed = expansionProgress > 0.5f
+                    Icon(
+                        imageVector = if (isMorphed) Icons.Default.CloseFullscreen else Icons.Default.OpenInFull,
+                        contentDescription = if (isMorphed) "Shrink" else "Expand",
+                        modifier = Modifier
+                            .size(18.dp)
+                            .graphicsLayer {
+                                rotationZ = 180f * expansionProgress
+                            },
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
+                    )
                 }
             }
         }
