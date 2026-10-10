@@ -70,7 +70,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
@@ -1993,13 +1992,13 @@ fun MainEditorScreen(
                                                 ),
                                                 exit = androidx.compose.animation.shrinkHorizontally(
                                                     animationSpec = androidx.compose.animation.core.tween(
-                                                        durationMillis = 220,
+                                                        durationMillis = 150,
                                                         easing = androidx.compose.animation.core.FastOutSlowInEasing
                                                     ),
                                                     shrinkTowards = Alignment.Start
                                                 ) + androidx.compose.animation.fadeOut(
                                                     animationSpec = androidx.compose.animation.core.tween(
-                                                        durationMillis = 180,
+                                                        durationMillis = 150,
                                                         easing = androidx.compose.animation.core.FastOutSlowInEasing
                                                     )
                                                 )
@@ -2250,6 +2249,7 @@ fun MainEditorScreen(
                                         AccessoryDrawer(
                                             mode = activeAccessoryDrawer ?: lastActiveDrawerMode,
                                             currentHeightDp = bottomSurfaceHeight,
+                                            activePreviewItemId = activeCardPreview?.item?.id,
                                             drawerState = drawerState,
                                             onDrawerStateChange = { drawerState = it },
                                             onDragStart = {
@@ -2824,11 +2824,10 @@ fun MainEditorScreen(
             val payloadTextHeightDp = with(currentDensity) { measuredPayload.size.height.toDp() }
             val payloadBoxHeightDp = payloadTextHeightDp + 22.dp
 
-            val headerHeightDp = 42.dp
-            val footerHeightDp = 36.dp
-            val spacersHeightDp = 16.dp
-            val cardVerticalPaddingDp = 12.dp
-            val naturalExpandedHeightDp = (cardVerticalPaddingDp + headerHeightDp + spacersHeightDp + payloadBoxHeightDp + footerHeightDp).coerceAtLeast(130.dp)
+            val headerHeightDp = 44.dp
+            val footerHeightDp = 34.dp
+            val cardVerticalPaddingDp = 18.dp
+            val naturalExpandedHeightDp = (cardVerticalPaddingDp + headerHeightDp + payloadBoxHeightDp + footerHeightDp).coerceAtLeast(130.dp)
 
             val hExpandedTargetPx = with(currentDensity) { naturalExpandedHeightDp.toPx() }
             val maxAvailableHeightPx = with(currentDensity) {
@@ -3990,6 +3989,7 @@ private fun AccessoryDrawer(
     onOpenShortcuts: () -> Unit,
     searchQuery: String,
     onCardPreview: (ShortcutAction, androidx.compose.ui.geometry.Rect) -> Unit,
+    activePreviewItemId: String? = null,
     snippets: List<ShortcutAction>,
     templates: List<ShortcutAction>,
     shortcutsVm: ShortcutsViewModel,
@@ -4208,6 +4208,7 @@ private fun AccessoryDrawer(
                         AccessoryItemCard(
                             item = item,
                             isSnippet = isSnippet,
+                            isBeingPreviewed = activePreviewItemId == item.id,
                             onInsert = { onInsert(item) },
                             onTogglePin = { onTogglePin(item.id) },
                             onPreview = { rect -> onCardPreview(item, rect) }
@@ -4224,6 +4225,7 @@ private fun AccessoryDrawer(
 private fun AccessoryItemCard(
     item: ShortcutAction,
     isSnippet: Boolean,
+    isBeingPreviewed: Boolean = false,
     onInsert: () -> Unit,
     onTogglePin: () -> Unit,
     onPreview: (androidx.compose.ui.geometry.Rect) -> Unit
@@ -4240,6 +4242,9 @@ private fun AccessoryItemCard(
         ),
         modifier = Modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                alpha = if (isBeingPreviewed) 0f else 1f
+            }
             .onGloballyPositioned { coordinates ->
                 cardBoundsInRoot = coordinates.boundsInRoot()
             }
@@ -4347,86 +4352,27 @@ private fun AccessoryExpandedCardOverlay(
         ),
         modifier = Modifier.fillMaxSize()
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(
-                    start = 12.dp,
-                    end = 4.dp,
-                    top = (4 + 4 * expansionProgress).dp,
-                    bottom = 4.dp
-                )
+        Box(
+            modifier = Modifier.fillMaxSize()
         ) {
-            // Header: Title & Subtitle, and top-right Pin icon (matching compact card at progress=0)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(end = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable(enabled = expansionProgress < 0.1f, onClick = onInsert)
-                        .padding(vertical = (4 * (1f - expansionProgress)).dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    Text(
-                        text = item.resolvedLabel(),
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    val subtitle = item.templateDescription.ifBlank { item.category.replaceFirstChar { it.uppercase() } }
-                    if (subtitle.isNotBlank()) {
-                        Text(
-                            text = subtitle,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-
-                // Top-Right Pin icon: matches compact card at progress=0, smoothly fades out as expanded footer pin button appears
+            // ── Expanded Body: Payload Preview Box (fades in smoothly via draw phase) ──
+            if (expansionProgress > 0.04f) {
                 Box(
                     modifier = Modifier
-                        .size(30.dp)
-                        .clip(CircleShape)
+                        .fillMaxSize()
+                        .padding(
+                            start = 12.dp,
+                            end = 12.dp,
+                            top = 50.dp,
+                            bottom = 40.dp
+                        )
                         .graphicsLayer {
-                            alpha = (1f - (expansionProgress / 0.25f)).coerceIn(0f, 1f)
+                            alpha = ((expansionProgress - 0.10f) / 0.90f).coerceIn(0f, 1f)
                         }
-                        .clickable(onClick = onTogglePin),
-                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = if (item.showInQuickActions) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                        contentDescription = if (item.showInQuickActions) "Pinned" else "Pin",
-                        modifier = Modifier.size(18.dp),
-                        tint = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
-                    )
-                }
-            }
-
-            // Expanded body: fades in smoothly as the card grows
-            if (expansionProgress > 0.05f) {
-                val contentAlpha = ((expansionProgress - 0.05f) / 0.95f).coerceIn(0f, 1f)
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .padding(end = 4.dp)
-                        .graphicsLayer { alpha = contentAlpha }
-                ) {
-                    Spacer(modifier = Modifier.height((8 * expansionProgress).dp))
-                    // Payload Preview Box (with overscroll shadow removed)
                     Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
+                            .fillMaxSize()
                             .background(
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                                 shape = RoundedCornerShape(8.dp)
@@ -4449,27 +4395,61 @@ private fun AccessoryExpandedCardOverlay(
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.height((8 * expansionProgress).dp))
                 }
-            } else {
-                Spacer(modifier = Modifier.weight(1f))
             }
 
-            // Footer Actions: Pin, Insert, and bottom-right morphing Shrink icon
-            // Placed at bottom so action icon matches compact card anchor (end = 8.dp, bottom = 4.dp)
-            val footerHeight = (30 + 4 * expansionProgress).dp
-            Row(
+            // ── Header: Title & Subtitle ──
+            // At progress = 0: perfectly aligns with compact card (start = 12.dp, top = 8.dp, end = 44.dp)
+            // As card expands upward: anchors to top of expanding card, smoothly becoming expanded header
+            Box(
                 modifier = Modifier
+                    .align(Alignment.TopStart)
                     .fillMaxWidth()
-                    .height(footerHeight)
-                    .padding(end = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(
+                        start = 12.dp,
+                        end = 44.dp,
+                        top = 8.dp
+                    )
             ) {
-                // Pin & Insert buttons (fade in smoothly alongside the morphing icon)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable(enabled = expansionProgress < 0.15f, onClick = onInsert),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    Text(
+                        text = item.resolvedLabel(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    val subtitle = item.templateDescription.ifBlank { item.category.replaceFirstChar { it.uppercase() } }
+                    if (subtitle.isNotBlank()) {
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            // ── Expanded Footer Actions: Pin & Insert buttons ──
+            // Smoothly fades in as card expands to the left of the shrink icon
+            if (expansionProgress > 0.10f) {
                 Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .graphicsLayer { alpha = ((expansionProgress - 0.15f) / 0.85f).coerceIn(0f, 1f) },
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, end = 44.dp, bottom = 4.dp)
+                        .height(30.dp)
+                        .graphicsLayer {
+                            alpha = ((expansionProgress - 0.20f) / 0.80f).coerceIn(0f, 1f)
+                        },
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -4477,20 +4457,20 @@ private fun AccessoryExpandedCardOverlay(
                         onClick = onTogglePin,
                         modifier = Modifier
                             .weight(1f)
-                            .height(34.dp),
+                            .height(30.dp),
                         shape = RoundedCornerShape(8.dp),
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                     ) {
                         Icon(
                             imageVector = if (item.showInQuickActions) Icons.Filled.PushPin else Icons.Outlined.PushPin,
                             contentDescription = null,
-                            modifier = Modifier.size(15.dp),
+                            modifier = Modifier.size(14.dp),
                             tint = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = if (item.showInQuickActions) "Pinned" else "Pin",
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             color = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
@@ -4498,7 +4478,7 @@ private fun AccessoryExpandedCardOverlay(
                         onClick = onInsert,
                         modifier = Modifier
                             .weight(1f)
-                            .height(34.dp),
+                            .height(30.dp),
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = accentColor),
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
@@ -4506,43 +4486,69 @@ private fun AccessoryExpandedCardOverlay(
                         Icon(
                             imageVector = Icons.Filled.Add,
                             contentDescription = null,
-                            modifier = Modifier.size(15.dp)
+                            modifier = Modifier.size(14.dp)
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = "Insert",
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onPrimary
                         )
                     }
                 }
+            }
 
-                if (expansionProgress > 0.15f) {
-                    Spacer(modifier = Modifier.width((6 * ((expansionProgress - 0.15f) / 0.85f)).dp))
-                }
-
-                // Morphing Expand/Shrink action icon:
-                // Sits at EXACT anchor location: end = 8.dp (outer 4.dp + row 4.dp), bottom = 4.dp, size = 30.dp, icon = 18.dp
+            // ── Compact Pin Icon: Exactly anchored at (end = 8.dp, bottom = 36.dp) ──
+            // Matches compact card at progress = 0 to the exact pixel.
+            // Stays stationary and smoothly fades out in place as card expands.
+            // Smoothly fades back in as card shrinks. Never jumps!
+            if (expansionProgress < 0.35f) {
                 Box(
                     modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 8.dp, bottom = 36.dp)
                         .size(30.dp)
                         .clip(CircleShape)
-                        .clickable(onClick = onDismiss),
+                        .graphicsLayer {
+                            alpha = (1f - (expansionProgress / 0.22f)).coerceIn(0f, 1f)
+                        }
+                        .clickable(enabled = expansionProgress < 0.20f, onClick = onTogglePin),
                     contentAlignment = Alignment.Center
                 ) {
-                    val isMorphed = expansionProgress > 0.5f
                     Icon(
-                        imageVector = if (isMorphed) Icons.Default.CloseFullscreen else Icons.Default.OpenInFull,
-                        contentDescription = if (isMorphed) "Shrink" else "Expand",
-                        modifier = Modifier
-                            .size(18.dp)
-                            .graphicsLayer {
-                                rotationZ = 180f * expansionProgress
-                            },
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
+                        imageVector = if (item.showInQuickActions) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                        contentDescription = if (item.showInQuickActions) "Pinned" else "Pin",
+                        modifier = Modifier.size(18.dp),
+                        tint = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
                     )
                 }
+            }
+
+            // ── Morphing Expand/Shrink Action Icon: Exactly anchored at (end = 8.dp, bottom = 4.dp) ──
+            // Matches compact card at progress = 0 to the exact pixel.
+            // Sits stationary at bottom-right and smoothly rotates 180° in place.
+            // Morphs between OpenInFull and CloseFullscreen. Never jumps!
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 8.dp, bottom = 4.dp)
+                    .size(30.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onDismiss),
+                contentAlignment = Alignment.Center
+            ) {
+                val isMorphed = expansionProgress > 0.5f
+                Icon(
+                    imageVector = if (isMorphed) Icons.Default.CloseFullscreen else Icons.Default.OpenInFull,
+                    contentDescription = if (isMorphed) "Shrink" else "Expand",
+                    modifier = Modifier
+                        .size(18.dp)
+                        .graphicsLayer {
+                            rotationZ = 180f * expansionProgress
+                        },
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f)
+                )
             }
         }
     }
