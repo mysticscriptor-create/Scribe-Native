@@ -41,6 +41,8 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.material3.ripple
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -1990,15 +1992,15 @@ fun MainEditorScreen(
                                                     )
                                                 ),
                                                 exit = androidx.compose.animation.shrinkHorizontally(
-                                                    animationSpec = spring(
-                                                        stiffness = Spring.StiffnessMediumLow,
-                                                        dampingRatio = Spring.DampingRatioNoBouncy
+                                                    animationSpec = androidx.compose.animation.core.tween(
+                                                        durationMillis = 220,
+                                                        easing = androidx.compose.animation.core.FastOutSlowInEasing
                                                     ),
                                                     shrinkTowards = Alignment.Start
                                                 ) + androidx.compose.animation.fadeOut(
-                                                    animationSpec = spring(
-                                                        stiffness = Spring.StiffnessMediumLow,
-                                                        dampingRatio = Spring.DampingRatioNoBouncy
+                                                    animationSpec = androidx.compose.animation.core.tween(
+                                                        durationMillis = 180,
+                                                        easing = androidx.compose.animation.core.FastOutSlowInEasing
                                                     )
                                                 )
                                             ) {
@@ -4331,24 +4333,31 @@ private fun AccessoryExpandedCardOverlay(
 ) {
     val accentColor = ScribeTheme.colors.interaction.primary
     val cornerRadius = (10 + 4 * expansionProgress).dp
+    val baseCardColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f).compositeOver(MaterialTheme.colorScheme.surface)
+    val cardBorderAlpha = 0.22f + 0.23f * expansionProgress
 
     Surface(
         shape = RoundedCornerShape(cornerRadius),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = (4 + 8 * expansionProgress).dp,
-        shadowElevation = (4 + 10 * expansionProgress).dp,
+        color = baseCardColor,
+        tonalElevation = (8 * expansionProgress).dp,
+        shadowElevation = (10 * expansionProgress).dp,
         border = androidx.compose.foundation.BorderStroke(
-            0.6.dp,
-            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
+            0.5.dp,
+            MaterialTheme.colorScheme.outlineVariant.copy(alpha = cardBorderAlpha)
         ),
         modifier = Modifier.fillMaxSize()
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(start = 12.dp, end = 4.dp, top = 8.dp, bottom = 4.dp)
+                .padding(
+                    start = 12.dp,
+                    end = 4.dp,
+                    top = (4 + 4 * expansionProgress).dp,
+                    bottom = 4.dp
+                )
         ) {
-            // Header: Title & Subtitle - matches compact card left margin at exactly 12.dp without shift
+            // Header: Title & Subtitle, and top-right Pin icon (matching compact card at progress=0)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -4356,7 +4365,10 @@ private fun AccessoryExpandedCardOverlay(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(enabled = expansionProgress < 0.1f, onClick = onInsert)
+                        .padding(vertical = (4 * (1f - expansionProgress)).dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     Text(
@@ -4367,15 +4379,34 @@ private fun AccessoryExpandedCardOverlay(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    val subtitle = item.templateDescription.ifBlank {
-                        item.category.replaceFirstChar { it.uppercase() } + " • " + (if (isSnippet) "Snippet" else "Template")
+                    val subtitle = item.templateDescription.ifBlank { item.category.replaceFirstChar { it.uppercase() } }
+                    if (subtitle.isNotBlank()) {
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                }
+
+                // Top-Right Pin icon: matches compact card at progress=0, smoothly fades out as expanded footer pin button appears
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .graphicsLayer {
+                            alpha = (1f - (expansionProgress / 0.25f)).coerceIn(0f, 1f)
+                        }
+                        .clickable(onClick = onTogglePin),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (item.showInQuickActions) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                        contentDescription = if (item.showInQuickActions) "Pinned" else "Pin",
+                        modifier = Modifier.size(18.dp),
+                        tint = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
                     )
                 }
             }
@@ -4390,20 +4421,19 @@ private fun AccessoryExpandedCardOverlay(
                         .padding(end = 4.dp)
                         .graphicsLayer { alpha = contentAlpha }
                 ) {
-                    Spacer(modifier = Modifier.height(8.dp))
-
+                    Spacer(modifier = Modifier.height((8 * expansionProgress).dp))
                     // Payload Preview Box (with overscroll shadow removed)
                     Box(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
                             .background(
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
                                 shape = RoundedCornerShape(8.dp)
                             )
                             .border(
                                 0.5.dp,
-                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f),
                                 RoundedCornerShape(8.dp)
                             )
                             .padding(horizontal = 10.dp, vertical = 8.dp)
@@ -4419,8 +4449,7 @@ private fun AccessoryExpandedCardOverlay(
                             )
                         }
                     }
-
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height((8 * expansionProgress).dp))
                 }
             } else {
                 Spacer(modifier = Modifier.weight(1f))
@@ -4428,10 +4457,11 @@ private fun AccessoryExpandedCardOverlay(
 
             // Footer Actions: Pin, Insert, and bottom-right morphing Shrink icon
             // Placed at bottom so action icon matches compact card anchor (end = 8.dp, bottom = 4.dp)
+            val footerHeight = (30 + 4 * expansionProgress).dp
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(34.dp)
+                    .height(footerHeight)
                     .padding(end = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -4464,7 +4494,6 @@ private fun AccessoryExpandedCardOverlay(
                             color = if (item.showInQuickActions) accentColor else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-
                     Button(
                         onClick = onInsert,
                         modifier = Modifier
@@ -4489,7 +4518,9 @@ private fun AccessoryExpandedCardOverlay(
                     }
                 }
 
-                Spacer(modifier = Modifier.width(6.dp))
+                if (expansionProgress > 0.15f) {
+                    Spacer(modifier = Modifier.width((6 * ((expansionProgress - 0.15f) / 0.85f)).dp))
+                }
 
                 // Morphing Expand/Shrink action icon:
                 // Sits at EXACT anchor location: end = 8.dp (outer 4.dp + row 4.dp), bottom = 4.dp, size = 30.dp, icon = 18.dp
