@@ -2806,8 +2806,7 @@ fun MainEditorScreen(
             val cardWidthDp = with(currentDensity) { anchor.width.toDp() }
             val contentWidthDp = (cardWidthDp - 44.dp).coerceAtLeast(100.dp)
             val charsPerLine = (contentWidthDp.value / 7.2f).toInt().coerceAtLeast(15)
-            val lineList = preview.item.payload.split("
-")
+            val lineList = preview.item.payload.lines()
             val totalLines = lineList.sumOf { line ->
                 if (line.isEmpty()) 1 else ((line.length + charsPerLine - 1) / charsPerLine).coerceAtLeast(1)
             }
