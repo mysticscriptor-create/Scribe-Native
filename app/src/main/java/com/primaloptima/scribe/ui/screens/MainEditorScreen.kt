@@ -44,6 +44,7 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.material3.ripple
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.text.TextStyle
@@ -178,6 +179,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import androidx.compose.ui.geometry.Offset
@@ -1060,34 +1064,57 @@ fun MainEditorScreen(
     }
 
     // Await keyboard restore from accessory drawer without any premature jump
-    LaunchedEffect(isAwaitingKeyboardOpen, isKeyboardVisible, imeAboveNavDp) {
+    LaunchedEffect(isAwaitingKeyboardOpen) {
         if (isAwaitingKeyboardOpen) {
-            if (isKeyboardVisible && imeAboveNavDp > 150.dp) {
-                // Wait for the soft keyboard slide-up animation to finish settling
-                kotlinx.coroutines.delay(100)
-                // Synchronize in-memory height with the exact final IME height
-                lastKeyboardHeightDp = imeAboveNavDp
-                if (kotlin.math.abs(imeAboveNavDp.value - savedKeyboardHeightFloat) >= 1f) {
-                    dataStore.setLastKeyboardHeight(imeAboveNavDp.value)
+            try {
+                withTimeoutOrNull(750) {
+                    var lastIme = -1f
+                    var steadyCount = 0
+                    snapshotFlow { imeAboveNavDp.value }
+                        .filter { current ->
+                            if (current >= (compactHeightDp.value - 2f) && current > 120f) {
+                                true
+                            } else if (current > 120f && kotlin.math.abs(current - lastIme) < 0.5f) {
+                                steadyCount++
+                                steadyCount >= 2
+                            } else {
+                                lastIme = current
+                                steadyCount = 0
+                                false
+                            }
+                        }
+                        .first()
+                    // Allow the final deceleration frame of IME to settle
+                    delay(30)
                 }
-                isAwaitingKeyboardOpen = false
-            } else {
-                kotlinx.coroutines.delay(650)
+            } finally {
+                if (imeAboveNavDp > 150.dp) {
+                    lastKeyboardHeightDp = imeAboveNavDp
+                    if (kotlin.math.abs(imeAboveNavDp.value - savedKeyboardHeightFloat) >= 1f) {
+                        dataStore.setLastKeyboardHeight(imeAboveNavDp.value)
+                    }
+                }
                 isAwaitingKeyboardOpen = false
             }
         }
     }
 
-    LaunchedEffect(isKeyboardVisible, imeAboveNavDp) {
-        if (!isKeyboardVisible && imeAboveNavDp <= 5.dp) {
+    LaunchedEffect(isKeyboardVisible) {
+        if (!isKeyboardVisible) {
+            snapshotFlow { imeAboveNavDp }
+                .filter { it <= 5.dp }
+                .first()
             isHidingKeyboardForDrawer = false
         }
     }
 
-    LaunchedEffect(isKeyboardVisible, imeAboveNavDp, isHidingKeyboardForDrawer) {
+    LaunchedEffect(isKeyboardVisible, isHidingKeyboardForDrawer) {
         if (activeAccessoryDrawer != null && !isWritingBarSearchActive && !isHidingKeyboardForDrawer) {
-            if (isKeyboardVisible && imeAboveNavDp >= 200.dp) {
-                kotlinx.coroutines.delay(100)
+            if (isKeyboardVisible) {
+                snapshotFlow { imeAboveNavDp }
+                    .filter { it >= 180.dp }
+                    .first()
+                delay(60)
                 lastKeyboardHeightDp = imeAboveNavDp
                 activeAccessoryDrawer = null
                 drawerState = AccessoryDrawerState.COMPACT
@@ -1222,7 +1249,15 @@ fun MainEditorScreen(
                                 )
                             }
                         } else if (activeAccessoryDrawer == null) {
-                            drawerHeightDpAnim.snapTo(compactHeightDp.value)
+                            if (drawerHeightDpAnim.value != compactHeightDp.value) {
+                                drawerHeightDpAnim.animateTo(
+                                    targetValue = compactHeightDp.value,
+                                    animationSpec = spring(
+                                        stiffness = Spring.StiffnessMediumLow,
+                                        dampingRatio = Spring.DampingRatioNoBouncy
+                                    )
+                                )
+                            }
                             dragLiveHeightDp = compactHeightDp.value
                         }
                     }
@@ -1233,8 +1268,11 @@ fun MainEditorScreen(
                             val liveH = if (isDrawerDragging) dragLiveHeightDp.dp else drawerHeightDpAnim.value.dp
                             liveH.coerceIn(compactHeightDp, fullHeightDp)
                         }
-                        isAwaitingKeyboardOpen -> compactHeightDp
-                        isKeyboardVisible || imeAboveNavDp > 10.dp -> compactHeightDp
+                        isAwaitingKeyboardOpen -> {
+                            val liveH = drawerHeightDpAnim.value.dp
+                            maxOf(liveH, imeAboveNavDp).coerceIn(compactHeightDp, fullHeightDp)
+                        }
+                        isKeyboardVisible || imeAboveNavDp > 10.dp -> imeAboveNavDp
                         else -> 0.dp
                     }
                     val docBottomPadding = if (!isBarVisible) {
@@ -1911,168 +1949,189 @@ fun MainEditorScreen(
 
                                             val isTemplatesOpen = activeAccessoryDrawer == AccessoryDrawerMode.TEMPLATES
                                             val templateBtnColor = Color(0xFFF59E0B)
-                                            Surface(
-                                                shape = RoundedCornerShape(8.dp),
-                                                color = if (isTemplatesOpen) templateBtnColor.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                                                contentColor = if (isTemplatesOpen) templateBtnColor else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                border = androidx.compose.foundation.BorderStroke(
-                                                    0.5.dp,
-                                                    if (isTemplatesOpen) templateBtnColor.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-                                                ),
-                                                modifier = Modifier
-                                                    .height(ScribeTheme.metrics.chipHeight)
-                                                    .clickable {
-                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                        if (isTemplatesOpen) {
-                                                            activeAccessoryDrawer = null
-                                                            drawerState = AccessoryDrawerState.COMPACT
-                                                            isAwaitingKeyboardOpen = true
-                                                            isHidingKeyboardForDrawer = false
-                                                            isWritingBarSearchActive = false
-                                                            drawerSearchQuery = ""
-                                                            previewItem = null
-                                                            soraEditorRef?.requestFocus()
-                                                            keyboardController?.show()
-                                                            try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
-                                                        } else if (activeAccessoryDrawer != null) {
-                                                            // Seamless switch between open drawers: zero keyboard/cursor flicker
-                                                            activeAccessoryDrawer = AccessoryDrawerMode.TEMPLATES
-                                                            isWritingBarSearchActive = false
-                                                            drawerSearchQuery = ""
-                                                            previewItem = null
-                                                        } else {
-                                                            // Opening drawer from keyboard / idle
-                                                            isAwaitingKeyboardOpen = false
-                                                            isHidingKeyboardForDrawer = isKeyboardVisible || imeAboveNavDp > 40.dp
-                                                            if (imeAboveNavDp >= 200.dp) {
-                                                                lastKeyboardHeightDp = imeAboveNavDp
-                                                                if (kotlin.math.abs(imeAboveNavDp.value - savedKeyboardHeightFloat) >= 1f) {
-                                                                    scope.launch { dataStore.setLastKeyboardHeight(imeAboveNavDp.value) }
-                                                                }
-                                                            }
-                                                            keyboardController?.hide()
-                                                            try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
-                                                            activeAccessoryDrawer = AccessoryDrawerMode.TEMPLATES
-                                                            drawerState = AccessoryDrawerState.COMPACT
-                                                            isWritingBarSearchActive = false
-                                                            drawerSearchQuery = ""
-                                                            previewItem = null
-                                                        }
-                                                    }
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = ScribeTheme.spacing.micro)
-                                                ) {
-                                                    Icon(
-                                                        Icons.Filled.Article,
-                                                        contentDescription = "Templates Drawer",
-                                                        modifier = Modifier.size(13.dp)
-                                                    )
-                                                    Text(
-                                                        text = "Tmpl",
-                                                        fontSize = 12.sp,
-                                                        fontWeight = FontWeight.SemiBold
-                                                    )
-                                                }
-                                            }
-
-                                            // ── Phase 6 & 7: Animated Drawer Controls (Push pills smoothly to right) ──
-                                            androidx.compose.animation.AnimatedVisibility(
-                                                visible = activeAccessoryDrawer != null,
-                                                enter = androidx.compose.animation.expandHorizontally(
-                                                    animationSpec = spring(
-                                                        stiffness = Spring.StiffnessMediumLow,
-                                                        dampingRatio = Spring.DampingRatioNoBouncy
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = if (isTemplatesOpen) templateBtnColor.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                                    contentColor = if (isTemplatesOpen) templateBtnColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    border = androidx.compose.foundation.BorderStroke(
+                                                        0.5.dp,
+                                                        if (isTemplatesOpen) templateBtnColor.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
                                                     ),
-                                                    expandFrom = Alignment.Start
-                                                ) + androidx.compose.animation.fadeIn(
-                                                    animationSpec = spring(
-                                                        stiffness = Spring.StiffnessMediumLow,
-                                                        dampingRatio = Spring.DampingRatioNoBouncy
-                                                    )
-                                                ),
-                                                exit = androidx.compose.animation.shrinkHorizontally(
-                                                    animationSpec = spring(
-                                                        stiffness = Spring.StiffnessMediumLow,
-                                                        dampingRatio = Spring.DampingRatioNoBouncy
-                                                    ),
-                                                    shrinkTowards = Alignment.Start
-                                                ) + androidx.compose.animation.fadeOut(
-                                                    animationSpec = spring(
-                                                        stiffness = Spring.StiffnessMediumLow,
-                                                        dampingRatio = Spring.DampingRatioNoBouncy
-                                                    )
-                                                )
-                                            ) {
-                                                Row(
-                                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .height(18.dp)
-                                                            .width(1.dp)
-                                                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
-                                                    )
-                                                    // Search Pill (🔍)
-                                                    Surface(
-                                                        shape = RoundedCornerShape(8.dp),
-                                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                                                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        border = androidx.compose.foundation.BorderStroke(
-                                                            0.5.dp,
-                                                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-                                                        ),
-                                                        modifier = Modifier
-                                                            .height(ScribeTheme.metrics.chipHeight)
-                                                            .clickable { isWritingBarSearchActive = true }
-                                                    ) {
-                                                        Box(
-                                                            contentAlignment = Alignment.Center,
-                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = ScribeTheme.spacing.micro)
-                                                        ) {
-                                                            Icon(
-                                                                Icons.Filled.Search,
-                                                                contentDescription = "Search in drawer",
-                                                                modifier = Modifier.size(14.dp)
-                                                            )
-                                                        }
-                                                    }
-                                                    // Manage Pill (⚙ / Tune)
-                                                    Surface(
-                                                        shape = RoundedCornerShape(8.dp),
-                                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                                                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        border = androidx.compose.foundation.BorderStroke(
-                                                            0.5.dp,
-                                                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-                                                        ),
-                                                        modifier = Modifier
-                                                            .height(ScribeTheme.metrics.chipHeight)
-                                                            .clickable {
-                                                                shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
+                                                    modifier = Modifier
+                                                        .height(ScribeTheme.metrics.chipHeight)
+                                                        .clickable {
+                                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                            if (isTemplatesOpen) {
                                                                 activeAccessoryDrawer = null
+                                                                drawerState = AccessoryDrawerState.COMPACT
+                                                                isAwaitingKeyboardOpen = true
                                                                 isHidingKeyboardForDrawer = false
-                                                                drawerSearchQuery = ""
                                                                 isWritingBarSearchActive = false
+                                                                drawerSearchQuery = ""
                                                                 previewItem = null
-                                                                onOpenShortcuts()
+                                                                soraEditorRef?.requestFocus()
+                                                                keyboardController?.show()
+                                                                try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+                                                            } else if (activeAccessoryDrawer != null) {
+                                                                // Seamless switch between open drawers: zero keyboard/cursor flicker
+                                                                activeAccessoryDrawer = AccessoryDrawerMode.TEMPLATES
+                                                                isWritingBarSearchActive = false
+                                                                drawerSearchQuery = ""
+                                                                previewItem = null
+                                                            } else {
+                                                                // Opening drawer from keyboard / idle
+                                                                isAwaitingKeyboardOpen = false
+                                                                isHidingKeyboardForDrawer = isKeyboardVisible || imeAboveNavDp > 40.dp
+                                                                if (imeAboveNavDp >= 200.dp) {
+                                                                    lastKeyboardHeightDp = imeAboveNavDp
+                                                                    if (kotlin.math.abs(imeAboveNavDp.value - savedKeyboardHeightFloat) >= 1f) {
+                                                                        scope.launch { dataStore.setLastKeyboardHeight(imeAboveNavDp.value) }
+                                                                    }
+                                                                }
+                                                                keyboardController?.hide()
+                                                                try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
+                                                                activeAccessoryDrawer = AccessoryDrawerMode.TEMPLATES
+                                                                drawerState = AccessoryDrawerState.COMPACT
+                                                                isWritingBarSearchActive = false
+                                                                drawerSearchQuery = ""
+                                                                previewItem = null
                                                             }
+                                                        }
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = ScribeTheme.spacing.micro)
+                                                    ) {
+                                                        Icon(
+                                                            Icons.Filled.Article,
+                                                            contentDescription = "Templates Drawer",
+                                                            modifier = Modifier.size(13.dp)
+                                                        )
+                                                        Text(
+                                                            text = "Tmpl",
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.SemiBold
+                                                        )
+                                                    }
+                                                }
+
+                                                // ── Phase 6 & 7: Animated Drawer Controls (Zero-Gap Sub-Row with Scale-Fade) ──
+                                                androidx.compose.animation.AnimatedVisibility(
+                                                    visible = activeAccessoryDrawer != null,
+                                                    enter = androidx.compose.animation.expandHorizontally(
+                                                        animationSpec = spring(
+                                                            stiffness = Spring.StiffnessMediumLow,
+                                                            dampingRatio = Spring.DampingRatioNoBouncy
+                                                        ),
+                                                        expandFrom = Alignment.Start,
+                                                        clip = false
+                                                    ) + androidx.compose.animation.scaleIn(
+                                                        animationSpec = spring(
+                                                            stiffness = Spring.StiffnessMediumLow,
+                                                            dampingRatio = Spring.DampingRatioNoBouncy
+                                                        ),
+                                                        initialScale = 0.70f,
+                                                        transformOrigin = TransformOrigin(0f, 0.5f)
+                                                    ) + androidx.compose.animation.fadeIn(
+                                                        animationSpec = spring(
+                                                            stiffness = Spring.StiffnessMediumLow,
+                                                            dampingRatio = Spring.DampingRatioNoBouncy
+                                                        )
+                                                    ),
+                                                    exit = androidx.compose.animation.shrinkHorizontally(
+                                                        animationSpec = spring(
+                                                            stiffness = Spring.StiffnessMediumLow,
+                                                            dampingRatio = Spring.DampingRatioNoBouncy
+                                                        ),
+                                                        shrinkTowards = Alignment.Start,
+                                                        clip = false
+                                                    ) + androidx.compose.animation.scaleOut(
+                                                        animationSpec = spring(
+                                                            stiffness = Spring.StiffnessMediumLow,
+                                                            dampingRatio = Spring.DampingRatioNoBouncy
+                                                        ),
+                                                        targetScale = 0.70f,
+                                                        transformOrigin = TransformOrigin(0f, 0.5f)
+                                                    ) + androidx.compose.animation.fadeOut(
+                                                        animationSpec = spring(
+                                                            stiffness = Spring.StiffnessMediumLow,
+                                                            dampingRatio = Spring.DampingRatioNoBouncy
+                                                        )
+                                                    )
+                                                ) {
+                                                    Row(
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        modifier = Modifier.padding(start = 6.dp)
                                                     ) {
                                                         Box(
-                                                            contentAlignment = Alignment.Center,
-                                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = ScribeTheme.spacing.micro)
+                                                            modifier = Modifier
+                                                                .height(18.dp)
+                                                                .width(1.dp)
+                                                                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+                                                        )
+                                                        // Search Pill (🔍)
+                                                        Surface(
+                                                            shape = RoundedCornerShape(8.dp),
+                                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            border = androidx.compose.foundation.BorderStroke(
+                                                                0.5.dp,
+                                                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                                                            ),
+                                                            modifier = Modifier
+                                                                .height(ScribeTheme.metrics.chipHeight)
+                                                                .clickable { isWritingBarSearchActive = true }
                                                         ) {
-                                                            Icon(
-                                                                Icons.Filled.Tune,
-                                                                contentDescription = "Shortcuts Studio",
-                                                                modifier = Modifier.size(14.dp)
-                                                            )
+                                                            Box(
+                                                                contentAlignment = Alignment.Center,
+                                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = ScribeTheme.spacing.micro)
+                                                            ) {
+                                                                Icon(
+                                                                    Icons.Filled.Search,
+                                                                    contentDescription = "Search in drawer",
+                                                                    modifier = Modifier.size(14.dp)
+                                                                )
+                                                            }
                                                         }
-                                                    }
+                                                        // Manage Pill (⚙ / Tune)
+                                                        Surface(
+                                                            shape = RoundedCornerShape(8.dp),
+                                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                            border = androidx.compose.foundation.BorderStroke(
+                                                                0.5.dp,
+                                                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
+                                                            ),
+                                                            modifier = Modifier
+                                                                .height(ScribeTheme.metrics.chipHeight)
+                                                                .clickable {
+                                                                    shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
+                                                                    activeAccessoryDrawer = null
+                                                                    isHidingKeyboardForDrawer = false
+                                                                    drawerSearchQuery = ""
+                                                                    isWritingBarSearchActive = false
+                                                                    previewItem = null
+                                                                    onOpenShortcuts()
+                                                                }
+                                                        ) {
+                                                            Box(
+                                                                contentAlignment = Alignment.Center,
+                                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = ScribeTheme.spacing.micro)
+                                                            ) {
+                                                                Icon(
+                                                                    Icons.Filled.Tune,
+                                                                    contentDescription = "Shortcuts Studio",
+                                                                    modifier = Modifier.size(14.dp)
+                                                                )
+                                                            }
+                                                        }
 
+                                                    }
                                                 }
                                             }
                                             Box(
@@ -2122,7 +2181,8 @@ fun MainEditorScreen(
                                                     stiffness = Spring.StiffnessMediumLow,
                                                     dampingRatio = Spring.DampingRatioNoBouncy
                                                 ),
-                                                expandFrom = Alignment.CenterHorizontally
+                                                expandFrom = Alignment.CenterHorizontally,
+                                                clip = false
                                             ) + androidx.compose.animation.fadeIn(
                                                 animationSpec = spring(
                                                     stiffness = Spring.StiffnessMediumLow,
@@ -2140,7 +2200,8 @@ fun MainEditorScreen(
                                                     stiffness = Spring.StiffnessMediumLow,
                                                     dampingRatio = Spring.DampingRatioNoBouncy
                                                 ),
-                                                shrinkTowards = Alignment.CenterHorizontally
+                                                shrinkTowards = Alignment.CenterHorizontally,
+                                                clip = false
                                             ) + androidx.compose.animation.fadeOut(
                                                 animationSpec = spring(
                                                     stiffness = Spring.StiffnessMediumLow,
@@ -2239,7 +2300,9 @@ fun MainEditorScreen(
                                 // ── Stable Bottom Input Region ──
                                 val isDrawerActive = activeAccessoryDrawer != null || isAwaitingKeyboardOpen
                                 if (isDrawerActive) {
-                                    val bottomSurfaceHeight = (if (isDrawerDragging) dragLiveHeightDp.dp else drawerHeightDpAnim.value.dp).coerceIn(compactHeightDp, fullHeightDp)
+                                    val rawDrawerH = if (isDrawerDragging) dragLiveHeightDp.dp else drawerHeightDpAnim.value.dp
+                                    val bottomSurfaceHeight = if (isAwaitingKeyboardOpen) maxOf(rawDrawerH, imeAboveNavDp).coerceIn(compactHeightDp, fullHeightDp)
+                                                              else rawDrawerH.coerceIn(compactHeightDp, fullHeightDp)
                                     var lastActiveDrawerMode by remember { mutableStateOf(AccessoryDrawerMode.SNIPPETS) }
                                     if (activeAccessoryDrawer != null) {
                                         lastActiveDrawerMode = activeAccessoryDrawer!!
