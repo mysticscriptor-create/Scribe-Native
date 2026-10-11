@@ -506,12 +506,15 @@ fun ShortcutsScreen(
                                 tint = contentPrimary
                             )
                         }
-                        FrostedDropdownMenu(
+                        DropdownMenu(
                             expanded = showTopMenu,
-                            onDismissRequest = { showTopMenu = false }
+                            onDismissRequest = { showTopMenu = false },
+                            containerColor = cardBg,
+                            shape = ScribeShapeTokens.Menu,
+                            border = BorderStroke(0.6.dp, subtleBorder.copy(alpha = 0.8f))
                         ) {
                             DropdownMenuItem(
-                                text = { Text("Reset to defaults") },
+                                text = { Text("Reset to defaults", color = contentPrimary) },
                                 onClick = {
                                     showTopMenu = false
                                     showResetDialog = true
@@ -543,18 +546,21 @@ fun ShortcutsScreen(
                     modifier = Modifier.padding(bottom = 8.dp, end = 4.dp)
                 ) {
                     // ── Speed-Dial Option Items (Animated above the FAB) ──
+                    val fabOptionBg = colors.interaction.primaryContainer
+                    val fabOptionTint = colors.interaction.onPrimaryContainer
+
                     AnimatedVisibility(
                         visible = isFabExpanded,
                         enter = fadeIn(animationSpec = tween(180)) +
-                                slideInVertically(animationSpec = tween(220, easing = FastOutSlowInEasing)) { it / 2 } +
-                                scaleIn(animationSpec = tween(200), initialScale = 0.8f, transformOrigin = TransformOrigin(1f, 1f)),
+                                slideInVertically(animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)) { it / 2 } +
+                                scaleIn(animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow), initialScale = 0.6f, transformOrigin = TransformOrigin(1f, 1f)),
                         exit = fadeOut(animationSpec = tween(140)) +
                                slideOutVertically(animationSpec = tween(180, easing = FastOutSlowInEasing)) { it / 2 } +
-                               scaleOut(animationSpec = tween(150), targetScale = 0.8f, transformOrigin = TransformOrigin(1f, 1f))
+                               scaleOut(animationSpec = tween(150), targetScale = 0.6f, transformOrigin = TransformOrigin(1f, 1f))
                     ) {
                         Column(
                             horizontalAlignment = Alignment.End,
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             // Option 1: Create Item
                             val createLabel = when (activeStudioTab) {
@@ -566,32 +572,61 @@ fun ShortcutsScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                // Text in separate card
-                                Surface(
-                                    onClick = {
-                                        isFabExpanded = false
-                                        itemTypeForSheet = when (activeStudioTab) {
-                                            StudioTab.QUICK_ACTIONS -> "action"
-                                            StudioTab.SNIPPETS -> "snippet"
-                                            StudioTab.TEMPLATES -> "template"
-                                        }
-                                        editingShortcut = null
-                                        isCreatingNew = true
-                                    },
-                                    shape = CircleShape,
-                                    color = cardBg,
-                                    border = BorderStroke(0.6.dp, subtleBorder.copy(alpha = 0.8f)),
-                                    shadowElevation = 4.dp
+                                // Text card animates outward from the icon button
+                                AnimatedVisibility(
+                                    visible = isFabExpanded,
+                                    enter = fadeIn(animationSpec = tween(180, delayMillis = 60)) +
+                                            expandHorizontally(
+                                                expandFrom = Alignment.End,
+                                                animationSpec = spring(
+                                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                                    stiffness = Spring.StiffnessMediumLow
+                                                )
+                                            ) +
+                                            slideInHorizontally(
+                                                animationSpec = spring(
+                                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                                    stiffness = Spring.StiffnessMediumLow
+                                                ),
+                                                initialOffsetX = { it / 2 }
+                                            ),
+                                    exit = fadeOut(animationSpec = tween(100)) +
+                                           shrinkHorizontally(
+                                               shrinkTowards = Alignment.End,
+                                               animationSpec = tween(120)
+                                           ) +
+                                           slideOutHorizontally(
+                                               animationSpec = tween(120),
+                                               targetOffsetX = { it / 2 }
+                                           )
                                 ) {
-                                    Text(
-                                        text = createLabel,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = contentPrimary,
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
-                                    )
+                                    Surface(
+                                        onClick = {
+                                            isFabExpanded = false
+                                            itemTypeForSheet = when (activeStudioTab) {
+                                                StudioTab.QUICK_ACTIONS -> "action"
+                                                StudioTab.SNIPPETS -> "snippet"
+                                                StudioTab.TEMPLATES -> "template"
+                                            }
+                                            editingShortcut = null
+                                            isCreatingNew = true
+                                        },
+                                        shape = CircleShape,
+                                        color = cardBg,
+                                        border = BorderStroke(0.6.dp, subtleBorder.copy(alpha = 0.8f)),
+                                        shadowElevation = 4.dp
+                                    ) {
+                                        Text(
+                                            text = createLabel,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = contentPrimary,
+                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                                        )
+                                    }
                                 }
-                                // Round button matching FAB
+
+                                // Round button using distinct primaryContainer color token
                                 Surface(
                                     onClick = {
                                         isFabExpanded = false
@@ -604,7 +639,7 @@ fun ShortcutsScreen(
                                         isCreatingNew = true
                                     },
                                     shape = CircleShape,
-                                    color = accentPrimary,
+                                    color = fabOptionBg,
                                     shadowElevation = 5.dp,
                                     modifier = Modifier.size(46.dp)
                                 ) {
@@ -612,7 +647,7 @@ fun ShortcutsScreen(
                                         Icon(
                                             imageVector = Icons.Default.Add,
                                             contentDescription = createLabel,
-                                            tint = onAccent,
+                                            tint = fabOptionTint,
                                             modifier = Modifier.size(20.dp)
                                         )
                                     }
@@ -624,27 +659,56 @@ fun ShortcutsScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                // Text in separate card
-                                Surface(
-                                    onClick = {
-                                        isFabExpanded = false
-                                        newCategoryInputName = ""
-                                        showCreateCategoryDialog = true
-                                    },
-                                    shape = CircleShape,
-                                    color = cardBg,
-                                    border = BorderStroke(0.6.dp, subtleBorder.copy(alpha = 0.8f)),
-                                    shadowElevation = 4.dp
+                                // Text card animates outward from the icon button
+                                AnimatedVisibility(
+                                    visible = isFabExpanded,
+                                    enter = fadeIn(animationSpec = tween(180, delayMillis = 60)) +
+                                            expandHorizontally(
+                                                expandFrom = Alignment.End,
+                                                animationSpec = spring(
+                                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                                    stiffness = Spring.StiffnessMediumLow
+                                                )
+                                            ) +
+                                            slideInHorizontally(
+                                                animationSpec = spring(
+                                                    dampingRatio = Spring.DampingRatioLowBouncy,
+                                                    stiffness = Spring.StiffnessMediumLow
+                                                ),
+                                                initialOffsetX = { it / 2 }
+                                            ),
+                                    exit = fadeOut(animationSpec = tween(100)) +
+                                           shrinkHorizontally(
+                                               shrinkTowards = Alignment.End,
+                                               animationSpec = tween(120)
+                                           ) +
+                                           slideOutHorizontally(
+                                               animationSpec = tween(120),
+                                               targetOffsetX = { it / 2 }
+                                           )
                                 ) {
-                                    Text(
-                                        text = "New Category",
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = contentPrimary,
-                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
-                                    )
+                                    Surface(
+                                        onClick = {
+                                            isFabExpanded = false
+                                            newCategoryInputName = ""
+                                            showCreateCategoryDialog = true
+                                        },
+                                        shape = CircleShape,
+                                        color = cardBg,
+                                        border = BorderStroke(0.6.dp, subtleBorder.copy(alpha = 0.8f)),
+                                        shadowElevation = 4.dp
+                                    ) {
+                                        Text(
+                                            text = "New Category",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = contentPrimary,
+                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                                        )
+                                    }
                                 }
-                                // Round button matching FAB
+
+                                // Round button using distinct primaryContainer color token
                                 Surface(
                                     onClick = {
                                         isFabExpanded = false
@@ -652,7 +716,7 @@ fun ShortcutsScreen(
                                         showCreateCategoryDialog = true
                                     },
                                     shape = CircleShape,
-                                    color = accentPrimary,
+                                    color = fabOptionBg,
                                     shadowElevation = 5.dp,
                                     modifier = Modifier.size(46.dp)
                                 ) {
@@ -660,7 +724,7 @@ fun ShortcutsScreen(
                                         Icon(
                                             imageVector = Icons.Default.CreateNewFolder,
                                             contentDescription = "New Category",
-                                            tint = onAccent,
+                                            tint = fabOptionTint,
                                             modifier = Modifier.size(19.dp)
                                         )
                                     }
@@ -754,10 +818,39 @@ fun ShortcutsScreen(
                         }
                     }
                     .verticalScroll(scrollState, enabled = !isPillDragging)
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                    .padding(horizontal = 16.dp, vertical = 5.dp),
+                verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
-            // ── UNIFIED SEARCH BAR (Pill Shape) ─────────────────────────────
+            // ── 1. YOUR WRITING BAR (At top of Actions tab) ───────────────────
+            if (activeStudioTab == StudioTab.QUICK_ACTIONS) {
+                WritingBarHeroSection(
+                    activeShortcuts = activeBarShortcuts,
+                    isEditMode = isEditMode,
+                    onDraggingStateChanged = { isDragging -> isPillDragging = isDragging },
+                    onStartEdit = {
+                        isEditMode = true
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    },
+                    onCommitEdit = { finalShortcuts ->
+                        vm.commitActiveBarOrder(finalShortcuts.map { it.id })
+                        isEditMode = false
+                        isPillDragging = false
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    },
+                    onCancelEdit = {
+                        isEditMode = false
+                        isPillDragging = false
+                    },
+                    onScrollToLibrary = {
+                        scope.launch {
+                            val targetPx = with(density) { 220.dp.roundToPx() }
+                            scrollState.animateScrollTo(targetPx)
+                        }
+                    }
+                )
+            }
+
+            // ── 2. UNIFIED SEARCH BAR (Below Writing Bar) ────────────────────
             ShortcutSearchField(
                 query = when (activeStudioTab) {
                     StudioTab.QUICK_ACTIONS -> searchQuery
@@ -773,7 +866,7 @@ fun ShortcutsScreen(
                 }
             )
 
-            // ── 3-TAB STUDIO NAVIGATION BAR (Directly Below Search Bar) ──────
+            // ── 3. 3-TAB STUDIO NAVIGATION BAR (Below Search Bar) ─────────────
             Surface(
                 shape = CircleShape,
                 color = glyphBoxBg,
@@ -823,7 +916,10 @@ fun ShortcutsScreen(
                                         indication = null
                                     ) {
                                         focusManager.clearFocus()
-                                        activeStudioTab = tab
+                                        if (activeStudioTab != tab) {
+                                            activeStudioTab = tab
+                                            scope.launch { scrollState.scrollTo(0) }
+                                        }
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
@@ -840,34 +936,7 @@ fun ShortcutsScreen(
             }
 
             if (activeStudioTab == StudioTab.QUICK_ACTIONS) {
-            // ── 1. YOUR WRITING BAR (Hero Section) ───────────────────────────
-            WritingBarHeroSection(
-                activeShortcuts = activeBarShortcuts,
-                isEditMode = isEditMode,
-                onDraggingStateChanged = { isDragging -> isPillDragging = isDragging },
-                onStartEdit = {
-                    isEditMode = true
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                },
-                onCommitEdit = { finalShortcuts ->
-                    vm.commitActiveBarOrder(finalShortcuts.map { it.id })
-                    isEditMode = false
-                    isPillDragging = false
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                },
-                onCancelEdit = {
-                    isEditMode = false
-                    isPillDragging = false
-                },
-                onScrollToLibrary = {
-                    scope.launch {
-                        val targetPx = with(density) { 220.dp.roundToPx() }
-                        scrollState.animateScrollTo(targetPx)
-                    }
-                }
-            )
-
-            // ── 2. PILL FILTERS ──────────────────────────────────────────────
+            // ── 4. PILL FILTERS (Categories below tabs) ───────────────────────
             ShortcutCategoryFilters(
                 selectedCategory = selectedFilterCategory,
                 onSelectCategory = { selectedFilterCategory = it }
@@ -898,7 +967,7 @@ fun ShortcutsScreen(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 12.dp, horizontal = 14.dp)
+                                .padding(vertical = 6.dp, horizontal = 14.dp)
                         ) {
                             // Accordion Header Row
                             ShortcutCategoryAccordionHeader(
@@ -926,7 +995,7 @@ fun ShortcutsScreen(
                                 ) + fadeOut(animationSpec = tween(200, easing = FastOutSlowInEasing))
                             ) {
                                 Column {
-                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Spacer(modifier = Modifier.height(5.dp))
 
                                     if (categoryShortcuts.isEmpty() && catMeta.id == DefaultShortcuts.CAT_CUSTOM) {
                                         EmptyCustomCategoryNotice(
@@ -1123,6 +1192,7 @@ fun ShortcutsScreen(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.32f))
                     .pointerInput(Unit) {
                         detectTapGestures {
                             isFabExpanded = false
@@ -1349,7 +1419,7 @@ private fun WritingBarHeroSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(5.dp)
         ) {
             // Header Row: Leading Rounded Icon + Title & Subtitle + Trailing Actions
             Row(
@@ -3074,7 +3144,10 @@ private fun ShortcutSearchField(
         },
         trailingIcon = {
             if (query.isNotEmpty()) {
-                IconButton(onClick = { onQueryChange("") }) {
+                IconButton(onClick = {
+                    onQueryChange("")
+                    focusManager.clearFocus()
+                }) {
                     Icon(
                         imageVector = Icons.Default.Close,
                         contentDescription = "Clear search",
@@ -5308,7 +5381,7 @@ private fun SnippetsStudioTabContent(
         builtIn + customMeta
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -5650,7 +5723,7 @@ private fun TemplatesStudioTabContent(
         builtIn + customMeta
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
