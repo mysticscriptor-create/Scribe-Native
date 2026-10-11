@@ -262,31 +262,38 @@ fun FrostedInWindowDropdownMenu(
     var anchorBounds by remember { mutableStateOf<Rect?>(null) }
     val menuId = remember { UUID.randomUUID().toString() }
 
-    // Anchor position tracker placed alongside trigger button (only tracks when expanded to eliminate scroll layout churn)
+    // Anchor position tracker placed alongside trigger button
     Spacer(
         modifier = Modifier
             .size(0.dp)
             .then(
                 if (expanded) {
                     Modifier.onGloballyPositioned { coords ->
+                        val selfPos = coords.positionInWindow()
                         val parentCoords = coords.parentCoordinates
-                        if (parentCoords != null) {
-                            val pos = parentCoords.positionInWindow()
-                            val size = parentCoords.size
-                            anchorBounds = Rect(
-                                left = pos.x,
-                                top = pos.y,
-                                right = pos.x + size.width,
-                                bottom = pos.y + size.height
+                        val hasValidParent = parentCoords != null &&
+                            parentCoords.isAttached &&
+                            parentCoords.size.width in 8..600 &&
+                            parentCoords.size.height in 8..600 &&
+                            (parentCoords.positionInWindow().x > 1f || parentCoords.positionInWindow().y > 1f)
+                        val targetBounds = if (hasValidParent) {
+                            val pPos = parentCoords!!.positionInWindow()
+                            Rect(
+                                left = pPos.x,
+                                top = pPos.y,
+                                right = pPos.x + parentCoords.size.width,
+                                bottom = pPos.y + parentCoords.size.height
                             )
                         } else {
-                            val pos = coords.positionInWindow()
-                            anchorBounds = Rect(
-                                left = pos.x,
-                                top = pos.y,
-                                right = pos.x,
-                                bottom = pos.y
+                            Rect(
+                                left = selfPos.x,
+                                top = selfPos.y,
+                                right = selfPos.x + 36f,
+                                bottom = selfPos.y + 36f
                             )
+                        }
+                        if (anchorBounds != targetBounds) {
+                            anchorBounds = targetBounds
                         }
                     }
                 } else Modifier
