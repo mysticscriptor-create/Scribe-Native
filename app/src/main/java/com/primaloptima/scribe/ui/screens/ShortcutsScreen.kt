@@ -82,6 +82,8 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -260,7 +262,7 @@ val TEMPLATE_CATEGORIES: List<CategoryMeta> = listOf(
 )
 
 enum class StudioTab(val title: String) {
-    QUICK_ACTIONS("Quick Actions"),
+    QUICK_ACTIONS("Actions"),
     SNIPPETS("Snippets"),
     TEMPLATES("Templates")
 }
@@ -289,8 +291,7 @@ fun ShortcutsScreen(
             vm.targetStudioTab = null
         }
     }
-    var isQuickActionsCategoriesExpanded by rememberSaveable { mutableStateOf(false) }
-    var showFabMenu by remember { mutableStateOf(false) }
+    var isFabExpanded by rememberSaveable { mutableStateOf(false) }
     var showCreateCategoryDialog by remember { mutableStateOf(false) }
     var newCategoryInputName by remember { mutableStateOf("") }
     var itemTypeForSheet by remember { mutableStateOf("action") }
@@ -302,6 +303,7 @@ fun ShortcutsScreen(
     val context = LocalContext.current
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
+    val focusManager = LocalFocusManager.current
     val coroutineScope = rememberCoroutineScope()
     val scope = coroutineScope
     val scrollState = rememberScrollState()
@@ -326,10 +328,14 @@ fun ShortcutsScreen(
     var isEditMode by rememberSaveable { mutableStateOf(false) }
     var isPillDragging by remember { mutableStateOf(false) }
 
-    // Intercept Back while in Edit Mode to cleanly cancel and restore order
-    BackHandler(enabled = isEditMode) {
-        isEditMode = false
-        isPillDragging = false
+    // Intercept Back while in Edit Mode or FAB expanded
+    BackHandler(enabled = isEditMode || isFabExpanded) {
+        if (isFabExpanded) {
+            isFabExpanded = false
+        } else {
+            isEditMode = false
+            isPillDragging = false
+        }
     }
 
     // ── Category Collapse State ──────────────────────────────────────────────
@@ -486,8 +492,14 @@ fun ShortcutsScreen(
                     )
                 },
                 actionsContent = {
-                    Box(contentAlignment = Alignment.TopEnd) {
-                        IconButton(onClick = { showTopMenu = true }) {
+                    Box(
+                        modifier = Modifier.wrapContentSize(Alignment.TopEnd),
+                        contentAlignment = Alignment.TopEnd
+                    ) {
+                        IconButton(onClick = {
+                            focusManager.clearFocus()
+                            showTopMenu = true
+                        }) {
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
                                 contentDescription = "More Options",
@@ -525,83 +537,167 @@ fun ShortcutsScreen(
                 exit = fadeOut(animationSpec = tween(150, easing = FastOutSlowInEasing)) +
                        scaleOut(animationSpec = tween(150, easing = FastOutSlowInEasing), targetScale = 0.8f)
             ) {
-                Box(contentAlignment = Alignment.BottomEnd) {
-                    Surface(
-                        onClick = { showFabMenu = true },
-                        shape = CircleShape,
-                        color = accentPrimary,
-                        shadowElevation = 6.dp,
-                        modifier = Modifier.padding(bottom = 8.dp, end = 4.dp)
+                Column(
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier.padding(bottom = 8.dp, end = 4.dp)
+                ) {
+                    // ── Speed-Dial Option Items (Animated above the FAB) ──
+                    AnimatedVisibility(
+                        visible = isFabExpanded,
+                        enter = fadeIn(animationSpec = tween(180)) +
+                                slideInVertically(animationSpec = tween(220, easing = FastOutSlowInEasing)) { it / 2 } +
+                                scaleIn(animationSpec = tween(200), initialScale = 0.8f, transformOrigin = TransformOrigin(1f, 1f)),
+                        exit = fadeOut(animationSpec = tween(140)) +
+                               slideOutVertically(animationSpec = tween(180, easing = FastOutSlowInEasing)) { it / 2 } +
+                               scaleOut(animationSpec = tween(150), targetScale = 0.8f, transformOrigin = TransformOrigin(1f, 1f))
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = "Create",
-                                tint = onAccent,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Text(
-                                text = when (activeStudioTab) {
-                                    StudioTab.QUICK_ACTIONS -> "Create Action"
-                                    StudioTab.SNIPPETS -> "Create Snippet"
-                                    StudioTab.TEMPLATES -> "Create Template"
-                                },
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = onAccent,
-                                maxLines = 1
-                            )
+                            // Option 1: Create Item
+                            val createLabel = when (activeStudioTab) {
+                                StudioTab.QUICK_ACTIONS -> "Create Action"
+                                StudioTab.SNIPPETS -> "Create Snippet"
+                                StudioTab.TEMPLATES -> "Create Template"
+                            }
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                // Text in separate card
+                                Surface(
+                                    onClick = {
+                                        isFabExpanded = false
+                                        itemTypeForSheet = when (activeStudioTab) {
+                                            StudioTab.QUICK_ACTIONS -> "action"
+                                            StudioTab.SNIPPETS -> "snippet"
+                                            StudioTab.TEMPLATES -> "template"
+                                        }
+                                        editingShortcut = null
+                                        isCreatingNew = true
+                                    },
+                                    shape = CircleShape,
+                                    color = cardBg,
+                                    border = BorderStroke(0.6.dp, subtleBorder.copy(alpha = 0.8f)),
+                                    shadowElevation = 4.dp
+                                ) {
+                                    Text(
+                                        text = createLabel,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = contentPrimary,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                                    )
+                                }
+                                // Round button matching FAB
+                                Surface(
+                                    onClick = {
+                                        isFabExpanded = false
+                                        itemTypeForSheet = when (activeStudioTab) {
+                                            StudioTab.QUICK_ACTIONS -> "action"
+                                            StudioTab.SNIPPETS -> "snippet"
+                                            StudioTab.TEMPLATES -> "template"
+                                        }
+                                        editingShortcut = null
+                                        isCreatingNew = true
+                                    },
+                                    shape = CircleShape,
+                                    color = accentPrimary,
+                                    shadowElevation = 5.dp,
+                                    modifier = Modifier.size(46.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                        Icon(
+                                            imageVector = Icons.Default.Add,
+                                            contentDescription = createLabel,
+                                            tint = onAccent,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Option 2: New Category
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                // Text in separate card
+                                Surface(
+                                    onClick = {
+                                        isFabExpanded = false
+                                        newCategoryInputName = ""
+                                        showCreateCategoryDialog = true
+                                    },
+                                    shape = CircleShape,
+                                    color = cardBg,
+                                    border = BorderStroke(0.6.dp, subtleBorder.copy(alpha = 0.8f)),
+                                    shadowElevation = 4.dp
+                                ) {
+                                    Text(
+                                        text = "New Category",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = contentPrimary,
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                                    )
+                                }
+                                // Round button matching FAB
+                                Surface(
+                                    onClick = {
+                                        isFabExpanded = false
+                                        newCategoryInputName = ""
+                                        showCreateCategoryDialog = true
+                                    },
+                                    shape = CircleShape,
+                                    color = accentPrimary,
+                                    shadowElevation = 5.dp,
+                                    modifier = Modifier.size(46.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                        Icon(
+                                            imageVector = Icons.Default.CreateNewFolder,
+                                            contentDescription = "New Category",
+                                            tint = onAccent,
+                                            modifier = Modifier.size(19.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
 
-                    FrostedDropdownMenu(
-                        expanded = showFabMenu,
-                        onDismissRequest = { showFabMenu = false }
+                    // ── Primary Round "+" FAB ──
+                    val fabRotation by animateFloatAsState(
+                        targetValue = if (isFabExpanded) 135f else 0f,
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioNoBouncy,
+                            stiffness = Spring.StiffnessMediumLow
+                        ),
+                        label = "fabRotation"
+                    )
+                    Surface(
+                        onClick = {
+                            focusManager.clearFocus()
+                            isFabExpanded = !isFabExpanded
+                        },
+                        shape = CircleShape,
+                        color = accentPrimary,
+                        shadowElevation = 6.dp,
+                        modifier = Modifier.size(56.dp)
                     ) {
-                        val createLabel = when (activeStudioTab) {
-                            StudioTab.QUICK_ACTIONS -> "Create Quick Action"
-                            StudioTab.SNIPPETS -> "Create Snippet"
-                            StudioTab.TEMPLATES -> "Create Template"
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = if (isFabExpanded) "Close options" else "Add options",
+                                tint = onAccent,
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .graphicsLayer { rotationZ = fabRotation }
+                            )
                         }
-                        DropdownMenuItem(
-                            text = { Text(createLabel) },
-                            onClick = {
-                                showFabMenu = false
-                                itemTypeForSheet = when (activeStudioTab) {
-                                    StudioTab.QUICK_ACTIONS -> "action"
-                                    StudioTab.SNIPPETS -> "snippet"
-                                    StudioTab.TEMPLATES -> "template"
-                                }
-                                editingShortcut = null
-                                isCreatingNew = true
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = null,
-                                    tint = accentPrimary
-                                )
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("New Category in ${activeStudioTab.title}") },
-                            onClick = {
-                                showFabMenu = false
-                                newCategoryInputName = ""
-                                showCreateCategoryDialog = true
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Default.CreateNewFolder,
-                                    contentDescription = null,
-                                    tint = accentPrimary
-                                )
-                            }
-                        )
                     }
                 }
             }
@@ -609,12 +705,31 @@ fun ShortcutsScreen(
         containerColor = canvasBg,
         contentWindowInsets = WindowInsets.systemBars.union(WindowInsets.ime)
     ) { paddingValues ->
+        LaunchedEffect(scrollState.isScrollInProgress) {
+            if (scrollState.isScrollInProgress) {
+                focusManager.clearFocus()
+                if (isFabExpanded) {
+                    isFabExpanded = false
+                }
+            }
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .nestedScroll(stretchScrollConnection)
                 .clipToBounds()
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onTap = {
+                            focusManager.clearFocus()
+                            if (isFabExpanded) {
+                                isFabExpanded = false
+                            }
+                        }
+                    )
+                }
         ) {
             Column(
                 modifier = Modifier
@@ -642,7 +757,23 @@ fun ShortcutsScreen(
                     .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-            // ── 3-TAB STUDIO NAVIGATION BAR ─────────────────────────────────
+            // ── UNIFIED SEARCH BAR (Pill Shape) ─────────────────────────────
+            ShortcutSearchField(
+                query = when (activeStudioTab) {
+                    StudioTab.QUICK_ACTIONS -> searchQuery
+                    StudioTab.SNIPPETS -> snippetSearchQuery
+                    StudioTab.TEMPLATES -> templateSearchQuery
+                },
+                onQueryChange = { newQuery ->
+                    when (activeStudioTab) {
+                        StudioTab.QUICK_ACTIONS -> searchQuery = newQuery
+                        StudioTab.SNIPPETS -> snippetSearchQuery = newQuery
+                        StudioTab.TEMPLATES -> templateSearchQuery = newQuery
+                    }
+                }
+            )
+
+            // ── 3-TAB STUDIO NAVIGATION BAR (Directly Below Search Bar) ──────
             Surface(
                 shape = CircleShape,
                 color = glyphBoxBg,
@@ -691,63 +822,20 @@ fun ShortcutsScreen(
                                         interactionSource = remember { MutableInteractionSource() },
                                         indication = null
                                     ) {
-                                        if (tab == StudioTab.QUICK_ACTIONS) {
-                                            if (activeStudioTab == StudioTab.QUICK_ACTIONS) {
-                                                isQuickActionsCategoriesExpanded = !isQuickActionsCategoriesExpanded
-                                            } else {
-                                                activeStudioTab = StudioTab.QUICK_ACTIONS
-                                                isQuickActionsCategoriesExpanded = false
-                                            }
-                                        } else {
-                                            activeStudioTab = tab
-                                            isQuickActionsCategoriesExpanded = false
-                                        }
+                                        focusManager.clearFocus()
+                                        activeStudioTab = tab
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Text(
-                                        text = tab.title,
-                                        fontSize = 12.5.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSelected) contentPrimary else contentSecondary
-                                    )
-                                    if (tab == StudioTab.QUICK_ACTIONS) {
-                                        val arrowRotation by animateFloatAsState(
-                                            targetValue = if (isQuickActionsCategoriesExpanded && isSelected) 180f else 0f,
-                                            animationSpec = tween(220),
-                                            label = "arrowRotation"
-                                        )
-                                        Icon(
-                                            imageVector = Icons.Default.KeyboardArrowDown,
-                                            contentDescription = "Expand categories",
-                                            modifier = Modifier
-                                                .size(15.dp)
-                                                .graphicsLayer { rotationZ = arrowRotation },
-                                            tint = if (isSelected) accentPrimary else contentTertiary
-                                        )
-                                    }
-                                }
+                                Text(
+                                    text = tab.title,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) contentPrimary else contentSecondary
+                                )
                             }
                         }
                     }
-                }
-            }
-
-            // Collapsible Category Chips Under Quick Actions
-            AnimatedVisibility(
-                visible = activeStudioTab == StudioTab.QUICK_ACTIONS && isQuickActionsCategoriesExpanded,
-                enter = expandVertically(animationSpec = tween(260, easing = FastOutSlowInEasing)) + fadeIn(tween(260)),
-                exit = shrinkVertically(animationSpec = tween(220, easing = FastOutSlowInEasing)) + fadeOut(tween(180))
-            ) {
-                Column(modifier = Modifier.padding(top = 2.dp)) {
-                    ShortcutCategoryFilters(
-                        selectedCategory = selectedFilterCategory,
-                        onSelectCategory = { selectedFilterCategory = it }
-                    )
                 }
             }
 
@@ -779,20 +867,11 @@ fun ShortcutsScreen(
                 }
             )
 
-            // ── 2. SEARCH & PILL FILTERS ─────────────────────────────────────
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                // Search Bar (Rounded pill shape)
-                ShortcutSearchField(
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it }
-                )
-
-                // Horizontal Filter Chips Row: [All] [Punctuation] [Dialogue] [Editing] [Symbols] ...
-                ShortcutCategoryFilters(
-                    selectedCategory = selectedFilterCategory,
-                    onSelectCategory = { selectedFilterCategory = it }
-                )
-            }
+            // ── 2. PILL FILTERS ──────────────────────────────────────────────
+            ShortcutCategoryFilters(
+                selectedCategory = selectedFilterCategory,
+                onSelectCategory = { selectedFilterCategory = it }
+            )
 
             // ── 3. SHORTCUT LIBRARY SECTIONS ─────────────────────────────────
             val displayedCategories = if (selectedFilterCategory != null && selectedFilterCategory != "all" && selectedFilterCategory != "in_bar") {
@@ -1035,8 +1114,22 @@ fun ShortcutsScreen(
                 )
             }
 
-            // Bottom spacing for extended FAB
+            // Bottom spacing for FAB
             Spacer(modifier = Modifier.height(84.dp))
+        }
+
+        // Tap outside scrim layer when speed-dial FAB is expanded
+        if (isFabExpanded) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures {
+                            isFabExpanded = false
+                            focusManager.clearFocus()
+                        }
+                    }
+            )
         }
         }
     }
@@ -2956,6 +3049,7 @@ private fun ShortcutSearchField(
     val accentPrimary = colors.interaction.primary
     val contentPrimary = colors.content.primary
     val contentSecondary = colors.content.secondary
+    val focusManager = LocalFocusManager.current
 
     OutlinedTextField(
         value = query,
@@ -2997,6 +3091,8 @@ private fun ShortcutSearchField(
             unfocusedBorderColor = subtleBorder,
             focusedBorderColor = accentPrimary
         ),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
         singleLine = true
     )
 }
@@ -5213,11 +5309,6 @@ private fun SnippetsStudioTabContent(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ShortcutSearchField(
-            query = searchQuery,
-            onQueryChange = onSearchQueryChange
-        )
-
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -5560,11 +5651,6 @@ private fun TemplatesStudioTabContent(
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ShortcutSearchField(
-            query = searchQuery,
-            onQueryChange = onSearchQueryChange
-        )
-
         Row(
             modifier = Modifier
                 .fillMaxWidth()
