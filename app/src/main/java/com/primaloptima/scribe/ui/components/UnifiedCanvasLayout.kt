@@ -375,8 +375,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * by the keyboard or shortcut bar by scrolling header off or adjusting editor scroll
      * so that the active cursor line stays just above the shortcut bar.
      */
+    private var lastEnsureCursorTime = 0L
+
     fun ensureCursorVisibleAboveKeyboard() {
         if (!editor.isFocused || isImeClosing) return
+        val now = System.currentTimeMillis()
+        if (now - lastEnsureCursorTime < 60L) return
         val cursor = try { editor.cursor } catch (_: Throwable) { null } ?: return
         val line = cursor.leftLine
         val col = cursor.leftColumn
@@ -390,15 +394,19 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val screenTop = screenBottom - rowHeight
 
         val visibleHeight = height
-        val marginPx = (14 * resources.displayMetrics.density).roundToInt()
+        val density = resources.displayMetrics.density
+        val marginPx = (14 * density).roundToInt()
+        val deadbandPx = (4 * density).roundToInt()
 
         if (visibleHeight > 0) {
-            if (screenBottom > visibleHeight - marginPx) {
+            if (screenBottom > (visibleHeight - marginPx + deadbandPx)) {
                 val overflow = screenBottom - (visibleHeight - marginPx)
-                smoothScrollCanvasBy(overflow.toFloat(), durationMs = 150)
-            } else if (screenTop < 0 && (scrollD > 0 || editor.offsetY > 0)) {
+                lastEnsureCursorTime = now
+                smoothScrollCanvasBy(overflow.toFloat(), durationMs = 120)
+            } else if (screenTop < -deadbandPx && (scrollD > 0 || editor.offsetY > 0)) {
                 val underflow = screenTop
-                smoothScrollCanvasBy(underflow.toFloat(), durationMs = 150)
+                lastEnsureCursorTime = now
+                smoothScrollCanvasBy(underflow.toFloat(), durationMs = 120)
             }
         }
     }

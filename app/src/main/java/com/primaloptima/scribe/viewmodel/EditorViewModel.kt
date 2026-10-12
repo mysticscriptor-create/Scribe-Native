@@ -43,6 +43,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -547,6 +549,7 @@ class EditorViewModel(
 
     // ── Autosave ──────────────────────────────────────────────────────────────
 
+    private val saveMutex = Mutex()
     private var autosaveJob: Job? = null
     private var statsJob: Job? = null
     // Bug 4: debounce RecoveryManager writes (was firing on every keystroke).
@@ -780,6 +783,9 @@ class EditorViewModel(
     }
 
     fun loadNote(noteId: String, preloadedNote: Note? = null) {
+        if (_activeNote.value != null && _activeNote.value?.id != noteId) {
+            flushPendingContent()
+        }
         if (_activeNote.value?.id != noteId) {
             sessionScrollMap.remove(noteId)
         }
@@ -814,6 +820,7 @@ class EditorViewModel(
     }
 
     fun clearActiveNote() {
+        flushPendingContent()
         _activeNote.value?.id?.let {
             sessionScrollMap.remove(it)
         }
@@ -917,14 +924,47 @@ class EditorViewModel(
      * keystrokes typed within the 500ms debounce window are not lost.
      * Cancels the pending autosave job and immediately persists the latest content.
      */
-    fun flushPendingContent() {
+    fun flushPendingContent(): kotlinx.coroutines.Job? {
         autosaveJob?.cancel()
+        autosaveJob = null
+        val note = _activeNote.value
         val content = pendingContent
-        if (content.isNotEmpty() && content != lastSavedContent) {
-            viewModelScope.launch(Dispatchers.IO) {
-                saveContent(content)
+        if (note != null && content.isNotEmpty() && content != lastSavedContent) {
+            val words = MarkdownUtil.countWords(content)
+            val delta = words - lastWordCount
+            lastWordCount = words
+            lastSavedContent = content
+            _activeNote.value = note.copy(content = content, updatedAt = System.currentTimeMillis())
+            val app = getApplication<android.app.Application>()
+            val extUri = note.externalUri
+            val noteId = note.id
+            val bookId = note.bookId
+            val folderPath = note.folderPath
+            val today = todayStr()
+            return viewModelScope.launch(Dispatchers.IO) {
+                saveMutex.withLock {
+                    if (extUri != null) {
+                        try { SAFHelper.writeFile(app, Uri.parse(extUri), content) }
+                        catch (_: Exception) {}
+                    }
+                    db.writingLogDao().saveContentAndDelta(
+                        noteDao    = db.noteDao(),
+                        noteId     = noteId,
+                        content    = content,
+                        wordCount  = words,
+                        updatedAt  = System.currentTimeMillis(),
+                        date       = today,
+                        bookId     = bookId,
+                        folderPath = folderPath,
+                        delta      = delta
+                    )
+                    if (delta != 0) {
+                        updateGoalFromDb(today)
+                    }
+                }
             }
         }
+        return null
     }
 
     private suspend fun saveContent(content: String) {
@@ -936,26 +976,28 @@ class EditorViewModel(
         lastWordCount = newWords
 
         withContext(Dispatchers.IO) {
-            if (note.externalUri != null) {
-                try { SAFHelper.writeFile(getApplication(), Uri.parse(note.externalUri), content) }
-                catch (_: Exception) {}
-            }
-            // Fix (Bug 3): Both DB writes run inside a single @Transaction so they
-            // can never diverge if the process is killed between them.
-            val today = todayStr()
-            db.writingLogDao().saveContentAndDelta(
-                noteDao    = db.noteDao(),
-                noteId     = note.id,
-                content    = content,
-                wordCount  = newWords,
-                updatedAt  = System.currentTimeMillis(),
-                date       = today,
-                bookId     = note.bookId,
-                folderPath = note.folderPath,
-                delta      = delta
-            )
-            if (delta != 0) {
-                updateGoalFromDb(today)
+            saveMutex.withLock {
+                if (note.externalUri != null) {
+                    try { SAFHelper.writeFile(getApplication(), Uri.parse(note.externalUri), content) }
+                    catch (_: Exception) {}
+                }
+                // Fix (Bug 3): Both DB writes run inside a single @Transaction so they
+                // can never diverge if the process is killed between them.
+                val today = todayStr()
+                db.writingLogDao().saveContentAndDelta(
+                    noteDao    = db.noteDao(),
+                    noteId     = note.id,
+                    content    = content,
+                    wordCount  = newWords,
+                    updatedAt  = System.currentTimeMillis(),
+                    date       = today,
+                    bookId     = note.bookId,
+                    folderPath = note.folderPath,
+                    delta      = delta
+                )
+                if (delta != 0) {
+                    updateGoalFromDb(today)
+                }
             }
         }
 

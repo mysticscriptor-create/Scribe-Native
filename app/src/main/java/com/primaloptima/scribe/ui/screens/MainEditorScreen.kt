@@ -649,6 +649,12 @@ fun MainEditorScreen(
 
     BackHandler {
         isExitingNote = true
+        soraEditorRef?.text?.toString()?.let { curText ->
+            if (curText.isNotEmpty() && curText != editorVm.activeNote.value?.content) {
+                editorVm.onContentChanged(curText)
+            }
+        }
+        editorVm.flushPendingContent()
         saveCurrentCursorStateToDb(soraEditorRef)
         activeNote?.id?.let { editorVm.clearSessionScroll(it) }
         onBack()
@@ -1005,6 +1011,12 @@ fun MainEditorScreen(
     DisposableEffect(activeNote?.id) {
         onDispose {
             activeNote?.let { note ->
+                soraEditorForDispose?.text?.toString()?.let { curText ->
+                    if (curText.isNotEmpty() && curText != note.content) {
+                        editorVm.onContentChanged(curText)
+                    }
+                }
+                editorVm.flushPendingContent()
                 editorVm.saveVersionSnapshotOnLeave(soraEditorForDispose?.text?.toString() ?: "")
                 if (!isExitingNote && editorVm.restoreCursorOnOpen.value) {
                     val state = captureCurrentCursorState(soraEditorForDispose)
@@ -1045,6 +1057,53 @@ fun MainEditorScreen(
     }
 
     val compactHeightDp = lastKeyboardHeightDp.coerceIn(240.dp, (configuration.screenHeightDp.dp * 0.60f))
+
+    var lastDrawerToggleTimestamp by remember { mutableLongStateOf(0L) }
+    val toggleAccessoryDrawer: (AccessoryDrawerMode) -> Unit = { targetMode ->
+        val now = System.currentTimeMillis()
+        if (now - lastDrawerToggleTimestamp >= 120L) {
+            lastDrawerToggleTimestamp = now
+            if (activeSheetPage != null) {
+                activeSheetPage = null
+            }
+            if (activeAccessoryDrawer == targetMode) {
+                // Closing active drawer -> Restore soft keyboard
+                activeAccessoryDrawer = null
+                drawerState = AccessoryDrawerState.COMPACT
+                isAwaitingKeyboardOpen = true
+                isHidingKeyboardForDrawer = false
+                isWritingBarSearchActive = false
+                drawerSearchQuery = ""
+                previewItem = null
+                soraEditorRef?.requestFocus()
+                keyboardController?.show()
+                try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+            } else if (activeAccessoryDrawer != null) {
+                // Seamless instantaneous switch between open drawers: zero keyboard/cursor flicker
+                activeAccessoryDrawer = targetMode
+                isWritingBarSearchActive = false
+                drawerSearchQuery = ""
+                previewItem = null
+            } else {
+                // Opening drawer from keyboard / idle state
+                isAwaitingKeyboardOpen = false
+                isHidingKeyboardForDrawer = isKeyboardVisible || imeAboveNavDp > 40.dp
+                if (imeAboveNavDp >= 200.dp) {
+                    lastKeyboardHeightDp = imeAboveNavDp
+                    if (kotlin.math.abs(imeAboveNavDp.value - savedKeyboardHeightFloat) >= 1f) {
+                        scope.launch { dataStore.setLastKeyboardHeight(imeAboveNavDp.value) }
+                    }
+                }
+                keyboardController?.hide()
+                try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
+                activeAccessoryDrawer = targetMode
+                drawerState = AccessoryDrawerState.COMPACT
+                isWritingBarSearchActive = false
+                drawerSearchQuery = ""
+                previewItem = null
+            }
+        }
+    }
 
     // Capture steady-state keyboard height once settled, saving to DataStore only on change (Suggestion 2)
     LaunchedEffect(imeBottomDp, isKeyboardVisible, docBottomNavInset, isHidingKeyboardForDrawer) {
@@ -1892,41 +1951,7 @@ fun MainEditorScreen(
                                                     .height(ScribeTheme.metrics.chipHeight)
                                                     .clickable {
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                        if (isSnippetsOpen) {
-                                                            activeAccessoryDrawer = null
-                                                            drawerState = AccessoryDrawerState.COMPACT
-                                                            isAwaitingKeyboardOpen = true
-                                                            isHidingKeyboardForDrawer = false
-                                                            isWritingBarSearchActive = false
-                                                            drawerSearchQuery = ""
-                                                            previewItem = null
-                                                            soraEditorRef?.requestFocus()
-                                                            keyboardController?.show()
-                                                            try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
-                                                        } else if (activeAccessoryDrawer != null) {
-                                                            // Seamless switch between open drawers: zero keyboard/cursor flicker
-                                                            activeAccessoryDrawer = AccessoryDrawerMode.SNIPPETS
-                                                            isWritingBarSearchActive = false
-                                                            drawerSearchQuery = ""
-                                                            previewItem = null
-                                                        } else {
-                                                            // Opening drawer from keyboard / idle
-                                                            isAwaitingKeyboardOpen = false
-                                                            isHidingKeyboardForDrawer = isKeyboardVisible || imeAboveNavDp > 40.dp
-                                                            if (imeAboveNavDp >= 200.dp) {
-                                                                lastKeyboardHeightDp = imeAboveNavDp
-                                                                if (kotlin.math.abs(imeAboveNavDp.value - savedKeyboardHeightFloat) >= 1f) {
-                                                                    scope.launch { dataStore.setLastKeyboardHeight(imeAboveNavDp.value) }
-                                                                }
-                                                            }
-                                                            keyboardController?.hide()
-                                                            try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
-                                                            activeAccessoryDrawer = AccessoryDrawerMode.SNIPPETS
-                                                            drawerState = AccessoryDrawerState.COMPACT
-                                                            isWritingBarSearchActive = false
-                                                            drawerSearchQuery = ""
-                                                            previewItem = null
-                                                        }
+                                                        toggleAccessoryDrawer(AccessoryDrawerMode.SNIPPETS)
                                                     }
                                             ) {
                                                 Row(
@@ -1964,41 +1989,7 @@ fun MainEditorScreen(
                                                         .height(ScribeTheme.metrics.chipHeight)
                                                         .clickable {
                                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                            if (isTemplatesOpen) {
-                                                                activeAccessoryDrawer = null
-                                                                drawerState = AccessoryDrawerState.COMPACT
-                                                                isAwaitingKeyboardOpen = true
-                                                                isHidingKeyboardForDrawer = false
-                                                                isWritingBarSearchActive = false
-                                                                drawerSearchQuery = ""
-                                                                previewItem = null
-                                                                soraEditorRef?.requestFocus()
-                                                                keyboardController?.show()
-                                                                try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
-                                                            } else if (activeAccessoryDrawer != null) {
-                                                                // Seamless switch between open drawers: zero keyboard/cursor flicker
-                                                                activeAccessoryDrawer = AccessoryDrawerMode.TEMPLATES
-                                                                isWritingBarSearchActive = false
-                                                                drawerSearchQuery = ""
-                                                                previewItem = null
-                                                            } else {
-                                                                // Opening drawer from keyboard / idle
-                                                                isAwaitingKeyboardOpen = false
-                                                                isHidingKeyboardForDrawer = isKeyboardVisible || imeAboveNavDp > 40.dp
-                                                                if (imeAboveNavDp >= 200.dp) {
-                                                                    lastKeyboardHeightDp = imeAboveNavDp
-                                                                    if (kotlin.math.abs(imeAboveNavDp.value - savedKeyboardHeightFloat) >= 1f) {
-                                                                        scope.launch { dataStore.setLastKeyboardHeight(imeAboveNavDp.value) }
-                                                                    }
-                                                                }
-                                                                keyboardController?.hide()
-                                                                try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
-                                                                activeAccessoryDrawer = AccessoryDrawerMode.TEMPLATES
-                                                                drawerState = AccessoryDrawerState.COMPACT
-                                                                isWritingBarSearchActive = false
-                                                                drawerSearchQuery = ""
-                                                                previewItem = null
-                                                            }
+                                                            toggleAccessoryDrawer(AccessoryDrawerMode.TEMPLATES)
                                                         }
                                                 ) {
                                                     Row(
@@ -2557,6 +2548,12 @@ fun MainEditorScreen(
                                             val windowToken = (context as? Activity)?.window?.decorView?.windowToken
                                                 ?: soraEditorRef?.windowToken
                                             windowToken?.let { imm?.hideSoftInputFromWindow(it, 0) }
+                                            if (activeAccessoryDrawer != null) {
+                                                activeAccessoryDrawer = null
+                                                drawerState = AccessoryDrawerState.COMPACT
+                                                isAwaitingKeyboardOpen = false
+                                                isHidingKeyboardForDrawer = false
+                                            }
                                             activeSheetPage = EditorSheetPage.MENU
                                         }
                                     )
