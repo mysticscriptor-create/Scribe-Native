@@ -325,6 +325,7 @@ fun MainEditorScreen(
         }
     )
     var isAwaitingKeyboardOpen by remember { mutableStateOf(false) }
+    var isBarTransitionLatched by remember { mutableStateOf(false) }
 
     LaunchedEffect(isWritingBarSearchActive) {
         if (isWritingBarSearchActive) {
@@ -637,6 +638,7 @@ fun MainEditorScreen(
         isPreviewExpanded = false
         drawerState = AccessoryDrawerState.COMPACT
         isAwaitingKeyboardOpen = true
+        isBarTransitionLatched = true
         drawerSearchQuery = ""
         isWritingBarSearchActive = false
         previewItem = null
@@ -1064,7 +1066,8 @@ fun MainEditorScreen(
     var lastDrawerToggleTimestamp by remember { mutableLongStateOf(0L) }
     val toggleAccessoryDrawer: (AccessoryDrawerMode) -> Unit = { targetMode ->
         val now = System.currentTimeMillis()
-        if (now - lastDrawerToggleTimestamp >= 100L) {
+        val isSwitchingBetweenOpenDrawers = activeAccessoryDrawer != null && targetMode != activeAccessoryDrawer
+        if (isSwitchingBetweenOpenDrawers || now - lastDrawerToggleTimestamp >= 200L) {
             lastDrawerToggleTimestamp = now
             if (activeSheetPage != null) {
                 activeSheetPage = null
@@ -1074,6 +1077,7 @@ fun MainEditorScreen(
                 activeAccessoryDrawer = null
                 drawerState = AccessoryDrawerState.COMPACT
                 isAwaitingKeyboardOpen = true
+                isBarTransitionLatched = true
                 isWritingBarSearchActive = false
                 drawerSearchQuery = ""
                 previewItem = null
@@ -1090,6 +1094,7 @@ fun MainEditorScreen(
             } else {
                 // Opening drawer from keyboard / idle state
                 isAwaitingKeyboardOpen = false
+                isBarTransitionLatched = false
                 keyboardController?.hide()
                 try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
                 activeAccessoryDrawer = targetMode
@@ -1163,6 +1168,7 @@ fun MainEditorScreen(
                     lastKeyboardHeightDp = imeAboveNavDp.value
                 }
                 isAwaitingKeyboardOpen = false
+                isBarTransitionLatched = false
             }
         }
     }
@@ -1297,7 +1303,7 @@ fun MainEditorScreen(
                         }
                     }
 
-                    val isBarVisible = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen) && shortcuts.isNotEmpty()
+                    val isBarVisible = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched) && shortcuts.isNotEmpty()
                     val effectiveBottomSurfaceHeight = when {
                         activeAccessoryDrawer != null -> {
                             when {
@@ -1306,7 +1312,7 @@ fun MainEditorScreen(
                                 else -> drawerHeightDpAnim.value.dp.coerceIn(compactHeightDp, fullHeightDp)
                             }
                         }
-                        isAwaitingKeyboardOpen -> compactHeightDp
+                        isAwaitingKeyboardOpen || isBarTransitionLatched -> maxOf(compactHeightDp, imeAboveNavDp)
                         isKeyboardVisible -> maxOf(compactHeightDp, imeAboveNavDp)
                         imeAboveNavDp > 10.dp -> imeAboveNavDp
                         else -> 0.dp
@@ -1352,8 +1358,16 @@ fun MainEditorScreen(
                                 onUserTouchDown = {
                                     if (activeAccessoryDrawer != null) {
                                         activeAccessoryDrawer = null
+                                        drawerState = AccessoryDrawerState.COMPACT
                                         isAwaitingKeyboardOpen = true
-                                        soraEditorRef?.showSoftInput()
+                                        isBarTransitionLatched = true
+                                        isWritingBarSearchActive = false
+                                        drawerSearchQuery = ""
+                                        previewItem = null
+                                        scope.launch { drawerHeightDpAnim.snapTo(compactHeightDp.value) }
+                                        soraEditorRef?.requestFocus()
+                                        keyboardController?.show()
+                                        try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
                                     }
                                 }
                                 onScrollDelta = { dy ->
@@ -1513,8 +1527,16 @@ fun MainEditorScreen(
                             layout.onUserTouchDown = {
                                 if (activeAccessoryDrawer != null) {
                                     activeAccessoryDrawer = null
+                                    drawerState = AccessoryDrawerState.COMPACT
                                     isAwaitingKeyboardOpen = true
-                                    soraEditorRef?.showSoftInput()
+                                    isBarTransitionLatched = true
+                                    isWritingBarSearchActive = false
+                                    drawerSearchQuery = ""
+                                    previewItem = null
+                                    scope.launch { drawerHeightDpAnim.snapTo(compactHeightDp.value) }
+                                    soraEditorRef?.requestFocus()
+                                    keyboardController?.show()
+                                    try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
                                 }
                             }
                             val density = layout.context.resources.displayMetrics.density
@@ -2094,6 +2116,8 @@ fun MainEditorScreen(
                                                                 .clickable {
                                                                     shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
                                                                     activeAccessoryDrawer = null
+                                                                    isAwaitingKeyboardOpen = false
+                                                                    isBarTransitionLatched = false
                                                                                                                                         drawerSearchQuery = ""
                                                                     isWritingBarSearchActive = false
                                                                     previewItem = null
@@ -2349,6 +2373,7 @@ fun MainEditorScreen(
                                                 shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
                                                 activeAccessoryDrawer = null
                                                 isAwaitingKeyboardOpen = false
+                                                isBarTransitionLatched = false
                                                                                                 drawerSearchQuery = ""
                                                 isWritingBarSearchActive = false
                                                 previewItem = null
@@ -2526,6 +2551,7 @@ fun MainEditorScreen(
                                                 activeAccessoryDrawer = null
                                                 drawerState = AccessoryDrawerState.COMPACT
                                                 isAwaitingKeyboardOpen = false
+                                                isBarTransitionLatched = false
                                                                                             }
                                             activeSheetPage = EditorSheetPage.MENU
                                         }
