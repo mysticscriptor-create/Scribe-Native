@@ -1127,35 +1127,19 @@ fun MainEditorScreen(
     // so the shortcut bar stays rock-solid while the IME animates in
     LaunchedEffect(isAwaitingKeyboardOpen) {
         if (isAwaitingKeyboardOpen) {
-            var settled = false
             try {
-                // Give keyboard at least 150ms to begin its entrance animation from 0
-                delay(150)
-                var lastHeight = imeAboveNavDp.value
-                var stableCount = 0
-
-                withTimeoutOrNull(750) {
-                    snapshotFlow { Pair(imeAboveNavDp.value, isKeyboardVisible) }
-                        .filter { (currentHeight, visible) ->
-                            if (!visible) return@filter false
-                            if (currentHeight >= 140f) {
-                                if (kotlin.math.abs(currentHeight - lastHeight) < 0.5f) {
-                                    stableCount++
-                                } else {
-                                    stableCount = 0
-                                    lastHeight = currentHeight
-                                }
-                                stableCount >= 3
-                            } else {
-                                false
-                            }
-                        }
+                // Wait for keyboard to become visible and reach at least 140.dp
+                withTimeoutOrNull(1200) {
+                    snapshotFlow { isKeyboardVisible && imeAboveNavDp >= 140.dp }
+                        .filter { it }
                         .first()
-                    settled = true
+                    // Allow the entrance animation to finish reaching settled height
+                    delay(150)
                 }
             } finally {
-                if (settled && imeAboveNavDp >= 140.dp) {
-                    lastKeyboardHeightDp = imeAboveNavDp
+                val settledAboveNav = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
+                if (isKeyboardVisible && settledAboveNav >= 140.dp) {
+                    lastKeyboardHeightDp = settledAboveNav
                 }
                 isAwaitingKeyboardOpen = false
             }
@@ -1301,10 +1285,9 @@ fun MainEditorScreen(
                                 else -> drawerHeightDpAnim.value.dp.coerceIn(compactHeightDp, fullHeightDp)
                             }
                         }
-                        isAwaitingKeyboardOpen -> {
-                            maxOf(compactHeightDp, imeAboveNavDp)
-                        }
-                        isKeyboardVisible || imeAboveNavDp > 10.dp -> imeAboveNavDp
+                        isAwaitingKeyboardOpen -> compactHeightDp
+                        isKeyboardVisible -> maxOf(compactHeightDp, imeAboveNavDp)
+                        imeAboveNavDp > 10.dp -> imeAboveNavDp
                         else -> 0.dp
                     }
                     val docBottomPadding = if (!isBarVisible) {
