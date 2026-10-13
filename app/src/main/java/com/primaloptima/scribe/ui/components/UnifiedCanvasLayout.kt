@@ -21,7 +21,7 @@ import io.github.rosemoe.sora.widget.CodeEditor
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private val CodeEditor.safeScrollMaxY: Int
+internal val CodeEditor.safeScrollMaxY: Int
     get() = try {
         scrollMaxY.coerceAtLeast(0)
     } catch (_: Throwable) {
