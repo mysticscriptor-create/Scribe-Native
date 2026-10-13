@@ -715,7 +715,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> {
                 isUserTouching = true
                 canvasScrollAnimator?.cancel()
-                keyboardDisplacement = 0f
                 if (!scroller.isFinished) {
                     scroller.abortAnimation()
                 }

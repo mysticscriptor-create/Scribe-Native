@@ -1135,7 +1135,7 @@ fun MainEditorScreen(
                     delay(30)
                 }
             } finally {
-                if (imeAboveNavDp >= 240.dp && imeAboveNavDp >= (lastKeyboardHeightDp.value - 10f)) {
+                if (imeAboveNavDp >= 240.dp && imeAboveNavDp >= (lastKeyboardHeightDp - 10.dp)) {
                     lastKeyboardHeightDp = imeAboveNavDp
                     if (kotlin.math.abs(imeAboveNavDp.value - savedKeyboardHeightFloat) >= 1f) {
                         dataStore.setLastKeyboardHeight(imeAboveNavDp.value)
@@ -1162,7 +1162,7 @@ fun MainEditorScreen(
                     .filter { it >= 240.dp }
                     .first()
                 delay(60)
-                if (imeAboveNavDp >= 240.dp && imeAboveNavDp >= (lastKeyboardHeightDp.value - 10f)) {
+                if (imeAboveNavDp >= 240.dp && imeAboveNavDp >= (lastKeyboardHeightDp - 10.dp)) {
                     lastKeyboardHeightDp = imeAboveNavDp
                 }
                 activeAccessoryDrawer = null
