@@ -1255,6 +1255,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 }
                 return
             }
+            if (parentCanvas.isImeClosing) {
+                return
+            }
             val headerRemaining = parentCanvas.headerHeight - parentCanvas.scrollD
             val screenYBottom = headerRemaining + yOffset - offsetY
             val screenYTop = screenYBottom - rowHeight

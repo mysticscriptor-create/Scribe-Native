@@ -66,6 +66,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var isImeClosing: Boolean = false
         private set
 
+    private val resetImeClosingRunnable = Runnable {
+        isImeClosing = false
+    }
+
     var horizontalPaddingDp: Float = 28f
         set(value) {
             val clamped = value.coerceIn(8f, 72f)
@@ -377,10 +381,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      */
     private var lastEnsureCursorTime = 0L
 
-    fun ensureCursorVisibleAboveKeyboard(smooth: Boolean = true, customDurationMs: Long = 280L) {
+    fun ensureCursorVisibleAboveKeyboard(smooth: Boolean = true, customDurationMs: Long = 260L) {
         if (!editor.isFocused || isImeClosing) return
         val now = System.currentTimeMillis()
-        if (now - lastEnsureCursorTime < 80L) return
+        if (now - lastEnsureCursorTime < 120L) return
         val cursor = try { editor.cursor } catch (_: Throwable) { null } ?: return
         val line = cursor.leftLine
         val col = cursor.leftColumn
@@ -395,7 +399,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
         val visibleHeight = height
         val density = resources.displayMetrics.density
-        val marginPx = (16 * density).roundToInt()
+        val marginPx = (20 * density).roundToInt()
         val deadbandPx = (4 * density).roundToInt()
 
         if (visibleHeight > 0) {
@@ -513,22 +517,29 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val dh = oldh - h
             if (dh > 0) {
                 // Viewport shrinking (keyboard appearing)
-                // Decoupled fluid cursor reveal: starts smoothly in parallel, gently decelerating to rest
-                if (editor.isFocused) {
+                // Pure Writer fluid single-shot cursor reveal:
+                // Decoupled cursor follow that glides upward smoothly if occluded,
+                // staying 100% stationary if the cursor is already in the upper safe region.
+                if (editor.isFocused && !isImeClosing) {
                     post {
-                        ensureCursorVisibleAboveKeyboard(smooth = true, customDurationMs = 280L)
+                        ensureCursorVisibleAboveKeyboard(smooth = true, customDurationMs = 260L)
                     }
                 }
             } else if (dh < 0) {
-                // Viewport expanding (keyboard dismissing)
-                // When viewport expands, ensure editor.offsetY is immediately clamped to editor.scrollMaxY:
-                val maxAllowedY = editor.safeScrollMaxY
-                if (editor.offsetY > maxAllowedY) {
-                    val excess = (editor.offsetY - maxAllowedY).toFloat()
-                    scrollCanvasBy(-excess)
-                }
+                // Viewport expanding (keyboard or drawer dismissing)
+                // Pure Writer Anchored Dismissal:
+                // The article content position stays completely still, preventing the page jumping
+                // common in other editors that causes user distraction and accidental taps.
+                isImeClosing = true
+                removeCallbacks(resetImeClosingRunnable)
+                postDelayed(resetImeClosingRunnable, 350L)
             }
         }
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        removeCallbacks(resetImeClosingRunnable)
     }
 
     override fun dispatchDraw(canvas: Canvas) {
@@ -715,8 +726,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 isUserTouching = true
-                onUserTouchDown?.invoke()
                 canvasScrollAnimator?.cancel()
+                onUserTouchDown?.invoke()
                 if (!scroller.isFinished) {
                     scroller.abortAnimation()
                 }
