@@ -1127,18 +1127,36 @@ fun MainEditorScreen(
     // so the shortcut bar stays rock-solid while the IME animates in
     LaunchedEffect(isAwaitingKeyboardOpen) {
         if (isAwaitingKeyboardOpen) {
+            var settled = false
             try {
-                // Guaranteed minimum hold time of 300ms so no falling keyboard from earlier can prematurely cancel the pin
-                delay(300)
-                withTimeoutOrNull(600) {
-                    snapshotFlow { imeAboveNavDp.value }
-                        .filter { current ->
-                            isKeyboardVisible && current >= (compactHeightDp.value - 8f)
+                // Give keyboard at least 150ms to begin its entrance animation from 0
+                delay(150)
+                var lastHeight = imeAboveNavDp.value
+                var stableCount = 0
+
+                withTimeoutOrNull(750) {
+                    snapshotFlow { Pair(imeAboveNavDp.value, isKeyboardVisible) }
+                        .filter { (currentHeight, visible) ->
+                            if (!visible) return@filter false
+                            if (currentHeight >= 140f) {
+                                if (kotlin.math.abs(currentHeight - lastHeight) < 0.5f) {
+                                    stableCount++
+                                } else {
+                                    stableCount = 0
+                                    lastHeight = currentHeight
+                                }
+                                stableCount >= 3
+                            } else {
+                                false
+                            }
                         }
                         .first()
-                    delay(50)
+                    settled = true
                 }
             } finally {
+                if (settled && imeAboveNavDp >= 140.dp) {
+                    lastKeyboardHeightDp = imeAboveNavDp
+                }
                 isAwaitingKeyboardOpen = false
             }
         }
@@ -1277,8 +1295,11 @@ fun MainEditorScreen(
                     val isBarVisible = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen) && shortcuts.isNotEmpty()
                     val effectiveBottomSurfaceHeight = when {
                         activeAccessoryDrawer != null -> {
-                            val liveH = if (isDrawerDragging) dragLiveHeightDp.dp else drawerHeightDpAnim.value.dp
-                            liveH.coerceIn(compactHeightDp, fullHeightDp)
+                            when {
+                                isDrawerDragging -> dragLiveHeightDp.dp.coerceIn(compactHeightDp, fullHeightDp)
+                                drawerState == AccessoryDrawerState.COMPACT -> compactHeightDp
+                                else -> drawerHeightDpAnim.value.dp.coerceIn(compactHeightDp, fullHeightDp)
+                            }
                         }
                         isAwaitingKeyboardOpen -> {
                             maxOf(compactHeightDp, imeAboveNavDp)
