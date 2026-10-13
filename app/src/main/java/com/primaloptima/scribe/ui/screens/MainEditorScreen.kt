@@ -2363,7 +2363,6 @@ fun MainEditorScreen(
                                             }
                                         )
                                     }
-                                    }
                                 }
                             }
 
