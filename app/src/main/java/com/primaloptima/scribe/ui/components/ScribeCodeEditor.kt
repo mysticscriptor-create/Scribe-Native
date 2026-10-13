@@ -1166,13 +1166,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
             }
         }
 
-        // Focus-aware keyboard adjustment: when keyboard appears (height decreases)
-        // and the document has focus, reveal the cursor above the keyboard and shortcut bar in one unified step.
-        if (isFocused && h < oldh) {
-            post {
-                (parent as? UnifiedCanvasLayout)?.ensureCursorVisibleAboveKeyboard()
-            }
-        }
+        // Layout resize handling: UnifiedCanvasLayout manages smooth decoupled cursor scrolling.
     }
 
     override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) {

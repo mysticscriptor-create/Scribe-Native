@@ -1056,12 +1056,12 @@ fun MainEditorScreen(
         }
     }
 
-    val compactHeightDp = lastKeyboardHeightDp.coerceIn(240.dp, (configuration.screenHeightDp.dp * 0.60f))
+    val compactHeightDp = lastKeyboardHeightDp.coerceIn(260.dp, (configuration.screenHeightDp.dp * 0.60f))
 
     var lastDrawerToggleTimestamp by remember { mutableLongStateOf(0L) }
     val toggleAccessoryDrawer: (AccessoryDrawerMode) -> Unit = { targetMode ->
         val now = System.currentTimeMillis()
-        if (now - lastDrawerToggleTimestamp >= 120L) {
+        if (now - lastDrawerToggleTimestamp >= 50L) {
             lastDrawerToggleTimestamp = now
             if (activeSheetPage != null) {
                 activeSheetPage = null
@@ -1088,7 +1088,7 @@ fun MainEditorScreen(
                 // Opening drawer from keyboard / idle state
                 isAwaitingKeyboardOpen = false
                 isHidingKeyboardForDrawer = isKeyboardVisible || imeAboveNavDp > 40.dp
-                if (imeAboveNavDp >= 200.dp) {
+                if (imeAboveNavDp >= 240.dp && imeAboveNavDp >= (lastKeyboardHeightDp - 12.dp)) {
                     lastKeyboardHeightDp = imeAboveNavDp
                     if (kotlin.math.abs(imeAboveNavDp.value - savedKeyboardHeightFloat) >= 1f) {
                         scope.launch { dataStore.setLastKeyboardHeight(imeAboveNavDp.value) }
@@ -1105,13 +1105,13 @@ fun MainEditorScreen(
         }
     }
 
-    // Capture steady-state keyboard height once settled, saving to DataStore only on change (Suggestion 2)
-    LaunchedEffect(imeBottomDp, isKeyboardVisible, docBottomNavInset, isHidingKeyboardForDrawer) {
-        if (isKeyboardVisible && !isHidingKeyboardForDrawer && imeBottomDp > 120.dp) {
+    // Capture steady-state keyboard height once settled, saving to DataStore only on confirmed rest
+    LaunchedEffect(imeBottomDp, isKeyboardVisible, docBottomNavInset, isHidingKeyboardForDrawer, isAwaitingKeyboardOpen) {
+        if (isKeyboardVisible && !isHidingKeyboardForDrawer && !isAwaitingKeyboardOpen && activeAccessoryDrawer == null && imeBottomDp > 120.dp) {
             val aboveNav = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
-            if (aboveNav >= 200.dp) {
+            if (aboveNav >= 240.dp) {
                 // Debounce to ensure IME animation has completed and settled
-                kotlinx.coroutines.delay(120)
+                kotlinx.coroutines.delay(200)
                 if (kotlin.math.abs(aboveNav.value - lastKeyboardHeightDp.value) >= 0.5f) {
                     lastKeyboardHeightDp = aboveNav
                 }
@@ -1122,32 +1122,20 @@ fun MainEditorScreen(
         }
     }
 
-    // Await keyboard restore from accessory drawer without any premature jump
+    // Await keyboard restore from accessory drawer without any premature jump or height collapse
     LaunchedEffect(isAwaitingKeyboardOpen) {
         if (isAwaitingKeyboardOpen) {
             try {
-                withTimeoutOrNull(750) {
-                    var lastIme = -1f
-                    var steadyCount = 0
+                withTimeoutOrNull(850) {
                     snapshotFlow { imeAboveNavDp.value }
                         .filter { current ->
-                            if (current >= (compactHeightDp.value - 2f) && current > 120f) {
-                                true
-                            } else if (current > 120f && kotlin.math.abs(current - lastIme) < 0.5f) {
-                                steadyCount++
-                                steadyCount >= 2
-                            } else {
-                                lastIme = current
-                                steadyCount = 0
-                                false
-                            }
+                            current >= (compactHeightDp.value - 12f) && isKeyboardVisible
                         }
                         .first()
-                    // Allow the final deceleration frame of IME to settle
                     delay(30)
                 }
             } finally {
-                if (imeAboveNavDp > 150.dp) {
+                if (imeAboveNavDp >= 240.dp && imeAboveNavDp >= (lastKeyboardHeightDp.value - 10f)) {
                     lastKeyboardHeightDp = imeAboveNavDp
                     if (kotlin.math.abs(imeAboveNavDp.value - savedKeyboardHeightFloat) >= 1f) {
                         dataStore.setLastKeyboardHeight(imeAboveNavDp.value)
@@ -1171,10 +1159,12 @@ fun MainEditorScreen(
         if (activeAccessoryDrawer != null && !isWritingBarSearchActive && !isHidingKeyboardForDrawer) {
             if (isKeyboardVisible) {
                 snapshotFlow { imeAboveNavDp }
-                    .filter { it >= 180.dp }
+                    .filter { it >= 240.dp }
                     .first()
                 delay(60)
-                lastKeyboardHeightDp = imeAboveNavDp
+                if (imeAboveNavDp >= 240.dp && imeAboveNavDp >= (lastKeyboardHeightDp.value - 10f)) {
+                    lastKeyboardHeightDp = imeAboveNavDp
+                }
                 activeAccessoryDrawer = null
                 drawerState = AccessoryDrawerState.COMPACT
             }

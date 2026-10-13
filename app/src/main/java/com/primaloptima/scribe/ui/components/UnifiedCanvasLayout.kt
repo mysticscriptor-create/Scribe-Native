@@ -162,9 +162,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         private set
 
     private var canvasScrollAnimator: android.animation.ValueAnimator? = null
-    private var keyboardDisplacement = 0f
 
-    fun smoothScrollCanvasBy(dy: Float, durationMs: Long = 250, onEnd: (() -> Unit)? = null) {
+    fun smoothScrollCanvasBy(dy: Float, durationMs: Long = 280, onEnd: (() -> Unit)? = null) {
         if (kotlin.math.abs(dy) < 1f) {
             onEnd?.invoke()
             return
@@ -173,7 +172,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         var lastAnimatedValue = 0f
         canvasScrollAnimator = android.animation.ValueAnimator.ofFloat(0f, dy).apply {
             duration = durationMs
-            interpolator = android.view.animation.DecelerateInterpolator(1.5f)
+            interpolator = android.view.animation.DecelerateInterpolator(1.8f)
             addUpdateListener { anim ->
                 val curr = anim.animatedValue as Float
                 val delta = curr - lastAnimatedValue
@@ -377,10 +376,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      */
     private var lastEnsureCursorTime = 0L
 
-    fun ensureCursorVisibleAboveKeyboard() {
+    fun ensureCursorVisibleAboveKeyboard(smooth: Boolean = true, customDurationMs: Long = 280L) {
         if (!editor.isFocused || isImeClosing) return
         val now = System.currentTimeMillis()
-        if (now - lastEnsureCursorTime < 60L) return
+        if (now - lastEnsureCursorTime < 80L) return
         val cursor = try { editor.cursor } catch (_: Throwable) { null } ?: return
         val line = cursor.leftLine
         val col = cursor.leftColumn
@@ -395,18 +394,26 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
         val visibleHeight = height
         val density = resources.displayMetrics.density
-        val marginPx = (14 * density).roundToInt()
+        val marginPx = (16 * density).roundToInt()
         val deadbandPx = (4 * density).roundToInt()
 
         if (visibleHeight > 0) {
             if (screenBottom > (visibleHeight - marginPx + deadbandPx)) {
                 val overflow = screenBottom - (visibleHeight - marginPx)
                 lastEnsureCursorTime = now
-                smoothScrollCanvasBy(overflow.toFloat(), durationMs = 120)
+                if (smooth) {
+                    smoothScrollCanvasBy(overflow.toFloat(), durationMs = customDurationMs)
+                } else {
+                    scrollCanvasBy(overflow.toFloat())
+                }
             } else if (screenTop < -deadbandPx && (scrollD > 0 || editor.offsetY > 0)) {
                 val underflow = screenTop
                 lastEnsureCursorTime = now
-                smoothScrollCanvasBy(underflow.toFloat(), durationMs = 120)
+                if (smooth) {
+                    smoothScrollCanvasBy(underflow.toFloat(), durationMs = customDurationMs)
+                } else {
+                    scrollCanvasBy(underflow.toFloat())
+                }
             }
         }
     }
@@ -505,33 +512,14 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val dh = oldh - h
             if (dh > 0) {
                 // Viewport shrinking (keyboard appearing)
+                // Decoupled fluid cursor reveal: starts smoothly in parallel, gently decelerating to rest
                 if (editor.isFocused) {
-                    val cursor = try { editor.cursor } catch (_: Throwable) { null }
-                    if (cursor != null) {
-                        val layout = try { editor.layout } catch (_: Throwable) { null }
-                        val offset = layout?.getCharLayoutOffset(cursor.leftLine, cursor.leftColumn)
-                        if (offset != null) {
-                            val yOffset = offset[0]
-                            val headerRemaining = headerHeight - scrollD
-                            val cursorBottom = headerRemaining + yOffset - editor.offsetY
-                            val marginPx = (16 * resources.displayMetrics.density).roundToInt()
-                            val overflow = cursorBottom - (h - marginPx)
-                            if (overflow > 0) {
-                                val scrollStep = minOf(overflow.toFloat(), dh.toFloat())
-                                keyboardDisplacement += scrollStep
-                                scrollCanvasBy(scrollStep)
-                            }
-                        }
+                    post {
+                        ensureCursorVisibleAboveKeyboard(smooth = true, customDurationMs = 280L)
                     }
                 }
             } else if (dh < 0) {
                 // Viewport expanding (keyboard dismissing)
-                val expandAmount = (-dh).toFloat()
-                if (keyboardDisplacement > 0f) {
-                    val returnStep = minOf(keyboardDisplacement, expandAmount)
-                    keyboardDisplacement -= returnStep
-                    scrollCanvasBy(-returnStep)
-                }
                 // When viewport expands, ensure editor.offsetY is immediately clamped to editor.scrollMaxY:
                 val maxAllowedY = editor.safeScrollMaxY
                 if (editor.offsetY > maxAllowedY) {
