@@ -1164,8 +1164,8 @@ fun MainEditorScreen(
                 settled = result != null
             } finally {
                 // 3. Calibrate compactHeightDp to the exact settled height so future toggles match 1:1
-                if (settled && imeAboveNavDp.value >= 140.dp) {
-                    lastKeyboardHeightDp = imeAboveNavDp.value
+                if (settled && imeAboveNavDp >= 140.dp) {
+                    lastKeyboardHeightDp = imeAboveNavDp
                 }
                 isAwaitingKeyboardOpen = false
                 isBarTransitionLatched = false
