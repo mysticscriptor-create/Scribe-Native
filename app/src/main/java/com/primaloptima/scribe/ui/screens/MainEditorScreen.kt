@@ -1127,19 +1127,40 @@ fun MainEditorScreen(
     // so the shortcut bar stays rock-solid while the IME animates in
     LaunchedEffect(isAwaitingKeyboardOpen) {
         if (isAwaitingKeyboardOpen) {
+            var settled = false
             try {
-                // Wait for keyboard to become visible and reach at least 140.dp
-                withTimeoutOrNull(1200) {
-                    snapshotFlow { isKeyboardVisible && imeAboveNavDp >= 140.dp }
-                        .filter { it }
+                // 1. Give keyboard at least 150ms to begin its animation from 0
+                delay(150)
+
+                // 2. Sample imeAboveNavDp until it stops changing (settled at rest)
+                var lastHeight = imeAboveNavDp.value
+                var stableCount = 0
+
+                val result = withTimeoutOrNull(750) {
+                    snapshotFlow { Pair(imeAboveNavDp.value, isKeyboardVisible) }
+                        .filter { (currentHeight, visible) ->
+                            if (!visible) return@filter false
+
+                            // If keyboard is substantial and height delta is < 0.5dp for 3 consecutive checks
+                            if (currentHeight >= 140f) {
+                                if (kotlin.math.abs(currentHeight - lastHeight) < 0.5f) {
+                                    stableCount++
+                                } else {
+                                    stableCount = 0
+                                    lastHeight = currentHeight
+                                }
+                                stableCount >= 3
+                            } else {
+                                false
+                            }
+                        }
                         .first()
-                    // Allow the entrance animation to finish reaching settled height
-                    delay(150)
                 }
+                settled = result != null
             } finally {
-                val settledAboveNav = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
-                if (isKeyboardVisible && settledAboveNav >= 140.dp) {
-                    lastKeyboardHeightDp = settledAboveNav
+                // 3. Calibrate compactHeightDp to the exact settled height so future toggles match 1:1
+                if (settled && imeAboveNavDp.value >= 140.dp) {
+                    lastKeyboardHeightDp = imeAboveNavDp.value
                 }
                 isAwaitingKeyboardOpen = false
             }
