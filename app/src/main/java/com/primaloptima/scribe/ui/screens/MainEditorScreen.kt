@@ -1089,10 +1089,6 @@ fun MainEditorScreen(
                 previewItem = null
             } else {
                 // Opening drawer from keyboard / idle state
-                // If keyboard is currently open, pin lastKeyboardHeightDp to current IME height for 1:1 match
-                if (imeAboveNavDp >= 140.dp) {
-                    lastKeyboardHeightDp = imeAboveNavDp
-                }
                 isAwaitingKeyboardOpen = false
                 keyboardController?.hide()
                 try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
