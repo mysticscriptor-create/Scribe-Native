@@ -133,6 +133,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     var onScrollDelta: ((dy: Float) -> Unit)? = null
     var onUnifiedScrollChanged: ((scrollD: Int, maxHeaderHeight: Int) -> Unit)? = null
+    var onUserTouchDown: (() -> Unit)? = null
 
     private val scroller = OverScroller(context)
     private var lastScrollerY = 0
@@ -714,6 +715,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 isUserTouching = true
+                onUserTouchDown?.invoke()
                 canvasScrollAnimator?.cancel()
                 if (!scroller.isFinished) {
                     scroller.abortAnimation()
