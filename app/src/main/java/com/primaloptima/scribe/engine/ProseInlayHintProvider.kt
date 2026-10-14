@@ -121,8 +121,29 @@ object ProseInlayHintProvider {
             container.add(hint)
         }
 
+        // ── 3. Inline Image Badges ────────────────────────────────────────────────────
+        for (i in lines.indices) {
+            val line = lines[i]
+            if (!line.contains("![")) continue
+            val matches = IMAGE_REGEX.findAll(line)
+            for (m in matches) {
+                val description = m.groupValues[1]
+                val uri = m.groupValues[2]
+                val hint = ImageInlayHint(
+                    line = i,
+                    column = m.range.first,
+                    description = description,
+                    imageUri = uri,
+                    rawTag = m.value
+                )
+                container.add(hint)
+            }
+        }
+
         return container
     }
+
+    private val IMAGE_REGEX = Regex("""!\[(.*?)\]\((vault-img://[^\s)]+|https?://[^\s)]+|content://[^\s)]+|[^\s)]+)\)""")
 
     /** Counts words in a line by scanning character by character (zero regex allocation). */
     private fun countWords(line: CharSequence): Int {

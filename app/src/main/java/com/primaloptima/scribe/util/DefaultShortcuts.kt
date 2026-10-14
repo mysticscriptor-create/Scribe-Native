@@ -556,6 +556,16 @@ object DefaultShortcuts {
             isEnabled = false,
             keywords = listOf("code", "inline", "monospace", "backtick", "markdown")
         ),
+        ShortcutAction(
+            id = "insert_image",
+            label = "Insert image tag",
+            icon = "🖼",
+            kind = "insert",
+            payload = "![Image](https://)",
+            category = CAT_FORMATTING,
+            isEnabled = false,
+            keywords = listOf("image", "picture", "photo", "illustration", "vault-img", "markdown")
+        ),
 
         // ── 7. Arrows & Direction ────────────────────────────────────────────
         ShortcutAction(

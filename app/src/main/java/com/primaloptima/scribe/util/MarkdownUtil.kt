@@ -180,6 +180,17 @@ object MarkdownUtil {
                     }
                     sb.append("</ol>\n")
                 }
+                trimmed.contains("![") && trimmed.contains("](") -> {
+                    val imgRegex = Regex("""!\[(.*?)\]\((.*?)\)""")
+                    val rendered = imgRegex.replace(trimmed) { mr ->
+                        val alt = mr.groupValues[1]
+                        val src = mr.groupValues[2]
+                        "<figure style=\"text-align:center; margin:24px 0;\"><img src=\"$src\" alt=\"${escapeHtml(alt)}\" style=\"max-width:100%; height:auto; border-radius:8px; display:inline-block;\"/>" +
+                        (if (alt.isNotBlank()) "<figcaption style=\"font-size:0.85em; color:#777; margin-top:6px; font-style:italic;\">${escapeHtml(alt)}</figcaption>" else "") +
+                        "</figure>"
+                    }
+                    sb.append(rendered).append("\n"); i++
+                }
                 trimmed.isEmpty() -> { sb.append(""); i++ }
                 else -> { sb.append("<p>${inlineHtml(trimmed)}</p>\n"); i++ }
             }

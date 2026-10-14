@@ -15,6 +15,13 @@ import com.primaloptima.scribe.engine.ScribeIndentEngine
 import com.primaloptima.scribe.engine.IndentInlayHintRenderer
 import com.primaloptima.scribe.util.font.ScribeFontManager
 import com.primaloptima.scribe.ui.components.EditorUnifiedBottomSheet
+import com.primaloptima.scribe.engine.ImageHintClickData
+import com.primaloptima.scribe.ui.components.InsertImageDialog
+import com.primaloptima.scribe.ui.components.EditorImagePreviewCard
+import com.primaloptima.scribe.ui.components.FullScreenImageViewer
+import com.primaloptima.scribe.ui.screens.ManuscriptPreviewSheet
+import com.primaloptima.scribe.util.image.VaultImageManager
+import androidx.compose.material.icons.filled.AddPhotoAlternate
 import com.primaloptima.scribe.ui.components.EditorSheetPage
 import com.primaloptima.scribe.ui.components.TypographyFontSection
 import com.primaloptima.scribe.ui.components.MyFontsSubSheet
@@ -378,6 +385,13 @@ fun MainEditorScreen(
     var latestCursorState by remember(activeNote?.id) { mutableStateOf<DocumentCursorState?>(null) }
     var isExitingNote by rememberSaveable { mutableStateOf(false) }
 
+    // ── Image Architecture State ──────────────────────────────────────────────
+    var showInsertImageDialog by remember { mutableStateOf(false) }
+    var activeImageHintData by remember { mutableStateOf<ImageHintClickData?>(null) }
+    var activeLightboxImageUri by remember { mutableStateOf<String?>(null) }
+    var activeLightboxImageTitle by remember { mutableStateOf("") }
+    var showManuscriptPreview by remember { mutableStateOf(false) }
+
     val captureSessionScrollBeforeNavigate: () -> Unit = {
         if (!isExitingNote) {
             val noteId = activeNote?.id ?: ""
@@ -619,7 +633,23 @@ fun MainEditorScreen(
         }
     }
 
-    BackHandler(enabled = activeCardPreview != null || previewItem != null) {
+    BackHandler(enabled = activeLightboxImageUri != null || showManuscriptPreview || showInsertImageDialog || activeImageHintData != null || activeCardPreview != null || previewItem != null) {
+        if (activeLightboxImageUri != null) {
+            activeLightboxImageUri = null
+            return@BackHandler
+        }
+        if (showManuscriptPreview) {
+            showManuscriptPreview = false
+            return@BackHandler
+        }
+        if (showInsertImageDialog) {
+            showInsertImageDialog = false
+            return@BackHandler
+        }
+        if (activeImageHintData != null) {
+            activeImageHintData = null
+            return@BackHandler
+        }
         if (activeCardPreview != null) {
             isPreviewExpanded = false
         }
@@ -1397,6 +1427,9 @@ fun MainEditorScreen(
                                     }
                                 }
                                 onUnifiedScrollChanged = { scrollD, _ ->
+                                    if (activeImageHintData != null) {
+                                        activeImageHintData = null
+                                    }
                                     if (scrollD <= 5 && editor.offsetY <= 10) {
                                         floatingPillsVisible = true
                                     }
@@ -1457,6 +1490,9 @@ fun MainEditorScreen(
                                     registerInlayHintRenderer(
                                         IndentInlayHintRenderer.Instance
                                     )
+                                    (this as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.onImageHintClickListener = { clickData ->
+                                        activeImageHintData = clickData
+                                    }
                                     setEditorLanguage(ScribeProseLanguage(activeTheme?.documentFontWeight ?: 500))
                                     isNestedScrollingEnabled = true
                                     try {
@@ -2146,6 +2182,40 @@ fun MainEditorScreen(
                                                     }
                                                 }
                                             }
+                                            // ── Dedicated Insert Image Tool Button ──
+                                            val imageBtnColor = Color(0xFF06B6D4)
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                                                contentColor = imageBtnColor,
+                                                border = androidx.compose.foundation.BorderStroke(
+                                                    0.5.dp,
+                                                    imageBtnColor.copy(alpha = 0.35f)
+                                                ),
+                                                modifier = Modifier
+                                                    .height(ScribeTheme.metrics.chipHeight)
+                                                    .clickable {
+                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                        showInsertImageDialog = true
+                                                    }
+                                            ) {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = ScribeTheme.spacing.micro)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Filled.AddPhotoAlternate,
+                                                        contentDescription = "Insert Image",
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                    Text(
+                                                        text = "Img",
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.SemiBold
+                                                    )
+                                                }
+                                            }
                                             Box(
                                                 modifier = Modifier
                                                     .height(18.dp)
@@ -2766,6 +2836,10 @@ fun MainEditorScreen(
                     activeSheetPage = null
                     activeNote?.let { editorVm.openFloatingWindow(it.id) }
                 },
+                onPreviewManuscript = {
+                    activeSheetPage = null
+                    showManuscriptPreview = true
+                },
                 onExport         = { fmt ->
                     activeSheetPage = null
                     activeNote?.let { ExportHelper.shareNote(context, it, fmt) }
@@ -2850,6 +2924,127 @@ fun MainEditorScreen(
                         }
                     },
                     onDismiss = { showOrnamentPicker = false }
+                )
+            }
+
+            // ── Floating Image Preview Card ─────────────────────────────
+            if (activeImageHintData != null) {
+                val hintData = activeImageHintData!!
+                val currentDensity = LocalDensity.current
+                val screenWidthPx = with(currentDensity) { configuration.screenWidthDp.dp.toPx() }
+                val headerOffset = unifiedCanvasRef?.let { maxOf(0f, (it.headerHeight - it.scrollD).toFloat()) } ?: 0f
+                val topInsetPx = with(currentDensity) { docTopInset.toPx() }
+                val rawX = hintData.viewX
+                val rawY = topInsetPx + headerOffset + hintData.viewY
+                val cardWidthPx = with(currentDensity) { 300.dp.toPx() }
+                val cardHeightPx = with(currentDensity) { 130.dp.toPx() }
+
+                val clampedX = rawX.coerceIn(16f, (screenWidthPx - cardWidthPx - 16f).coerceAtLeast(16f))
+                val clampedY = if (rawY - cardHeightPx - 16f > topInsetPx + 40f) {
+                    rawY - cardHeightPx - 16f
+                } else {
+                    rawY + 36f
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() }
+                        ) {
+                            activeImageHintData = null
+                        }
+                ) {
+                    EditorImagePreviewCard(
+                        data = hintData,
+                        bookId = activeBook?.id,
+                        noteId = activeNote?.id ?: "",
+                        modifier = Modifier
+                            .offset { IntOffset(clampedX.roundToInt(), clampedY.roundToInt()) }
+                            .clickable(
+                                indication = null,
+                                interactionSource = remember { MutableInteractionSource() }
+                            ) {},
+                        onExpandFullscreen = {
+                            activeLightboxImageUri = hintData.imageUri
+                            activeLightboxImageTitle = hintData.description
+                            activeImageHintData = null
+                        },
+                        onEditDescription = {
+                            activeLightboxImageUri = hintData.imageUri
+                            activeLightboxImageTitle = hintData.description
+                            activeImageHintData = null
+                        },
+                        onDeleteImage = {
+                            soraEditorRef?.removeImageTag(hintData.imageUri)
+                            activeImageHintData = null
+                        },
+                        onDismiss = { activeImageHintData = null }
+                    )
+                }
+            }
+
+            // ── Full-Screen Pinch-to-Zoom Lightbox Overlay ──────────────
+            if (activeLightboxImageUri != null) {
+                FullScreenImageViewer(
+                    imageUri = activeLightboxImageUri!!,
+                    title = activeLightboxImageTitle,
+                    subtitle = activeNote?.name ?: "",
+                    bookId = activeBook?.id,
+                    noteId = activeNote?.id ?: "",
+                    onUpdateTitle = { newTitle ->
+                        activeLightboxImageTitle = newTitle
+                        soraEditorRef?.updateImageDescription(activeLightboxImageUri!!, newTitle)
+                    },
+                    onDelete = { removeFromDisk ->
+                        val uriToDelete = activeLightboxImageUri!!
+                        soraEditorRef?.removeImageTag(uriToDelete)
+                        if (removeFromDisk) {
+                            scope.launch(Dispatchers.IO) {
+                                VaultImageManager.deleteVaultImageFile(
+                                    context = context,
+                                    uriString = uriToDelete,
+                                    bookId = activeBook?.id,
+                                    noteId = activeNote?.id ?: ""
+                                )
+                            }
+                        }
+                        activeLightboxImageUri = null
+                    },
+                    onDismiss = { activeLightboxImageUri = null }
+                )
+            }
+
+            // ── Formatted Manuscript Reader / Preview Sheet ─────────────
+            if (showManuscriptPreview && activeNote != null) {
+                ManuscriptPreviewSheet(
+                    note = activeNote!!,
+                    bookId = activeBook?.id,
+                    activeTheme = activeTheme,
+                    selectedOrnamentId = selectedOrnamentId,
+                    onDismiss = { showManuscriptPreview = false }
+                )
+            }
+
+            // ── Insert Image Dialog ─────────────────────────────────────
+            if (showInsertImageDialog) {
+                InsertImageDialog(
+                    bookId = activeBook?.id,
+                    noteId = activeNote?.id ?: "",
+                    onDismiss = { showInsertImageDialog = false },
+                    onInsertMarkdown = { tag ->
+                        val ed = soraEditorRef
+                        if (ed != null) {
+                            val cur = ed.cursor
+                            val line = if (!cur.isSelected && cur.leftLine < ed.text.lineCount) {
+                                ed.text.getLineString(cur.leftLine)
+                            } else ""
+                            val needsPrefixNewline = line.isNotBlank() && cur.leftColumn > 0
+                            val insertion = if (needsPrefixNewline) "\n\n$tag\n" else "$tag\n"
+                            ed.insertAtCursor(insertion)
+                        }
+                    }
                 )
             }
         }

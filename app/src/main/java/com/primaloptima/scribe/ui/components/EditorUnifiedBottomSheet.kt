@@ -47,6 +47,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Help
 import androidx.compose.material.icons.filled.BookmarkAdd
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
@@ -243,6 +244,7 @@ fun EditorUnifiedBottomSheet(
     onUpdateTheme: ((AppTheme) -> AppTheme) -> Unit,
     onEnterZen: () -> Unit,
     onOpenFloating: () -> Unit,
+    onPreviewManuscript: () -> Unit = {},
     onExport: (String) -> Unit,
     onVersionHistory: () -> Unit,
     onShortcuts: () -> Unit,
@@ -355,6 +357,7 @@ fun EditorUnifiedBottomSheet(
                         onNavigate = onNavigate,
                         onEnterZen = onEnterZen,
                         onOpenFloating = onOpenFloating,
+                        onPreviewManuscript = onPreviewManuscript,
                         onExport = onExport,
                         onVersionHistory = onVersionHistory,
                         onShortcuts = onShortcuts,
@@ -479,6 +482,7 @@ private fun EditorMenuPage(
     onNavigate: (EditorSheetPage) -> Unit,
     onEnterZen: () -> Unit,
     onOpenFloating: () -> Unit,
+    onPreviewManuscript: () -> Unit = {},
     onExport: (String) -> Unit,
     onVersionHistory: () -> Unit,
     onShortcuts: () -> Unit,
@@ -645,7 +649,7 @@ private fun EditorMenuPage(
             )
         }
 
-        // Row 3: Zen Mode & Floating Window
+        // Row 3: Zen Mode, Floating Window & Manuscript Preview
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -663,6 +667,12 @@ private fun EditorMenuPage(
                 icon = Icons.Default.PictureInPicture,
                 modifier = Modifier.weight(1f),
                 onClick = onOpenFloating
+            )
+            EditorTactileBox(
+                title = "Preview",
+                icon = Icons.Default.MenuBook,
+                modifier = Modifier.weight(1f),
+                onClick = onPreviewManuscript
             )
         }
 

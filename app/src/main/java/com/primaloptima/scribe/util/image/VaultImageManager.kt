@@ -105,7 +105,10 @@ object VaultImageManager {
         val timestamp = System.currentTimeMillis()
         val shortUuid = UUID.randomUUID().toString().take(6)
         val cleanNoteId = (if (noteId.isBlank()) "note" else noteId.take(8)).replace("/", "_")
-        val filename = "img_${cleanNoteId}_${timestamp}_${shortUuid}.jpg"
+        val mimeType = try { context.contentResolver.getType(sourceUri)?.lowercase() ?: "" } catch (_: Throwable) { "" }
+        val isPngOrWebp = mimeType.contains("png") || mimeType.contains("webp") || sourceUri.toString().endsWith(".png", true) || sourceUri.toString().endsWith(".webp", true)
+        val ext = if (isPngOrWebp) "png" else "jpg"
+        val filename = "img_${cleanNoteId}_${timestamp}_${shortUuid}.$ext"
         val destFile = File(targetDir, filename)
 
         // 1. Decode bounds & calculate inSampleSize
@@ -160,9 +163,13 @@ object VaultImageManager {
             finalBitmap
         }
 
-        // 3. Write to destination file
+        // 3. Write to destination file (preserve PNG alpha transparency)
         FileOutputStream(destFile).use { out ->
-            orientedBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
+            if (isPngOrWebp || orientedBitmap.hasAlpha()) {
+                orientedBitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
+            } else {
+                orientedBitmap.compress(Bitmap.CompressFormat.JPEG, JPEG_QUALITY, out)
+            }
             out.flush()
         }
         orientedBitmap.recycle()

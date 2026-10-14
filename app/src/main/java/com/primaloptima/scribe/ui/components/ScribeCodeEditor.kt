@@ -14,6 +14,7 @@ import android.view.inputmethod.InputConnection
 import io.github.rosemoe.sora.event.HandleStateChangeEvent
 import io.github.rosemoe.sora.event.InlayHintClickEvent
 import com.primaloptima.scribe.engine.ImageInlayHint
+import com.primaloptima.scribe.engine.ImageHintClickData
 import com.primaloptima.scribe.util.image.VaultImageManager
 import io.github.rosemoe.sora.event.LayoutStateChangeEvent
 import io.github.rosemoe.sora.event.ScrollEvent
@@ -65,6 +66,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     // Callback when copy is attempted during visual-only indent state to trigger immediate commit
     var onRequestCommitIndentForCopy: (() -> Unit)? = null
+    // Callback when an image inlay hint is tapped
+    var onImageHintClickListener: ((ImageHintClickData) -> Unit)? = null
 
     private var pendingCopyAction: (() -> Unit)? = null
 
@@ -175,8 +178,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     event.intercept()
                     val lay = layout
                     val layoutOffset = try { lay.getCharLayoutOffset(hint.line, hint.column) } catch (_: Throwable) { null }
-                    val vx = if (layoutOffset != null) (layoutOffset[0] - offsetX) else (width / 2f)
-                    val vy = if (layoutOffset != null) (layoutOffset[1] - offsetY) else (height / 3f)
+                    val vx = if (layoutOffset != null) (layoutOffset[1] + measureTextRegionOffset() - offsetX) else (width / 2f)
+                    val vy = if (layoutOffset != null) (layoutOffset[0] - offsetY) else (height / 3f)
                     post {
                         onImageHintClickListener?.invoke(
                             ImageHintClickData(
@@ -1419,7 +1422,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val doc = content.toString()
         val updated = VaultImageManager.renameAltInMarkdown(doc, imageUri, newDescription)
         if (updated != doc) {
-            content.replace(0, 0, content.lineCount - 1, content.getColumnCount(content.lineCount - 1), updated)
+            content.beginBatchEdit()
+            try {
+                content.replace(0, 0, content.lineCount - 1, content.getColumnCount(content.lineCount - 1), updated)
+            } finally {
+                content.endBatchEdit()
+            }
         }
     }
 
@@ -1428,7 +1436,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val doc = content.toString()
         val updated = VaultImageManager.removeImageFromMarkdown(doc, imageUri)
         if (updated != doc) {
-            content.replace(0, 0, content.lineCount - 1, content.getColumnCount(content.lineCount - 1), updated)
+            content.beginBatchEdit()
+            try {
+                content.replace(0, 0, content.lineCount - 1, content.getColumnCount(content.lineCount - 1), updated)
+            } finally {
+                content.endBatchEdit()
+            }
         }
     }
 }
