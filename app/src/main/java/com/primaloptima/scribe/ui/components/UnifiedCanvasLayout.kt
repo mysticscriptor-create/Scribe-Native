@@ -78,6 +78,30 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             }
         }
 
+    val breathingMarginPx: Float
+        get() = 24f * resources.displayMetrics.density
+
+    /**
+     * Pure Writer persistent bottom space architecture:
+     * Equal to where our smooth scroll is gliding, according to the shortcut bar height.
+     * estimatedKeyboardHeightPx = (compactHeightDp + 44f) * density.
+     * Plus breathing margin (24dp) so that the line rests comfortably above the shortcut bar.
+     */
+    val persistentBottomSpacePx: Float
+        get() = estimatedKeyboardHeightPx + breathingMarginPx
+
+    var estimatedKeyboardHeightPx: Float = (280f + 44f) * context.resources.displayMetrics.density
+        set(value) {
+            field = value
+            editor.persistentBottomSpacePx = persistentBottomSpacePx.roundToInt()
+        }
+
+    var isKeyboardVisible: Boolean = false
+        set(value) {
+            field = value
+            editor.isKeyboardVisible = value
+        }
+
     init {
         addView(headerView)
         addView(editor)
@@ -165,29 +189,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var isUserTouching: Boolean = false
         private set
 
-    val breathingMarginPx: Float
-        get() = 24f * resources.displayMetrics.density
-
-    /**
-     * Pure Writer persistent bottom space architecture:
-     * Equal to where our smooth scroll is gliding, according to the shortcut bar height.
-     * estimatedKeyboardHeightPx = (compactHeightDp + 44f) * density.
-     * Plus breathing margin (24dp) so that the line rests comfortably above the shortcut bar.
-     */
-    val persistentBottomSpacePx: Float
-        get() = estimatedKeyboardHeightPx + breathingMarginPx
-
-    var estimatedKeyboardHeightPx: Float = (280f + 44f) * context.resources.displayMetrics.density
-        set(value) {
-            field = value
-            editor.persistentBottomSpacePx = persistentBottomSpacePx.roundToInt()
-        }
-
-    var isKeyboardVisible: Boolean = false
-        set(value) {
-            field = value
-            editor.isKeyboardVisible = value
-        }
     var isPredictiveGlideRunning: Boolean = false
         private set
     var targetPredictedScrollTotal: Float = -1f
@@ -584,9 +585,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val isReady = scribeEditor?.isWordwrapReady() ?: true
         val layoutH = editor.layout?.layoutHeight ?: 0
         val isLayoutPopulated = editor.text.length == 0 || layoutH > 0
-        val totalContentHeight = headerHeight + layoutH
+        val totalContentHeight = headerHeight + layoutH + persistentBottomSpacePx.toInt()
 
-        if (isReady && isLayoutPopulated && totalContentHeight <= viewportHeight) {
+        if (isReady && isLayoutPopulated && totalContentHeight <= viewportHeight && editor.text.isEmpty()) {
             if (editor.offsetY > 0) {
                 try {
                     editor.scroller?.let { s ->

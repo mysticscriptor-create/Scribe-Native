@@ -89,7 +89,10 @@ class ScribeCodeEditor @JvmOverloads constructor(
             }
             val maxScrollWithBottomSpace = (layoutH - targetWritingViewport).coerceAtLeast(0)
 
-            maxOf(baseSora, maxScrollWithBottomSpace)
+            // Pure Writer Stationary Content Retention:
+            // Never clamp below current offsetY when keyboard dismisses or document is positioned
+            val currentOffsetY = offsetY
+            maxOf(baseSora, maxScrollWithBottomSpace, if (currentOffsetY > 0) currentOffsetY else 0)
         } catch (_: Throwable) {
             super.getScrollMaxY()
         }
