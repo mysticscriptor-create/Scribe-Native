@@ -2931,16 +2931,17 @@ fun MainEditorScreen(
             if (activeImageHintData != null) {
                 val hintData = activeImageHintData!!
                 val currentDensity = LocalDensity.current
-                val screenWidthPx = with(currentDensity) { configuration.screenWidthDp.dp.toPx() }
-                val headerOffset = unifiedCanvasRef?.let { maxOf(0f, (it.headerHeight - it.scrollD).toFloat()) } ?: 0f
-                val topInsetPx = with(currentDensity) { docTopInset.toPx() }
-                val rawX = hintData.viewX
-                val rawY = topInsetPx + headerOffset + hintData.viewY
-                val cardWidthPx = with(currentDensity) { 300.dp.toPx() }
-                val cardHeightPx = with(currentDensity) { 130.dp.toPx() }
+                val screenWidthPx: Float = with(currentDensity) { configuration.screenWidthDp.dp.toPx() }
+                val headerOffset: Float = unifiedCanvasRef?.let { maxOf(0f, (it.headerHeight - it.scrollD).toFloat()) } ?: 0f
+                val statusBarTopDp = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+                val topInsetPx: Float = with(currentDensity) { statusBarTopDp.toPx() }
+                val rawX: Float = hintData.viewX
+                val rawY: Float = topInsetPx + headerOffset + hintData.viewY
+                val cardWidthPx: Float = with(currentDensity) { 300.dp.toPx() }
+                val cardHeightPx: Float = with(currentDensity) { 130.dp.toPx() }
 
-                val clampedX = rawX.coerceIn(16f, (screenWidthPx - cardWidthPx - 16f).coerceAtLeast(16f))
-                val clampedY = if (rawY - cardHeightPx - 16f > topInsetPx + 40f) {
+                val clampedX: Float = rawX.coerceIn(16f, (screenWidthPx - cardWidthPx - 16f).coerceAtLeast(16f))
+                val clampedY: Float = if (rawY - cardHeightPx - 16f > topInsetPx + 40f) {
                     rawY - cardHeightPx - 16f
                 } else {
                     rawY + 36f
@@ -2958,7 +2959,7 @@ fun MainEditorScreen(
                 ) {
                     EditorImagePreviewCard(
                         data = hintData,
-                        bookId = activeBook?.id,
+                        bookId = activeNote?.bookId,
                         noteId = activeNote?.id ?: "",
                         modifier = Modifier
                             .offset { IntOffset(clampedX.roundToInt(), clampedY.roundToInt()) }
@@ -2991,7 +2992,7 @@ fun MainEditorScreen(
                     imageUri = activeLightboxImageUri!!,
                     title = activeLightboxImageTitle,
                     subtitle = activeNote?.name ?: "",
-                    bookId = activeBook?.id,
+                    bookId = activeNote?.bookId,
                     noteId = activeNote?.id ?: "",
                     onUpdateTitle = { newTitle ->
                         activeLightboxImageTitle = newTitle
@@ -3005,7 +3006,7 @@ fun MainEditorScreen(
                                 VaultImageManager.deleteVaultImageFile(
                                     context = context,
                                     uriString = uriToDelete,
-                                    bookId = activeBook?.id,
+                                    bookId = activeNote?.bookId,
                                     noteId = activeNote?.id ?: ""
                                 )
                             }
@@ -3020,7 +3021,7 @@ fun MainEditorScreen(
             if (showManuscriptPreview && activeNote != null) {
                 ManuscriptPreviewSheet(
                     note = activeNote!!,
-                    bookId = activeBook?.id,
+                    bookId = activeNote?.bookId,
                     activeTheme = activeTheme,
                     selectedOrnamentId = selectedOrnamentId,
                     onDismiss = { showManuscriptPreview = false }
@@ -3030,7 +3031,7 @@ fun MainEditorScreen(
             // ── Insert Image Dialog ─────────────────────────────────────
             if (showInsertImageDialog) {
                 InsertImageDialog(
-                    bookId = activeBook?.id,
+                    bookId = activeNote?.bookId,
                     noteId = activeNote?.id ?: "",
                     onDismiss = { showInsertImageDialog = false },
                     onInsertMarkdown = { tag ->

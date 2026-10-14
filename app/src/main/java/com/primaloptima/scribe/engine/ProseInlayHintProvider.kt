@@ -129,12 +129,10 @@ object ProseInlayHintProvider {
             for (m in matches) {
                 val description = m.groupValues[1]
                 val uri = m.groupValues[2]
-                val hint = ImageInlayHint(
-                    line = i,
-                    column = m.range.first,
-                    description = description,
-                    imageUri = uri,
-                    rawTag = m.value
+                val hint = TextInlayHint(
+                    i,
+                    m.range.first,
+                    "  🖼 [Image: ${description.ifBlank { "Illustration" }}]"
                 )
                 container.add(hint)
             }

@@ -13,7 +13,6 @@ import kotlin.math.roundToInt
 import android.view.inputmethod.InputConnection
 import io.github.rosemoe.sora.event.HandleStateChangeEvent
 import io.github.rosemoe.sora.event.InlayHintClickEvent
-import com.primaloptima.scribe.engine.ImageInlayHint
 import com.primaloptima.scribe.engine.ImageHintClickData
 import com.primaloptima.scribe.util.image.VaultImageManager
 import io.github.rosemoe.sora.event.LayoutStateChangeEvent
@@ -174,24 +173,38 @@ class ScribeCodeEditor @JvmOverloads constructor(
         try {
             subscribeEvent(InlayHintClickEvent::class.java) { event, _ ->
                 val hint = event.inlayHint
-                if (hint is ImageInlayHint) {
+                val textHint = hint as? TextInlayHint
+                if (textHint != null && textHint.text.contains("🖼")) {
                     event.intercept()
                     val lay = layout
                     val layoutOffset = try { lay.getCharLayoutOffset(hint.line, hint.column) } catch (_: Throwable) { null }
                     val vx = if (layoutOffset != null) (layoutOffset[1] + measureTextRegionOffset() - offsetX) else (width / 2f)
                     val vy = if (layoutOffset != null) (layoutOffset[0] - offsetY) else (height / 3f)
-                    post {
-                        onImageHintClickListener?.invoke(
-                            ImageHintClickData(
-                                line = hint.line,
-                                column = hint.column,
-                                description = hint.description,
-                                imageUri = hint.imageUri,
-                                rawTag = hint.rawTag,
-                                viewX = vx,
-                                viewY = vy
+
+                    val lineStr = try { text.getLineString(hint.line) } catch (_: Throwable) { "" }
+                    val imgRegex = Regex("""!\[(.*?)\]\((vault-img://[^\s)]+|https?://[^\s)]+|content://[^\s)]+|[^\s)]+)\)""")
+                    val match = imgRegex.findAll(lineStr).firstOrNull { m ->
+                        hint.column in (m.range.first - 2)..(m.range.last + 2)
+                    } ?: imgRegex.find(lineStr)
+
+                    val desc = match?.groupValues?.getOrNull(1) ?: ""
+                    val uri = match?.groupValues?.getOrNull(2) ?: ""
+                    val raw = match?.value ?: ""
+
+                    if (uri.isNotBlank()) {
+                        post {
+                            onImageHintClickListener?.invoke(
+                                ImageHintClickData(
+                                    line = hint.line,
+                                    column = hint.column,
+                                    description = desc,
+                                    imageUri = uri,
+                                    rawTag = raw,
+                                    viewX = vx,
+                                    viewY = vy
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }

@@ -31,14 +31,17 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil3.compose.AsyncImage
-import com.primaloptima.scribe.data.AppTheme
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.data.primaryTitle
+import com.primaloptima.scribe.data.secondaryTitle
 import com.primaloptima.scribe.ui.components.FullScreenImageViewer
 import com.primaloptima.scribe.ui.ornaments.OrnamentRegistry
 import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.util.MarkdownUtil
+import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.util.font.ScribeFontManager
 import com.primaloptima.scribe.util.image.VaultImageManager
+import com.primaloptima.scribe.util.model.AppTheme
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -90,13 +93,18 @@ fun ManuscriptPreviewSheet(
         parseManuscriptBlocks(note.content)
     }
 
-    val bgModifier = if (activeTheme != null) {
-        Modifier.background(activeTheme.backgroundColor)
-    } else {
-        Modifier.background(MaterialTheme.colorScheme.background)
+    val bgColor = remember(activeTheme?.colors?.background) {
+        activeTheme?.colors?.background?.let { hex ->
+            try { Color(ThemeManager.parseColor(hex)) } catch (_: Throwable) { null }
+        } ?: Color(0xFF121214)
     }
 
-    val textColor = activeTheme?.textColor ?: MaterialTheme.colorScheme.onBackground
+    val textColor = remember(activeTheme?.colors?.text) {
+        activeTheme?.colors?.text?.let { hex ->
+            try { Color(ThemeManager.parseColor(hex)) } catch (_: Throwable) { null }
+        } ?: Color(0xFFF4F4F6)
+    }
+
     val accentColor = ScribeTheme.colors.interaction.primary
 
     Dialog(
@@ -110,7 +118,7 @@ fun ManuscriptPreviewSheet(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .then(bgModifier)
+                .background(bgColor)
                 .systemBarsPadding()
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
@@ -141,7 +149,7 @@ fun ManuscriptPreviewSheet(
                             Spacer(modifier = Modifier.width(4.dp))
                             Column {
                                 Text(
-                                    text = note.name.ifBlank { "Manuscript Preview" },
+                                    text = note.primaryTitle.ifBlank { "Manuscript Preview" },
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = textColor,
@@ -192,17 +200,18 @@ fun ManuscriptPreviewSheet(
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
-                                    text = note.name.ifBlank { "Untitled" },
+                                    text = note.primaryTitle.ifBlank { "Untitled" },
                                     fontSize = (activeTheme?.title1FontSize ?: 24).sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = titleFont,
                                     color = textColor,
                                     textAlign = TextAlign.Center
                                 )
-                                if (note.subtitle.isNotBlank()) {
+                                val secondary = note.secondaryTitle
+                                if (secondary.isNotBlank()) {
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = note.subtitle,
+                                        text = secondary,
                                         fontSize = (activeTheme?.title2FontSize ?: 16).sp,
                                         fontWeight = FontWeight.Medium,
                                         fontFamily = titleFont,
@@ -244,12 +253,15 @@ fun ManuscriptPreviewSheet(
                                 }
 
                                 is ManuscriptBlock.Paragraph -> {
-                                    val indentSpaces = " ".repeat(activeTheme?.firstLineIndent ?: 0)
+                                    val indentCount = activeTheme?.firstLineIndent ?: 0
+                                    val indentSpaces = if (indentCount > 0) " ".repeat(indentCount) else ""
                                     val paraSpacing = (activeTheme?.paragraphSpacing ?: 1) * 6
+                                    val fontSizeVal = (activeTheme?.fontSize ?: 17).sp
+                                    val lineHeightVal = ((activeTheme?.fontSize ?: 17) * (activeTheme?.lineHeight ?: 1.4f)).sp
                                     Text(
                                         text = "$indentSpaces${block.text}",
-                                        fontSize = (activeTheme?.fontSize ?: 17).sp,
-                                        lineHeight = ((activeTheme?.fontSize ?: 17) * (activeTheme?.lineHeight ?: 1.4f)).sp,
+                                        fontSize = fontSizeVal,
+                                        lineHeight = lineHeightVal,
                                         fontFamily = themeFont,
                                         color = textColor,
                                         modifier = Modifier
@@ -270,9 +282,10 @@ fun ManuscriptPreviewSheet(
                                             .fillMaxWidth()
                                             .padding(vertical = 8.dp)
                                     ) {
+                                        val fontSizeVal = ((activeTheme?.fontSize ?: 17) - 1).sp
                                         Text(
                                             text = block.text,
-                                            fontSize = ((activeTheme?.fontSize ?: 17) - 1).sp,
+                                            fontSize = fontSizeVal,
                                             fontStyle = FontStyle.Italic,
                                             fontFamily = themeFont,
                                             color = textColor.copy(alpha = 0.9f),
@@ -356,7 +369,7 @@ fun ManuscriptPreviewSheet(
                 FullScreenImageViewer(
                     imageUri = lightboxImageUri!!,
                     title = lightboxImageTitle,
-                    subtitle = note.name,
+                    subtitle = note.primaryTitle,
                     bookId = bookId,
                     noteId = note.id,
                     onDismiss = { lightboxImageUri = null }
