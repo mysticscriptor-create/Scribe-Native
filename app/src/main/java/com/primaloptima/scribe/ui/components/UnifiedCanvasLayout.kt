@@ -86,6 +86,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         editor.horizontalPaddingDp = horizontalPaddingDp
         outlineProvider = android.view.ViewOutlineProvider.BOUNDS
         clipToOutline = true
+        editor.persistentBottomSpacePx = persistentBottomSpacePx.roundToInt()
+        editor.isKeyboardVisible = isKeyboardVisible
 
         ViewCompat.setWindowInsetsAnimationCallback(
             this,
@@ -163,8 +165,29 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var isUserTouching: Boolean = false
         private set
 
+    val breathingMarginPx: Float
+        get() = 24f * resources.displayMetrics.density
+
+    /**
+     * Pure Writer persistent bottom space architecture:
+     * Equal to where our smooth scroll is gliding, according to the shortcut bar height.
+     * estimatedKeyboardHeightPx = (compactHeightDp + 44f) * density.
+     * Plus breathing margin (24dp) so that the line rests comfortably above the shortcut bar.
+     */
+    val persistentBottomSpacePx: Float
+        get() = estimatedKeyboardHeightPx + breathingMarginPx
+
     var estimatedKeyboardHeightPx: Float = (280f + 44f) * context.resources.displayMetrics.density
+        set(value) {
+            field = value
+            editor.persistentBottomSpacePx = persistentBottomSpacePx.roundToInt()
+        }
+
     var isKeyboardVisible: Boolean = false
+        set(value) {
+            field = value
+            editor.isKeyboardVisible = value
+        }
     var isPredictiveGlideRunning: Boolean = false
         private set
     var targetPredictedScrollTotal: Float = -1f
@@ -430,9 +453,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (screenBottom > (futureViewportHeight - marginPx)) {
             var deltaY = screenBottom - (futureViewportHeight - marginPx)
 
-            // Phase 4: Short Document Bounds
-            // Never attempt to scroll past headerHeight + layoutHeight - viewportHeight
-            val totalContentHeight = (headerHeight + layout.layoutHeight).toFloat()
+            // Pure Writer Persistent Bottom Space:
+            // Document bounds include the persistent bottom space (estimatedKeyboardHeightPx + breathingMarginPx)
+            // so that lines near the end of the document can glide fluidly above the shortcut bar without restriction.
+            val totalContentHeight = (headerHeight + layout.layoutHeight + persistentBottomSpacePx).toFloat()
             val maxScrollFuture = (totalContentHeight - futureViewportHeight).coerceAtLeast(0f)
             val currentScroll = (scrollD + editor.offsetY).toFloat()
             val maxAllowedDelta = (maxScrollFuture - currentScroll).coerceAtLeast(0f)
@@ -622,14 +646,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 }
             } else if (dh < 0) {
                 // Viewport expanding (keyboard dismissing)
-                // Phase 3: Fluid Keyboard Dismissal (No-Snap Architecture)
-                // Stationary Content Retention: do not touch scroll offset if visible text is valid.
-                // If clamping is required at the bottom of a short document, glide gently over 220ms instead of snapping:
-                val maxAllowedY = editor.safeScrollMaxY
-                if (editor.offsetY > maxAllowedY) {
-                    val excess = (editor.offsetY - maxAllowedY).toFloat()
-                    smoothScrollCanvasBy(-excess, durationMs = 220L, interpolator = FastOutSlowInInterpolator)
-                }
+                // Pure Writer Architecture:
+                // When keyboard is dismissed, the document remains completely stationary.
+                // It does NOT move down or snap down; the keyboard slides away, revealing
+                // the persistent bottom space below the text.
             }
         }
     }

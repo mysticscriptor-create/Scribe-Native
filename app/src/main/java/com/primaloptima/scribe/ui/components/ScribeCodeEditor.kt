@@ -65,6 +65,36 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     private var pendingCopyAction: (() -> Unit)? = null
 
+    /**
+     * Pure Writer persistent bottom space architecture:
+     * Extra virtual height equal to the shortcut bar + keyboard height.
+     * Allows the document to scroll freely with the keyboard appearing on top of it,
+     * keeping text completely stationary on keyboard dismissal.
+     */
+    var persistentBottomSpacePx: Int = 0
+    var isKeyboardVisible: Boolean = false
+
+    override fun getScrollMaxY(): Int {
+        return try {
+            val layout = this.layout ?: return super.getScrollMaxY()
+            val layoutH = layout.layoutHeight
+            if (layoutH <= 0 || height <= 0) return super.getScrollMaxY()
+
+            val baseSora = super.getScrollMaxY()
+            val space = if (persistentBottomSpacePx > 0) persistentBottomSpacePx else (height * 0.45f).toInt()
+            val targetWritingViewport = if (isKeyboardVisible) {
+                height
+            } else {
+                (height - space).coerceAtLeast((rowHeight * 2).toInt())
+            }
+            val maxScrollWithBottomSpace = (layoutH - targetWritingViewport).coerceAtLeast(0)
+
+            maxOf(baseSora, maxScrollWithBottomSpace)
+        } catch (_: Throwable) {
+            super.getScrollMaxY()
+        }
+    }
+
     override fun setInlayHints(hints: InlayHintsContainer?) {
         // When MainEditorScreen sets base prose hints, record them
         if (visualFirstLineIndentSpaces <= 0) {
