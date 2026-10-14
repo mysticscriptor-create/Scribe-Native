@@ -4,4 +4,6 @@
     <external-cache-path name="exported_files" path="exports/" />
     <!-- Also allow files in the internal cache -->
     <cache-path name="cache_files" path="exports/" />
+    <!-- Vault images stored in app internal filesDir -->
+    <files-path name="vault_images" path="vault_images/" />
 </paths>

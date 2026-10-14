@@ -103,6 +103,7 @@ dependencies {
 
     // Phase 0-C: removed duplicate coil3:coil — coil-compose already includes it
     implementation("io.coil-kt.coil3:coil-compose:3.5.0")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.5.0")
 
     // Phase 0-D: removed api("lottie:6.7.1") — lottie-compose includes lottie core
     implementation("com.airbnb.android:lottie-compose:6.7.1")

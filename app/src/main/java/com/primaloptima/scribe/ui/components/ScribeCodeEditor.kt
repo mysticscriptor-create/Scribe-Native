@@ -12,6 +12,9 @@ import android.view.MotionEvent
 import kotlin.math.roundToInt
 import android.view.inputmethod.InputConnection
 import io.github.rosemoe.sora.event.HandleStateChangeEvent
+import io.github.rosemoe.sora.event.InlayHintClickEvent
+import com.primaloptima.scribe.engine.ImageInlayHint
+import com.primaloptima.scribe.util.image.VaultImageManager
 import io.github.rosemoe.sora.event.LayoutStateChangeEvent
 import io.github.rosemoe.sora.event.ScrollEvent
 import io.github.rosemoe.sora.widget.CodeEditor
@@ -163,6 +166,31 @@ class ScribeCodeEditor @JvmOverloads constructor(
         try {
             subscribeEvent(HandleStateChangeEvent::class.java) { event, _ ->
                 isHandleDragging = event.isHeld
+            }
+        } catch (_: Throwable) { }
+        try {
+            subscribeEvent(InlayHintClickEvent::class.java) { event, _ ->
+                val hint = event.inlayHint
+                if (hint is ImageInlayHint) {
+                    event.intercept()
+                    val lay = layout
+                    val layoutOffset = try { lay.getCharLayoutOffset(hint.line, hint.column) } catch (_: Throwable) { null }
+                    val vx = if (layoutOffset != null) (layoutOffset[0] - offsetX) else (width / 2f)
+                    val vy = if (layoutOffset != null) (layoutOffset[1] - offsetY) else (height / 3f)
+                    post {
+                        onImageHintClickListener?.invoke(
+                            ImageHintClickData(
+                                line = hint.line,
+                                column = hint.column,
+                                description = hint.description,
+                                imageUri = hint.imageUri,
+                                rawTag = hint.rawTag,
+                                viewX = vx,
+                                viewY = vy
+                            )
+                        )
+                    }
+                }
             }
         } catch (_: Throwable) { }
         try {
@@ -1384,5 +1412,23 @@ class ScribeCodeEditor @JvmOverloads constructor(
         }
         dispatchEvent(ScrollEvent(this, offsetX, offsetY, targetX.toInt(), targetY.toInt(), ScrollEvent.CAUSE_MAKE_POSITION_VISIBLE))
         invalidate()
+    }
+
+    fun updateImageDescription(imageUri: String, newDescription: String) {
+        val content = text ?: return
+        val doc = content.toString()
+        val updated = VaultImageManager.renameAltInMarkdown(doc, imageUri, newDescription)
+        if (updated != doc) {
+            content.replace(0, 0, content.lineCount - 1, content.getColumnCount(content.lineCount - 1), updated)
+        }
+    }
+
+    fun removeImageTag(imageUri: String) {
+        val content = text ?: return
+        val doc = content.toString()
+        val updated = VaultImageManager.removeImageFromMarkdown(doc, imageUri)
+        if (updated != doc) {
+            content.replace(0, 0, content.lineCount - 1, content.getColumnCount(content.lineCount - 1), updated)
+        }
     }
 }
