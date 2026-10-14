@@ -10,6 +10,7 @@ import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.view.animation.PathInterpolator
 import android.widget.EdgeEffect
 import android.widget.OverScroller
 import androidx.compose.ui.platform.ComposeView
@@ -162,9 +163,26 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var isUserTouching: Boolean = false
         private set
 
+    var estimatedKeyboardHeightPx: Float = (280f + 44f) * context.resources.displayMetrics.density
+    var isKeyboardVisible: Boolean = false
+    var isPredictiveGlideRunning: Boolean = false
+        private set
+    var targetPredictedScrollTotal: Float = -1f
+        private set
+
+    companion object {
+        val FastOutSlowInInterpolator: android.view.animation.Interpolator =
+            PathInterpolator(0.4f, 0f, 0.2f, 1f)
+    }
+
     private var canvasScrollAnimator: android.animation.ValueAnimator? = null
 
-    fun smoothScrollCanvasBy(dy: Float, durationMs: Long = 280, onEnd: (() -> Unit)? = null) {
+    fun smoothScrollCanvasBy(
+        dy: Float,
+        durationMs: Long = 280L,
+        interpolator: android.view.animation.Interpolator = FastOutSlowInInterpolator,
+        onEnd: (() -> Unit)? = null
+    ) {
         if (kotlin.math.abs(dy) < 1f) {
             onEnd?.invoke()
             return
@@ -173,7 +191,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         var lastAnimatedValue = 0f
         canvasScrollAnimator = android.animation.ValueAnimator.ofFloat(0f, dy).apply {
             duration = durationMs
-            interpolator = android.view.animation.DecelerateInterpolator(1.8f)
+            this.interpolator = interpolator
             addUpdateListener { anim ->
                 val curr = anim.animatedValue as Float
                 val delta = curr - lastAnimatedValue
@@ -183,10 +201,14 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
                     canvasScrollAnimator = null
+                    isPredictiveGlideRunning = false
+                    targetPredictedScrollTotal = -1f
                     onEnd?.invoke()
                 }
                 override fun onAnimationCancel(animation: android.animation.Animator) {
                     canvasScrollAnimator = null
+                    isPredictiveGlideRunning = false
+                    targetPredictedScrollTotal = -1f
                 }
             })
             start()
@@ -199,6 +221,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     fun cancelCanvasAnimation() {
         canvasScrollAnimator?.cancel()
         canvasScrollAnimator = null
+        isPredictiveGlideRunning = false
+        targetPredictedScrollTotal = -1f
         if (!scroller.isFinished) {
             scroller.abortAnimation()
         }
@@ -375,10 +399,64 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * by the keyboard or shortcut bar by scrolling header off or adjusting editor scroll
      * so that the active cursor line stays just above the shortcut bar.
      */
+    /**
+     * Phase 1: Tap-Triggered Predictive Pre-Calculation Engine.
+     * Computes the cursor position at t = 0ms (on tap), estimates future viewport
+     * height using cached lastKeyboardHeightDp + shortcutBarHeight, and immediately starts
+     * a smooth parallel glide running concurrently with the keyboard entrance animation.
+     */
+    fun predictivelyGlideCursorAboveKeyboard(targetLine: Int? = null, targetCol: Int? = null) {
+        if (isImeClosing) return
+        val density = resources.displayMetrics.density
+        val cursor = try { editor.cursor } catch (_: Throwable) { null }
+        val line = targetLine ?: cursor?.leftLine ?: return
+        val col = targetCol ?: cursor?.leftColumn ?: 0
+
+        val layout = try { editor.layout } catch (_: Throwable) { null } ?: return
+        val layoutOffset = try { layout.getCharLayoutOffset(line, col) } catch (_: Throwable) { null } ?: return
+        val yOffset = layoutOffset[0] // Doc coordinate of line bottom
+
+        val headerRemaining = headerHeight - scrollD
+        val screenBottom = headerRemaining + yOffset - editor.offsetY
+
+        val isKeyboardOrDrawerActive = isKeyboardVisible || (height <= resources.displayMetrics.heightPixels * 0.65f)
+        val futureViewportHeight = if (isKeyboardOrDrawerActive) {
+            height.toFloat()
+        } else {
+            (height - estimatedKeyboardHeightPx).coerceAtLeast(editor.rowHeight * 3f)
+        }
+
+        val marginPx = (24 * density).roundToInt()
+        if (screenBottom > (futureViewportHeight - marginPx)) {
+            var deltaY = screenBottom - (futureViewportHeight - marginPx)
+
+            // Phase 4: Short Document Bounds
+            // Never attempt to scroll past headerHeight + layoutHeight - viewportHeight
+            val totalContentHeight = (headerHeight + layout.layoutHeight).toFloat()
+            val maxScrollFuture = (totalContentHeight - futureViewportHeight).coerceAtLeast(0f)
+            val currentScroll = (scrollD + editor.offsetY).toFloat()
+            val maxAllowedDelta = (maxScrollFuture - currentScroll).coerceAtLeast(0f)
+            deltaY = minOf(deltaY, maxAllowedDelta)
+
+            if (deltaY > 2f) {
+                isPredictiveGlideRunning = true
+                targetPredictedScrollTotal = currentScroll + deltaY
+                smoothScrollCanvasBy(
+                    dy = deltaY,
+                    durationMs = 280L,
+                    interpolator = FastOutSlowInInterpolator
+                ) {
+                    isPredictiveGlideRunning = false
+                    targetPredictedScrollTotal = -1f
+                }
+            }
+        }
+    }
+
     private var lastEnsureCursorTime = 0L
 
     fun ensureCursorVisibleAboveKeyboard(smooth: Boolean = true, customDurationMs: Long = 280L) {
-        if (!editor.isFocused || isImeClosing) return
+        if (!editor.isFocused || isImeClosing || isPredictiveGlideRunning) return
         val now = System.currentTimeMillis()
         if (now - lastEnsureCursorTime < 80L) return
         val cursor = try { editor.cursor } catch (_: Throwable) { null } ?: return
@@ -395,7 +473,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
         val visibleHeight = height
         val density = resources.displayMetrics.density
-        val marginPx = (16 * density).roundToInt()
+        val marginPx = (24 * density).roundToInt()
         val deadbandPx = (4 * density).roundToInt()
 
         if (visibleHeight > 0) {
@@ -403,7 +481,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val overflow = screenBottom - (visibleHeight - marginPx)
                 lastEnsureCursorTime = now
                 if (smooth) {
-                    smoothScrollCanvasBy(overflow.toFloat(), durationMs = customDurationMs)
+                    smoothScrollCanvasBy(overflow.toFloat(), durationMs = customDurationMs, interpolator = FastOutSlowInInterpolator)
                 } else {
                     scrollCanvasBy(overflow.toFloat())
                 }
@@ -411,7 +489,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val underflow = screenTop
                 lastEnsureCursorTime = now
                 if (smooth) {
-                    smoothScrollCanvasBy(underflow.toFloat(), durationMs = customDurationMs)
+                    smoothScrollCanvasBy(underflow.toFloat(), durationMs = customDurationMs, interpolator = FastOutSlowInInterpolator)
                 } else {
                     scrollCanvasBy(underflow.toFloat())
                 }
@@ -513,19 +591,44 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val dh = oldh - h
             if (dh > 0) {
                 // Viewport shrinking (keyboard appearing)
-                // Decoupled fluid cursor reveal: starts smoothly in parallel, gently decelerating to rest
                 if (editor.isFocused) {
-                    post {
-                        ensureCursorVisibleAboveKeyboard(smooth = true, customDurationMs = 280L)
+                    val density = resources.displayMetrics.density
+                    val marginPx = (24 * density).roundToInt()
+                    val deadbandPx = (4 * density).roundToInt()
+
+                    val isCursorInSafeZone = try {
+                        val cur = editor.cursor
+                        val lay = editor.layout
+                        if (cur != null && lay != null) {
+                            val off = lay.getCharLayoutOffset(cur.leftLine, cur.leftColumn)
+                            val headerRemaining = headerHeight - scrollD
+                            val screenBottom = headerRemaining + off[0] - editor.offsetY
+                            screenBottom <= (h - marginPx + deadbandPx)
+                        } else false
+                    } catch (_: Throwable) {
+                        false
+                    }
+
+                    // Phase 2: Elimination of Post-Appearance Double-Jumps
+                    // If an active predictive glide is underway OR cursor is already in safe zone,
+                    // suppress the secondary post { ensureCursorVisibleAboveKeyboard() }.
+                    if (!isPredictiveGlideRunning && !isCursorInSafeZone) {
+                        post {
+                            if (!isPredictiveGlideRunning) {
+                                ensureCursorVisibleAboveKeyboard(smooth = true, customDurationMs = 280L)
+                            }
+                        }
                     }
                 }
             } else if (dh < 0) {
                 // Viewport expanding (keyboard dismissing)
-                // When viewport expands, ensure editor.offsetY is immediately clamped to editor.scrollMaxY:
+                // Phase 3: Fluid Keyboard Dismissal (No-Snap Architecture)
+                // Stationary Content Retention: do not touch scroll offset if visible text is valid.
+                // If clamping is required at the bottom of a short document, glide gently over 220ms instead of snapping:
                 val maxAllowedY = editor.safeScrollMaxY
                 if (editor.offsetY > maxAllowedY) {
                     val excess = (editor.offsetY - maxAllowedY).toFloat()
-                    scrollCanvasBy(-excess)
+                    smoothScrollCanvasBy(-excess, durationMs = 220L, interpolator = FastOutSlowInInterpolator)
                 }
             }
         }
@@ -716,10 +819,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> {
                 isUserTouching = true
                 onUserTouchDown?.invoke()
-                canvasScrollAnimator?.cancel()
-                if (!scroller.isFinished) {
-                    scroller.abortAnimation()
-                }
+                cancelCanvasAnimation()
                 try {
                     editor.scroller?.abortAnimation()
                 } catch (_: Throwable) {}

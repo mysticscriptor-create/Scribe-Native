@@ -1036,14 +1036,37 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     var onPinchScaleEndListener: ((finalSizeSp: Int) -> Unit)? = null
 
+    private var touchDownX = 0f
+    private var touchDownY = 0f
+    private var touchDownTime = 0L
+    private var isTouchMoved = false
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
-            val cur = try { cursor } catch (_: Throwable) { null }
-            if (cur?.isSelected != true) {
-                isHandleDragging = false
+        val parentCanvas = parent as? UnifiedCanvasLayout
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                touchDownX = event.x
+                touchDownY = event.y
+                touchDownTime = System.currentTimeMillis()
+                isTouchMoved = false
+                parentCanvas?.cancelCanvasAnimation()
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = kotlin.math.abs(event.x - touchDownX)
+                val dy = kotlin.math.abs(event.y - touchDownY)
+                val density = context.resources.displayMetrics.density
+                val slop = 8f * density
+                if (dx > slop || dy > slop) {
+                    isTouchMoved = true
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val cur = try { cursor } catch (_: Throwable) { null }
+                if (cur?.isSelected != true) {
+                    isHandleDragging = false
+                }
             }
         }
-        val parentCanvas = parent as? UnifiedCanvasLayout
         val wasScaling = eventHandler?.isScaling == true
         val result = super.onTouchEvent(event)
         val isScalingNow = eventHandler?.isScaling == true
@@ -1051,6 +1074,15 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (wasScaling && !isScalingNow) {
             val currentSp = (textSizePx / context.resources.displayMetrics.density).roundToInt().coerceIn(12, 36)
             onPinchScaleEndListener?.invoke(currentSp)
+        }
+        if (event.actionMasked == MotionEvent.ACTION_UP) {
+            val dt = System.currentTimeMillis() - touchDownTime
+            val wasTap = !isTouchMoved && dt < 450L
+            if (wasTap && !isPinchScaling && !isHandleDragging) {
+                // Phase 1: Tap-Triggered Predictive Pre-Calculation Engine.
+                // Pre-calculate target Y and smoothly glide immediately at t = 0ms!
+                parentCanvas?.predictivelyGlideCursorAboveKeyboard()
+            }
         }
         if (parentCanvas != null && parentCanvas.scrollD < parentCanvas.headerHeight && offsetY > 0) {
             val strayY = offsetY

@@ -1352,9 +1352,14 @@ fun MainEditorScreen(
                             lastAppliedBgArgb = bgArgb
                             lastAppliedThemeId = activeTheme?.id
 
+                            val curEstimatedKbPx = (compactHeightDp.value + 44f) * density
+                            val curIsKeyboardVisible = isKeyboardVisible
+
                             UnifiedCanvasLayout(ctx).apply {
                                 horizontalPaddingDp = initialPadH
                                 setBackgroundColor(bgArgb)
+                                estimatedKeyboardHeightPx = curEstimatedKbPx
+                                this.isKeyboardVisible = curIsKeyboardVisible
                                 onUserTouchDown = {
                                     if (activeAccessoryDrawer != null) {
                                         activeAccessoryDrawer = null
@@ -1540,6 +1545,8 @@ fun MainEditorScreen(
                                 }
                             }
                             val density = layout.context.resources.displayMetrics.density
+                            layout.estimatedKeyboardHeightPx = (compactHeightDp.value + 44f) * density
+                            layout.isKeyboardVisible = isKeyboardVisible
                             val editor = layout.editor
                             val scribeEditor = editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor
                             scribeEditor?.activeShortcuts = shortcuts
