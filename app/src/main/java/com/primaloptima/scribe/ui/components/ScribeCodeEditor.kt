@@ -51,6 +51,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     var isHandleDragging: Boolean = false
         private set
+    var isInteractingWithImage: Boolean = false
 
     var visualFirstLineIndentSpaces: Int = 0
         private set
@@ -189,6 +190,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
                                 val uri = match.groupValues[2]
                                 val raw = match.value
                                 if (uri.isNotBlank()) {
+                                    isInteractingWithImage = true
+                                    postDelayed({ isInteractingWithImage = false }, 800)
                                     val lay = layout
                                     val layoutOffset = try { lay.getCharLayoutOffset(line, match.range.first) } catch (_: Throwable) { null }
                                     val vx = if (layoutOffset != null) (layoutOffset[1] + measureTextRegionOffset() - offsetX) else lastTapX
@@ -218,6 +221,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 val hint = event.inlayHint
                 val textHint = hint as? TextInlayHint
                 if (textHint != null && textHint.text.contains("🖼")) {
+                    isInteractingWithImage = true
+                    postDelayed({ isInteractingWithImage = false }, 800)
                     event.intercept()
                     val lay = layout
                     val layoutOffset = try { lay.getCharLayoutOffset(hint.line, hint.column) } catch (_: Throwable) { null }
@@ -1229,7 +1234,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (event.actionMasked == MotionEvent.ACTION_UP) {
             val dt = System.currentTimeMillis() - touchDownTime
             val wasTap = !isTouchMoved && dt < 450L
-            if (wasTap && !isPinchScaling && !isHandleDragging) {
+            if (wasTap && !isPinchScaling && !isHandleDragging && !isInteractingWithImage) {
                 // Phase 1: Tap-Triggered Predictive Pre-Calculation Engine.
                 // Pre-calculate target Y and smoothly glide immediately at t = 0ms!
                 parentCanvas?.predictivelyGlideCursorAboveKeyboard()
@@ -1401,6 +1406,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
 
     override fun ensurePositionVisible(line: Int, column: Int, noAnimation: Boolean) {
+        if (isInteractingWithImage) return
         val scroller = scroller ?: return
         val layout = layout ?: return
         val layoutOffset = try { layout.getCharLayoutOffset(line, column) } catch (_: Throwable) { null } ?: return

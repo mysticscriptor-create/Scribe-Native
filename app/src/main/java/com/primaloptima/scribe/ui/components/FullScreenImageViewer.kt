@@ -1,9 +1,10 @@
 package com.primaloptima.scribe.ui.components
 
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -23,19 +24,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.util.lerp
+import androidx.compose.ui.zIndex
 import coil3.compose.AsyncImage
-import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.util.image.VaultImageManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -43,8 +46,8 @@ import kotlinx.coroutines.withContext
 
 /**
  * Full-screen pinch-to-zoom Lightbox for manuscript and document images.
- * Provides multi-touch zoom (up to 6x), double-tap reset, image renaming/captioning,
- * delete from document/disk, sharing via FileProvider, and saving to device gallery.
+ * Smoothly animates from the floating preview thumbnail geometry into full screen,
+ * and smoothly reverses back into the badge on dismissal.
  */
 @Composable
 fun FullScreenImageViewer(
@@ -53,17 +56,50 @@ fun FullScreenImageViewer(
     subtitle: String = "",
     bookId: String? = null,
     noteId: String = "",
+    originOffset: Offset? = null,
+    originSize: Size? = null,
     onUpdateTitle: ((newTitle: String) -> Unit)? = null,
     onDelete: ((removeFromDisk: Boolean) -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+
+    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
+    val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
+
+    val animProgress = remember { Animatable(0f) }
+    var isClosing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        animProgress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+        )
+    }
+
+    val requestDismiss: () -> Unit = {
+        if (!isClosing) {
+            isClosing = true
+            scope.launch {
+                animProgress.animateTo(
+                    targetValue = 0f,
+                    animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
+                )
+                onDismiss()
+            }
+        }
+    }
+
+    BackHandler(enabled = true) {
+        requestDismiss()
+    }
 
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var currentTitle by remember { mutableStateOf(title) }
-
     var showRenameDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
     var deleteFromDiskChecked by remember { mutableStateOf(true) }
@@ -73,26 +109,54 @@ fun FullScreenImageViewer(
         VaultImageManager.resolveModel(context, imageUri, bookId, noteId)
     }
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true
-        )
+    val progress = animProgress.value
+    val backdropAlpha = (progress * 0.95f).coerceIn(0f, 0.95f)
+    val controlsAlpha = ((progress - 0.45f) / 0.55f).coerceIn(0f, 1f)
+
+    // Fluid geometry interpolation from thumbnail origin into full-screen center
+    val curTransX = if (originOffset != null && originSize != null) {
+        val originCenterX = originOffset.x + originSize.width / 2f
+        val screenCenterX = screenWidthPx / 2f
+        lerp(originCenterX - screenCenterX, 0f, progress) + offset.x
+    } else {
+        offset.x
+    }
+
+    val curTransY = if (originOffset != null && originSize != null) {
+        val originCenterY = originOffset.y + originSize.height / 2f
+        val screenCenterY = screenHeightPx / 2f
+        lerp(originCenterY - screenCenterY, 0f, progress) + offset.y
+    } else {
+        offset.y
+    }
+
+    val baseScale = if (originOffset != null && originSize != null) {
+        val startScale = (originSize.width / screenWidthPx).coerceIn(0.12f, 0.6f)
+        lerp(startScale, 1f, progress)
+    } else {
+        lerp(0.85f, 1f, progress)
+    }
+    val curScale = baseScale * scale
+    val curCornerRadius = if (originOffset != null) {
+        (16f * (1f - progress)).dp
+    } else {
+        0.dp
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(150f)
+            .background(Color.Black.copy(alpha = backdropAlpha))
+            .systemBarsPadding()
     ) {
+        // ── Main interactive image canvas ───────────────────────────
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.95f))
-                .systemBarsPadding()
-        ) {
-            // ── Main interactive image canvas ───────────────────────────
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectTransformGestures { _, pan, zoom, _ ->
+                .pointerInput(Unit) {
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        if (progress > 0.8f) {
                             scale = (scale * zoom).coerceIn(0.8f, 6f)
                             if (scale > 1f) {
                                 offset += pan
@@ -101,9 +165,11 @@ fun FullScreenImageViewer(
                             }
                         }
                     }
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onDoubleTap = {
+                }
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onDoubleTap = {
+                            if (progress > 0.8f) {
                                 if (scale > 1.2f) {
                                     scale = 1f
                                     offset = Offset.Zero
@@ -111,104 +177,115 @@ fun FullScreenImageViewer(
                                     scale = 2.5f
                                 }
                             }
-                        )
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                AsyncImage(
-                    model = resolvedModel,
-                    contentDescription = currentTitle,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer(
-                            scaleX = scale,
-                            scaleY = scale,
-                            translationX = offset.x,
-                            translationY = offset.y
-                        )
-                )
-            }
+                        },
+                        onTap = {
+                            if (scale <= 1.05f) {
+                                requestDismiss()
+                            }
+                        }
+                    )
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            AsyncImage(
+                model = resolvedModel,
+                contentDescription = currentTitle,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(curCornerRadius))
+                    .graphicsLayer(
+                        scaleX = curScale,
+                        scaleY = curScale,
+                        translationX = curTransX,
+                        translationY = curTransY
+                    )
+            )
+        }
 
-            // ── Top Bar Overlay ─────────────────────────────────────────
-            Row(
+        // ── Top App Bar Overlay (Fade with controlsAlpha) ───────────
+        if (controlsAlpha > 0f) {
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .align(Alignment.TopCenter),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                    .align(Alignment.TopCenter)
+                    .graphicsLayer(alpha = controlsAlpha),
+                color = Color.Black.copy(alpha = 0.6f * controlsAlpha)
             ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     IconButton(
-                        onClick = onDismiss,
-                        colors = IconButtonDefaults.iconButtonColors(
-                            containerColor = Color.Black.copy(alpha = 0.65f)
-                        )
+                        onClick = requestDismiss,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(Color.White.copy(alpha = 0.15f), CircleShape)
                     ) {
                         Icon(
                             Icons.Default.Close,
                             contentDescription = "Close",
-                            tint = Color.White
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
 
-                    Spacer(modifier = Modifier.width(12.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
 
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = currentTitle.ifBlank { "Illustration" },
-                            color = Color.White,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
+                            color = Color.White,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         if (subtitle.isNotBlank()) {
                             Text(
                                 text = subtitle,
-                                color = Color.White.copy(alpha = 0.70f),
-                                fontSize = 12.sp,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.White.copy(alpha = 0.7f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
                         }
                     }
-                }
 
-                if (scale > 1.05f || offset != Offset.Zero) {
-                    IconButton(
-                        onClick = {
-                            scale = 1f
-                            offset = Offset.Zero
-                        },
-                        colors = IconButtonDefaults.iconButtonColors(
-                            containerColor = Color.Black.copy(alpha = 0.65f)
-                        )
-                    ) {
-                        Icon(
-                            Icons.Default.RestartAlt,
-                            contentDescription = "Reset Zoom",
-                            tint = Color.White
-                        )
+                    // Reset zoom button
+                    if (scale > 1.05f) {
+                        IconButton(
+                            onClick = {
+                                scale = 1f
+                                offset = Offset.Zero
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.RestartAlt,
+                                contentDescription = "Reset Zoom",
+                                tint = Color.White
+                            )
+                        }
                     }
                 }
             }
 
-            // ── Bottom Action Bar Overlay ───────────────────────────────
+            // ── Bottom Action Bar Overlay (Fade with controlsAlpha) ──────
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 16.dp)
-                    .align(Alignment.BottomCenter),
+                    .align(Alignment.BottomCenter)
+                    .graphicsLayer(alpha = controlsAlpha),
                 shape = RoundedCornerShape(20.dp),
-                color = Color.Black.copy(alpha = 0.75f),
+                color = Color.Black.copy(alpha = 0.75f * controlsAlpha),
                 border = androidx.compose.foundation.BorderStroke(
                     0.5.dp,
-                    Color.White.copy(alpha = 0.20f)
+                    Color.White.copy(alpha = 0.20f * controlsAlpha)
                 )
             ) {
                 Row(
@@ -299,87 +376,87 @@ fun FullScreenImageViewer(
                     }
                 }
             }
+        }
 
-            // ── Rename / Edit Caption Dialog ────────────────────────────
-            if (showRenameDialog) {
-                var editCaptionText by remember { mutableStateOf(currentTitle) }
-                AlertDialog(
-                    onDismissRequest = { showRenameDialog = false },
-                    title = { Text("Edit Image Caption") },
-                    text = {
-                        OutlinedTextField(
-                            value = editCaptionText,
-                            onValueChange = { editCaptionText = it },
-                            label = { Text("Caption / Alt Description") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
+        // ── Rename / Edit Caption Dialog ────────────────────────────
+        if (showRenameDialog) {
+            var editCaptionText by remember { mutableStateOf(currentTitle) }
+            AlertDialog(
+                onDismissRequest = { showRenameDialog = false },
+                title = { Text("Edit Image Caption") },
+                text = {
+                    OutlinedTextField(
+                        value = editCaptionText,
+                        onValueChange = { editCaptionText = it },
+                        label = { Text("Caption / Alt Description") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            val trimmed = editCaptionText.trim()
+                            currentTitle = trimmed
+                            onUpdateTitle?.invoke(trimmed)
+                            showRenameDialog = false
+                        }
+                    ) {
+                        Text("Save")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showRenameDialog = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
+        }
+
+        // ── Delete Confirmation Dialog ──────────────────────────────
+        if (showDeleteConfirmDialog) {
+            AlertDialog(
+                onDismissRequest = { showDeleteConfirmDialog = false },
+                title = { Text("Delete Image?") },
+                text = {
+                    Column {
+                        Text("Remove this image tag from your document text.")
+                        if (imageUri.startsWith("vault-img://", ignoreCase = true)) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Checkbox(
+                                    checked = deleteFromDiskChecked,
+                                    onCheckedChange = { deleteFromDiskChecked = it }
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Also delete file from vault storage", fontSize = 13.sp)
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showDeleteConfirmDialog = false
+                            onDelete?.invoke(deleteFromDiskChecked)
+                            requestDismiss()
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
                         )
-                    },
-                    confirmButton = {
-                        Button(
-                            onClick = {
-                                val trimmed = editCaptionText.trim()
-                                currentTitle = trimmed
-                                onUpdateTitle?.invoke(trimmed)
-                                showRenameDialog = false
-                            }
-                        ) {
-                            Text("Save")
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showRenameDialog = false }) {
-                            Text("Cancel")
-                        }
+                    ) {
+                        Text("Delete")
                     }
-                )
-            }
-
-            // ── Delete Confirmation Dialog ──────────────────────────────
-            if (showDeleteConfirmDialog) {
-                AlertDialog(
-                    onDismissRequest = { showDeleteConfirmDialog = false },
-                    title = { Text("Delete Image?") },
-                    text = {
-                        Column {
-                            Text("Remove this image tag from your document text.")
-                            if (imageUri.startsWith("vault-img://", ignoreCase = true)) {
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Checkbox(
-                                        checked = deleteFromDiskChecked,
-                                        onCheckedChange = { deleteFromDiskChecked = it }
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Also delete file from vault storage", fontSize = 13.sp)
-                                }
-                            }
-                        }
-                    },
-                    confirmButton = {
-                        Button(
-                            onClick = {
-                                showDeleteConfirmDialog = false
-                                onDelete?.invoke(deleteFromDiskChecked)
-                                onDismiss()
-                            },
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.error
-                            )
-                        ) {
-                            Text("Delete")
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showDeleteConfirmDialog = false }) {
-                            Text("Cancel")
-                        }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                        Text("Cancel")
                     }
-                )
-            }
+                }
+            )
         }
     }
 }

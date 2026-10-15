@@ -390,6 +390,8 @@ fun MainEditorScreen(
     var activeImageHintData by remember { mutableStateOf<ImageHintClickData?>(null) }
     var activeLightboxImageUri by remember { mutableStateOf<String?>(null) }
     var activeLightboxImageTitle by remember { mutableStateOf("") }
+    var activeLightboxOriginOffset by remember { mutableStateOf<Offset?>(null) }
+    var activeLightboxOriginSize by remember { mutableStateOf<Size?>(null) }
     var showManuscriptPreview by remember { mutableStateOf(false) }
 
     val captureSessionScrollBeforeNavigate: () -> Unit = {
@@ -1427,7 +1429,7 @@ fun MainEditorScreen(
                                     }
                                 }
                                 onUnifiedScrollChanged = { scrollD, _ ->
-                                    if (activeImageHintData != null) {
+                                    if (activeImageHintData != null && unifiedCanvasRef?.isUserTouching == true) {
                                         activeImageHintData = null
                                     }
                                     if (scrollD <= 5 && editor.offsetY <= 10) {
@@ -2932,19 +2934,22 @@ fun MainEditorScreen(
                 val hintData = activeImageHintData!!
                 val currentDensity = LocalDensity.current
                 val screenWidthPx: Float = with(currentDensity) { configuration.screenWidthDp.dp.toPx() }
+                val screenHeightPx: Float = with(currentDensity) { configuration.screenHeightDp.dp.toPx() }
                 val headerOffset: Float = unifiedCanvasRef?.let { maxOf(0f, (it.headerHeight - it.scrollD).toFloat()) } ?: 0f
                 val statusBarTopDp = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
                 val topInsetPx: Float = with(currentDensity) { statusBarTopDp.toPx() }
                 val rawX: Float = hintData.viewX
                 val rawY: Float = topInsetPx + headerOffset + hintData.viewY
-                val cardWidthPx: Float = with(currentDensity) { 300.dp.toPx() }
-                val cardHeightPx: Float = with(currentDensity) { 130.dp.toPx() }
+                val cardWidthPx: Float = with(currentDensity) { 190.dp.toPx() }
+                val cardHeightPx: Float = with(currentDensity) { 140.dp.toPx() }
 
                 val clampedX: Float = rawX.coerceIn(16f, (screenWidthPx - cardWidthPx - 16f).coerceAtLeast(16f))
-                val clampedY: Float = if (rawY - cardHeightPx - 16f > topInsetPx + 40f) {
-                    rawY - cardHeightPx - 16f
+                val bottomBarHeightPx = with(currentDensity) { 100.dp.toPx() }
+                val clampedY: Float = if (rawY + cardHeightPx + 16f > screenHeightPx - bottomBarHeightPx) {
+                    // Position cleanly above the badge when near bottom edge
+                    (rawY - cardHeightPx - 12f).coerceAtLeast(topInsetPx + 16f)
                 } else {
-                    rawY + 36f
+                    rawY + 32f
                 }
 
                 Box(
@@ -2970,24 +2975,8 @@ fun MainEditorScreen(
                         onExpandFullscreen = {
                             activeLightboxImageUri = hintData.imageUri
                             activeLightboxImageTitle = hintData.description
-                            activeImageHintData = null
-                        },
-                        onEditDescription = {
-                            activeLightboxImageUri = hintData.imageUri
-                            activeLightboxImageTitle = hintData.description
-                            activeImageHintData = null
-                        },
-                        onDeleteImage = {
-                            val uriToDelete = hintData.imageUri
-                            soraEditorRef?.removeImageTag(uriToDelete)
-                            scope.launch(Dispatchers.IO) {
-                                VaultImageManager.deleteVaultImageFile(
-                                    context = context,
-                                    uriString = uriToDelete,
-                                    bookId = activeNote?.bookId,
-                                    noteId = activeNote?.id ?: ""
-                                )
-                            }
+                            activeLightboxOriginOffset = Offset(clampedX, clampedY)
+                            activeLightboxOriginSize = Size(cardWidthPx, cardHeightPx)
                             activeImageHintData = null
                         },
                         onDismiss = { activeImageHintData = null }
@@ -3003,6 +2992,8 @@ fun MainEditorScreen(
                     subtitle = activeNote?.name ?: "",
                     bookId = activeNote?.bookId,
                     noteId = activeNote?.id ?: "",
+                    originOffset = activeLightboxOriginOffset,
+                    originSize = activeLightboxOriginSize,
                     onUpdateTitle = { newTitle ->
                         activeLightboxImageTitle = newTitle
                         soraEditorRef?.updateImageDescription(activeLightboxImageUri!!, newTitle)
@@ -3022,7 +3013,11 @@ fun MainEditorScreen(
                         }
                         activeLightboxImageUri = null
                     },
-                    onDismiss = { activeLightboxImageUri = null }
+                    onDismiss = {
+                        activeLightboxImageUri = null
+                        activeLightboxOriginOffset = null
+                        activeLightboxOriginSize = null
+                    }
                 )
             }
 
