@@ -171,6 +171,49 @@ class ScribeCodeEditor @JvmOverloads constructor(
             }
         } catch (_: Throwable) { }
         try {
+            subscribeEvent(io.github.rosemoe.sora.event.SelectionChangeEvent::class.java) { _, _ ->
+                val timeDiff = System.currentTimeMillis() - lastTapTime
+                if (timeDiff in 0..400 && !isHandleDragging) {
+                    val cur = try { cursor } catch (_: Throwable) { null } ?: return@subscribeEvent
+                    if (!cur.isSelected && cur.leftLine < text.lineCount) {
+                        val line = cur.leftLine
+                        val col = cur.leftColumn
+                        val lineStr = try { text.getLineString(line) } catch (_: Throwable) { "" }
+                        if (lineStr.contains("![")) {
+                            val imgRegex = Regex("""!\[(.*?)\]\((vault-img://[^\s)]+|https?://[^\s)]+|content://[^\s)]+|[^\s)]+)\)""")
+                            val match = imgRegex.findAll(lineStr).firstOrNull { m ->
+                                col in m.range.first..(m.range.last + 1)
+                            }
+                            if (match != null) {
+                                val desc = match.groupValues[1]
+                                val uri = match.groupValues[2]
+                                val raw = match.value
+                                if (uri.isNotBlank()) {
+                                    val lay = layout
+                                    val layoutOffset = try { lay.getCharLayoutOffset(line, match.range.first) } catch (_: Throwable) { null }
+                                    val vx = if (layoutOffset != null) (layoutOffset[1] + measureTextRegionOffset() - offsetX) else lastTapX
+                                    val vy = if (layoutOffset != null) (layoutOffset[0] - offsetY) else lastTapY
+                                    post {
+                                        onImageHintClickListener?.invoke(
+                                            ImageHintClickData(
+                                                line = line,
+                                                column = match.range.first,
+                                                description = desc,
+                                                imageUri = uri,
+                                                rawTag = raw,
+                                                viewX = vx,
+                                                viewY = vy
+                                            )
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_: Throwable) { }
+        try {
             subscribeEvent(InlayHintClickEvent::class.java) { event, _ ->
                 val hint = event.inlayHint
                 val textHint = hint as? TextInlayHint
@@ -593,6 +636,23 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val line = cur.leftLine
         val col = cur.leftColumn
         val lineStr = text.getLineString(line)
+
+        // ── Single-stroke Atomic Backspace on Image Tag ────────────────────────
+        // When cursor is positioned immediately after an image markdown tag, or inside it:
+        // Delete the entire ![description](uri) tag in one atomic keystroke to prevent broken markdown.
+        if (lineStr.contains("![")) {
+            val imgRegex = Regex("""!\[(.*?)\]\((vault-img://[^\s)]+|https?://[^\s)]+|content://[^\s)]+|[^\s)]+)\)""")
+            val imgMatch = imgRegex.findAll(lineStr).firstOrNull { m ->
+                col == m.range.last + 1 || (col > m.range.first && col <= m.range.last)
+            }
+            if (imgMatch != null) {
+                text.delete(line, imgMatch.range.first, line, imgMatch.range.last + 1)
+                setSelection(line, imgMatch.range.first)
+                ensureSelectionVisible()
+                notifyIMEExternalCursorChange()
+                return
+            }
+        }
 
         // ── Phase 0: Auto-Pair Deletion (Dynamic from Shortcuts) ──────────────
         val pairDeleteLens = ScribeSmartEnterEngine.checkPairBackspace(lineStr, col, activeShortcuts)
@@ -1117,6 +1177,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
     private var touchDownY = 0f
     private var touchDownTime = 0L
     private var isTouchMoved = false
+    private var lastTapX = 0f
+    private var lastTapY = 0f
+    private var lastTapTime = 0L
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val parentCanvas = parent as? UnifiedCanvasLayout
@@ -1137,7 +1200,18 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     isTouchMoved = true
                 }
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+            MotionEvent.ACTION_UP -> {
+                val cur = try { cursor } catch (_: Throwable) { null }
+                if (cur?.isSelected != true) {
+                    isHandleDragging = false
+                }
+                if (!isTouchMoved && (System.currentTimeMillis() - touchDownTime) < 350) {
+                    lastTapX = event.x
+                    lastTapY = event.y
+                    lastTapTime = System.currentTimeMillis()
+                }
+            }
+            MotionEvent.ACTION_CANCEL -> {
                 val cur = try { cursor } catch (_: Throwable) { null }
                 if (cur?.isSelected != true) {
                     isHandleDragging = false

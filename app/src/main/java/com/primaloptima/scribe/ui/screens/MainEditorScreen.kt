@@ -2978,7 +2978,16 @@ fun MainEditorScreen(
                             activeImageHintData = null
                         },
                         onDeleteImage = {
-                            soraEditorRef?.removeImageTag(hintData.imageUri)
+                            val uriToDelete = hintData.imageUri
+                            soraEditorRef?.removeImageTag(uriToDelete)
+                            scope.launch(Dispatchers.IO) {
+                                VaultImageManager.deleteVaultImageFile(
+                                    context = context,
+                                    uriString = uriToDelete,
+                                    bookId = activeNote?.bookId,
+                                    noteId = activeNote?.id ?: ""
+                                )
+                            }
                             activeImageHintData = null
                         },
                         onDismiss = { activeImageHintData = null }

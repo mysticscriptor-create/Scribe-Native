@@ -44,10 +44,12 @@ import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
  *   5. Smart bracket and quotation pairing via SymbolPairMatch.
  */
 object ScribeProseTokens {
-    const val PROSE     = EditorColorScheme.TEXT_NORMAL
-    const val DIALOGUE  = EditorColorScheme.LITERAL
-    const val MONOLOGUE = EditorColorScheme.COMMENT
-    const val HEADING   = EditorColorScheme.KEYWORD
+    const val PROSE        = EditorColorScheme.TEXT_NORMAL
+    const val DIALOGUE     = EditorColorScheme.LITERAL
+    const val MONOLOGUE    = EditorColorScheme.COMMENT
+    const val HEADING      = EditorColorScheme.KEYWORD
+    const val IMAGE_SYNTAX = EditorColorScheme.OPERATOR
+    const val IMAGE_LABEL  = EditorColorScheme.IDENTIFIER
 }
 
 class ScribeProseLanguage(private val documentWeight: Int = 400) : EmptyLanguage() {
@@ -197,6 +199,39 @@ class ScribeProseLanguage(private val documentWeight: Int = 400) : EmptyLanguage
                         i++
                         continue
                     }
+                    // 1.5. Markdown Image Tag Sublimation: ![description](uri)
+                    // Delimiters (!, [, ], () and technical URI are styled as IMAGE_SYNTAX (dimmed to 25% alpha),
+                    // while the description is styled as IMAGE_LABEL (crisp accent/tag).
+                    if (c == '!' && i + 1 < len && line[i + 1] == '[') {
+                        val closeBracket = line.indexOf(']', i + 2)
+                        if (closeBracket != -1 && closeBracket + 1 < len && line[closeBracket + 1] == '(') {
+                            val closeParen = line.indexOf(')', closeBracket + 2)
+                            if (closeParen != -1) {
+                                // 1. Delimiter "![" -> IMAGE_SYNTAX (dimmed)
+                                addSpan(i, TextStyle.makeStyle(ScribeProseTokens.IMAGE_SYNTAX, 0, false, false, false))
+
+                                // 2. Description -> IMAGE_LABEL (crisp accent/tag)
+                                if (closeBracket > i + 2) {
+                                    addSpan(i + 2, TextStyle.makeStyle(ScribeProseTokens.IMAGE_LABEL, 0, true, false, false))
+                                }
+
+                                // 3. Delimiter and technical URI "](uri)" -> IMAGE_SYNTAX (dimmed)
+                                addSpan(closeBracket, TextStyle.makeStyle(ScribeProseTokens.IMAGE_SYNTAX, 0, false, false, false))
+
+                                i = closeParen + 1
+                                if (i < len) {
+                                    val resumeStyle = when {
+                                        inDialogue -> TextStyle.makeStyle(ScribeProseTokens.DIALOGUE, 0, isBaseBold, false, false)
+                                        inThoughtQuote -> TextStyle.makeStyle(ScribeProseTokens.MONOLOGUE, 0, isBaseBold, true, false)
+                                        else -> TextStyle.makeStyle(ScribeProseTokens.PROSE, 0, isBaseBold, false, false)
+                                    }
+                                    addSpan(i, resumeStyle)
+                                }
+                                continue
+                            }
+                        }
+                    }
+
                     if (c == '*' && i + 1 < len && line[i + 1] == '*' && !inDialogue) {
                         val closingIndex = line.indexOf("**", i + 2)
                         if (closingIndex != -1) {

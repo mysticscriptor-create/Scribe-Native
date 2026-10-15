@@ -127,12 +127,12 @@ object ProseInlayHintProvider {
             if (!line.contains("![")) continue
             val matches = IMAGE_REGEX.findAll(line)
             for (m in matches) {
-                val description = m.groupValues[1]
-                val uri = m.groupValues[2]
+                val description = m.groupValues[1].trim()
+                val badgeText = if (description.isNotBlank()) "🖼 $description" else "🖼 Image"
                 val hint = TextInlayHint(
                     i,
                     m.range.first,
-                    "  🖼 [Image: ${description.ifBlank { "Illustration" }}]"
+                    " $badgeText "
                 )
                 container.add(hint)
             }

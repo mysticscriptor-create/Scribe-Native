@@ -95,6 +95,13 @@ class ScribeColorScheme(
         val headingColor = colors.writing.heading.toArgb()
         setColor(KEYWORD,                  headingColor)
 
+        // ── Image & Markdown Syntax Sublimation ──────────────────────────────
+        // Delimiters (!, [, ], () and technical vault-img:// URLs are sublimated to ~22% opacity
+        // so the writer sees the clean "🖼 goal" tag without visual clutter.
+        val dimmedSyntax = withAlpha(text, if (isDark) 48 else 60)
+        setColor(OPERATOR,                 dimmedSyntax)
+        setColor(IDENTIFIER,               accent)
+
         // ── Search & Highlight Tokens (Canonical Bridge) ──────────────────────
         val highlightColor = colors.writing.highlight.toArgb()
         // Sora 0.24.x uses MATCHED_TEXT_BACKGROUND (29) for search matches.
@@ -118,8 +125,8 @@ class ScribeColorScheme(
 
         // ── Inlay Hints & Annotations (Canonical Bridge) ──────────────────────
         val annotationColor = colors.writing.annotation.toArgb()
-        setColor(TEXT_INLAY_HINT_FOREGROUND, annotationColor)
-        setColor(TEXT_INLAY_HINT_BACKGROUND, withAlpha(annotationColor, 35))
+        setColor(TEXT_INLAY_HINT_FOREGROUND, accent)
+        setColor(TEXT_INLAY_HINT_BACKGROUND, withAlpha(accent, if (isDark) 40 else 32))
 
         // ── Current line (subtle) ─────────────────────────────────────────────
         val currentLineTint = Color.argb(18,

@@ -113,7 +113,7 @@ object VaultImageManager {
 
         // 1. Decode bounds & calculate inSampleSize
         var inSampleSize = 1
-        var rotationDegrees = 0
+        var exifOrientation = ExifInterface.ORIENTATION_NORMAL
         try {
             context.contentResolver.openInputStream(sourceUri)?.use { stream ->
                 val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -126,20 +126,14 @@ object VaultImageManager {
         try {
             context.contentResolver.openInputStream(sourceUri)?.use { stream ->
                 val exif = ExifInterface(stream)
-                val orientation = exif.getAttributeInt(
+                exifOrientation = exif.getAttributeInt(
                     ExifInterface.TAG_ORIENTATION,
                     ExifInterface.ORIENTATION_NORMAL
                 )
-                rotationDegrees = when (orientation) {
-                    ExifInterface.ORIENTATION_ROTATE_90 -> 90
-                    ExifInterface.ORIENTATION_ROTATE_180 -> 180
-                    ExifInterface.ORIENTATION_ROTATE_270 -> 270
-                    else -> 0
-                }
             }
         } catch (_: Throwable) {}
 
-        // 2. Decode sampled bitmap and apply rotation if needed
+        // 2. Decode sampled bitmap and apply EXIF orientation transformation if needed
         val decodeOptions = BitmapFactory.Options().apply {
             this.inSampleSize = inSampleSize
             this.inPreferredConfig = Bitmap.Config.ARGB_8888
@@ -149,19 +143,9 @@ object VaultImageManager {
         context.contentResolver.openInputStream(sourceUri)?.use { stream ->
             bitmap = BitmapFactory.decodeStream(stream, null, decodeOptions)
         }
-
         val finalBitmap = bitmap ?: throw IllegalStateException("Unable to decode selected image")
 
-        val orientedBitmap = if (rotationDegrees != 0) {
-            val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
-            val rotated = Bitmap.createBitmap(finalBitmap, 0, 0, finalBitmap.width, finalBitmap.height, matrix, true)
-            if (rotated != finalBitmap) {
-                finalBitmap.recycle()
-            }
-            rotated
-        } else {
-            finalBitmap
-        }
+        val orientedBitmap = applyExifTransformation(finalBitmap, exifOrientation)
 
         // 3. Write to destination file (preserve PNG alpha transparency)
         FileOutputStream(destFile).use { out ->
@@ -222,6 +206,71 @@ object VaultImageManager {
         val escapedUri = Regex.escape(targetUri.trim())
         val regex = Regex("""\s*!\[(.*?)\]\($escapedUri\)\s*""")
         return regex.replace(markdown, "")
+    }
+
+    /**
+     * Applies full EXIF orientation transformation (including mirroring, 90/180/270 rotations)
+     * so portrait and landscape photos are always saved upright.
+     */
+    private fun applyExifTransformation(bitmap: Bitmap, orientation: Int): Bitmap {
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                matrix.postRotate(90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                matrix.postRotate(270f)
+                matrix.postScale(-1f, 1f)
+            }
+            else -> return bitmap
+        }
+        val transformed = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+        if (transformed != bitmap) {
+            bitmap.recycle()
+        }
+        return transformed
+    }
+
+    /**
+     * Scans the note's vault image directory and removes any image files no longer referenced
+     * in the current note Markdown text.
+     *
+     * @return Number of cleaned up orphan files.
+     */
+    fun cleanOrphanImages(context: Context, bookId: String?, noteId: String, currentMarkdown: String): Int {
+        val dir = getNoteImagesDir(context, bookId, noteId)
+        if (!dir.exists() || !dir.isDirectory) return 0
+        val files = dir.listFiles() ?: return 0
+        if (files.isEmpty()) return 0
+
+        val referencedFilenames = Regex("""vault-img://([^\s)]+)""")
+            .findAll(currentMarkdown)
+            .map { it.groupValues[1].trim() }
+            .toSet()
+
+        var deletedCount = 0
+        for (file in files) {
+            if (file.isFile && !referencedFilenames.contains(file.name)) {
+                if (file.delete()) {
+                    deletedCount++
+                }
+            }
+        }
+        return deletedCount
+    }
+
+    /**
+     * Completely removes a note's vault image directory when the note itself is deleted.
+     */
+    fun deleteNoteImages(context: Context, bookId: String?, noteId: String): Boolean {
+        val dir = getNoteImagesDir(context, bookId, noteId)
+        return if (dir.exists()) dir.deleteRecursively() else true
     }
 
     /**
