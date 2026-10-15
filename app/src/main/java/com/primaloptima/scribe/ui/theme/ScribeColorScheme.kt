@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.toArgb
 import io.github.rosemoe.sora.widget.schemes.EditorColorScheme
 import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.util.model.AppTheme
+import com.primaloptima.scribe.util.ScribeProseTokens
 
 /**
  * Maps Scribe's canonical [ScribeColors] (and [AppTheme] via [ThemeManager.resolveToScribeColors])
@@ -100,7 +101,7 @@ class ScribeColorScheme(
         // so the writer sees the clean "🖼 goal" tag without visual clutter.
         val dimmedSyntax = withAlpha(text, if (isDark) 48 else 60)
         setColor(OPERATOR,                 dimmedSyntax)
-        setColor(IDENTIFIER,               accent)
+        setColor(ScribeProseTokens.IMAGE_LABEL, accent)
 
         // ── Search & Highlight Tokens (Canonical Bridge) ──────────────────────
         val highlightColor = colors.writing.highlight.toArgb()

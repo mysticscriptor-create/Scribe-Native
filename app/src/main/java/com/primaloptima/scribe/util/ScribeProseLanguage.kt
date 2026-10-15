@@ -49,7 +49,7 @@ object ScribeProseTokens {
     const val MONOLOGUE    = EditorColorScheme.COMMENT
     const val HEADING      = EditorColorScheme.KEYWORD
     const val IMAGE_SYNTAX = EditorColorScheme.OPERATOR
-    const val IMAGE_LABEL  = EditorColorScheme.IDENTIFIER
+    const val IMAGE_LABEL  = 1001
 }
 
 class ScribeProseLanguage(private val documentWeight: Int = 400) : EmptyLanguage() {
