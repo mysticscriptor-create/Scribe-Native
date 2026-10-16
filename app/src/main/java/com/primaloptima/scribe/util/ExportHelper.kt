@@ -124,7 +124,7 @@ object ExportHelper {
     // ── HTML with self-contained Base64 illustrations ─────────────────────────
 
     fun fullHtml(context: Context, note: Note): String {
-        val body = MarkdownUtil.toHtmlBody(note.content) { src ->
+        val body = MarkdownUtil.toHtmlBody(note.content) { src: String ->
             resolveImageToBase64(context, src, note.bookId, note.id) ?: src
         }
         return MarkdownUtil.fullHtmlDocument(note.name, body)
@@ -149,7 +149,7 @@ object ExportHelper {
         val manifestItems = mutableListOf<String>()
         var imageIndex = 1
 
-        val processedBody = MarkdownUtil.toHtmlBody(note.content) { src ->
+        val processedBody = MarkdownUtil.toHtmlBody(note.content) { src: String ->
             val bytes = VaultImageManager.getImageBytes(context, src, note.bookId, note.id)
             if (bytes != null) {
                 val imgFilename = "image_$imageIndex.jpg"

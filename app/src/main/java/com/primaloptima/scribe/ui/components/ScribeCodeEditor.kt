@@ -52,6 +52,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
     var isHandleDragging: Boolean = false
         private set
     var isInteractingWithImage: Boolean = false
+    val parentCanvas: UnifiedCanvasLayout?
+        get() = parent as? UnifiedCanvasLayout
 
     var visualFirstLineIndentSpaces: Int = 0
         private set

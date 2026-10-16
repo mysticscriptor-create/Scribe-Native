@@ -119,7 +119,7 @@ object MarkdownUtil {
 
     // ── Simple HTML renderer ──────────────────────────────────────────────────
 
-    fun toHtmlBody(markdown: String): String {
+    fun toHtmlBody(markdown: String, imageResolver: ((String) -> String)? = null): String {
         val sb = StringBuilder()
         val lines = markdown.lines()
         var i = 0
