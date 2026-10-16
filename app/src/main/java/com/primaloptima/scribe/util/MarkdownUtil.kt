@@ -185,7 +185,8 @@ object MarkdownUtil {
                     val rendered = imgRegex.replace(trimmed) { mr ->
                         val alt = mr.groupValues[1]
                         val src = mr.groupValues[2]
-                        "<figure style=\"text-align:center; margin:24px 0;\"><img src=\"$src\" alt=\"${escapeHtml(alt)}\" style=\"max-width:100%; height:auto; border-radius:8px; display:inline-block;\"/>" +
+                        val resolvedSrc = imageResolver?.invoke(src) ?: src
+                        "<figure style=\"text-align:center; margin:24px 0;\"><img src=\"$resolvedSrc\" alt=\"${escapeHtml(alt)}\" style=\"max-width:100%; height:auto; border-radius:8px; display:inline-block;\"/>" +
                         (if (alt.isNotBlank()) "<figcaption style=\"font-size:0.85em; color:#777; margin-top:6px; font-style:italic;\">${escapeHtml(alt)}</figcaption>" else "") +
                         "</figure>"
                     }
@@ -252,6 +253,11 @@ $bodyHtml
      */
     fun toPlainText(markdown: String): String {
         var s = markdown
+        // Replace image tags with clean editorial annotations
+        s = s.replace(Regex("""!\[(.*?)\]\((.*?)\)""")) { mr ->
+            val alt = mr.groupValues[1].trim()
+            if (alt.isNotBlank()) "\n[Illustration: $alt]\n" else "\n[Illustration]\n"
+        }
         s = s.replace(Regex("^#{1,6}\\s+", RegexOption.MULTILINE), "")
         s = s.replace(Regex("\\*\\*\\*(.+?)\\*\\*\\*"), "$1")
         s = s.replace(Regex("\\*\\*(.+?)\\*\\*"), "$1")

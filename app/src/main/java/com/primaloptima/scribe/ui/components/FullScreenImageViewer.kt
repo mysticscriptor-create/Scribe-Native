@@ -69,6 +69,8 @@ fun FullScreenImageViewer(
 
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
+    val statusBarTopPx = with(density) { WindowInsets.statusBars.asPaddingValues().calculateTopPadding().toPx() }
+    val navBarBottomPx = with(density) { WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding().toPx() }
 
     val animProgress = remember { Animatable(0f) }
     var isClosing by remember { mutableStateOf(false) }
@@ -113,32 +115,33 @@ fun FullScreenImageViewer(
     val backdropAlpha = (progress * 0.95f).coerceIn(0f, 0.95f)
     val controlsAlpha = ((progress - 0.45f) / 0.55f).coerceIn(0f, 1f)
 
-    // Fluid geometry interpolation from thumbnail origin into full-screen center
+    // Accurate geometry interpolation accounting for root systemBarsPadding
     val curTransX = if (originOffset != null && originSize != null) {
         val originCenterX = originOffset.x + originSize.width / 2f
-        val screenCenterX = screenWidthPx / 2f
-        lerp(originCenterX - screenCenterX, 0f, progress) + offset.x
+        val boxCenterX = screenWidthPx / 2f
+        lerp(originCenterX - boxCenterX, 0f, progress) + offset.x
     } else {
         offset.x
     }
 
     val curTransY = if (originOffset != null && originSize != null) {
-        val originCenterY = originOffset.y + originSize.height / 2f
-        val screenCenterY = screenHeightPx / 2f
-        lerp(originCenterY - screenCenterY, 0f, progress) + offset.y
+        val originCenterY = originOffset.y + originSize.height / 2f - statusBarTopPx
+        val boxCenterY = (screenHeightPx - statusBarTopPx - navBarBottomPx) / 2f
+        lerp(originCenterY - boxCenterY, 0f, progress) + offset.y
     } else {
         offset.y
     }
 
     val baseScale = if (originOffset != null && originSize != null) {
-        val startScale = (originSize.width / screenWidthPx).coerceIn(0.12f, 0.6f)
+        val availableHeight = (screenHeightPx - statusBarTopPx - navBarBottomPx).coerceAtLeast(1f)
+        val startScale = (originSize.height / availableHeight).coerceIn(0.08f, 0.75f)
         lerp(startScale, 1f, progress)
     } else {
         lerp(0.85f, 1f, progress)
     }
     val curScale = baseScale * scale
     val curCornerRadius = if (originOffset != null) {
-        (16f * (1f - progress)).dp
+        (14f * (1f - progress)).dp
     } else {
         0.dp
     }
@@ -193,13 +196,16 @@ fun FullScreenImageViewer(
                 contentScale = ContentScale.Fit,
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(curCornerRadius))
-                    .graphicsLayer(
-                        scaleX = curScale,
-                        scaleY = curScale,
-                        translationX = curTransX,
+                    .graphicsLayer {
+                        scaleX = curScale
+                        scaleY = curScale
+                        translationX = curTransX
                         translationY = curTransY
-                    )
+                        if (curCornerRadius > 0.dp) {
+                            clip = true
+                            shape = RoundedCornerShape(curCornerRadius)
+                        }
+                    }
             )
         }
 
@@ -215,7 +221,6 @@ fun FullScreenImageViewer(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .statusBarsPadding()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {

@@ -90,6 +90,27 @@ object VaultImageManager {
     }
 
     /**
+     * Resolves a vault-img:// or local image URI to an existing File on disk, or null if remote/not found.
+     */
+    fun getImageFile(context: Context, uriString: String, bookId: String?, noteId: String): File? {
+        val resolved = resolveModel(context, uriString, bookId, noteId)
+        val file = resolved as? File
+        return if (file != null && file.exists()) file else null
+    }
+
+    /**
+     * Reads image bytes for local vault images.
+     */
+    fun getImageBytes(context: Context, uriString: String, bookId: String?, noteId: String): ByteArray? {
+        val file = getImageFile(context, uriString, bookId, noteId)
+        return try {
+            file?.readBytes()
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /**
      * Imports a user-selected image Uri (from Photo Picker / File Provider),
      * downsamples if large, and saves it into the note's vault storage.
      *

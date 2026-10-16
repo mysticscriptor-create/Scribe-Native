@@ -173,42 +173,51 @@ class ScribeCodeEditor @JvmOverloads constructor(
         } catch (_: Throwable) { }
         try {
             subscribeEvent(io.github.rosemoe.sora.event.SelectionChangeEvent::class.java) { _, _ ->
-                val timeDiff = System.currentTimeMillis() - lastTapTime
-                if (timeDiff in 0..400 && !isHandleDragging) {
-                    val cur = try { cursor } catch (_: Throwable) { null } ?: return@subscribeEvent
-                    if (!cur.isSelected && cur.leftLine < text.lineCount) {
-                        val line = cur.leftLine
-                        val col = cur.leftColumn
-                        val lineStr = try { text.getLineString(line) } catch (_: Throwable) { "" }
-                        if (lineStr.contains("![")) {
-                            val imgRegex = Regex("""!\[(.*?)\]\((vault-img://[^\s)]+|https?://[^\s)]+|content://[^\s)]+|[^\s)]+)\)""")
-                            val match = imgRegex.findAll(lineStr).firstOrNull { m ->
-                                col in m.range.first..(m.range.last + 1)
+                val cur = try { cursor } catch (_: Throwable) { null } ?: return@subscribeEvent
+                if (!cur.isSelected && cur.leftLine < text.lineCount) {
+                    val line = cur.leftLine
+                    val col = cur.leftColumn
+                    val lineStr = try { text.getLineString(line) } catch (_: Throwable) { "" }
+                    if (lineStr.contains("![")) {
+                        val imgRegex = Regex("""!\[(.*?)\]\((vault-img://[^\s)]+|https?://[^\s)]+|content://[^\s)]+|[^\s)]+)\)""")
+                        val match = imgRegex.findAll(lineStr).firstOrNull { m ->
+                            col in m.range.first..(m.range.last + 1)
+                        }
+                        if (match != null) {
+                            // Immutability Guardrail (Suggestion #9):
+                            // Intercept cursor inside `![alt](uri)` and snap immediately outside.
+                            if (col >= match.range.first && col <= match.range.last) {
+                                val mid = (match.range.first + match.range.last) / 2
+                                val safeCol = if (col < mid) match.range.first else (match.range.last + 1)
+                                post {
+                                    try {
+                                        setSelection(line, safeCol)
+                                    } catch (_: Throwable) {}
+                                }
                             }
-                            if (match != null) {
-                                val desc = match.groupValues[1]
-                                val uri = match.groupValues[2]
-                                val raw = match.value
-                                if (uri.isNotBlank()) {
-                                    isInteractingWithImage = true
-                                    postDelayed({ isInteractingWithImage = false }, 800)
-                                    val lay = layout
-                                    val layoutOffset = try { lay.getCharLayoutOffset(line, match.range.first) } catch (_: Throwable) { null }
-                                    val vx = if (layoutOffset != null) (layoutOffset[1] + measureTextRegionOffset() - offsetX) else lastTapX
-                                    val vy = if (layoutOffset != null) (layoutOffset[0] - offsetY) else lastTapY
-                                    post {
-                                        onImageHintClickListener?.invoke(
-                                            ImageHintClickData(
-                                                line = line,
-                                                column = match.range.first,
-                                                description = desc,
-                                                imageUri = uri,
-                                                rawTag = raw,
-                                                viewX = vx,
-                                                viewY = vy
-                                            )
+                            val desc = match.groupValues[1]
+                            val uri = match.groupValues[2]
+                            val raw = match.value
+                            val timeDiff = System.currentTimeMillis() - lastTapTime
+                            if (timeDiff in 0..400 && !isHandleDragging && uri.isNotBlank()) {
+                                isInteractingWithImage = true
+                                postDelayed({ isInteractingWithImage = false }, 250)
+                                val lay = layout
+                                val layoutOffset = try { lay.getCharLayoutOffset(line, match.range.first) } catch (_: Throwable) { null }
+                                val vx = if (layoutOffset != null) (layoutOffset[1] + measureTextRegionOffset() - offsetX) else lastTapX
+                                val vy = if (layoutOffset != null) (layoutOffset[0] - offsetY) else lastTapY
+                                post {
+                                    onImageHintClickListener?.invoke(
+                                        ImageHintClickData(
+                                            line = line,
+                                            column = match.range.first,
+                                            description = desc,
+                                            imageUri = uri,
+                                            rawTag = raw,
+                                            viewX = vx,
+                                            viewY = vy
                                         )
-                                    }
+                                    )
                                 }
                             }
                         }
@@ -222,8 +231,16 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 val textHint = hint as? TextInlayHint
                 if (textHint != null && textHint.text.contains("🖼")) {
                     isInteractingWithImage = true
-                    postDelayed({ isInteractingWithImage = false }, 800)
+                    postDelayed({ isInteractingWithImage = false }, 250)
                     event.intercept()
+                    // Suggestion #7: Preserve keyboard state (do not show if closed, keep if open)
+                    val isKbUp = parentCanvas?.isKeyboardVisible == true
+                    if (!isKbUp) {
+                        try {
+                            clearFocus()
+                            hideSoftInput()
+                        } catch (_: Throwable) {}
+                    }
                     val lay = layout
                     val layoutOffset = try { lay.getCharLayoutOffset(hint.line, hint.column) } catch (_: Throwable) { null }
                     val vx = if (layoutOffset != null) (layoutOffset[1] + measureTextRegionOffset() - offsetX) else (width / 2f)
@@ -1238,6 +1255,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 // Phase 1: Tap-Triggered Predictive Pre-Calculation Engine.
                 // Pre-calculate target Y and smoothly glide immediately at t = 0ms!
                 parentCanvas?.predictivelyGlideCursorAboveKeyboard()
+            }
+            if (isInteractingWithImage) {
+                post { isInteractingWithImage = false }
             }
         }
         if (parentCanvas != null && parentCanvas.scrollD < parentCanvas.headerHeight && offsetY > 0) {

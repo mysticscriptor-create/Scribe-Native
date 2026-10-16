@@ -54,6 +54,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.DensityMedium
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Article
 import androidx.compose.material.icons.filled.EditLocation
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.FontDownload
@@ -590,14 +591,18 @@ private fun EditorMenuPage(
                     modifier = Modifier.padding(start = 2.dp, top = 2.dp, bottom = 6.dp)
                 )
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     listOf(
-                        "TXT" to "txt",
-                        "Markdown" to "md",
+                        "PDF" to "pdf",
+                        "EPUB" to "epub",
+                        "DOCX" to "docx",
                         "HTML" to "html",
-                        "PDF" to "pdf"
+                        "Markdown" to "md",
+                        "TXT" to "txt"
                     ).forEach { (label, format) ->
                         EditorTactileBox(
                             title = label,
@@ -605,10 +610,12 @@ private fun EditorMenuPage(
                                 "txt" -> Icons.Default.Description
                                 "md" -> Icons.Default.Code
                                 "html" -> Icons.Default.Language
+                                "epub" -> Icons.Default.MenuBook
+                                "docx" -> Icons.Default.Article
                                 else -> Icons.Default.PictureAsPdf
                             },
                             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier.width(76.dp),
                             onClick = { onExport(format) }
                         )
                     }

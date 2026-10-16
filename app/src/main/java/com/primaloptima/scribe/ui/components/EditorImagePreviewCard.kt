@@ -22,8 +22,8 @@ import com.primaloptima.scribe.util.image.VaultImageManager
 
 /**
  * Pure minimalist floating preview thumbnail anchored near a tapped image inlay hint in Sora editor.
- * Displays ONLY the image preview respecting its natural aspect ratio without text or button clutter.
- * Tapping expands into the full-screen interactive lightbox.
+ * Features a compact fixed height of 110dp with dynamic width adjusting to the natural aspect ratio.
+ * Displays ONLY the clean image preview without text clutter. Tapping expands into fullscreen lightbox.
  */
 @Composable
 fun EditorImagePreviewCard(
@@ -42,35 +42,35 @@ fun EditorImagePreviewCard(
         VaultImageManager.getImageMetadata(context, data.imageUri, bookId, noteId)
     }
 
-    // Calculate natural aspect ratio bounded reasonably
+    // Dynamic width calculation based on natural aspect ratio with 110dp fixed height
     val aspect = remember(metadata.width, metadata.height) {
         if (metadata.width > 0 && metadata.height > 0) {
-            (metadata.width.toFloat() / metadata.height.toFloat()).coerceIn(0.55f, 2.4f)
+            (metadata.width.toFloat() / metadata.height.toFloat()).coerceIn(0.6f, 2.2f)
         } else {
             1.33f
         }
     }
+    val targetWidth = (110.dp * aspect).coerceIn(80.dp, 180.dp)
 
     Surface(
         modifier = modifier
-            .width(190.dp)
-            .heightIn(min = 90.dp, max = 240.dp)
-            .aspectRatio(aspect, matchHeightConstraintsFirst = false)
-            .clip(RoundedCornerShape(16.dp))
+            .height(110.dp)
+            .width(targetWidth)
+            .clip(RoundedCornerShape(14.dp))
             .clickable { onExpandFullscreen() },
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
-        tonalElevation = 8.dp,
-        shadowElevation = 12.dp,
+        tonalElevation = 6.dp,
+        shadowElevation = 10.dp,
         border = BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f)
         )
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.05f)),
+                .background(Color.Black.copy(alpha = 0.04f)),
             contentAlignment = Alignment.Center
         ) {
             AsyncImage(

@@ -18,6 +18,7 @@ import com.primaloptima.scribe.ui.components.EditorUnifiedBottomSheet
 import com.primaloptima.scribe.engine.ImageHintClickData
 import com.primaloptima.scribe.ui.components.InsertImageDialog
 import com.primaloptima.scribe.ui.components.EditorImagePreviewCard
+import com.primaloptima.scribe.ui.components.ExportPreviewSheet
 import com.primaloptima.scribe.ui.components.FullScreenImageViewer
 import com.primaloptima.scribe.ui.screens.ManuscriptPreviewSheet
 import com.primaloptima.scribe.util.image.VaultImageManager
@@ -393,6 +394,8 @@ fun MainEditorScreen(
     var activeLightboxOriginOffset by remember { mutableStateOf<Offset?>(null) }
     var activeLightboxOriginSize by remember { mutableStateOf<Size?>(null) }
     var showManuscriptPreview by remember { mutableStateOf(false) }
+    var showExportPreview by rememberSaveable { mutableStateOf(false) }
+    var selectedExportFormat by rememberSaveable { mutableStateOf("pdf") }
 
     val captureSessionScrollBeforeNavigate: () -> Unit = {
         if (!isExitingNote) {
@@ -1428,8 +1431,8 @@ fun MainEditorScreen(
                                         }
                                     }
                                 }
-                                onUnifiedScrollChanged = { scrollD, _ ->
-                                    if (activeImageHintData != null && unifiedCanvasRef?.isUserTouching == true) {
+                                onUnifiedScrollChanged = { scrollD, deltaY ->
+                                    if (activeImageHintData != null && (unifiedCanvasRef?.isUserTouching == true || kotlin.math.abs(deltaY) > 20)) {
                                         activeImageHintData = null
                                     }
                                     if (scrollD <= 5 && editor.offsetY <= 10) {
@@ -2844,7 +2847,8 @@ fun MainEditorScreen(
                 },
                 onExport         = { fmt ->
                     activeSheetPage = null
-                    activeNote?.let { ExportHelper.shareNote(context, it, fmt) }
+                    selectedExportFormat = fmt
+                    showExportPreview = true
                 },
                 onVersionHistory = {
                     saveCurrentCursorStateToDb(soraEditorRef)
@@ -2940,16 +2944,37 @@ fun MainEditorScreen(
                 val topInsetPx: Float = with(currentDensity) { statusBarTopDp.toPx() }
                 val rawX: Float = hintData.viewX
                 val rawY: Float = topInsetPx + headerOffset + hintData.viewY
-                val cardWidthPx: Float = with(currentDensity) { 190.dp.toPx() }
-                val cardHeightPx: Float = with(currentDensity) { 140.dp.toPx() }
+
+                val metadata = remember(hintData.imageUri, activeNote?.bookId, activeNote?.id) {
+                    VaultImageManager.getImageMetadata(context, hintData.imageUri, activeNote?.bookId, activeNote?.id ?: "")
+                }
+                val aspect = remember(metadata.width, metadata.height) {
+                    if (metadata.width > 0 && metadata.height > 0) {
+                        (metadata.width.toFloat() / metadata.height.toFloat()).coerceIn(0.6f, 2.2f)
+                    } else {
+                        1.33f
+                    }
+                }
+                val cardHeightPx: Float = with(currentDensity) { 110.dp.toPx() }
+                val cardWidthPx: Float = with(currentDensity) { (110.dp * aspect).coerceIn(80.dp, 180.dp).toPx() }
+
+                val imeBottomPx = with(currentDensity) { WindowInsets.ime.asPaddingValues().calculateBottomPadding().toPx() }
+                val navBottomPx = with(currentDensity) { WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding().toPx() }
+                val shortcutBarPx = with(currentDensity) { 52.dp.toPx() }
+                val safeBottomPx = if (imeBottomPx > 0f) {
+                    screenHeightPx - imeBottomPx - 8f
+                } else {
+                    screenHeightPx - navBottomPx - shortcutBarPx - 8f
+                }
+                val safeTopPx = topInsetPx + with(currentDensity) { 54.dp.toPx() }
 
                 val clampedX: Float = rawX.coerceIn(16f, (screenWidthPx - cardWidthPx - 16f).coerceAtLeast(16f))
-                val bottomBarHeightPx = with(currentDensity) { 100.dp.toPx() }
-                val clampedY: Float = if (rawY + cardHeightPx + 16f > screenHeightPx - bottomBarHeightPx) {
-                    // Position cleanly above the badge when near bottom edge
-                    (rawY - cardHeightPx - 12f).coerceAtLeast(topInsetPx + 16f)
+                val clampedY: Float = if (rawY + 28f + cardHeightPx > safeBottomPx) {
+                    // Position above the badge when near bottom or keyboard
+                    (rawY - cardHeightPx - 10f).coerceIn(safeTopPx, (safeBottomPx - cardHeightPx).coerceAtLeast(safeTopPx))
                 } else {
-                    rawY + 32f
+                    // Position below the badge
+                    (rawY + 28f).coerceIn(safeTopPx, (safeBottomPx - cardHeightPx).coerceAtLeast(safeTopPx))
                 }
 
                 Box(
@@ -2967,11 +2992,7 @@ fun MainEditorScreen(
                         bookId = activeNote?.bookId,
                         noteId = activeNote?.id ?: "",
                         modifier = Modifier
-                            .offset { IntOffset(clampedX.roundToInt(), clampedY.roundToInt()) }
-                            .clickable(
-                                indication = null,
-                                interactionSource = remember { MutableInteractionSource() }
-                            ) {},
+                            .offset { IntOffset(clampedX.roundToInt(), clampedY.roundToInt()) },
                         onExpandFullscreen = {
                             activeLightboxImageUri = hintData.imageUri
                             activeLightboxImageTitle = hintData.description
@@ -3029,6 +3050,16 @@ fun MainEditorScreen(
                     activeTheme = activeTheme,
                     selectedOrnamentId = selectedOrnamentId,
                     onDismiss = { showManuscriptPreview = false }
+                )
+            }
+
+            // ── Export Preview Sheet ────────────────────────────────────
+            if (showExportPreview && activeNote != null) {
+                ExportPreviewSheet(
+                    note = activeNote!!,
+                    bookId = activeNote?.bookId,
+                    initialFormat = selectedExportFormat,
+                    onDismiss = { showExportPreview = false }
                 )
             }
 
