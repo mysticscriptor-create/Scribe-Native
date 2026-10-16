@@ -111,6 +111,13 @@ object VaultImageManager {
     }
 
     /**
+     * Checks whether markdown text contains any image tags.
+     */
+    fun hasImages(markdown: String): Boolean {
+        return markdown.contains("![") && Regex("""!\[(.*?)\]\((vault-img://[^\s)]+|https?://[^\s)]+|content://[^\s)]+|[^\s)]+)\)""").containsMatchIn(markdown)
+    }
+
+    /**
      * Imports a user-selected image Uri (from Photo Picker / File Provider),
      * downsamples if large, and saves it into the note's vault storage.
      *

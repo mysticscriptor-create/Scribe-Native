@@ -76,7 +76,7 @@ fun EditorImagePreviewCard(
             AsyncImage(
                 model = imageModel,
                 contentDescription = data.description,
-                contentScale = ContentScale.Crop,
+                contentScale = ContentScale.Fit,
                 modifier = Modifier.fillMaxSize()
             )
         }

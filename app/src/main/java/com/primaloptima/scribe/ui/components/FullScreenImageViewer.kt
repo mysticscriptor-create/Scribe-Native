@@ -115,44 +115,52 @@ fun FullScreenImageViewer(
     val backdropAlpha = (progress * 0.95f).coerceIn(0f, 0.95f)
     val controlsAlpha = ((progress - 0.45f) / 0.55f).coerceIn(0f, 1f)
 
-    // Accurate geometry interpolation accounting for root systemBarsPadding
-    val curTransX = if (originOffset != null && originSize != null) {
-        val originCenterX = originOffset.x + originSize.width / 2f
-        val boxCenterX = screenWidthPx / 2f
-        lerp(originCenterX - boxCenterX, 0f, progress) + offset.x
-    } else {
-        offset.x
-    }
-
-    val curTransY = if (originOffset != null && originSize != null) {
-        val originCenterY = originOffset.y + originSize.height / 2f - statusBarTopPx
-        val boxCenterY = (screenHeightPx - statusBarTopPx - navBarBottomPx) / 2f
-        lerp(originCenterY - boxCenterY, 0f, progress) + offset.y
-    } else {
-        offset.y
-    }
-
-    val baseScale = if (originOffset != null && originSize != null) {
-        val availableHeight = (screenHeightPx - statusBarTopPx - navBarBottomPx).coerceAtLeast(1f)
-        val startScale = (originSize.height / availableHeight).coerceIn(0.08f, 0.75f)
-        lerp(startScale, 1f, progress)
-    } else {
-        lerp(0.85f, 1f, progress)
-    }
-    val curScale = baseScale * scale
-    val curCornerRadius = if (originOffset != null) {
-        (14f * (1f - progress)).dp
-    } else {
-        0.dp
-    }
-
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .zIndex(150f)
             .background(Color.Black.copy(alpha = backdropAlpha))
             .systemBarsPadding()
     ) {
+        val boxWidthPx = with(density) { maxWidth.toPx() }
+        val boxHeightPx = with(density) { maxHeight.toPx() }
+
+        // Accurate geometry interpolation accounting for root systemBarsPadding
+        val curTransX = if (originOffset != null && originSize != null) {
+            val originCenterX = originOffset.x + originSize.width / 2f
+            val boxCenterX = boxWidthPx / 2f
+            lerp(originCenterX - boxCenterX, 0f, progress) + offset.x
+        } else {
+            offset.x
+        }
+
+        val curTransY = if (originOffset != null && originSize != null) {
+            val originCenterY = originOffset.y + originSize.height / 2f - statusBarTopPx
+            val boxCenterY = boxHeightPx / 2f
+            lerp(originCenterY - boxCenterY, 0f, progress) + offset.y
+        } else {
+            offset.y
+        }
+
+        val baseScale = if (originOffset != null && originSize != null) {
+            val imgAspect = if (originSize.height > 0) originSize.width / originSize.height else 1.33f
+            val boxAspect = if (boxHeightPx > 0) boxWidthPx / boxHeightPx else 1f
+            val fittedHeight = if (imgAspect > boxAspect) {
+                boxWidthPx / imgAspect
+            } else {
+                boxHeightPx
+            }
+            val startScale = (originSize.height / fittedHeight.coerceAtLeast(1f)).coerceIn(0.05f, 1f)
+            lerp(startScale, 1f, progress)
+        } else {
+            lerp(0.85f, 1f, progress)
+        }
+        val curScale = baseScale * scale
+        val curCornerRadius = if (originOffset != null) {
+            (14f * (1f - progress)).dp
+        } else {
+            0.dp
+        }
         // ── Main interactive image canvas ───────────────────────────
         Box(
             modifier = Modifier

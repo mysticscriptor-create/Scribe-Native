@@ -11,8 +11,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,17 +45,18 @@ private data class ExportFormatOption(
     val id: String,
     val label: String,
     val ext: String,
+    val mimeType: String,
     val icon: ImageVector,
     val description: String
 )
 
 private val FORMAT_OPTIONS = listOf(
-    ExportFormatOption("pdf", "PDF", ".pdf", Icons.Default.PictureAsPdf, "Print-ready document with high-resolution illustrations"),
-    ExportFormatOption("epub", "EPUB", ".epub", Icons.Default.MenuBook, "Standard reflowable eBook with bundled images & TOC"),
-    ExportFormatOption("docx", "DOCX", ".docx", Icons.Default.Description, "Microsoft Word document with embedded drawings & styles"),
-    ExportFormatOption("html", "HTML", ".html", Icons.Default.Language, "Standalone web page with inline self-contained illustrations"),
-    ExportFormatOption("md", "Markdown", ".md", Icons.Default.Code, "Clean Markdown manuscript source text"),
-    ExportFormatOption("txt", "Plain Text", ".txt", Icons.Default.Article, "Clean text format with editorial illustration notes")
+    ExportFormatOption("pdf", "PDF", ".pdf", "application/pdf", Icons.Default.PictureAsPdf, "Print-ready document with high-resolution illustrations"),
+    ExportFormatOption("epub", "EPUB", ".epub", "application/epub+zip", Icons.Default.MenuBook, "Standard reflowable EPUB 3.0 eBook with bundled images & TOC"),
+    ExportFormatOption("docx", "DOCX", ".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", Icons.Default.Description, "Microsoft Word document with embedded drawings & styles"),
+    ExportFormatOption("html", "HTML", ".html", "text/html", Icons.Default.Language, "Standalone web page with inline self-contained illustrations"),
+    ExportFormatOption("md", "Markdown", ".md", "text/markdown", Icons.Default.Code, "Clean Markdown manuscript source text (packaged with images as zip)"),
+    ExportFormatOption("txt", "Plain Text", ".txt", "text/plain", Icons.Default.Article, "Clean text format with editorial illustration notes")
 )
 
 /**
@@ -73,7 +81,37 @@ fun ExportPreviewSheet(
     }
     val charCount = remember(note.content) { note.content.length }
 
+    val scope = rememberCoroutineScope()
     val currentFormatMeta = FORMAT_OPTIONS.firstOrNull { it.id == selectedFormat } ?: FORMAT_OPTIONS.first()
+    val hasVaultImages = remember(note.content) { VaultImageManager.hasImages(note.content) }
+    val effectiveMimeType = if (selectedFormat == "md" && hasVaultImages) {
+        "application/zip"
+    } else {
+        currentFormatMeta.mimeType
+    }
+
+    val createDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument(effectiveMimeType)
+    ) { destinationUri: Uri? ->
+        if (destinationUri != null) {
+            scope.launch(Dispatchers.IO) {
+                try {
+                    context.contentResolver.openOutputStream(destinationUri)?.use { os ->
+                        val bytes = ExportHelper.exportBytes(context, note, selectedFormat)
+                        os.write(bytes)
+                    }
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Saved ${currentFormatMeta.label} manuscript successfully", Toast.LENGTH_SHORT).show()
+                        onDismiss()
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Failed to save: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -224,10 +262,44 @@ fun ExportPreviewSheet(
                     .border(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f), RoundedCornerShape(16.dp))
                     .padding(16.dp)
             ) {
+                val rawSourceContent = remember(selectedFormat, previewMode, note.content) {
+                    if (previewMode == 1) {
+                        when (selectedFormat) {
+                            "html" -> ExportHelper.fullHtml(context, note)
+                            "txt" -> MarkdownUtil.toPlainText(note.content)
+                            "md" -> note.content
+                            "epub" -> """── EPUB 3.0 Reflowable Container ──
+
+• OEBPS/content.opf (Manifest & Spine)
+• OEBPS/nav.xhtml (EPUB 3 Table of Contents)
+• OEBPS/chapter1.xhtml (HTML Body)
+• OEBPS/toc.ncx (Legacy TOC)
+• OEBPS/images/ (Bundled Assets)
+
+""" + MarkdownUtil.toHtmlBody(note.content)
+                            "docx" -> """── Microsoft Word OpenXML (.docx) ──
+
+• [Content_Types].xml
+• _rels/.rels
+• word/document.xml
+• word/_rels/document.xml.rels
+• word/media/ (Embedded Drawings)
+
+""" + note.content
+                            "pdf" -> """── Print-Ready PDF via PrintManager ──
+
+""" + ExportHelper.fullHtml(context, note)
+                            else -> note.content
+                        }
+                    } else {
+                        note.content
+                    }
+                }
+
                 if (previewMode == 0) {
                     RenderedDocumentPreview(note = note, bookId = bookId)
                 } else {
-                    RawSourcePreview(content = note.content)
+                    RawSourcePreview(content = rawSourceContent)
                 }
             }
 
@@ -265,7 +337,9 @@ fun ExportPreviewSheet(
                             ExportHelper.printToPdf(context, note)
                             onDismiss()
                         } else {
-                            ExportHelper.saveToStorage(context, note, selectedFormat)
+                            val ext = if (selectedFormat == "md" && hasVaultImages) "zip" else currentFormatMeta.ext.removePrefix(".")
+                            val filename = "${ExportHelper.sanitize(note.name)}.$ext"
+                            createDocumentLauncher.launch(filename)
                         }
                     },
                     modifier = Modifier

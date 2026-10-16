@@ -389,6 +389,7 @@ fun MainEditorScreen(
     // ── Image Architecture State ──────────────────────────────────────────────
     var showInsertImageDialog by remember { mutableStateOf(false) }
     var activeImageHintData by remember { mutableStateOf<ImageHintClickData?>(null) }
+    var activeHintScrollAnchor by remember { mutableIntStateOf(-1) }
     var activeLightboxImageUri by remember { mutableStateOf<String?>(null) }
     var activeLightboxImageTitle by remember { mutableStateOf("") }
     var activeLightboxOriginOffset by remember { mutableStateOf<Offset?>(null) }
@@ -1431,9 +1432,16 @@ fun MainEditorScreen(
                                         }
                                     }
                                 }
-                                onUnifiedScrollChanged = { scrollD, deltaY ->
-                                    if (activeImageHintData != null && (unifiedCanvasRef?.isUserTouching == true || kotlin.math.abs(deltaY) > 20)) {
-                                        activeImageHintData = null
+                                onUnifiedScrollChanged = { scrollD, _ ->
+                                    if (activeImageHintData != null) {
+                                        val currentScroll = scrollD + (soraEditorRef?.offsetY ?: 0)
+                                        if (activeHintScrollAnchor >= 0 && kotlin.math.abs(currentScroll - activeHintScrollAnchor) > 15) {
+                                            activeImageHintData = null
+                                            activeHintScrollAnchor = -1
+                                        } else if (unifiedCanvasRef?.isUserTouching == true) {
+                                            activeImageHintData = null
+                                            activeHintScrollAnchor = -1
+                                        }
                                     }
                                     if (scrollD <= 5 && editor.offsetY <= 10) {
                                         floatingPillsVisible = true
@@ -1497,6 +1505,7 @@ fun MainEditorScreen(
                                     )
                                     (this as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.onImageHintClickListener = { clickData ->
                                         activeImageHintData = clickData
+                                        activeHintScrollAnchor = (unifiedCanvasRef?.scrollD ?: 0) + (soraEditorRef?.offsetY ?: 0)
                                     }
                                     setEditorLanguage(ScribeProseLanguage(activeTheme?.documentFontWeight ?: 500))
                                     isNestedScrollingEnabled = true

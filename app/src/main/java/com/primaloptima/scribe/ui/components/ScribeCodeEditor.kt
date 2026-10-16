@@ -52,6 +52,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
     var isHandleDragging: Boolean = false
         private set
     var isInteractingWithImage: Boolean = false
+    private var lastInlayHintClickTime: Long = 0L
     val parentCanvas: UnifiedCanvasLayout?
         get() = parent as? UnifiedCanvasLayout
 
@@ -187,8 +188,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
                         }
                         if (match != null) {
                             // Immutability Guardrail (Suggestion #9):
-                            // Intercept cursor inside `![alt](uri)` and snap immediately outside.
-                            if (col >= match.range.first && col <= match.range.last) {
+                            // Intercept cursor strictly inside `![alt](uri)` and snap immediately outside.
+                            if (col > match.range.first && col <= match.range.last) {
                                 val mid = (match.range.first + match.range.last) / 2
                                 val safeCol = if (col < mid) match.range.first else (match.range.last + 1)
                                 post {
@@ -196,6 +197,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
                                         setSelection(line, safeCol)
                                     } catch (_: Throwable) {}
                                 }
+                            }
+                            if (System.currentTimeMillis() - lastInlayHintClickTime < 400) {
+                                return@subscribeEvent
                             }
                             val desc = match.groupValues[1]
                             val uri = match.groupValues[2]
@@ -233,7 +237,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 val textHint = hint as? TextInlayHint
                 if (textHint != null && textHint.text.contains("🖼")) {
                     isInteractingWithImage = true
-                    postDelayed({ isInteractingWithImage = false }, 250)
+                    lastInlayHintClickTime = System.currentTimeMillis()
+                    postDelayed({ isInteractingWithImage = false }, 350)
                     event.intercept()
                     // Suggestion #7: Preserve keyboard state (do not show if closed, keep if open)
                     val isKbUp = parentCanvas?.isKeyboardVisible == true
@@ -661,16 +666,15 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val col = cur.leftColumn
         val lineStr = text.getLineString(line)
 
-        // ── Single-stroke Atomic Backspace on Image Tag ────────────────────────
+        // ── Tag Guardrail & Immutability ──────────────────────────────────────
         // When cursor is positioned immediately after an image markdown tag, or inside it:
-        // Delete the entire ![description](uri) tag in one atomic keystroke to prevent broken markdown.
+        // Protect image tag from accidental deletion and snap cursor safely to the left boundary.
         if (lineStr.contains("![")) {
             val imgRegex = Regex("""!\[(.*?)\]\((vault-img://[^\s)]+|https?://[^\s)]+|content://[^\s)]+|[^\s)]+)\)""")
             val imgMatch = imgRegex.findAll(lineStr).firstOrNull { m ->
                 col == m.range.last + 1 || (col > m.range.first && col <= m.range.last)
             }
             if (imgMatch != null) {
-                text.delete(line, imgMatch.range.first, line, imgMatch.range.last + 1)
                 setSelection(line, imgMatch.range.first)
                 ensureSelectionVisible()
                 notifyIMEExternalCursorChange()
@@ -1425,6 +1429,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (scroller != null && scroller.isFinished) {
             isFlingActive = false
         }
+    }
+
+    override fun showSoftInput() {
+        if (isInteractingWithImage) return
+        super.showSoftInput()
     }
 
     override fun ensurePositionVisible(line: Int, column: Int, noAnimation: Boolean) {

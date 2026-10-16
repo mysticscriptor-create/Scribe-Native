@@ -29,7 +29,13 @@ object ExportHelper {
     fun shareNote(context: Context, note: Note, format: String) {
         when (format.lowercase()) {
             "txt"  -> shareText(context, note, "txt", "text/plain", MarkdownUtil.toPlainText(note.content))
-            "md"   -> shareText(context, note, "md", "text/markdown", note.content)
+            "md"   -> {
+                if (VaultImageManager.hasImages(note.content)) {
+                    shareBytes(context, note, "zip", "application/zip", buildMarkdownZip(context, note))
+                } else {
+                    shareText(context, note, "md", "text/markdown", note.content)
+                }
+            }
             "html" -> shareText(context, note, "html", "text/html", fullHtml(context, note))
             "epub" -> shareBytes(context, note, "epub", "application/epub+zip", buildEpub(context, note))
             "docx" -> shareBytes(context, note, "docx",
@@ -46,7 +52,6 @@ object ExportHelper {
     fun saveToStorage(context: Context, note: Note, format: String): Uri? {
         val safeName = sanitize(note.name)
         val ext = format.lowercase()
-        val filename = "$safeName.$ext"
 
         if (ext == "pdf") {
             // PDF generation requires Android Print Framework / PrintDocumentAdapter
@@ -54,9 +59,19 @@ object ExportHelper {
             return null
         }
 
+        val isMdZip = ext == "md" && VaultImageManager.hasImages(note.content)
+        val fileExt = if (isMdZip) "zip" else ext
+        val filename = "$safeName.$fileExt"
+
         val (mime, bytes) = when (ext) {
             "txt"  -> "text/plain" to MarkdownUtil.toPlainText(note.content).toByteArray(Charsets.UTF_8)
-            "md"   -> "text/markdown" to note.content.toByteArray(Charsets.UTF_8)
+            "md"   -> {
+                if (isMdZip) {
+                    "application/zip" to buildMarkdownZip(context, note)
+                } else {
+                    "text/markdown" to note.content.toByteArray(Charsets.UTF_8)
+                }
+            }
             "html" -> "text/html" to fullHtml(context, note).toByteArray(Charsets.UTF_8)
             "epub" -> "application/epub+zip" to buildEpub(context, note)
             "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document" to buildDocx(context, note)
@@ -78,12 +93,44 @@ object ExportHelper {
     fun exportBytes(context: Context, note: Note, format: String): ByteArray {
         return when (format.lowercase()) {
             "txt"  -> MarkdownUtil.toPlainText(note.content).toByteArray(Charsets.UTF_8)
-            "md"   -> note.content.toByteArray(Charsets.UTF_8)
+            "md"   -> {
+                if (VaultImageManager.hasImages(note.content)) {
+                    buildMarkdownZip(context, note)
+                } else {
+                    note.content.toByteArray(Charsets.UTF_8)
+                }
+            }
             "html" -> fullHtml(context, note).toByteArray(Charsets.UTF_8)
             "epub" -> buildEpub(context, note)
             "docx" -> buildDocx(context, note)
             else   -> note.content.toByteArray(Charsets.UTF_8)
         }
+    }
+
+    /**
+     * Builds a self-contained ZIP archive for Markdown manuscripts containing the markdown file
+     * with relative image paths and an images/ directory with all asset binaries.
+     */
+    fun buildMarkdownZip(context: Context, note: Note): ByteArray {
+        val safeName = sanitize(note.name)
+        val imgRegex = Regex("""!\[(.*?)\]\((vault-img://[^\s)]+|https?://[^\s)]+|content://[^\s)]+|[^\s)]+)\)""")
+        val entries = mutableMapOf<String, ByteArray>()
+        var imageIndex = 1
+        val processedMd = imgRegex.replace(note.content) { mr ->
+            val alt = mr.groupValues[1]
+            val src = mr.groupValues[2]
+            val bytes = VaultImageManager.getImageBytes(context, src, note.bookId, note.id)
+            if (bytes != null) {
+                val imgFilename = "image_$imageIndex.jpg"
+                entries["images/$imgFilename"] = bytes
+                imageIndex++
+                "![$alt](images/$imgFilename)"
+            } else {
+                mr.value
+            }
+        }
+        entries["$safeName.md"] = processedMd.toByteArray(Charsets.UTF_8)
+        return buildZip(entries)
     }
 
     // ── Text formats ──────────────────────────────────────────────────────────
@@ -172,6 +219,26 @@ object ExportHelper {
     <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
   </rootfiles>
 </container>""".trimIndent().toByteArray(),
+            "OEBPS/nav.xhtml" to """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
+<head>
+  <title>$title</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    nav ol { list-style-type: none; padding-left: 0; }
+    nav li { margin: 0.5em 0; }
+  </style>
+</head>
+<body>
+  <nav epub:type="toc" id="toc">
+    <h1>Table of Contents</h1>
+    <ol>
+      <li><a href="chapter1.xhtml">$title</a></li>
+    </ol>
+  </nav>
+</body>
+</html>""".trimIndent().toByteArray(),
             "OEBPS/chapter1.xhtml" to """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
@@ -200,6 +267,7 @@ object ExportHelper {
     <meta property="dcterms:modified">2026-10-16T00:00:00Z</meta>
   </metadata>
   <manifest>
+    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     <item id="chapter1" href="chapter1.xhtml" media-type="application/xhtml+xml"/>
     <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>$manifestExtra
   </manifest>
@@ -254,10 +322,29 @@ object ExportHelper {
                     val mediaFilename = "image$imgIdx.jpeg"
                     val rId = "rIdImg$imgIdx"
                     mediaEntries["word/media/$mediaFilename"] = bytes
-                    rels.append("""  <Relationship Id="$rId" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/$mediaFilename"/>\n""")
+                    rels.append("""  <Relationship Id="$rId" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/$mediaFilename"/>""").append("\n")
 
-                    // High-resolution inline drawing part (width ~ 5.5 inches = 5029200 EMUs)
-                    bodyParas.append("""<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="5029200" cy="3771900"/><wp:docPr id="$imgIdx" name="Picture $imgIdx"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="$imgIdx" name="Picture $imgIdx"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="$rId" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="5029200" cy="3771900"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>""")
+                    // Dynamic aspect-ratio-accurate EMUs calculation (max width ~ 5.5 inches = 5029200 EMUs)
+                    val meta = VaultImageManager.getImageMetadata(context, uri, note.bookId, note.id)
+                    val maxEmuWidth = 5029200L
+                    val maxEmuHeight = 6500000L
+                    val aspect = if (meta.width > 0 && meta.height > 0) {
+                        meta.width.toDouble() / meta.height.toDouble()
+                    } else {
+                        4.0 / 3.0
+                    }
+                    val (cx, cy) = if (aspect >= 1.0) {
+                        val w = maxEmuWidth
+                        val h = (maxEmuWidth / aspect).toLong().coerceIn(720000L, maxEmuHeight)
+                        w to h
+                    } else {
+                        val h = (maxEmuWidth / aspect).toLong().coerceAtMost(maxEmuHeight)
+                        val w = (h * aspect).toLong().coerceIn(720000L, maxEmuWidth)
+                        w to h
+                    }
+
+                    // High-resolution inline drawing part matching image aspect ratio
+                    bodyParas.append("""<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><wp:extent cx="$cx" cy="$cy"/><wp:docPr id="$imgIdx" name="Picture $imgIdx"/><wp:cNvGraphicFramePr><a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/></wp:cNvGraphicFramePr><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="$imgIdx" name="Picture $imgIdx"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="$rId" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="$cx" cy="$cy"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>""")
 
                     if (caption.isNotBlank()) {
                         val captionXml = MarkdownUtil.xmlEscape(caption)
