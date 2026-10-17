@@ -45,6 +45,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -85,7 +86,9 @@ import com.primaloptima.scribe.ui.components.export.PdfPreviewViewer
 import com.primaloptima.scribe.ui.components.export.SourcePreviewViewer
 import com.primaloptima.scribe.util.ExportHelper
 import com.primaloptima.scribe.util.MarkdownUtil
+import com.primaloptima.scribe.util.export.ExportArtifactRepository
 import com.primaloptima.scribe.util.export.ExportCacheManager
+import kotlinx.coroutines.delay
 import com.primaloptima.scribe.util.export.ExportConfig
 import com.primaloptima.scribe.util.export.ExportFormat
 import com.primaloptima.scribe.util.export.FontChoice
@@ -163,93 +166,57 @@ fun ExportPreviewSheet(
     var isPdfLoading by remember { mutableStateOf(false) }
     var pdfErrorMessage by remember { mutableStateOf<String?>(null) }
 
-    // HTML / EPUB preview state
-    val htmlPreviewContent = remember(note.content, note.name, config, selectedFormat) {
+    // HTML / EPUB preview state computed off the UI thread
+    var htmlPreviewContent by remember { mutableStateOf("") }
+    LaunchedEffect(selectedFormat, config, note.content, note.name) {
         if (selectedFormat == ExportFormat.HTML || selectedFormat == ExportFormat.EPUB) {
-            HtmlPdfExporter.buildHtmlDocument(context, note, config, isForPrintPdf = false)
+            htmlPreviewContent = withContext(Dispatchers.IO) {
+                HtmlPdfExporter.buildHtmlDocument(context, note, config, isForPrintPdf = false)
+            }
         } else {
-            ""
+            htmlPreviewContent = ""
         }
     }
 
-    // Render PDF preview file on background thread whenever config changes and format == PDF
+    // Load PDF artifact via ExportArtifactRepository with debounce
     LaunchedEffect(selectedFormat, config, note.content, note.name) {
         if (selectedFormat == ExportFormat.PDF) {
             isPdfLoading = true
             pdfErrorMessage = null
             pdfPreviewFile = null
-            val tempFile = ExportCacheManager.createPreviewFile(context, ".pdf")
-            HtmlPdfExporter.renderPdfToFile(context, note, config, tempFile) { success, err ->
-                isPdfLoading = false
-                if (success && tempFile.exists() && tempFile.length() > 0L) {
-                    pdfPreviewFile = tempFile
-                } else {
-                    pdfErrorMessage = err?.localizedMessage ?: "Failed to generate PDF preview"
+            delay(250L) // 250ms debounce for rapid slider/config changes
+            val result = ExportArtifactRepository.getOrCreateArtifact(context, note, ExportFormat.PDF, config)
+            isPdfLoading = false
+            result.fold(
+                onSuccess = { artifact ->
+                    pdfPreviewFile = artifact.file
+                },
+                onFailure = { err ->
+                    pdfErrorMessage = err.localizedMessage ?: "Failed to generate PDF preview"
                 }
-            }
+            )
         }
     }
 
-    // Clean preview cache on dismissal
-    DisposableEffect(Unit) {
-        onDispose {
-            ExportCacheManager.clearPreviewCache(context)
-        }
-    }
-
-    // SAF CreateDocument Launcher
+    // SAF CreateDocument Launcher consuming unified artifact from ExportArtifactRepository
     val createDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument(effectiveMimeType)
     ) { destinationUri: Uri? ->
         if (destinationUri != null) {
             scope.launch(Dispatchers.IO) {
                 try {
-                    if (selectedFormat == ExportFormat.PDF) {
-                        val existing = pdfPreviewFile
-                        if (existing != null && existing.exists() && existing.length() > 0L) {
-                            context.contentResolver.openOutputStream(destinationUri)?.use { stream ->
-                                stream.write(existing.readBytes())
-                            }
-                            withContext(Dispatchers.Main) {
-                                Toast.makeText(context, "Saved PDF manuscript successfully", Toast.LENGTH_SHORT).show()
-                                onDismiss()
-                            }
-                        } else {
-                            // If preview file is not ready yet, render it first and write to destinationUri upon completion
-                            val tempPdf = ExportCacheManager.createPreviewFile(context, ".pdf")
-                            HtmlPdfExporter.renderPdfToFile(context, note, config, tempPdf) { success, err ->
-                                if (success && tempPdf.exists() && tempPdf.length() > 0L) {
-                                    scope.launch(Dispatchers.IO) {
-                                        try {
-                                            context.contentResolver.openOutputStream(destinationUri)?.use { stream ->
-                                                stream.write(tempPdf.readBytes())
-                                            }
-                                            withContext(Dispatchers.Main) {
-                                                Toast.makeText(context, "Saved PDF manuscript successfully", Toast.LENGTH_SHORT).show()
-                                                onDismiss()
-                                            }
-                                        } catch (e: Exception) {
-                                            withContext(Dispatchers.Main) {
-                                                Toast.makeText(context, "Failed to save PDF: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    scope.launch(Dispatchers.Main) {
-                                        Toast.makeText(context, "PDF export error: ${err?.localizedMessage ?: "Generation failed"}", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            }
+                    val artifactResult = ExportArtifactRepository.getOrCreateArtifact(
+                        context, note, selectedFormat, config
+                    )
+                    val artifact = artifactResult.getOrThrow()
+                    context.contentResolver.openOutputStream(destinationUri)?.use { output ->
+                        artifact.file.inputStream().use { input ->
+                            input.copyTo(output)
                         }
-                    } else {
-                        val bytes = ExportHelper.exportBytes(context, note, selectedFormat.id, config)
-                        context.contentResolver.openOutputStream(destinationUri)?.use { os ->
-                            os.write(bytes)
-                        }
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(context, "Saved ${selectedFormat.label} manuscript successfully", Toast.LENGTH_SHORT).show()
-                            onDismiss()
-                        }
+                    }
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(context, "Saved ${selectedFormat.label} manuscript successfully", Toast.LENGTH_SHORT).show()
+                        onDismiss()
                     }
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main) {

@@ -320,7 +320,7 @@ data class AppTheme(
     val name: String = "Custom Theme",
     val isDark: Boolean = false,
     val builtIn: Boolean = false,
-    val colors: ThemeColors,
+    val colors: ThemeColors = ThemeColors(),
     val overrides: ThemeColorOverrides? = null,
     /** Font family key matching Google Fonts or system fonts */
     val fontFamily: String = "sans",

@@ -8,6 +8,11 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.widget.Toast
+import com.primaloptima.scribe.util.export.ExportArtifactRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.core.content.FileProvider
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.util.export.DocxExporter
@@ -181,24 +186,25 @@ object ExportHelper {
         val effectiveConfig = config.copy(format = format)
         val safeName = sanitize(note.name)
 
-        if (format == ExportFormat.PDF) {
-            val shareFile = ExportCacheManager.createPreviewFile(context, ".pdf")
-            HtmlPdfExporter.renderPdfToFile(context, note, effectiveConfig, shareFile) { success, err ->
-                if (success) {
-                    openShareSheet(context, shareFile, "application/pdf")
-                } else {
-                    Toast.makeText(context, "Share failed: ${err?.localizedMessage}", Toast.LENGTH_SHORT).show()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val artifactResult = ExportArtifactRepository.getOrCreateArtifact(context, note, format, effectiveConfig)
+                val artifact = artifactResult.getOrThrow()
+                val lease = ExportArtifactRepository.acquireShareLease(context, artifact, safeName)
+                withContext(Dispatchers.Main) {
+                    val intent = Intent(Intent.ACTION_SEND).apply {
+                        type = artifact.mimeType
+                        putExtra(Intent.EXTRA_STREAM, lease.uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(intent, "${safeName}${artifact.file.extension.let { if (it.isNotBlank()) ".$it" else "" }}"))
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Share failed: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                 }
             }
-            return
         }
-
-        val isMdZip = format == ExportFormat.MD && VaultImageManager.hasImages(note.content)
-        val finalExt = if (isMdZip) "zip" else ext
-        val mime = if (isMdZip) "application/zip" else format.mimeType
-        val bytes = exportBytes(context, note, ext, effectiveConfig)
-        val file = ExportCacheManager.createShareFile(context, "$safeName.$finalExt", bytes)
-        openShareSheet(context, file, mime)
     }
 
     /**

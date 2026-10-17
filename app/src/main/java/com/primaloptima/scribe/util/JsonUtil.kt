@@ -49,7 +49,7 @@ fun Json.decodeAppThemes(string: String): List<AppTheme> {
         val decodedList = decodeFromString<List<AppTheme>>(string)
         decodedList.map { ThemeManager.migrateTheme(it) }
     } catch (_: Exception) {
-        // Resilient fallback: decode individual JSON array elements
+        // Resilient fallback: decode individual JSON array elements or regex-matched objects
         try {
             val jsonArray = parseToJsonElement(string).jsonArray
             jsonArray.mapNotNull { element ->
@@ -61,7 +61,15 @@ fun Json.decodeAppThemes(string: String): List<AppTheme> {
                 }
             }
         } catch (_: Exception) {
-            emptyList()
+            val objRegex = Regex("""\{[^{}]*"id"[^{}]*\}""", setOf(RegexOption.DOT_MATCHES_ALL))
+            objRegex.findAll(string).mapNotNull { match ->
+                try {
+                    val decoded = decodeFromString<AppTheme>(match.value)
+                    ThemeManager.migrateTheme(decoded)
+                } catch (_: Exception) {
+                    null
+                }
+            }.toList()
         }
     }
 }

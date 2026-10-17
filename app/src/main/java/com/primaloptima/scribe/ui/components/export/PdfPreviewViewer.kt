@@ -4,10 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Color as AndroidColor
 import android.graphics.pdf.PdfRenderer
 import android.os.ParcelFileDescriptor
-import android.util.LruCache
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.collection.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -15,7 +12,6 @@ import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -25,7 +21,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -41,10 +36,8 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,24 +48,31 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Pixel-perfect native PDF Preview component utilizing [PdfRenderer].
- * Renders pages asynchronously into an LRU bitmap memory cache, ensuring zero OOM crashes
- * on large book manuscripts. Features pinch-to-zoom, page shadows, and floating page pill.
+ * Production-grade, pixel-accurate PDF Page-by-Page Viewer.
+ *
+ * Architecture & Defect Fixes:
+ * 1. ZERO manual `Bitmap.recycle()`: Prevents "Canvas: trying to use a recycled bitmap" crashes.
+ * 2. Byte-Bounded LRU Cache: Sized strictly by `maxMemory / 8` based on `bitmap.byteCount`.
+ * 3. Mutex Serialization: Enforces strict sequential access on `PdfRenderer.openPage()`.
+ * 4. Responsive Resolution: Dynamically adapts rendering dimensions to screen DPI and zoom level.
+ * 5. Bounded Memory: Eliminates unbounded Compose state maps to prevent OutOfMemoryError.
  */
 @Composable
 fun PdfPreviewViewer(
     pdfFile: File?,
     isLoading: Boolean,
-    errorMessage: String? = null,
+    errorMessage: String?,
     modifier: Modifier = Modifier
 ) {
     if (isLoading) {
@@ -116,19 +116,17 @@ fun PdfPreviewViewer(
     var pageCount by remember(pdfFile) { mutableIntStateOf(0) }
     var fileDescriptor by remember(pdfFile) { mutableStateOf<ParcelFileDescriptor?>(null) }
 
-    // LRU Bitmap cache (max 6 page bitmaps cached in memory at once)
+    // Mutex to strictly serialize native PdfRenderer access (only 1 page open at a time globally)
+    val renderMutex = remember(pdfFile) { Mutex() }
+
+    // Byte-bounded LRU Bitmap cache (Max 12.5% of total JVM heap)
     val bitmapCache = remember(pdfFile) {
-        object : LruCache<Int, Bitmap>(6) {
-            override fun entryRemoved(evicted: Boolean, key: Int?, oldValue: Bitmap?, newValue: Bitmap?) {
-                if (evicted && oldValue != null && !oldValue.isRecycled) {
-                    oldValue.recycle()
-                }
-            }
+        val maxMemoryBytes = Runtime.getRuntime().maxMemory()
+        val cacheSizeBytes = (maxMemoryBytes / 8).coerceIn(16L * 1024 * 1024, 80L * 1024 * 1024).toInt()
+        object : LruCache<String, Bitmap>(cacheSizeBytes) {
+            override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
         }
     }
-
-    val pageBitmaps = remember(pdfFile) { mutableStateMapOf<Int, Bitmap>() }
-    val scope = rememberCoroutineScope()
 
     DisposableEffect(pdfFile) {
         try {
@@ -146,7 +144,6 @@ fun PdfPreviewViewer(
                 renderer?.close()
                 fileDescriptor?.close()
                 bitmapCache.evictAll()
-                pageBitmaps.clear()
             } catch (_: Throwable) {}
         }
     }
@@ -156,7 +153,7 @@ fun PdfPreviewViewer(
     var offset by remember { mutableStateOf(Offset.Zero) }
 
     val transformState = rememberTransformableState { zoomChange, offsetChange, _ ->
-        scale = (scale * zoomChange).coerceIn(0.8f, 3.5f)
+        scale = (scale * zoomChange).coerceIn(0.85f, 3.0f)
         offset = if (scale > 1f) {
             Offset(offset.x + offsetChange.x, offset.y + offsetChange.y)
         } else {
@@ -167,10 +164,17 @@ fun PdfPreviewViewer(
     val listState = rememberLazyListState()
     val firstVisibleItemIndex by remember { derivedStateOf { listState.firstVisibleItemIndex } }
 
+    val density = LocalDensity.current
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val screenWidthPx = with(density) { screenWidthDp.dp.roundToPx() }
+    val effectiveTargetWidth = remember(screenWidthPx, scale) {
+        ((screenWidthPx * 0.92f * scale.coerceAtLeast(1f)).toInt()).coerceIn(720, 1800)
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(0xFF202124)) // Dark neutral print inspection backdrop
+            .background(Color(0xFF202124)) // Dark neutral desk mat
             .transformable(state = transformState)
     ) {
         LazyColumn(
@@ -190,34 +194,31 @@ fun PdfPreviewViewer(
             items(count = pageCount) { pageIndex ->
                 PdfPageItem(
                     pageIndex = pageIndex,
-                    renderer = renderer,
-                    cachedBitmap = pageBitmaps[pageIndex],
-                    onRenderPage = { idx ->
-                        scope.launch(Dispatchers.IO) {
-                            val cached = bitmapCache.get(idx)
-                            if (cached != null && !cached.isRecycled) {
-                                withContext(Dispatchers.Main) {
-                                    pageBitmaps[idx] = cached
+                    targetWidth = effectiveTargetWidth,
+                    fileId = pdfFile.name,
+                    bitmapCache = bitmapCache,
+                    onRenderPage = { idx, targetW ->
+                        withContext(Dispatchers.IO) {
+                            renderMutex.withLock {
+                                val cacheKey = "${pdfFile.name}_p${idx}_w${targetW}"
+                                val existing = bitmapCache.get(cacheKey)
+                                if (existing != null && !existing.isRecycled) {
+                                    return@withLock existing
                                 }
-                                return@launch
-                            }
 
-                            val ren = renderer ?: return@launch
-                            synchronized(ren) {
+                                val ren = renderer ?: return@withLock null
                                 try {
                                     val page = ren.openPage(idx)
-                                    val targetWidth = 1080
-                                    val targetHeight = (targetWidth * (page.height.toFloat() / page.width.toFloat())).toInt()
-                                    val bmp = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+                                    val targetHeight = (targetW * (page.height.toFloat() / page.width.toFloat())).toInt().coerceAtLeast(100)
+                                    val bmp = Bitmap.createBitmap(targetW, targetHeight, Bitmap.Config.ARGB_8888)
                                     bmp.eraseColor(AndroidColor.WHITE)
                                     page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
                                     page.close()
-
-                                    bitmapCache.put(idx, bmp)
-                                    scope.launch(Dispatchers.Main) {
-                                        pageBitmaps[idx] = bmp
-                                    }
-                                } catch (_: Throwable) {}
+                                    bitmapCache.put(cacheKey, bmp)
+                                    bmp
+                                } catch (_: Throwable) {
+                                    null
+                                }
                             }
                         }
                     }
@@ -251,13 +252,20 @@ fun PdfPreviewViewer(
 @Composable
 private fun PdfPageItem(
     pageIndex: Int,
-    renderer: PdfRenderer?,
-    cachedBitmap: Bitmap?,
-    onRenderPage: (Int) -> Unit
+    targetWidth: Int,
+    fileId: String,
+    bitmapCache: LruCache<String, Bitmap>,
+    onRenderPage: suspend (Int, Int) -> Bitmap?
 ) {
-    LaunchedEffect(pageIndex, renderer) {
-        if (cachedBitmap == null) {
-            onRenderPage(pageIndex)
+    val cacheKey = "${fileId}_p${pageIndex}_w${targetWidth}"
+    var bitmap by remember(cacheKey) { mutableStateOf(bitmapCache.get(cacheKey)) }
+
+    LaunchedEffect(cacheKey) {
+        if (bitmap == null || bitmap?.isRecycled == true) {
+            val rendered = onRenderPage(pageIndex, targetWidth)
+            if (rendered != null && !rendered.isRecycled) {
+                bitmap = rendered
+            }
         }
     }
 
@@ -270,9 +278,10 @@ private fun PdfPageItem(
             .border(0.5.dp, Color.Black.copy(alpha = 0.1f), RoundedCornerShape(4.dp)),
         contentAlignment = Alignment.Center
     ) {
-        if (cachedBitmap != null && !cachedBitmap.isRecycled) {
+        val currentBitmap = bitmap
+        if (currentBitmap != null && !currentBitmap.isRecycled) {
             Image(
-                bitmap = cachedBitmap.asImageBitmap(),
+                bitmap = currentBitmap.asImageBitmap(),
                 contentDescription = "Page ${pageIndex + 1}",
                 contentScale = ContentScale.FillWidth,
                 modifier = Modifier.fillMaxWidth()
@@ -282,7 +291,7 @@ private fun PdfPageItem(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f / 1.414f) // Standard ISO A4 aspect ratio placeholder
+                    .aspectRatio(1f / 1.414f) // ISO A4 aspect ratio placeholder
                     .background(Color.White),
                 contentAlignment = Alignment.Center
             ) {
