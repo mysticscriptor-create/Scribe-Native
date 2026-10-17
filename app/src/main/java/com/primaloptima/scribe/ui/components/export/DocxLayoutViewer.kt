@@ -18,8 +18,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Divider
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -45,13 +47,16 @@ import coil3.compose.AsyncImage
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.util.export.ExportConfig
 import com.primaloptima.scribe.util.export.ExportThemeMapper
-import com.primaloptima.scribe.util.export.MarkdownAstParser
+import com.primaloptima.scribe.util.export.FontChoice
+import com.primaloptima.scribe.util.export.MarkdownNode
+import com.primaloptima.scribe.util.export.ScribeMarkdownAstParser
+import com.primaloptima.scribe.util.export.TableAlignment
 import com.primaloptima.scribe.util.image.VaultImageManager
 
 /**
  * Word Document Layout Simulator.
  * Renders an authentic paginated Word canvas complete with margins, headers,
- * typography styling, lists, tables, and images.
+ * typography styling, multi-level lists, tables, and images.
  */
 @Composable
 fun DocxLayoutViewer(
@@ -60,14 +65,11 @@ fun DocxLayoutViewer(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val ast = remember(note.content) { MarkdownAstParser.parse(note.content) }
-    val themeColors = remember { ExportThemeMapper.resolveThemeColors(context) }
-    val fontName = remember(config.fontChoice) { ExportThemeMapper.resolveDocxFontName(config.fontChoice) }
-
+    val doc = remember(note.content) { ScribeMarkdownAstParser.parse(note.content) }
     val fontFamily = when (config.fontChoice) {
-        com.primaloptima.scribe.util.export.FontChoice.CLASSIC_SERIF -> FontFamily.Serif
-        com.primaloptima.scribe.util.export.FontChoice.MODERN_SANS -> FontFamily.SansSerif
-        com.primaloptima.scribe.util.export.FontChoice.MONOSPACE -> FontFamily.Monospace
+        FontChoice.CLASSIC_SERIF -> FontFamily.Serif
+        FontChoice.MODERN_SANS -> FontFamily.SansSerif
+        FontChoice.MONOSPACE -> FontFamily.Monospace
         else -> FontFamily.Default
     }
 
@@ -78,10 +80,38 @@ fun DocxLayoutViewer(
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 20.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Truth in Preview Banner
+            item {
+                Surface(
+                    color = Color.Black.copy(alpha = 0.4f),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Description,
+                            contentDescription = null,
+                            tint = Color(0xFF64B5F6),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "Manuscript Word Layout Preview · ${config.paperSize.label} · ${config.marginPreset.label} · ${config.fontChoice.label}",
+                            color = Color(0xFFDDDDDD),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+            }
+
             item {
                 // Word Page Sheet
                 Surface(
@@ -112,9 +142,9 @@ fun DocxLayoutViewer(
                         }
 
                         // Render AST Nodes
-                        for (node in ast.nodes) {
+                        for (node in doc.children) {
                             when (node) {
-                                is MarkdownAstParser.AstNode.HeadingNode -> {
+                                is MarkdownNode.BlockNode.Heading -> {
                                     val (fontSize, weight, spaceTop) = when (node.level) {
                                         1 -> Triple(20.sp, FontWeight.Bold, 18.dp)
                                         2 -> Triple(16.sp, FontWeight.SemiBold, 14.dp)
@@ -132,7 +162,7 @@ fun DocxLayoutViewer(
                                     Spacer(modifier = Modifier.height(6.dp))
                                 }
 
-                                is MarkdownAstParser.AstNode.ParagraphNode -> {
+                                is MarkdownNode.BlockNode.Paragraph -> {
                                     Text(
                                         text = buildRunsAnnotatedString(node.runs),
                                         fontSize = 11.sp,
@@ -145,13 +175,16 @@ fun DocxLayoutViewer(
                                     )
                                 }
 
-                                is MarkdownAstParser.AstNode.ListNode -> {
-                                    for ((idx, item) in node.items.withIndex()) {
-                                        val bullet = if (node.isOrdered) "${idx + 1}." else "•"
+                                is MarkdownNode.BlockNode.ListBlock -> {
+                                    val glyphs = listOf("•", "◦", "▪")
+                                    var numCounter = node.startNumber
+                                    for (item in node.items) {
+                                        val bullet = if (node.isOrdered) "${numCounter++}." else glyphs[item.level % 3]
+                                        val indentDp = (12 + item.level * 16).dp
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(start = 12.dp, bottom = 4.dp)
+                                                .padding(start = indentDp, bottom = 4.dp)
                                         ) {
                                             Text(
                                                 text = bullet,
@@ -173,7 +206,7 @@ fun DocxLayoutViewer(
                                     Spacer(modifier = Modifier.height(6.dp))
                                 }
 
-                                is MarkdownAstParser.AstNode.BlockquoteNode -> {
+                                is MarkdownNode.BlockNode.Blockquote -> {
                                     Surface(
                                         color = Color(0xFFF9F9F9),
                                         border = BorderStroke(1.dp, Color(0xFFE0E0E0)),
@@ -191,7 +224,7 @@ fun DocxLayoutViewer(
                                             )
                                             Column(modifier = Modifier.padding(10.dp)) {
                                                 for (child in node.children) {
-                                                    if (child is MarkdownAstParser.AstNode.ParagraphNode) {
+                                                    if (child is MarkdownNode.BlockNode.Paragraph) {
                                                         Text(
                                                             text = buildRunsAnnotatedString(child.runs, defaultItalic = true),
                                                             fontSize = 11.sp,
@@ -206,7 +239,7 @@ fun DocxLayoutViewer(
                                     }
                                 }
 
-                                is MarkdownAstParser.AstNode.DividerNode -> {
+                                is MarkdownNode.BlockNode.ThematicBreak -> {
                                     HorizontalDivider(
                                         modifier = Modifier.padding(vertical = 12.dp),
                                         thickness = 1.dp,
@@ -214,7 +247,7 @@ fun DocxLayoutViewer(
                                     )
                                 }
 
-                                is MarkdownAstParser.AstNode.TableNode -> {
+                                is MarkdownNode.BlockNode.Table -> {
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
@@ -228,11 +261,18 @@ fun DocxLayoutViewer(
                                                     .background(Color(0xFFEEEEEE))
                                                     .padding(6.dp)
                                             ) {
-                                                for (h in node.headers) {
+                                                for ((idx, h) in node.headers.withIndex()) {
+                                                    val align = node.alignments.getOrElse(idx) { TableAlignment.DEFAULT }
+                                                    val textAlign = when (align) {
+                                                        TableAlignment.CENTER -> TextAlign.Center
+                                                        TableAlignment.RIGHT -> TextAlign.End
+                                                        else -> TextAlign.Start
+                                                    }
                                                     Text(
-                                                        text = buildRunsAnnotatedString(h, defaultBold = true),
+                                                        text = buildRunsAnnotatedString(h.runs, defaultBold = true),
                                                         fontSize = 10.sp,
                                                         fontWeight = FontWeight.Bold,
+                                                        textAlign = textAlign,
                                                         color = Color(0xFF111111),
                                                         modifier = Modifier.weight(1f)
                                                     )
@@ -246,10 +286,17 @@ fun DocxLayoutViewer(
                                                     .fillMaxWidth()
                                                     .padding(6.dp)
                                             ) {
-                                                for (cell in row) {
+                                                for ((idx, cell) in row.withIndex()) {
+                                                    val align = node.alignments.getOrElse(idx) { TableAlignment.DEFAULT }
+                                                    val textAlign = when (align) {
+                                                        TableAlignment.CENTER -> TextAlign.Center
+                                                        TableAlignment.RIGHT -> TextAlign.End
+                                                        else -> TextAlign.Start
+                                                    }
                                                     Text(
-                                                        text = buildRunsAnnotatedString(cell),
+                                                        text = buildRunsAnnotatedString(cell.runs),
                                                         fontSize = 10.sp,
+                                                        textAlign = textAlign,
                                                         color = Color(0xFF222222),
                                                         modifier = Modifier.weight(1f)
                                                     )
@@ -260,7 +307,7 @@ fun DocxLayoutViewer(
                                     }
                                 }
 
-                                is MarkdownAstParser.AstNode.ImageNode -> {
+                                is MarkdownNode.BlockNode.ImageBlock -> {
                                     val imageModel = remember(node.uri, note.bookId, note.id) {
                                         VaultImageManager.resolveModel(context, node.uri, note.bookId, note.id)
                                     }
@@ -280,15 +327,16 @@ fun DocxLayoutViewer(
                                         ) {
                                             AsyncImage(
                                                 model = imageModel,
-                                                contentDescription = node.caption,
+                                                contentDescription = node.caption ?: node.alt,
                                                 contentScale = ContentScale.Fit,
                                                 modifier = Modifier.fillMaxWidth()
                                             )
                                         }
-                                        if (node.caption.isNotBlank()) {
+                                        val captionText = node.caption ?: node.alt
+                                        if (captionText.isNotBlank()) {
                                             Spacer(modifier = Modifier.height(4.dp))
                                             Text(
-                                                text = node.caption,
+                                                text = captionText,
                                                 fontSize = 9.sp,
                                                 fontStyle = FontStyle.Italic,
                                                 color = Color(0xFF777777),
@@ -297,7 +345,6 @@ fun DocxLayoutViewer(
                                         }
                                     }
                                 }
-
                                 else -> {}
                             }
                         }
@@ -309,11 +356,15 @@ fun DocxLayoutViewer(
 }
 
 private fun buildRunsAnnotatedString(
-    runs: List<MarkdownAstParser.InlineRun>,
+    runs: List<MarkdownNode.InlineRun>,
     defaultBold: Boolean = false,
     defaultItalic: Boolean = false
 ) = buildAnnotatedString {
     for (r in runs) {
+        if (r.isHardBreak) {
+            append("\n")
+            continue
+        }
         val spanStyle = SpanStyle(
             fontWeight = if (r.isBold || defaultBold) FontWeight.Bold else FontWeight.Normal,
             fontStyle = if (r.isItalic || defaultItalic) FontStyle.Italic else FontStyle.Normal,

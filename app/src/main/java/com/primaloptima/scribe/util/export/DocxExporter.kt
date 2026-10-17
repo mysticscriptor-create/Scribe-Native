@@ -11,9 +11,10 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 /**
- * Modern standards-compliant OpenXML DOCX exporter for Scribe.
+ * Modern standards-compliant OpenXML DOCX exporter for Scribe (ECMA-376).
  * Produces structured Microsoft Word (.docx) documents complete with OpenXML styles,
- * numbering definitions for lists, tables, drawings, blockquotes, and headings.
+ * multi-level numbering definitions for lists (ilvl 0..8), external hyperlinks with TargetMode="External",
+ * line-break preservation (<w:br/>), proportional table grids with alignment, and embedded drawings.
  */
 object DocxExporter {
 
@@ -23,15 +24,27 @@ object DocxExporter {
         val primaryColorHex = ExportThemeMapper.cleanHexForDocx(themeColors.accent, "1A5276")
         val textColorHex = ExportThemeMapper.cleanHexForDocx(themeColors.text, "222222")
 
-        val ast = MarkdownAstParser.parse(note.content)
+        val ast = ScribeMarkdownAstParser.parse(note.content)
 
         val mediaEntries = mutableMapOf<String, ByteArray>()
         val relsXml = StringBuilder()
-        var imageIndex = 1
+        var relIdCounter = 1
 
         // Standard relationships
         relsXml.append("""  <Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>${"\n"}""")
         relsXml.append("""  <Relationship Id="rIdNumbering" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/numbering" Target="numbering.xml"/>${"\n"}""")
+
+        // External Hyperlink registry: Map<Url, rId>
+        val hyperlinkRels = mutableMapOf<String, String>()
+
+        fun registerHyperlink(url: String): String {
+            return hyperlinkRels.getOrPut(url) {
+                val rId = "rIdLink${relIdCounter++}"
+                val safeUrl = MarkdownUtil.xmlEscape(url)
+                relsXml.append("""  <Relationship Id="$rId" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="$safeUrl" TargetMode="External"/>${"\n"}""")
+                rId
+            }
+        }
 
         val bodyXml = StringBuilder()
 
@@ -57,16 +70,19 @@ object DocxExporter {
             """.trimIndent()).append("\n")
         }
 
+        // Printable width in dxa (1/20 of a pt)
+        val printableDxa = (config.paperSize.dxaWidth - config.marginPreset.dxaLeft - config.marginPreset.dxaRight).coerceAtLeast(4000)
+
         // 2. Iterate AST Nodes
-        for (node in ast.nodes) {
+        for (node in ast.children) {
             when (node) {
-                is MarkdownAstParser.AstNode.HeadingNode -> {
+                is MarkdownNode.BlockNode.Heading -> {
                     val styleVal = when (node.level) {
                         1 -> "Heading1"
                         2 -> "Heading2"
                         else -> "Heading3"
                     }
-                    val headingRuns = buildRunsXml(node.runs, defaultBold = true)
+                    val headingRuns = buildRunsXml(node.runs, defaultBold = true, ::registerHyperlink)
                     bodyXml.append("""
                     <w:p>
                       <w:pPr>
@@ -77,8 +93,8 @@ object DocxExporter {
                     """.trimIndent()).append("\n")
                 }
 
-                is MarkdownAstParser.AstNode.ParagraphNode -> {
-                    val runsXml = buildRunsXml(node.runs)
+                is MarkdownNode.BlockNode.Paragraph -> {
+                    val runsXml = buildRunsXml(node.runs, onRegisterHyperlink = ::registerHyperlink)
                     bodyXml.append("""
                     <w:p>
                       <w:pPr>
@@ -89,15 +105,16 @@ object DocxExporter {
                     """.trimIndent()).append("\n")
                 }
 
-                is MarkdownAstParser.AstNode.ListNode -> {
+                is MarkdownNode.BlockNode.ListBlock -> {
                     val numId = if (node.isOrdered) "2" else "1"
                     for (item in node.items) {
-                        val itemRuns = buildRunsXml(item.runs)
+                        val itemRuns = buildRunsXml(item.runs, onRegisterHyperlink = ::registerHyperlink)
+                        val ilvl = item.level.coerceIn(0, 8)
                         bodyXml.append("""
                         <w:p>
                           <w:pPr>
                             <w:numPr>
-                              <w:ilvl w:val="0"/>
+                              <w:ilvl w:val="$ilvl"/>
                               <w:numId w:val="$numId"/>
                             </w:numPr>
                             <w:spacing w:after="80"/>
@@ -108,11 +125,11 @@ object DocxExporter {
                     }
                 }
 
-                is MarkdownAstParser.AstNode.BlockquoteNode -> {
+                is MarkdownNode.BlockNode.Blockquote -> {
                     for (child in node.children) {
                         val childRuns = when (child) {
-                            is MarkdownAstParser.AstNode.ParagraphNode -> buildRunsXml(child.runs, defaultItalic = true)
-                            is MarkdownAstParser.AstNode.HeadingNode -> buildRunsXml(child.runs, defaultItalic = true, defaultBold = true)
+                            is MarkdownNode.BlockNode.Paragraph -> buildRunsXml(child.runs, defaultItalic = true, onRegisterHyperlink = ::registerHyperlink)
+                            is MarkdownNode.BlockNode.Heading -> buildRunsXml(child.runs, defaultItalic = true, defaultBold = true, onRegisterHyperlink = ::registerHyperlink)
                             else -> ""
                         }
                         bodyXml.append("""
@@ -131,7 +148,7 @@ object DocxExporter {
                     }
                 }
 
-                is MarkdownAstParser.AstNode.DividerNode -> {
+                is MarkdownNode.BlockNode.ThematicBreak -> {
                     bodyXml.append("""
                     <w:p>
                       <w:pPr>
@@ -144,11 +161,11 @@ object DocxExporter {
                     """.trimIndent()).append("\n")
                 }
 
-                is MarkdownAstParser.AstNode.TableNode -> {
-                    bodyXml.append(buildTableXml(node, primaryColorHex))
+                is MarkdownNode.BlockNode.Table -> {
+                    bodyXml.append(buildTableXml(node, printableDxa, ::registerHyperlink))
                 }
 
-                is MarkdownAstParser.AstNode.CodeBlockNode -> {
+                is MarkdownNode.BlockNode.CodeBlock -> {
                     val lines = node.code.lines()
                     for (codeLine in lines) {
                         val codeEscaped = MarkdownUtil.xmlEscape(codeLine)
@@ -174,19 +191,17 @@ object DocxExporter {
                     }
                 }
 
-                is MarkdownAstParser.AstNode.ImageNode -> {
+                is MarkdownNode.BlockNode.ImageBlock -> {
                     val bytes = if (context != null) VaultImageManager.getImageBytes(context, node.uri, note.bookId, note.id) else null
                     if (bytes != null) {
-                        val rId = "rIdImg$imageIndex"
+                        val rId = "rIdImg${relIdCounter++}"
                         val ext = if (node.uri.endsWith(".png", true)) "png" else "jpeg"
-                        val mediaPath = "media/image_$imageIndex.$ext"
+                        val mediaPath = "media/image_$rId.$ext"
                         mediaEntries["word/$mediaPath"] = bytes
-
                         relsXml.append("""  <Relationship Id="$rId" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="$mediaPath"/>${"\n"}""")
 
                         val (cx, cy) = calculateEmuDimensions(bytes)
-                        val captionEscaped = MarkdownUtil.xmlEscape(node.caption)
-
+                        val captionEscaped = MarkdownUtil.xmlEscape(node.caption ?: node.alt)
                         bodyXml.append("""
                         <w:p>
                           <w:pPr>
@@ -197,7 +212,7 @@ object DocxExporter {
                             <w:drawing>
                               <wp:inline distT="0" distB="0" distL="0" distR="0" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">
                                 <wp:extent cx="$cx" cy="$cy"/>
-                                <wp:docPr id="$imageIndex" name="Image $imageIndex"/>
+                                <wp:docPr id="$relIdCounter" name="Image $rId"/>
                                 <wp:cNvGraphicFramePr>
                                   <a:graphicFrameLocks xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" noChangeAspect="1"/>
                                 </wp:cNvGraphicFramePr>
@@ -205,7 +220,7 @@ object DocxExporter {
                                   <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
                                     <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
                                       <pic:nvPicPr>
-                                        <pic:cNvPr id="$imageIndex" name="Image $imageIndex"/>
+                                        <pic:cNvPr id="$relIdCounter" name="Image $rId"/>
                                         <pic:cNvPicPr/>
                                       </pic:nvPicPr>
                                       <pic:blipFill>
@@ -243,10 +258,8 @@ object DocxExporter {
                             </w:p>
                             """.trimIndent()).append("\n")
                         }
-                        imageIndex++
                     }
                 }
-
                 else -> {}
             }
         }
@@ -260,7 +273,6 @@ object DocxExporter {
         """.trimIndent())
 
         val entries = mutableMapOf<String, ByteArray>()
-
         entries["[Content_Types].xml"] = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
@@ -283,9 +295,7 @@ object DocxExporter {
 $relsXml</Relationships>""".trimIndent().toByteArray(Charsets.UTF_8)
 
         entries["word/styles.xml"] = buildStylesXml(fontName, primaryColorHex, textColorHex, config.fontSizePt).toByteArray(Charsets.UTF_8)
-
         entries["word/numbering.xml"] = buildNumberingXml().toByteArray(Charsets.UTF_8)
-
         entries["word/document.xml"] = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
             xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -294,23 +304,31 @@ $relsXml</Relationships>""".trimIndent().toByteArray(Charsets.UTF_8)
             xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
             xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
   <w:body>
-$bodyXml
-  </w:body>
+$bodyXml  </w:body>
 </w:document>""".trimIndent().toByteArray(Charsets.UTF_8)
 
         entries.putAll(mediaEntries)
-
         return buildZip(entries)
     }
 
+    /**
+     * Emits WordprocessingML runs, converting line breaks to <w:br/>,
+     * escaping XML characters, and wrapping external hyperlinks with valid <w:hyperlink r:id="..."> tags.
+     */
     private fun buildRunsXml(
-        runs: List<MarkdownAstParser.InlineRun>,
+        runs: List<MarkdownNode.InlineRun>,
         defaultBold: Boolean = false,
-        defaultItalic: Boolean = false
+        defaultItalic: Boolean = false,
+        onRegisterHyperlink: ((String) -> String)? = null
     ): String {
         val sb = StringBuilder()
+
         for (run in runs) {
-            val textEscaped = MarkdownUtil.xmlEscape(run.text)
+            if (run.isHardBreak) {
+                sb.append("<w:r><w:br/></w:r>")
+                continue
+            }
+
             val isBold = run.isBold || defaultBold
             val isItalic = run.isItalic || defaultItalic
             val isStrike = run.isStrikethrough
@@ -325,21 +343,45 @@ $bodyXml
                 rPr.append("""<w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/><w:shd w:val="clear" w:color="auto" w:fill="F0F0F0"/><w:sz w:val="20"/>""")
             }
             if (isLink) {
-                rPr.append("""<w:color w:val="0066CC"/><w:u w:val="single"/>""")
+                rPr.append("""<w:rStyle w:val="Hyperlink"/><w:color w:val="0066CC"/><w:u w:val="single"/>""")
+            }
+            val rPrStr = if (rPr.isNotEmpty()) "<w:rPr>$rPr</w:rPr>" else ""
+
+            // Handle newline breaks inside text runs
+            val textContent = StringBuilder()
+            val lines = run.text.split("\n")
+            lines.forEachIndexed { idx, linePart ->
+                if (idx > 0) textContent.append("<w:br/>")
+                val escaped = MarkdownUtil.xmlEscape(linePart)
+                textContent.append("<w:t xml:space=\"preserve\">$escaped</w:t>")
             }
 
-            val rPrStr = if (rPr.isNotEmpty()) "<w:rPr>$rPr</w:rPr>" else ""
-            sb.append("<w:r>$rPrStr<w:t xml:space=\"preserve\">$textEscaped</w:t></w:r>")
+            val runXml = "<w:r>$rPrStr$textContent</w:r>"
+
+            if (isLink && onRegisterHyperlink != null) {
+                val rId = onRegisterHyperlink(run.linkUrl!!)
+                sb.append("<w:hyperlink r:id=\"$rId\" w:history=\"1\">$runXml</w:hyperlink>")
+            } else {
+                sb.append(runXml)
+            }
         }
         return sb.toString()
     }
 
-    private fun buildTableXml(tableNode: MarkdownAstParser.AstNode.TableNode, primaryColorHex: String): String {
+    private fun buildTableXml(
+        table: MarkdownNode.BlockNode.Table,
+        printableDxa: Int,
+        onRegisterHyperlink: (String) -> String
+    ): String {
+        val colCount = table.headers.size.coerceAtLeast(table.rows.maxOfOrNull { it.size } ?: 1).coerceAtLeast(1)
+        val colDxa = (printableDxa / colCount).coerceAtLeast(500)
+
         val sb = StringBuilder()
         sb.append("""
         <w:tbl>
           <w:tblPr>
-            <w:tblW w:w="5000" w:type="pct"/>
+            <w:tblW w:w="$printableDxa" w:type="dxa"/>
+            <w:jc w:val="center"/>
             <w:tblBorders>
               <w:top w:val="single" w:sz="6" w:space="0" w:color="CCCCCC"/>
               <w:left w:val="single" w:sz="6" w:space="0" w:color="CCCCCC"/>
@@ -355,20 +397,41 @@ $bodyXml
               <w:right w:w="160" w:type="dxa"/>
             </w:tblCellMar>
           </w:tblPr>
+          <w:tblGrid>
         """.trimIndent()).append("\n")
 
+        for (i in 0 until colCount) {
+            sb.append("    <w:gridCol w:w=\"$colDxa\"/>\n")
+        }
+        sb.append("  </w:tblGrid>\n")
+
+        fun alignToJc(align: TableAlignment): String {
+            return when (align) {
+                TableAlignment.LEFT -> "left"
+                TableAlignment.CENTER -> "center"
+                TableAlignment.RIGHT -> "right"
+                TableAlignment.DEFAULT -> "left"
+            }
+        }
+
         // Header Row
-        if (tableNode.headers.isNotEmpty()) {
+        if (table.headers.isNotEmpty()) {
             sb.append("  <w:tr><w:trPr><w:tblHeader/></w:trPr>\n")
-            for (headerCell in tableNode.headers) {
-                val runs = buildRunsXml(headerCell, defaultBold = true)
+            table.headers.forEachIndexed { colIdx, headerCell ->
+                val align = table.alignments.getOrElse(colIdx) { TableAlignment.DEFAULT }
+                val jcVal = alignToJc(align)
+                val runs = buildRunsXml(headerCell.runs, defaultBold = true, onRegisterHyperlink = onRegisterHyperlink)
                 sb.append("""
                 <w:tc>
                   <w:tcPr>
+                    <w:tcW w:w="$colDxa" w:type="dxa"/>
                     <w:shd w:val="clear" w:color="auto" w:fill="F2F2F2"/>
                   </w:tcPr>
                   <w:p>
-                    <w:pPr><w:spacing w:after="0"/></w:pPr>
+                    <w:pPr>
+                      <w:jc w:val="$jcVal"/>
+                      <w:spacing w:after="0"/>
+                    </w:pPr>
                     $runs
                   </w:p>
                 </w:tc>
@@ -378,14 +441,23 @@ $bodyXml
         }
 
         // Data Rows
-        for (row in tableNode.rows) {
+        for (row in table.rows) {
             sb.append("  <w:tr>\n")
-            for (cell in row) {
-                val runs = buildRunsXml(cell)
+            for (colIdx in 0 until colCount) {
+                val cell = if (colIdx < row.size) row[colIdx] else MarkdownNode.TableCell(emptyList())
+                val align = table.alignments.getOrElse(colIdx) { TableAlignment.DEFAULT }
+                val jcVal = alignToJc(align)
+                val runs = buildRunsXml(cell.runs, onRegisterHyperlink = onRegisterHyperlink)
                 sb.append("""
                 <w:tc>
+                  <w:tcPr>
+                    <w:tcW w:w="$colDxa" w:type="dxa"/>
+                  </w:tcPr>
                   <w:p>
-                    <w:pPr><w:spacing w:after="0"/></w:pPr>
+                    <w:pPr>
+                      <w:jc w:val="$jcVal"/>
+                      <w:spacing w:after="0"/>
+                    </w:pPr>
                     $runs
                   </w:p>
                 </w:tc>
@@ -443,11 +515,9 @@ $bodyXml
       </w:pPr>
     </w:pPrDefault>
   </w:docDefaults>
-
   <w:style w:type="paragraph" w:default="1" w:styleId="Normal">
     <w:name w:val="Normal"/>
   </w:style>
-
   <w:style w:type="paragraph" w:styleId="Title">
     <w:name w:val="Title"/>
     <w:basedOn w:val="Normal"/>
@@ -457,7 +527,6 @@ $bodyXml
       <w:color w:val="$primaryColorHex"/>
     </w:rPr>
   </w:style>
-
   <w:style w:type="paragraph" w:styleId="Heading1">
     <w:name w:val="heading 1"/>
     <w:basedOn w:val="Normal"/>
@@ -470,7 +539,6 @@ $bodyXml
       <w:color w:val="$primaryColorHex"/>
     </w:rPr>
   </w:style>
-
   <w:style w:type="paragraph" w:styleId="Heading2">
     <w:name w:val="heading 2"/>
     <w:basedOn w:val="Normal"/>
@@ -483,7 +551,6 @@ $bodyXml
       <w:color w:val="$primaryColorHex"/>
     </w:rPr>
   </w:style>
-
   <w:style w:type="paragraph" w:styleId="Heading3">
     <w:name w:val="heading 3"/>
     <w:basedOn w:val="Normal"/>
@@ -497,7 +564,6 @@ $bodyXml
       <w:color w:val="$textColorHex"/>
     </w:rPr>
   </w:style>
-
   <w:style w:type="paragraph" w:styleId="Blockquote">
     <w:name w:val="Quote"/>
     <w:basedOn w:val="Normal"/>
@@ -506,41 +572,75 @@ $bodyXml
       <w:color w:val="555555"/>
     </w:rPr>
   </w:style>
+  <w:style w:type="character" w:styleId="Hyperlink">
+    <w:name w:val="Hyperlink"/>
+    <w:rPr>
+      <w:color w:val="0066CC"/>
+      <w:u w:val="single"/>
+    </w:rPr>
+  </w:style>
 </w:styles>""".trimIndent()
     }
 
+    /**
+     * Builds word/numbering.xml with full 9-level hierarchies (levels 0..8)
+     * for unordered bullet lists (abstractNum 1) and ordered lists (abstractNum 2).
+     */
     private fun buildNumberingXml(): String {
-        return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <!-- Unordered bullet list -->
-  <w:abstractNum w:abstractNumId="1">
-    <w:lvl w:ilvl="0">
+        val bulletLvls = StringBuilder()
+        val glyphs = listOf("&#x2022;", "&#x25E6;", "&#x25AA;")
+        val bulletFonts = listOf("Arial", "Courier New", "Wingdings")
+
+        for (lvl in 0..8) {
+            val glyph = glyphs[lvl % 3]
+            val font = bulletFonts[lvl % 3]
+            val leftIndent = 720 * (lvl + 1)
+            bulletLvls.append("""
+    <w:lvl w:ilvl="$lvl">
       <w:start w:val="1"/>
       <w:numFmt w:val="bullet"/>
-      <w:lvlText w:val="&#x2022;"/>
+      <w:lvlText w:val="$glyph"/>
       <w:lvlJc w:val="left"/>
       <w:pPr>
-        <w:ind w:left="720" w:hanging="360"/>
+        <w:ind w:left="$leftIndent" w:hanging="360"/>
       </w:pPr>
       <w:rPr>
-        <w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:hint="default"/>
+        <w:rFonts w:ascii="$font" w:hAnsi="$font" w:hint="default"/>
       </w:rPr>
     </w:lvl>
-  </w:abstractNum>
+            """.trimIndent()).append("\n")
+        }
 
-  <!-- Ordered decimal list -->
-  <w:abstractNum w:abstractNumId="2">
-    <w:lvl w:ilvl="0">
+        val decimalLvls = StringBuilder()
+        for (lvl in 0..8) {
+            val numFmt = when (lvl % 3) {
+                0 -> "decimal"
+                1 -> "lowerLetter"
+                else -> "lowerRoman"
+            }
+            val lvlIndex = lvl + 1
+            val leftIndent = 720 * (lvl + 1)
+            decimalLvls.append("""
+    <w:lvl w:ilvl="$lvl">
       <w:start w:val="1"/>
-      <w:numFmt w:val="decimal"/>
-      <w:lvlText w:val="%1."/>
+      <w:numFmt w:val="$numFmt"/>
+      <w:lvlText w:val="%$lvlIndex."/>
       <w:lvlJc w:val="left"/>
       <w:pPr>
-        <w:ind w:left="720" w:hanging="360"/>
+        <w:ind w:left="$leftIndent" w:hanging="360"/>
       </w:pPr>
     </w:lvl>
-  </w:abstractNum>
+            """.trimIndent()).append("\n")
+        }
 
+        return """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <!-- Unordered bullet list with levels 0..8 -->
+  <w:abstractNum w:abstractNumId="1">
+$bulletLvls  </w:abstractNum>
+  <!-- Ordered list with levels 0..8 -->
+  <w:abstractNum w:abstractNumId="2">
+$decimalLvls  </w:abstractNum>
   <w:num w:numId="1">
     <w:abstractNumId w:val="1"/>
   </w:num>
