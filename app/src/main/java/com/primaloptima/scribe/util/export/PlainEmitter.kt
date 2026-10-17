@@ -66,6 +66,9 @@ object PlainEmitter {
             is MarkdownNode.BlockNode.ThematicBreak -> {
                 "---"
             }
+            is MarkdownNode.BlockNode.TableCell -> {
+                emitRuns(block.runs)
+            }
         }
     }
 

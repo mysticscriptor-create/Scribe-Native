@@ -69,6 +69,9 @@ sealed class MarkdownNode {
     )
 }
 
+typealias TableCell = MarkdownNode.BlockNode.TableCell
+typealias ListItem = MarkdownNode.BlockNode.ListItem
+
 enum class TableAlignment {
     LEFT,
     CENTER,

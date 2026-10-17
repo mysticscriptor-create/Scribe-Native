@@ -119,13 +119,13 @@ object ScribeMarkdownAstParser {
                 val alignments = parseTableAlignments(sepLine, headerCells.size)
                 i += 2 // consume header and separator
 
-                val rows = mutableListOf<List<MarkdownNode.TableCell>>()
+                val rows = mutableListOf<List<MarkdownNode.BlockNode.TableCell>>()
                 while (i < count && isTableRow(lines[i].trim())) {
                     val rawCells = parseTableCells(lines[i].trim())
                     // Pad cells to match column count
                     val paddedCells = (0 until headerCells.size).map { colIdx ->
                         if (colIdx < rawCells.size) rawCells[colIdx]
-                        else MarkdownNode.TableCell(emptyList())
+                        else MarkdownNode.BlockNode.TableCell(emptyList())
                     }
                     rows.add(paddedCells)
                     i++
@@ -142,7 +142,7 @@ object ScribeMarkdownAstParser {
 
             // 7. Lists (Ordered and Unordered with Nesting)
             if (isListLine(line)) {
-                val listItems = mutableListOf<MarkdownNode.ListItem>()
+                val listItems = mutableListOf<MarkdownNode.BlockNode.ListItem>()
                 var isOrderedList = isOrderedListLine(line)
                 var startNumber = if (isOrderedList) extractOrderedNumber(line) else 1
 
@@ -153,7 +153,7 @@ object ScribeMarkdownAstParser {
                     val itemText = stripListMarker(curLine)
                     val runs = parseInlineRuns(itemText)
                     listItems.add(
-                        MarkdownNode.ListItem(
+                        MarkdownNode.BlockNode.ListItem(
                             level = level,
                             runs = runs,
                             children = emptyList()
@@ -323,13 +323,13 @@ object ScribeMarkdownAstParser {
         return alignments
     }
 
-    private fun parseTableCells(rowLine: String): List<MarkdownNode.TableCell> {
+    private fun parseTableCells(rowLine: String): List<MarkdownNode.BlockNode.TableCell> {
         var trimmed = rowLine.trim()
         if (trimmed.startsWith("|")) trimmed = trimmed.substring(1)
         if (trimmed.endsWith("|")) trimmed = trimmed.dropLast(1)
         val cells = trimmed.split("|")
         return cells.map { cellText ->
-            MarkdownNode.TableCell(runs = parseInlineRuns(cellText.trim()))
+            MarkdownNode.BlockNode.TableCell(runs = parseInlineRuns(cellText.trim()))
         }
     }
 

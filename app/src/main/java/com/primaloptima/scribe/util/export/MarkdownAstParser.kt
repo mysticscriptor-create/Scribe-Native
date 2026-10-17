@@ -121,6 +121,9 @@ object MarkdownAstParser {
             is MarkdownNode.BlockNode.ThematicBreak -> {
                 AstNode.DividerNode
             }
+            is MarkdownNode.BlockNode.TableCell -> {
+                AstNode.ParagraphNode(block.runs.map { convertInline(it) })
+            }
         }
     }
 

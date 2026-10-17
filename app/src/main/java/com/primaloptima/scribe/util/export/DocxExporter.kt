@@ -71,7 +71,7 @@ object DocxExporter {
         }
 
         // Printable width in dxa (1/20 of a pt)
-        val printableDxa = (config.paperSize.dxaWidth - config.marginPreset.dxaLeft - config.marginPreset.dxaRight).coerceAtLeast(4000)
+        val printableDxa = ((config.paperSize.dxaWidth - config.marginPreset.dxaLeft - config.marginPreset.dxaRight).coerceAtLeast(4000L)).toInt()
 
         // 2. Iterate AST Nodes
         for (node in ast.children) {
@@ -82,7 +82,7 @@ object DocxExporter {
                         2 -> "Heading2"
                         else -> "Heading3"
                     }
-                    val headingRuns = buildRunsXml(node.runs, defaultBold = true, ::registerHyperlink)
+                    val headingRuns = buildRunsXml(node.runs, defaultBold = true, onRegisterHyperlink = ::registerHyperlink)
                     bodyXml.append("""
                     <w:p>
                       <w:pPr>
@@ -444,7 +444,7 @@ $bodyXml  </w:body>
         for (row in table.rows) {
             sb.append("  <w:tr>\n")
             for (colIdx in 0 until colCount) {
-                val cell = if (colIdx < row.size) row[colIdx] else MarkdownNode.TableCell(emptyList())
+                val cell = if (colIdx < row.size) row[colIdx] else MarkdownNode.BlockNode.TableCell(emptyList())
                 val align = table.alignments.getOrElse(colIdx) { TableAlignment.DEFAULT }
                 val jcVal = alignToJc(align)
                 val runs = buildRunsXml(cell.runs, onRegisterHyperlink = onRegisterHyperlink)

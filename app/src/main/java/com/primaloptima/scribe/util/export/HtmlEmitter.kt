@@ -60,6 +60,9 @@ object HtmlEmitter {
             is MarkdownNode.BlockNode.ThematicBreak -> {
                 "<hr/>"
             }
+            is MarkdownNode.BlockNode.TableCell -> {
+                "<td>${emitRuns(block.runs)}</td>"
+            }
         }
     }
 

@@ -2,6 +2,7 @@ package com.primaloptima.scribe.util
 
 import android.content.Context
 import android.widget.TextView
+import com.primaloptima.scribe.util.export.ScribeMarkdownEngine
 import com.primaloptima.scribe.util.model.OutlineEntry
 import io.noties.markwon.Markwon
 import io.noties.markwon.ext.strikethrough.StrikethroughPlugin
