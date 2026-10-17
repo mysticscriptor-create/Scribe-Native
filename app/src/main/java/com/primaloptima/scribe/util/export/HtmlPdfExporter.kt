@@ -13,12 +13,17 @@ import com.primaloptima.scribe.util.ExportHelper
 import com.primaloptima.scribe.util.MarkdownUtil
 import com.primaloptima.scribe.util.image.VaultImageManager
 import java.io.File
+import java.util.Collections
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Handles HTML publication compilation and headless PDF generation using
  * Android's Print infrastructure and print-media CSS layouts.
  */
 object HtmlPdfExporter {
+
+    // Retain strong references to active offscreen WebViews to prevent garbage collection during printing
+    private val activeWebViews = Collections.synchronizedSet(mutableSetOf<WebView>())
 
     /**
      * Builds a self-contained HTML document with embedded styles and Base64 images.
@@ -75,7 +80,7 @@ object HtmlPdfExporter {
 
     /**
      * Headless background generation of a genuine print-ready PDF file into [outputFile].
-     * Must instantiate WebView on the Main Looper, then coordinates asynchronous printing.
+     * Must instantiate WebView on the Main Looper, retain it against GC, and coordinate asynchronous printing.
      */
     fun renderPdfToFile(
         context: Context,
@@ -87,12 +92,15 @@ object HtmlPdfExporter {
         val mainHandler = Handler(Looper.getMainLooper())
         mainHandler.post {
             try {
+                outputFile.parentFile?.mkdirs()
                 val html = buildHtmlDocument(context, note, config, isForPrintPdf = true)
-                val webView = WebView(context.applicationContext)
+                val webView = WebView(context)
+                activeWebViews.add(webView)
+
                 webView.settings.apply {
-                    javaScriptEnabled = false
-                    allowFileAccess = false
+                    javaScriptEnabled = true
                     loadsImagesAutomatically = true
+                    domStorageEnabled = true
                 }
 
                 val mediaSize = when (config.paperSize) {
@@ -112,19 +120,46 @@ object HtmlPdfExporter {
                     .setMinMargins(PrintAttributes.Margins(leftMils, topMils, rightMils, bottomMils))
                     .build()
 
+                val completed = AtomicBoolean(false)
+
+                fun finish(success: Boolean, error: Throwable?) {
+                    if (completed.compareAndSet(false, true)) {
+                        mainHandler.post {
+                            try {
+                                webView.stopLoading()
+                                webView.destroy()
+                            } catch (_: Throwable) {}
+                            activeWebViews.remove(webView)
+                        }
+                        onComplete(success, error)
+                    }
+                }
+
+                // Timeout safety guard (25 seconds)
+                mainHandler.postDelayed({
+                    if (!completed.get()) {
+                        finish(false, RuntimeException("PDF generation timed out after 25 seconds"))
+                    }
+                }, 25_000)
+
+                val printStarted = AtomicBoolean(false)
+
                 webView.webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView, url: String) {
+                        if (!printStarted.compareAndSet(false, true)) return
                         try {
                             val jobName = ExportHelper.sanitize(note.name)
                             val adapter = view.createPrintDocumentAdapter(jobName)
-                            PdfPrintDocumentBridge.print(adapter, printAttributes, outputFile, onComplete)
+                            PdfPrintDocumentBridge.print(adapter, printAttributes, outputFile) { success, err ->
+                                finish(success, err)
+                            }
                         } catch (t: Throwable) {
-                            onComplete(false, t)
+                            finish(false, t)
                         }
                     }
                 }
 
-                webView.loadDataWithBaseURL("file:///android_asset/", html, "text/html", "UTF-8", null)
+                webView.loadDataWithBaseURL("https://scribe.local/", html, "text/html", "UTF-8", null)
             } catch (t: Throwable) {
                 onComplete(false, t)
             }

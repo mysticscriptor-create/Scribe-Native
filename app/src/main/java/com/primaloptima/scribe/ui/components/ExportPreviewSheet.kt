@@ -177,10 +177,11 @@ fun ExportPreviewSheet(
         if (selectedFormat == ExportFormat.PDF) {
             isPdfLoading = true
             pdfErrorMessage = null
+            pdfPreviewFile = null
             val tempFile = ExportCacheManager.createPreviewFile(context, ".pdf")
             HtmlPdfExporter.renderPdfToFile(context, note, config, tempFile) { success, err ->
                 isPdfLoading = false
-                if (success) {
+                if (success && tempFile.exists() && tempFile.length() > 0L) {
                     pdfPreviewFile = tempFile
                 } else {
                     pdfErrorMessage = err?.localizedMessage ?: "Failed to generate PDF preview"
@@ -203,33 +204,51 @@ fun ExportPreviewSheet(
         if (destinationUri != null) {
             scope.launch(Dispatchers.IO) {
                 try {
-                    context.contentResolver.openOutputStream(destinationUri)?.use { os ->
-                        if (selectedFormat == ExportFormat.PDF) {
+                    if (selectedFormat == ExportFormat.PDF) {
+                        val existing = pdfPreviewFile
+                        if (existing != null && existing.exists() && existing.length() > 0L) {
+                            context.contentResolver.openOutputStream(destinationUri)?.use { stream ->
+                                stream.write(existing.readBytes())
+                            }
+                            withContext(Dispatchers.Main) {
+                                Toast.makeText(context, "Saved PDF manuscript successfully", Toast.LENGTH_SHORT).show()
+                                onDismiss()
+                            }
+                        } else {
+                            // If preview file is not ready yet, render it first and write to destinationUri upon completion
                             val tempPdf = ExportCacheManager.createPreviewFile(context, ".pdf")
                             HtmlPdfExporter.renderPdfToFile(context, note, config, tempPdf) { success, err ->
-                                if (success && tempPdf.exists()) {
+                                if (success && tempPdf.exists() && tempPdf.length() > 0L) {
                                     scope.launch(Dispatchers.IO) {
-                                        context.contentResolver.openOutputStream(destinationUri)?.use { stream ->
-                                            stream.write(tempPdf.readBytes())
-                                        }
-                                        withContext(Dispatchers.Main) {
-                                            Toast.makeText(context, "Saved ${selectedFormat.label} manuscript successfully", Toast.LENGTH_SHORT).show()
-                                            onDismiss()
+                                        try {
+                                            context.contentResolver.openOutputStream(destinationUri)?.use { stream ->
+                                                stream.write(tempPdf.readBytes())
+                                            }
+                                            withContext(Dispatchers.Main) {
+                                                Toast.makeText(context, "Saved PDF manuscript successfully", Toast.LENGTH_SHORT).show()
+                                                onDismiss()
+                                            }
+                                        } catch (e: Exception) {
+                                            withContext(Dispatchers.Main) {
+                                                Toast.makeText(context, "Failed to save PDF: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                            }
                                         }
                                     }
                                 } else {
                                     scope.launch(Dispatchers.Main) {
-                                        Toast.makeText(context, "Export error: ${err?.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "PDF export error: ${err?.localizedMessage ?: "Generation failed"}", Toast.LENGTH_SHORT).show()
                                     }
                                 }
                             }
-                        } else {
-                            val bytes = ExportHelper.exportBytes(context, note, selectedFormat.id, config)
+                        }
+                    } else {
+                        val bytes = ExportHelper.exportBytes(context, note, selectedFormat.id, config)
+                        context.contentResolver.openOutputStream(destinationUri)?.use { os ->
                             os.write(bytes)
-                            withContext(Dispatchers.Main) {
-                                Toast.makeText(context, "Saved ${selectedFormat.label} manuscript successfully", Toast.LENGTH_SHORT).show()
-                                onDismiss()
-                            }
+                        }
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(context, "Saved ${selectedFormat.label} manuscript successfully", Toast.LENGTH_SHORT).show()
+                            onDismiss()
                         }
                     }
                 } catch (e: Exception) {
@@ -467,6 +486,7 @@ fun ExportPreviewSheet(
                             val defaultName = "$safeName$finalExt"
                             createDocumentLauncher.launch(defaultName)
                         },
+                        enabled = !(selectedFormat == ExportFormat.PDF && isPdfLoading),
                         modifier = Modifier
                             .weight(1.3f)
                             .height(48.dp),
@@ -476,16 +496,26 @@ fun ExportPreviewSheet(
                             contentColor = MaterialTheme.colorScheme.onPrimary
                         )
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Download,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Save ${selectedFormat.label}",
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        if (selectedFormat == ExportFormat.PDF && isPdfLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Preparing PDF…")
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Save ${selectedFormat.label}",
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
             }

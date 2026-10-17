@@ -18,17 +18,25 @@ object PdfPrintDocumentBridge {
         onComplete: (Boolean, Throwable?) -> Unit
     ) {
         val cancellationSignal = CancellationSignal()
+        try {
+            outputFile.parentFile?.mkdirs()
+            if (outputFile.exists()) outputFile.delete()
+        } catch (_: Throwable) {}
+
+        try {
+            adapter.onStart()
+        } catch (_: Throwable) {}
+
         adapter.onLayout(
-            null,
+            attributes,
             attributes,
             cancellationSignal,
             object : PrintDocumentAdapter.LayoutResultCallback() {
                 override fun onLayoutFinished(info: PrintDocumentInfo?, changed: Boolean) {
                     try {
-                        if (outputFile.exists()) outputFile.delete()
                         val pfd = ParcelFileDescriptor.open(
                             outputFile,
-                            ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE
+                            ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE or ParcelFileDescriptor.MODE_TRUNCATE
                         )
                         adapter.onWrite(
                             arrayOf(PageRange.ALL_PAGES),
@@ -39,12 +47,18 @@ object PdfPrintDocumentBridge {
                                     try {
                                         pfd.close()
                                     } catch (_: Throwable) {}
+                                    try {
+                                        adapter.onFinish()
+                                    } catch (_: Throwable) {}
                                     onComplete(true, null)
                                 }
 
                                 override fun onWriteFailed(error: CharSequence?) {
                                     try {
                                         pfd.close()
+                                    } catch (_: Throwable) {}
+                                    try {
+                                        adapter.onFinish()
                                     } catch (_: Throwable) {}
                                     onComplete(false, RuntimeException(error?.toString() ?: "PDF write failed"))
                                 }
@@ -53,24 +67,36 @@ object PdfPrintDocumentBridge {
                                     try {
                                         pfd.close()
                                     } catch (_: Throwable) {}
+                                    try {
+                                        adapter.onFinish()
+                                    } catch (_: Throwable) {}
                                     onComplete(false, RuntimeException("PDF write cancelled"))
                                 }
                             }
                         )
                     } catch (t: Throwable) {
+                        try {
+                            adapter.onFinish()
+                        } catch (_: Throwable) {}
                         onComplete(false, t)
                     }
                 }
 
                 override fun onLayoutFailed(error: CharSequence?) {
+                    try {
+                        adapter.onFinish()
+                    } catch (_: Throwable) {}
                     onComplete(false, RuntimeException(error?.toString() ?: "PDF layout failed"))
                 }
 
                 override fun onLayoutCancelled() {
+                    try {
+                        adapter.onFinish()
+                    } catch (_: Throwable) {}
                     onComplete(false, RuntimeException("PDF layout cancelled"))
                 }
             },
-            null as Bundle?
+            Bundle().apply { putBoolean(PrintDocumentAdapter.EXTRA_PRINT_PREVIEW, false) }
         )
     }
 }
