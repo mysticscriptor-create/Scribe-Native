@@ -1,18 +1,15 @@
 package com.primaloptima.scribe.util.export
 
 import android.content.Context
-import android.os.CancellationSignal
 import android.os.Handler
 import android.os.Looper
-import android.os.ParcelFileDescriptor
-import android.print.PageRange
+import android.print.PdfPrintDocumentBridge
 import android.print.PrintAttributes
-import android.print.PrintDocumentAdapter
-import android.print.PrintDocumentInfo
 import android.util.Base64
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.util.ExportHelper
 import com.primaloptima.scribe.util.MarkdownUtil
 import com.primaloptima.scribe.util.image.VaultImageManager
 import java.io.File
@@ -45,21 +42,23 @@ object HtmlPdfExporter {
             """<h1 class="document-title">$titleEscaped</h1>"""
         } else ""
 
-        return """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>$titleEscaped</title>
-  <style>
-$css
-  </style>
-</head>
-<body>
-  $coverTitleHtml
-  $bodyHtml
-</body>
-</html>""".trimIndent()
+        return """
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+              <meta charset="utf-8"/>
+              <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+              <title>$titleEscaped</title>
+              <style>
+            $css
+              </style>
+            </head>
+            <body>
+              $coverTitleHtml
+              $bodyHtml
+            </body>
+            </html>
+        """.trimIndent()
     }
 
     private fun resolveImageToBase64(
@@ -118,62 +117,7 @@ $css
                         try {
                             val jobName = ExportHelper.sanitize(note.name)
                             val adapter = view.createPrintDocumentAdapter(jobName)
-                            val cancellationSignal = CancellationSignal()
-
-                            adapter.onLayout(
-                                null,
-                                printAttributes,
-                                cancellationSignal,
-                                object : PrintDocumentAdapter.LayoutResultCallback() {
-                                    override fun onLayoutFinished(info: PrintDocumentInfo?, changed: Boolean) {
-                                        try {
-                                            if (outputFile.exists()) outputFile.delete()
-                                            val pfd = ParcelFileDescriptor.open(
-                                                outputFile,
-                                                ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE
-                                            )
-                                            adapter.onWrite(
-                                                arrayOf(PageRange.ALL_PAGES),
-                                                pfd,
-                                                cancellationSignal,
-                                                object : PrintDocumentAdapter.WriteResultCallback() {
-                                                    override fun onWriteFinished(pages: Array<out PageRange>?) {
-                                                        try {
-                                                            pfd.close()
-                                                        } catch (_: Throwable) {}
-                                                        onComplete(true, null)
-                                                    }
-
-                                                    override fun onWriteFailed(error: CharSequence?) {
-                                                        try {
-                                                            pfd.close()
-                                                        } catch (_: Throwable) {}
-                                                        onComplete(false, RuntimeException(error?.toString() ?: "PDF write failed"))
-                                                    }
-
-                                                    override fun onWriteCancelled() {
-                                                        try {
-                                                            pfd.close()
-                                                        } catch (_: Throwable) {}
-                                                        onComplete(false, RuntimeException("PDF write cancelled"))
-                                                    }
-                                                }
-                                            )
-                                        } catch (t: Throwable) {
-                                            onComplete(false, t)
-                                        }
-                                    }
-
-                                    override fun onLayoutFailed(error: CharSequence?) {
-                                        onComplete(false, RuntimeException(error?.toString() ?: "PDF layout failed"))
-                                    }
-
-                                    override fun onLayoutCancelled() {
-                                        onComplete(false, RuntimeException("PDF layout cancelled"))
-                                    }
-                                },
-                                null
-                            )
+                            PdfPrintDocumentBridge.print(adapter, printAttributes, outputFile, onComplete)
                         } catch (t: Throwable) {
                             onComplete(false, t)
                         }
