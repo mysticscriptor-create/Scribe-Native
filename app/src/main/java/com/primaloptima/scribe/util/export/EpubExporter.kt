@@ -44,7 +44,7 @@ object EpubExporter {
         val imgRegex = Regex("""!\[(.*?)\]\((vault-img://[^\s)]+|https?://[^\s)]+|content://[^\s)]+|[^\s)]+)\)""")
 
         fun processHtml(markdownText: String): String {
-            return MarkdownUtil.toHtmlBody(markdownText) { src: String ->
+            return ScribeMarkdownEngine.toHtml(markdownText) { src: String ->
                 val bytes = if (context != null) VaultImageManager.getImageBytes(context, src, note.bookId, note.id) else null
                 if (bytes != null) {
                     val ext = if (src.endsWith(".png", true)) "png" else "jpg"

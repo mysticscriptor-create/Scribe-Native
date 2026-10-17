@@ -120,83 +120,7 @@ object MarkdownUtil {
     // ── Simple HTML renderer ──────────────────────────────────────────────────
 
     fun toHtmlBody(markdown: String, imageResolver: ((String) -> String)? = null): String {
-        val sb = StringBuilder()
-        val lines = markdown.lines()
-        var i = 0
-
-        while (i < lines.size) {
-            val line = lines[i]
-            val trimmed = line.trimStart()
-
-            when {
-                trimmed.startsWith("#### ") -> {
-                    sb.append("<h4>${inlineHtml(trimmed.drop(5))}</h4>\n"); i++
-                }
-                trimmed.startsWith("### ") -> {
-                    sb.append("<h3>${inlineHtml(trimmed.drop(4))}</h3>\n"); i++
-                }
-                trimmed.startsWith("## ") -> {
-                    sb.append("<h2>${inlineHtml(trimmed.drop(3))}</h2>\n"); i++
-                }
-                trimmed.startsWith("# ") -> {
-                    sb.append("<h1>${inlineHtml(trimmed.drop(2))}</h1>\n"); i++
-                }
-                trimmed.startsWith("> ") -> {
-                    sb.append("<blockquote>${inlineHtml(trimmed.drop(2))}</blockquote>\n"); i++
-                }
-                trimmed.startsWith("```") -> {
-                    val lang = trimmed.drop(3).trim()
-                    sb.append("<pre><code${if (lang.isNotEmpty()) " class=\"language-$lang\"" else ""}>")
-                    i++
-                    while (i < lines.size && !lines[i].trimStart().startsWith("```")) {
-                        sb.append(escapeHtml(lines[i])).append("\n")
-                        i++
-                    }
-                    sb.append("</code></pre>\n")
-                    i++
-                }
-                trimmed == "---" || trimmed == "***" || trimmed == "___" -> {
-                    sb.append("<hr/>\n"); i++
-                }
-                (trimmed.startsWith("- ") || trimmed.startsWith("* ")) -> {
-                    sb.append("<ul>\n")
-                    while (i < lines.size) {
-                        val l = lines[i].trimStart()
-                        if (!l.startsWith("- ") && !l.startsWith("* ")) break
-                        val content = if (l.startsWith("- ")) l.drop(2) else l.drop(2)
-                        sb.append("  <li>${inlineHtml(content)}</li>\n")
-                        i++
-                    }
-                    sb.append("</ul>\n")
-                }
-                trimmed.matches(Regex("\\d+\\. .*")) -> {
-                    sb.append("<ol>\n")
-                    while (i < lines.size) {
-                        val l = lines[i].trimStart()
-                        if (!l.matches(Regex("\\d+\\. .*"))) break
-                        val content = l.replace(Regex("^\\d+\\. "), "")
-                        sb.append("  <li>${inlineHtml(content)}</li>\n")
-                        i++
-                    }
-                    sb.append("</ol>\n")
-                }
-                trimmed.contains("![") && trimmed.contains("](") -> {
-                    val imgRegex = Regex("""!\[(.*?)\]\((.*?)\)""")
-                    val rendered = imgRegex.replace(trimmed) { mr ->
-                        val alt = mr.groupValues[1]
-                        val src = mr.groupValues[2]
-                        val resolvedSrc = imageResolver?.invoke(src) ?: src
-                        "<figure style=\"text-align:center; margin:24px 0;\"><img src=\"$resolvedSrc\" alt=\"${escapeHtml(alt)}\" style=\"max-width:100%; height:auto; border-radius:8px; display:inline-block;\"/>" +
-                        (if (alt.isNotBlank()) "<figcaption style=\"font-size:0.85em; color:#777; margin-top:6px; font-style:italic;\">${escapeHtml(alt)}</figcaption>" else "") +
-                        "</figure>"
-                    }
-                    sb.append(rendered).append("\n"); i++
-                }
-                trimmed.isEmpty() -> { sb.append(""); i++ }
-                else -> { sb.append("<p>${inlineHtml(trimmed)}</p>\n"); i++ }
-            }
-        }
-        return sb.toString()
+        return ScribeMarkdownEngine.toHtml(markdown, imageResolver)
     }
 
     fun fullHtmlDocument(title: String, bodyHtml: String): String = """
@@ -251,25 +175,11 @@ $bodyHtml
      * Strip all Markdown syntax and return plain text.
      * Used for export to .txt / .docx.
      */
+    /**
+     * Strip all Markdown syntax and return plain text.
+     * Delegates to SSoT AST PlainEmitter.
+     */
     fun toPlainText(markdown: String): String {
-        var s = markdown
-        // Replace image tags with clean editorial annotations
-        s = s.replace(Regex("""!\[(.*?)\]\((.*?)\)""")) { mr ->
-            val alt = mr.groupValues[1].trim()
-            if (alt.isNotBlank()) "\n[Illustration: $alt]\n" else "\n[Illustration]\n"
-        }
-        s = s.replace(Regex("^#{1,6}\\s+", RegexOption.MULTILINE), "")
-        s = s.replace(Regex("\\*\\*\\*(.+?)\\*\\*\\*"), "$1")
-        s = s.replace(Regex("\\*\\*(.+?)\\*\\*"), "$1")
-        s = s.replace(Regex("\\*(.+?)\\*"), "$1")
-        s = s.replace(Regex("_(.+?)_"), "$1")
-        s = s.replace(Regex("`(.+?)`"), "$1")
-        s = s.replace(Regex("```[^`]*```", RegexOption.DOT_MATCHES_ALL), "")
-        s = s.replace(Regex("\\[(.+?)\\]\\(.+?\\)"), "$1")
-        s = s.replace(Regex("^>\\s?", RegexOption.MULTILINE), "")
-        s = s.replace(Regex("^[-*]\\s", RegexOption.MULTILINE), "")
-        s = s.replace(Regex("^\\d+\\.\\s", RegexOption.MULTILINE), "")
-        s = s.replace(Regex("---+"), "")
-        return s.trim()
+        return ScribeMarkdownEngine.toPlainText(markdown)
     }
 }

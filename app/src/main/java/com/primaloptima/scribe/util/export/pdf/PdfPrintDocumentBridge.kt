@@ -1,14 +1,18 @@
-package android.print
+package com.primaloptima.scribe.util.export.pdf
 
 import android.os.Bundle
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
+import android.print.PageRange
+import android.print.PrintAttributes
+import android.print.PrintDocumentAdapter
+import android.print.PrintDocumentInfo
 import java.io.File
 
 /**
- * Bridge helper located within [android.print] package to enable access
- * to package-private [PrintDocumentAdapter.LayoutResultCallback] and
- * [PrintDocumentAdapter.WriteResultCallback] constructors during headless PDF rendering.
+ * Public PDF print bridge located in [com.primaloptima.scribe.util.export.pdf].
+ * Completely eliminates the illegal package-private placement in android.* namespace
+ * ensuring compliance with Android 14+ strict runtime classloader verification.
  */
 object PdfPrintDocumentBridge {
     fun print(

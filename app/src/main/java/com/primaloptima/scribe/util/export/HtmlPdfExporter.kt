@@ -3,7 +3,6 @@ package com.primaloptima.scribe.util.export
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.print.PdfPrintDocumentBridge
 import android.print.PrintAttributes
 import android.util.Base64
 import android.webkit.WebView
@@ -11,6 +10,7 @@ import android.webkit.WebViewClient
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.util.ExportHelper
 import com.primaloptima.scribe.util.MarkdownUtil
+import com.primaloptima.scribe.util.export.pdf.PdfPrintDocumentBridge
 import com.primaloptima.scribe.util.image.VaultImageManager
 import java.io.File
 import java.util.Collections
@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Handles HTML publication compilation and headless PDF generation using
- * Android's Print infrastructure and print-media CSS layouts.
+ * Android's Print infrastructure, Scribe AST Markdown engine, and print-media CSS layouts.
  */
 object HtmlPdfExporter {
 
@@ -26,7 +26,8 @@ object HtmlPdfExporter {
     private val activeWebViews = Collections.synchronizedSet(mutableSetOf<WebView>())
 
     /**
-     * Builds a self-contained HTML document with embedded styles and Base64 images.
+     * Builds a self-contained HTML document with embedded styles and Base64 images
+     * using the unified [ScribeMarkdownEngine] AST pipeline.
      */
     fun buildHtmlDocument(
         context: Context,
@@ -38,8 +39,7 @@ object HtmlPdfExporter {
         val title = note.name.ifBlank { "Untitled Manuscript" }
         val titleEscaped = MarkdownUtil.escapeHtml(title)
         val css = ExportThemeMapper.generateExportCss(config, themeColors, isForPrintPdf = isForPrintPdf)
-
-        val bodyHtml = MarkdownUtil.toHtmlBody(note.content) { src ->
+        val bodyHtml = ScribeMarkdownEngine.toHtml(note.content) { src ->
             resolveImageToBase64(context, src, note.bookId, note.id) ?: src
         }
 
@@ -80,7 +80,8 @@ object HtmlPdfExporter {
 
     /**
      * Headless background generation of a genuine print-ready PDF file into [outputFile].
-     * Must instantiate WebView on the Main Looper, retain it against GC, and coordinate asynchronous printing.
+     * Instantiates WebView on the Main Looper, retains it against GC, and coordinates asynchronous printing
+     * via the public [PdfPrintDocumentBridge].
      */
     fun renderPdfToFile(
         context: Context,
@@ -143,7 +144,6 @@ object HtmlPdfExporter {
                 }, 25_000)
 
                 val printStarted = AtomicBoolean(false)
-
                 webView.webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView, url: String) {
                         if (!printStarted.compareAndSet(false, true)) return
