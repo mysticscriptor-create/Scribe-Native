@@ -3,7 +3,6 @@ package com.primaloptima.scribe.util.export
 /**
  * Modern typed configuration models for Scribe's multi-format export pipeline.
  */
-
 enum class ExportFormat(
     val id: String,
     val label: String,
@@ -12,7 +11,7 @@ enum class ExportFormat(
     val description: String
 ) {
     PDF("pdf", "PDF", ".pdf", "application/pdf", "Print-ready document with high-resolution typography & illustrations"),
-    EPUB("epub", "EPUB", ".epub", "application/epub+zip", "Standard reflowable EPUB 3.0 eBook with bundled styles, TOC & illustrations"),
+    EPUB("epub", "EPUB", ".epub", "application/epub+zip", "Standard reflowable EPUB 3.3 eBook with bundled styles, TOC & illustrations"),
     DOCX("docx", "DOCX", ".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "Microsoft Word document with embedded OpenXML styles, lists & tables"),
     HTML("html", "HTML", ".html", "text/html", "Standalone web page with inline self-contained illustrations & responsive CSS"),
     MD("md", "Markdown", ".md", "text/markdown", "Clean Markdown manuscript source text (packaged with images as ZIP when images are present)"),
@@ -85,5 +84,6 @@ data class ExportConfig(
     val lineSpacingMultiplier: Float = 1.6f,
     val includeCoverTitle: Boolean = true,
     val includeTableOfContents: Boolean = true,
-    val imageQuality: ImageQuality = ImageQuality.HIGH_RES
+    val imageQuality: ImageQuality = ImageQuality.HIGH_RES,
+    val authorName: String = ""
 )

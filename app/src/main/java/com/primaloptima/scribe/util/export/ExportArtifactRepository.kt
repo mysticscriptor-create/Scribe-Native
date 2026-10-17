@@ -78,10 +78,10 @@ object ExportArtifactRepository {
         assetRevisionsHash: String = ""
     ): String {
         val canonicalConfig = when (format) {
-            ExportFormat.PDF -> "p:${config.paperSize.name}_m:${config.marginPreset.name}_f:${config.fontChoice.name}_sz:${config.fontSizePt}_lh:${config.lineSpacingMultiplier}_c:${config.includeCoverTitle}_q:${config.imageQuality.name}"
-            ExportFormat.DOCX -> "p:${config.paperSize.name}_m:${config.marginPreset.name}_f:${config.fontChoice.name}_sz:${config.fontSizePt}_c:${config.includeCoverTitle}"
-            ExportFormat.EPUB -> "f:${config.fontChoice.name}_c:${config.includeCoverTitle}_toc:${config.includeTableOfContents}_q:${config.imageQuality.name}"
-            ExportFormat.HTML -> "f:${config.fontChoice.name}_c:${config.includeCoverTitle}"
+            ExportFormat.PDF -> "p:${config.paperSize.name}_m:${config.marginPreset.name}_f:${config.fontChoice.name}_sz:${config.fontSizePt}_lh:${config.lineSpacingMultiplier}_c:${config.includeCoverTitle}_q:${config.imageQuality.name}_a:${config.authorName}"
+            ExportFormat.DOCX -> "p:${config.paperSize.name}_m:${config.marginPreset.name}_f:${config.fontChoice.name}_sz:${config.fontSizePt}_c:${config.includeCoverTitle}_a:${config.authorName}"
+            ExportFormat.EPUB -> "f:${config.fontChoice.name}_c:${config.includeCoverTitle}_toc:${config.includeTableOfContents}_q:${config.imageQuality.name}_a:${config.authorName}"
+            ExportFormat.HTML -> "f:${config.fontChoice.name}_c:${config.includeCoverTitle}_a:${config.authorName}"
             ExportFormat.MD, ExportFormat.TXT -> "raw"
         }
 

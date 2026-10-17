@@ -15,36 +15,50 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 /**
- * Standards-compliant EPUB 3.0 publication engine with uncompressed mimetype,
- * full navigation documents, backwards-compatible NCX table of contents,
- * embedded styles, and chapter splitting.
+ * Modern standards-compliant EPUB 3.3 publication engine for Scribe.
+ *
+ * Conformance:
+ * 1. Uncompressed US-ASCII mimetype at archive byte offset 0 with zero extra fields.
+ * 2. Strict XHTML5 / XML conformance across all content documents with self-closing void tags.
+ * 3. Safe, non-lossy AST-driven chapter splitting preserving pre-chapter front matter.
+ * 4. EPUB 3 navigation document (nav.xhtml) with semantic landmarks and legacy NCX fallback.
+ * 5. Dynamic author profile, UUID identifier, and ISO-8601 UTC timestamp metadata.
  */
 object EpubExporter {
 
-    data class Chapter(
+    data class EpubChapter(
         val id: String,
-        val title: String,
         val filename: String,
-        val htmlContent: String
+        val title: String,
+        val isFrontMatter: Boolean,
+        val nodes: List<MarkdownNode.BlockNode>
     )
 
     fun export(context: Context?, note: Note, config: ExportConfig): ByteArray {
         val themeColors = ExportThemeMapper.resolveThemeColors(context)
         val title = note.name.ifBlank { "Untitled Manuscript" }
         val titleXml = MarkdownUtil.xmlEscape(title)
+        val authorName = config.authorName.ifBlank { "Scribe Author" }
+        val authorXml = MarkdownUtil.xmlEscape(authorName)
         val uuid = "urn:uuid:" + UUID.nameUUIDFromBytes(note.id.toByteArray()).toString()
         val isoDate = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }.format(Date())
 
+        // 1. Parse markdown source into unified AST
+        val ast = ScribeMarkdownAstParser.parse(note.content)
+
+        // 2. Split into chapters with zero data loss guarantee
+        val chapters = splitIntoChapters(ast, title)
+
+        // 3. Resolve images across chapters
         val imageEntries = mutableMapOf<String, ByteArray>()
         val imageManifest = mutableListOf<String>()
+        val imageCache = mutableMapOf<String, String>()
         var imageIndex = 1
 
-        val imgRegex = Regex("""!\[(.*?)\]\((vault-img://[^\s)]+|https?://[^\s)]+|content://[^\s)]+|[^\s)]+)\)""")
-
-        fun processHtml(markdownText: String): String {
-            return ScribeMarkdownEngine.toHtml(markdownText) { src: String ->
+        val processImageSrc: (String) -> String = { src ->
+            imageCache.getOrPut(src) {
                 val bytes = if (context != null) VaultImageManager.getImageBytes(context, src, note.bookId, note.id) else null
                 if (bytes != null) {
                     val ext = if (src.endsWith(".png", true)) "png" else "jpg"
@@ -60,16 +74,13 @@ object EpubExporter {
             }
         }
 
-        // Split chapters on H1 headings if multiple exist
-        val chapters = splitIntoChapters(note.content, title, ::processHtml)
-
         val entries = mutableMapOf<String, ByteArray>()
 
-        // 1. mimetype (MUST BE FIRST & STORED)
+        // 4. mimetype (MUST BE FIRST & STORED)
         val mimetypeBytes = "application/epub+zip".toByteArray(Charsets.US_ASCII)
         entries["mimetype"] = mimetypeBytes
 
-        // 2. META-INF/container.xml
+        // 5. META-INF/container.xml
         entries["META-INF/container.xml"] = """<?xml version="1.0" encoding="UTF-8"?>
 <container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
   <rootfiles>
@@ -77,13 +88,18 @@ object EpubExporter {
   </rootfiles>
 </container>""".trimIndent().toByteArray(Charsets.UTF_8)
 
-        // 3. OEBPS/styles.css
+        // 6. OEBPS/styles.css
         val cssContent = ExportThemeMapper.generateExportCss(config, themeColors, isForPrintPdf = false)
         entries["OEBPS/styles.css"] = cssContent.toByteArray(Charsets.UTF_8)
 
-        // 4. Chapter XHTML files
+        // 7. Chapter XHTML documents with strict XHTML5 XML syntax
         for (chap in chapters) {
             val chapTitleXml = MarkdownUtil.xmlEscape(chap.title)
+            val chapDoc = MarkdownNode.Document(chap.nodes)
+            val chapHtml = HtmlEmitter.emit(chapDoc, processImageSrc)
+            val bodyType = if (chap.isFrontMatter) "frontmatter" else "bodymatter"
+            val sectionType = if (chap.isFrontMatter) "prologue" else "chapter"
+
             val chapterDoc = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="en" lang="en">
@@ -92,19 +108,21 @@ object EpubExporter {
   <title>$chapTitleXml</title>
   <link rel="stylesheet" type="text/css" href="styles.css"/>
 </head>
-<body epub:type="bodymatter">
-  <section epub:type="chapter">
-    ${chap.htmlContent}
+<body epub:type="$bodyType">
+  <section epub:type="$sectionType">
+    $chapHtml
   </section>
 </body>
 </html>""".trimIndent()
             entries["OEBPS/${chap.filename}"] = chapterDoc.toByteArray(Charsets.UTF_8)
         }
 
-        // 5. OEBPS/nav.xhtml (EPUB 3 Navigation Document)
+        // 8. OEBPS/nav.xhtml (EPUB 3 Navigation Document with TOC & Landmarks)
         val navItems = chapters.joinToString("\n") { chap ->
             """      <li><a href="${chap.filename}">${MarkdownUtil.xmlEscape(chap.title)}</a></li>"""
         }
+        val firstBodyChapter = chapters.firstOrNull { !it.isFrontMatter } ?: chapters.first()
+
         val navDoc = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="en" lang="en">
@@ -124,14 +142,14 @@ $navItems
     <h2>Landmarks</h2>
     <ol>
       <li><a epub:type="toc" href="#toc">Table of Contents</a></li>
-      <li><a epub:type="bodymatter" href="${chapters.first().filename}">Start of Content</a></li>
+      <li><a epub:type="bodymatter" href="${firstBodyChapter.filename}">Start of Content</a></li>
     </ol>
   </nav>
 </body>
 </html>""".trimIndent()
         entries["OEBPS/nav.xhtml"] = navDoc.toByteArray(Charsets.UTF_8)
 
-        // 6. OEBPS/toc.ncx (Backwards compatibility for legacy e-readers)
+        // 9. OEBPS/toc.ncx (Backwards compatibility for legacy e-readers)
         val ncxNavPoints = chapters.mapIndexed { idx, chap ->
             val order = idx + 1
             """    <navPoint id="navPoint-$order" playOrder="$order">
@@ -155,7 +173,7 @@ $ncxNavPoints
 </ncx>""".trimIndent()
         entries["OEBPS/toc.ncx"] = tocNcx.toByteArray(Charsets.UTF_8)
 
-        // 7. OEBPS/content.opf (Package Document)
+        // 10. OEBPS/content.opf (Package Document)
         val manifestChapters = chapters.joinToString("\n") { chap ->
             """    <item id="${chap.id}" href="${chap.filename}" media-type="application/xhtml+xml"/>"""
         }
@@ -170,7 +188,7 @@ $ncxNavPoints
     <dc:identifier id="pub-id">$uuid</dc:identifier>
     <dc:title>$titleXml</dc:title>
     <dc:language>en</dc:language>
-    <dc:creator>Scribe Author</dc:creator>
+    <dc:creator id="author">$authorXml</dc:creator>
     <meta property="dcterms:modified">$isoDate</meta>
   </metadata>
   <manifest>
@@ -185,65 +203,86 @@ $spineItems
 </package>""".trimIndent()
         entries["OEBPS/content.opf"] = opfDoc.toByteArray(Charsets.UTF_8)
 
-        // Add embedded images
+        // 11. Add embedded images
         entries.putAll(imageEntries)
 
         return buildEpubZip(entries)
     }
 
-    private fun splitIntoChapters(
-        content: String,
-        fallbackTitle: String,
-        htmlRenderer: (String) -> String
-    ): List<Chapter> {
-        val lines = content.lines()
-        val h1Indices = mutableListOf<Pair<Int, String>>()
+    /**
+     * Safely splits unified AST nodes into individual chapter containers.
+     * Guarantees 0% data loss by isolating any pre-chapter prose into [frontmatter.xhtml].
+     */
+    fun splitIntoChapters(
+        ast: MarkdownNode.Document,
+        fallbackTitle: String
+    ): List<EpubChapter> {
+        val h1Nodes = ast.children.filterIsInstance<MarkdownNode.BlockNode.Heading>().filter { it.level == 1 }
 
-        for (i in lines.indices) {
-            val line = lines[i].trim()
-            if (line.startsWith("# ") && !line.startsWith("##")) {
-                val h1Title = line.removePrefix("# ").trim()
-                h1Indices.add(i to h1Title)
-            }
-        }
-
-        if (h1Indices.size <= 1) {
-            // Single chapter
-            val chapTitle = h1Indices.firstOrNull()?.second ?: fallbackTitle
+        if (h1Nodes.isEmpty()) {
             return listOf(
-                Chapter(
+                EpubChapter(
                     id = "chap_1",
-                    title = chapTitle,
                     filename = "chapter_1.xhtml",
-                    htmlContent = htmlRenderer(content)
+                    title = fallbackTitle,
+                    isFrontMatter = false,
+                    nodes = ast.children
                 )
             )
         }
 
-        // Multiple chapters
-        val chapters = mutableListOf<Chapter>()
-        for (k in h1Indices.indices) {
-            val startLine = h1Indices[k].first
-            val endLine = if (k + 1 < h1Indices.size) h1Indices[k + 1].first else lines.size
-            val chapLines = lines.subList(startLine, endLine)
-            val chapMarkdown = chapLines.joinToString("\n")
-            val chapNumber = k + 1
+        val chapters = mutableListOf<EpubChapter>()
+        var currentTitle = "Front Matter"
+        var currentNodes = mutableListOf<MarkdownNode.BlockNode>()
+        var actualChapterIdx = 1
+
+        for (node in ast.children) {
+            if (node is MarkdownNode.BlockNode.Heading && node.level == 1) {
+                if (currentNodes.isNotEmpty()) {
+                    val isFrontMatter = chapters.isEmpty() && currentTitle == "Front Matter"
+                    val id = if (isFrontMatter) "frontmatter" else "chap_$actualChapterIdx"
+                    val filename = if (isFrontMatter) "frontmatter.xhtml" else "chapter_$actualChapterIdx.xhtml"
+                    chapters.add(
+                        EpubChapter(
+                            id = id,
+                            filename = filename,
+                            title = currentTitle,
+                            isFrontMatter = isFrontMatter,
+                            nodes = currentNodes.toList()
+                        )
+                    )
+                    if (!isFrontMatter) {
+                        actualChapterIdx++
+                    }
+                    currentNodes.clear()
+                }
+                currentTitle = node.runs.joinToString("") { it.text }.ifBlank { "Chapter $actualChapterIdx" }
+            }
+            currentNodes.add(node)
+        }
+
+        if (currentNodes.isNotEmpty()) {
+            val isFrontMatter = chapters.isEmpty() && currentTitle == "Front Matter"
+            val id = if (isFrontMatter) "frontmatter" else "chap_$actualChapterIdx"
+            val filename = if (isFrontMatter) "frontmatter.xhtml" else "chapter_$actualChapterIdx.xhtml"
             chapters.add(
-                Chapter(
-                    id = "chap_$chapNumber",
-                    title = h1Indices[k].second,
-                    filename = "chapter_$chapNumber.xhtml",
-                    htmlContent = htmlRenderer(chapMarkdown)
+                EpubChapter(
+                    id = id,
+                    filename = filename,
+                    title = currentTitle,
+                    isFrontMatter = isFrontMatter,
+                    nodes = currentNodes.toList()
                 )
             )
         }
+
         return chapters
     }
 
     private fun buildEpubZip(entries: Map<String, ByteArray>): ByteArray {
         val baos = ByteArrayOutputStream()
         ZipOutputStream(baos).use { zos ->
-            // Crucial: mimetype MUST be stored first uncompressed
+            // Crucial: mimetype MUST be stored first uncompressed with zero extra fields
             val mimeBytes = entries["mimetype"] ?: "application/epub+zip".toByteArray(Charsets.US_ASCII)
             val mimeEntry = ZipEntry("mimetype").apply {
                 method = ZipEntry.STORED
@@ -252,6 +291,7 @@ $spineItems
                 val crc = CRC32()
                 crc.update(mimeBytes)
                 this.crc = crc.value
+                extra = null
             }
             zos.putNextEntry(mimeEntry)
             zos.write(mimeBytes)
@@ -260,7 +300,9 @@ $spineItems
             // Remaining entries compressed
             for ((name, bytes) in entries) {
                 if (name == "mimetype") continue
-                val entry = ZipEntry(name)
+                val entry = ZipEntry(name).apply {
+                    method = ZipEntry.DEFLATED
+                }
                 zos.putNextEntry(entry)
                 zos.write(bytes)
                 zos.closeEntry()

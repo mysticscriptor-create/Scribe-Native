@@ -54,6 +54,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
@@ -599,6 +600,17 @@ private fun StyleOverridesPanel(
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
                 )
+                // Author / Pen Name Input (EPUB, DOCX, PDF)
+                if (selectedFormat == ExportFormat.EPUB || selectedFormat == ExportFormat.DOCX || selectedFormat == ExportFormat.PDF) {
+                    OutlinedTextField(
+                        value = config.authorName,
+                        onValueChange = { onConfigChanged(config.copy(authorName = it)) },
+                        label = { Text("Author / Pen Name") },
+                        placeholder = { Text("e.g. Scribe Author") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
 
                 // Cover Title Switch
                 Row(
