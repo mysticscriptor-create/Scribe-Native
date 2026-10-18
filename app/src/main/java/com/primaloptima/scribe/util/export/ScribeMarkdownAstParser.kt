@@ -2,9 +2,9 @@ package com.primaloptima.scribe.util.export
 
 /**
  * High-performance, standards-compliant CommonMark AST parser for the Scribe export engine.
- * Generates an immutable, structured document tree supporting multi-level lists,
- * aligned tables, code fences, blockquotes, illustrations, and rich inline runs
- * with character escaping and hard line-break semantics.
+ * Generates an immutable, structured document tree supporting multi-level lists (ilvl 0..8),
+ * tables (with or without outer pipes, with uneven row padding), code fences, blockquotes,
+ * illustrations, and rich inline runs with character escaping, soft breaks, and hard line-break semantics.
  */
 object ScribeMarkdownAstParser {
 
@@ -112,7 +112,7 @@ object ScribeMarkdownAstParser {
                 continue
             }
 
-            // 6. Tables (| H1 | H2 | ...)
+            // 6. Tables (with or without outer pipes, e.g. `| A | B |` or `A | B`)
             if (isTableRow(trimmed) && i + 1 < count && isTableSeparatorRow(lines[i + 1].trim())) {
                 val headerCells = parseTableCells(trimmed)
                 val sepLine = lines[i + 1].trim()
@@ -120,9 +120,9 @@ object ScribeMarkdownAstParser {
                 i += 2 // consume header and separator
 
                 val rows = mutableListOf<List<MarkdownNode.BlockNode.TableCell>>()
-                while (i < count && isTableRow(lines[i].trim())) {
+                while (i < count && isTableRow(lines[i].trim()) && !isTableSeparatorRow(lines[i].trim())) {
                     val rawCells = parseTableCells(lines[i].trim())
-                    // Pad cells to match column count
+                    // Pad or trim cells to match column count
                     val paddedCells = (0 until headerCells.size).map { colIdx ->
                         if (colIdx < rawCells.size) rawCells[colIdx]
                         else MarkdownNode.BlockNode.TableCell(emptyList())
@@ -143,8 +143,8 @@ object ScribeMarkdownAstParser {
             // 7. Lists (Ordered and Unordered with Nesting)
             if (isListLine(line)) {
                 val listItems = mutableListOf<MarkdownNode.BlockNode.ListItem>()
-                var isOrderedList = isOrderedListLine(line)
-                var startNumber = if (isOrderedList) extractOrderedNumber(line) else 1
+                val isOrderedList = isOrderedListLine(line)
+                val startNumber = if (isOrderedList) extractOrderedNumber(line) else 1
 
                 while (i < count && isListLine(lines[i])) {
                     val curLine = lines[i]
@@ -200,6 +200,7 @@ object ScribeMarkdownAstParser {
             while (i < count) {
                 val pLine = lines[i]
                 val pTrim = pLine.trim()
+
                 if (pTrim.isEmpty() ||
                     pTrim.startsWith("#") ||
                     pTrim.startsWith(">") ||
@@ -226,7 +227,7 @@ object ScribeMarkdownAstParser {
                 if (isHardBreak) {
                     paragraphRuns.add(MarkdownNode.InlineRun(text = "", isHardBreak = true))
                 } else {
-                    // Soft break: single space between joined lines if not last
+                    // Soft break: single space between joined lines if not last line of paragraph
                     if (i + 1 < count && lines[i + 1].trim().isNotBlank() && !isBlockStarter(lines[i + 1])) {
                         paragraphRuns.add(MarkdownNode.InlineRun(text = " "))
                     }
@@ -252,7 +253,7 @@ object ScribeMarkdownAstParser {
                 trimmed.startsWith("~~~") ||
                 trimmed == "---" || trimmed == "***" || trimmed == "___" ||
                 isListLine(line) ||
-                isTableRow(trimmed) ||
+                (isTableRow(trimmed)) ||
                 standaloneImageRegex.matches(trimmed)
     }
 
@@ -295,14 +296,18 @@ object ScribeMarkdownAstParser {
     }
 
     private fun isTableRow(line: String): Boolean {
-        return line.contains("|") && (line.startsWith("|") || line.endsWith("|"))
+        val trimmed = line.trim()
+        if (trimmed.isEmpty() || !trimmed.contains("|")) return false
+        if (trimmed.startsWith("```") || trimmed.startsWith("~~~") || trimmed.startsWith("#") || trimmed.startsWith(">")) return false
+        return true
     }
 
     private fun isTableSeparatorRow(line: String): Boolean {
-        if (!isTableRow(line)) return false
-        val parts = line.split("|").filter { it.isNotBlank() }
+        val trimmed = line.trim()
+        if (!trimmed.contains("|")) return false
+        val parts = trimmed.split("|").map { it.trim() }.filter { it.isNotEmpty() }
         if (parts.isEmpty()) return false
-        return parts.all { it.trim().matches(Regex("""^:?-+:?$""")) }
+        return parts.all { it.matches(Regex("""^:?-+:?$""")) }
     }
 
     private fun parseTableAlignments(sepLine: String, columnCount: Int): List<TableAlignment> {
@@ -350,7 +355,6 @@ object ScribeMarkdownAstParser {
      */
     fun parseInlineRuns(text: String): List<MarkdownNode.InlineRun> {
         if (text.isEmpty()) return emptyList()
-
         val runs = mutableListOf<MarkdownNode.InlineRun>()
         val len = text.length
         var i = 0
@@ -474,7 +478,7 @@ object ScribeMarkdownAstParser {
             }
 
             // 7. Italic: *text* or _text_
-            if ((ch == '*' || ch == '_') && (i + 1 < len && text[i + 1] != ' ')) {
+            if (ch == '*' || ch == '_') {
                 val closeIdx = findClosingItalic(text, ch, i + 1)
                 if (closeIdx != -1) {
                     flush()
@@ -488,6 +492,7 @@ object ScribeMarkdownAstParser {
                 }
             }
 
+            // Regular literal character
             buffer.append(ch)
             i++
         }
@@ -519,9 +524,6 @@ object ScribeMarkdownAstParser {
         return -1
     }
 
-    /**
-     * Compacts adjacent inline runs with identical formatting into a single run.
-     */
     private fun mergeRuns(runs: List<MarkdownNode.InlineRun>): List<MarkdownNode.InlineRun> {
         if (runs.size <= 1) return runs
         val merged = mutableListOf<MarkdownNode.InlineRun>()

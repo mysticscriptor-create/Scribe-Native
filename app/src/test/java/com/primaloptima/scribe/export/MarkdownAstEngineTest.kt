@@ -21,9 +21,9 @@ class MarkdownAstEngineTest {
             ## Chapter 1: The Gathering Storm
             ### Section A: Shadows in the East
         """.trimIndent()
-
         val doc = ScribeMarkdownAstParser.parse(markdown)
         val headings = doc.children.filterIsInstance<MarkdownNode.BlockNode.Heading>()
+
         assertEquals(3, headings.size)
         assertEquals(1, headings[0].level)
         assertEquals("Epic Chronicle: The First Age", headings[0].runs.joinToString("") { it.text })
@@ -36,7 +36,6 @@ class MarkdownAstEngineTest {
         val markdown = """
             This has \*not italic\* and \**not bold\** and \[not a link\] and \~not strike\~.
         """.trimIndent()
-
         val doc = ScribeMarkdownAstParser.parse(markdown)
         val para = doc.children.filterIsInstance<MarkdownNode.BlockNode.Paragraph>().first()
         val text = para.runs.joinToString("") { it.text }
@@ -66,11 +65,10 @@ class MarkdownAstEngineTest {
             - Level Zero Item B
               - Level One Child B1
         """.trimIndent()
-
         val doc = ScribeMarkdownAstParser.parse(markdown)
         val listBlocks = doc.children.filterIsInstance<MarkdownNode.BlockNode.ListBlock>()
-        assertEquals(1, listBlocks.size)
 
+        assertEquals(1, listBlocks.size)
         val items = listBlocks[0].items
         assertEquals(6, items.size)
         assertEquals(0, items[0].level)
@@ -91,9 +89,9 @@ class MarkdownAstEngineTest {
             4. Fourth Item
             5. Fifth Item
         """.trimIndent()
-
         val doc = ScribeMarkdownAstParser.parse(markdown)
         val list = doc.children.filterIsInstance<MarkdownNode.BlockNode.ListBlock>().first()
+
         assertTrue(list.isOrdered)
         assertEquals(3, list.startNumber)
         assertEquals(3, list.items.size)
@@ -107,20 +105,39 @@ class MarkdownAstEngineTest {
             | Alpha | Beta | Gamma |
             | One | Two |
         """.trimIndent()
-
         val doc = ScribeMarkdownAstParser.parse(markdown)
         val tables = doc.children.filterIsInstance<MarkdownNode.BlockNode.Table>()
-        assertEquals(1, tables.size)
 
+        assertEquals(1, tables.size)
         val table = tables[0]
         assertEquals(3, table.headers.size)
         assertEquals(TableAlignment.LEFT, table.alignments[0])
         assertEquals(TableAlignment.CENTER, table.alignments[1])
         assertEquals(TableAlignment.RIGHT, table.alignments[2])
-
         assertEquals(2, table.rows.size)
         // Row 2 only had 2 items in markdown, must be padded to 3
         assertEquals(3, table.rows[1].size)
+    }
+
+    @Test
+    fun testTableWithoutOuterPipes() {
+        val markdown = """
+            Column A | Column B | Column C
+            :--- | :---: | ---:
+            Val 1 | Val 2 | Val 3
+            Alpha | Beta | Gamma
+        """.trimIndent()
+        val doc = ScribeMarkdownAstParser.parse(markdown)
+        val tables = doc.children.filterIsInstance<MarkdownNode.BlockNode.Table>()
+
+        assertEquals("Table without outer pipes must be successfully parsed", 1, tables.size)
+        val table = tables[0]
+        assertEquals(3, table.headers.size)
+        assertEquals("Column A", table.headers[0].runs.joinToString("") { it.text })
+        assertEquals("Column B", table.headers[1].runs.joinToString("") { it.text })
+        assertEquals("Column C", table.headers[2].runs.joinToString("") { it.text })
+        assertEquals(2, table.rows.size)
+        assertEquals("Val 1", table.rows[0][0].runs.joinToString("") { it.text })
     }
 
     @Test
@@ -128,12 +145,46 @@ class MarkdownAstEngineTest {
         val markdown = "Line one with hard break  \nLine two with backslash\\\nLine three soft\nLine four"
         val doc = ScribeMarkdownAstParser.parse(markdown)
         val para = doc.children.filterIsInstance<MarkdownNode.BlockNode.Paragraph>().first()
-
         val hardBreaks = para.runs.filter { it.isHardBreak }
         assertEquals("Should contain 2 hard breaks", 2, hardBreaks.size)
 
         val html = HtmlEmitter.emit(doc)
-        assertTrue(html.contains("<br/>"))
+        assertTrue("HTML must contain <br/> for hard break", html.contains("<br/>"))
+    }
+
+    @Test
+    fun testParagraphSoftBreaksReflowAsSpaces() {
+        val markdown = """
+            The quick brown fox
+            jumps over the lazy dog.
+            Another sentence on a new line.
+        """.trimIndent()
+        val doc = ScribeMarkdownAstParser.parse(markdown)
+        val paragraphs = doc.children.filterIsInstance<MarkdownNode.BlockNode.Paragraph>()
+        assertEquals(1, paragraphs.size)
+        val text = paragraphs[0].runs.joinToString("") { it.text }
+        assertEquals("The quick brown fox jumps over the lazy dog. Another sentence on a new line.", text)
+    }
+
+    @Test
+    fun testUrduAndArabicUnicodePreservationInAst() {
+        val markdown = """
+            # ایک قدیم داستان
+            یہ ایک معلوماتی پیراگراف ہے جس میں اردو اور عربی الفاظ شامل ہیں۔
+            - پہلا نکتہ
+            - دوسرا نکتہ
+        """.trimIndent()
+        val doc = ScribeMarkdownAstParser.parse(markdown)
+        val headings = doc.children.filterIsInstance<MarkdownNode.BlockNode.Heading>()
+        val paragraphs = doc.children.filterIsInstance<MarkdownNode.BlockNode.Paragraph>()
+        val lists = doc.children.filterIsInstance<MarkdownNode.BlockNode.ListBlock>()
+
+        assertEquals(1, headings.size)
+        assertEquals("ایک قدیم داستان", headings[0].runs.joinToString("") { it.text })
+        assertEquals(1, paragraphs.size)
+        assertTrue(paragraphs[0].runs.joinToString("") { it.text }.contains("اردو اور عربی"))
+        assertEquals(1, lists.size)
+        assertEquals(2, lists[0].items.size)
     }
 
     @Test
@@ -141,8 +192,8 @@ class MarkdownAstEngineTest {
         val markdown = "Check out [**Bold Official Site**](https://primaloptima.com) for updates."
         val doc = ScribeMarkdownAstParser.parse(markdown)
         val para = doc.children.filterIsInstance<MarkdownNode.BlockNode.Paragraph>().first()
-
         val linkRun = para.runs.firstOrNull { it.linkUrl == "https://primaloptima.com" }
+
         assertNotNull("Link run must be parsed", linkRun)
         assertEquals("https://primaloptima.com", linkRun?.linkUrl)
         assertTrue("Nested bold flag must be preserved on link run", linkRun?.isBold == true)
@@ -155,15 +206,15 @@ class MarkdownAstEngineTest {
     fun testHtmlEmitterProducesStrictXhtml() {
         val markdown = """
             # Test Document
-            
+
             This is a paragraph with **bold**, *italic*, ~~strikethrough~~, and `inline code`.
-            
+
             ---
-            
+
             | Feature | Status |
             | :--- | :---: |
             | AST | Ready |
-            
+
             ![Vault Cover](vault-img://cover.jpg)
             *Figure 1: Scribe Architecture*
         """.trimIndent()
@@ -185,12 +236,12 @@ class MarkdownAstEngineTest {
     fun testPlainEmitterEditorialAnnotations() {
         val markdown = """
             # Chapter 1
-            
+
             First paragraph of manuscript.
-            
+
             ![Map of Valinor](vault-img://valinor.png)
             *Detailed Realm Map*
-            
+
             - Note item 1
             - Note item 2
         """.trimIndent()
