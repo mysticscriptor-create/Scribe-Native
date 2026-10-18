@@ -87,7 +87,7 @@ object ExportHelper {
      * Produces the raw byte array for a given export format and configuration.
      */
     fun exportBytes(
-        context: Context,
+        context: Context?,
         note: Note,
         formatStr: String,
         config: ExportConfig = ExportConfig()
@@ -116,21 +116,21 @@ object ExportHelper {
     /**
      * Builds OpenXML (.docx) bytes using the modular [DocxExporter].
      */
-    fun buildDocx(context: Context, note: Note, config: ExportConfig = ExportConfig()): ByteArray {
+    fun buildDocx(context: Context?, note: Note, config: ExportConfig = ExportConfig()): ByteArray {
         return DocxExporter.export(context, note, config)
     }
 
     /**
      * Builds EPUB 3.0 publication bytes using the modular [EpubExporter].
      */
-    fun buildEpub(context: Context, note: Note, config: ExportConfig = ExportConfig()): ByteArray {
+    fun buildEpub(context: Context?, note: Note, config: ExportConfig = ExportConfig()): ByteArray {
         return EpubExporter.export(context, note, config)
     }
 
     /**
      * Builds styled HTML document using [HtmlPdfExporter].
      */
-    fun fullHtml(context: Context, note: Note, config: ExportConfig = ExportConfig()): String {
+    fun fullHtml(context: Context?, note: Note, config: ExportConfig = ExportConfig()): String {
         return HtmlPdfExporter.buildHtmlDocument(context, note, config)
     }
 
@@ -138,7 +138,7 @@ object ExportHelper {
      * Builds a self-contained ZIP archive for Markdown manuscripts containing the markdown file
      * with relative image paths and an images/ directory with all asset binaries.
      */
-    fun buildMarkdownZip(context: Context, note: Note): ByteArray {
+    fun buildMarkdownZip(context: Context?, note: Note): ByteArray {
         val safeName = sanitize(note.name)
         val imgRegex = Regex("""!\[(.*?)\]\((vault-img://[^\s)]+|https?://[^\s)]+|content://[^\s)]+|[^\s)]+)\)""")
         val entries = mutableMapOf<String, ByteArray>()
@@ -147,7 +147,7 @@ object ExportHelper {
         val processedMd = imgRegex.replace(note.content) { mr ->
             val alt = mr.groupValues[1]
             val src = mr.groupValues[2]
-            val bytes = VaultImageManager.getImageBytes(context, src, note.bookId, note.id)
+            val bytes = if (context != null) VaultImageManager.getImageBytes(context, src, note.bookId, note.id) else null
             if (bytes != null) {
                 val detected = ImageMimeUtil.detect(bytes, src)
                 val ext = detected.extension

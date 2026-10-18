@@ -21,7 +21,7 @@ object HtmlPdfExporter {
      * using the unified [ScribeMarkdownEngine] AST pipeline.
      */
     fun buildHtmlDocument(
-        context: Context,
+        context: Context?,
         note: Note,
         config: ExportConfig,
         isForPrintPdf: Boolean = false
@@ -59,12 +59,13 @@ object HtmlPdfExporter {
     }
 
     fun resolveImageToBase64(
-        context: Context,
+        context: Context?,
         uri: String,
         bookId: String?,
         noteId: String
     ): String? {
-        val bytes = VaultImageManager.getImageBytes(context, uri, bookId, noteId) ?: return null
+        val bytes = if (context != null) VaultImageManager.getImageBytes(context, uri, bookId, noteId) else null
+        if (bytes == null) return null
         val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
         val mime = ImageMimeUtil.detect(bytes, uri).mimeType
         return "data:$mime;base64,$base64"

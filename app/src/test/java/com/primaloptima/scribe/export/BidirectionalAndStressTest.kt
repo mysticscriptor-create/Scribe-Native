@@ -343,7 +343,7 @@ class BidirectionalAndStressTest {
         val ast = ScribeMarkdownAstParser.parse(manuscript)
 
         val startTime = System.currentTimeMillis()
-        val html = HtmlEmitter.emit(ast) { "MISSING_ASSET" }
+        val html = HtmlEmitter.emit(ast, imageResolver = { "MISSING_ASSET" })
         val elapsed = System.currentTimeMillis() - startTime
 
         assertNotNull(html)
