@@ -7,12 +7,31 @@ package com.primaloptima.scribe.util.export
  */
 object PlainEmitter {
 
-    fun emit(document: MarkdownNode.Document): String {
+    fun emit(
+        document: MarkdownNode.Document,
+        includeCoverTitle: Boolean = false,
+        title: String? = null
+    ): String {
         val sb = StringBuilder()
+        if (includeCoverTitle && !title.isNullOrBlank()) {
+            sb.append(title.uppercase()).append("\n\n")
+        }
         for (block in document.children) {
             sb.append(emitBlock(block)).append("\n\n")
         }
         return sb.toString().trim()
+    }
+
+    fun emit(
+        document: MarkdownNode.Document,
+        config: ExportConfig?,
+        title: String? = null
+    ): String {
+        return emit(
+            document = document,
+            includeCoverTitle = config?.includeCoverTitle ?: false,
+            title = title
+        )
     }
 
     fun emitBlock(block: MarkdownNode.BlockNode): String {

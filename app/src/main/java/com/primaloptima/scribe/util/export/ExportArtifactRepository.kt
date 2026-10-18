@@ -140,7 +140,8 @@ object ExportArtifactRepository {
             ExportFormat.DOCX -> "p:${config.paperSize.name}_m:${config.marginPreset.name}_f:${config.fontChoice.name}_sz:${config.fontSizePt}_c:${config.includeCoverTitle}_a:${config.authorName}"
             ExportFormat.EPUB -> "f:${config.fontChoice.name}_c:${config.includeCoverTitle}_toc:${config.includeTableOfContents}_q:${config.imageQuality.name}_a:${config.authorName}"
             ExportFormat.HTML -> "f:${config.fontChoice.name}_c:${config.includeCoverTitle}_a:${config.authorName}"
-            ExportFormat.MD, ExportFormat.TXT -> "raw"
+            ExportFormat.TXT -> "c:${config.includeCoverTitle}"
+            ExportFormat.MD -> "raw"
         }
 
         val rawInput = buildString {

@@ -1,6 +1,8 @@
 package com.primaloptima.scribe.export
 
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.util.export.DocxBlockElement
+import com.primaloptima.scribe.util.export.DocxDocumentParser
 import com.primaloptima.scribe.util.export.DocxExporter
 import com.primaloptima.scribe.util.export.ExportConfig
 import com.primaloptima.scribe.util.export.ExportFormat
@@ -11,6 +13,9 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 
 class DocxExportTest {
@@ -257,5 +262,82 @@ class DocxExportTest {
         // Soft line breaks reflow as spaces in a single paragraph, no <w:br/>
         assertFalse("Soft breaks within a paragraph must not emit <w:br/>", docXml.contains("<w:br/>"))
         assertTrue("Paragraph text must reflow with spaces", docXml.contains("The quick brown fox jumps over the lazy dog. Another line in standard paragraph."))
+    }
+
+    @Test
+    fun testDocxDocumentParserTrueXmlExtraction() {
+        val note = Note(
+            id = "test-parser-note",
+            name = "Master Chronicle",
+            content = """
+                # Prelude: Dawn of Epoch
+
+                In the ancient highlands, the path was steep and winding.
+
+                - Scout the perimeter
+                  - Secure the high ridge
+                1. Forge the banner
+                2. Signal the garrison
+
+                > "Fortune favors the resolute."
+
+                | Station | Status | Guard |
+                | --- | --- | --- |
+                | Ridge | Alert | 4 |
+                | Gate | Secured | 8 |
+            """.trimIndent()
+        )
+
+        val config = ExportConfig(format = ExportFormat.DOCX, includeCoverTitle = true)
+        val docxBytes = DocxExporter.export(null, note, config)
+        assertTrue("Exported docx must not be empty", docxBytes.isNotEmpty())
+
+        val tempFile = File.createTempFile("test_docx_parser_", ".docx")
+        try {
+            FileOutputStream(tempFile).use { it.write(docxBytes) }
+            ZipFile(tempFile).use { zip ->
+                val parsed = DocxDocumentParser.parseFromZip(zip)
+
+                // 1. Verify Title Extraction
+                assertEquals("Master Chronicle", parsed.title)
+
+                // 2. Verify Heading
+                val heading = parsed.elements.filterIsInstance<DocxBlockElement.Paragraph>()
+                    .firstOrNull { it.style == "Heading1" }
+                assertNotNull("Must extract Heading1", heading)
+                assertTrue("Heading text must match", heading!!.runs.any { it.text.contains("Prelude: Dawn of Epoch") })
+
+                // 3. Verify Prose Paragraph
+                val paragraph = parsed.elements.filterIsInstance<DocxBlockElement.Paragraph>()
+                    .firstOrNull { it.style == null && it.runs.any { r -> r.text.contains("In the ancient highlands") } }
+                assertNotNull("Must extract standard paragraph", paragraph)
+
+                // 4. Verify Lists with ilvl
+                val bulletListItems = parsed.elements.filterIsInstance<DocxBlockElement.Paragraph>()
+                    .filter { it.isBullet }
+                assertTrue("Must extract bullet list items", bulletListItems.size >= 2)
+                assertTrue("Must preserve ilvl 0", bulletListItems.any { it.ilvl == 0 })
+                assertTrue("Must preserve nested ilvl 1", bulletListItems.any { it.ilvl == 1 })
+
+                val orderedListItems = parsed.elements.filterIsInstance<DocxBlockElement.Paragraph>()
+                    .filter { it.isOrdered }
+                assertTrue("Must extract ordered list items", orderedListItems.isNotEmpty())
+
+                // 5. Verify Blockquote
+                val quote = parsed.elements.filterIsInstance<DocxBlockElement.Paragraph>()
+                    .firstOrNull { it.isBlockquote }
+                assertNotNull("Must extract blockquote", quote)
+                assertTrue("Quote text must match", quote!!.runs.any { it.text.contains("Fortune favors the resolute.") })
+
+                // 6. Verify Table
+                val table = parsed.elements.filterIsInstance<DocxBlockElement.Table>().firstOrNull()
+                assertNotNull("Must extract table", table)
+                assertTrue("Table must have header and data rows", table!!.rows.size >= 2)
+                val firstCellText = table.rows[0][0].paragraphs[0].runs.joinToString("") { it.text }
+                assertEquals("Station", firstCellText)
+            }
+        } finally {
+            tempFile.delete()
+        }
     }
 }

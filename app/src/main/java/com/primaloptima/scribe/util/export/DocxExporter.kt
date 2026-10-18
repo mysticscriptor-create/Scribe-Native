@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.util.MarkdownUtil
+import com.primaloptima.scribe.util.image.ImageMimeUtil
 import com.primaloptima.scribe.util.image.VaultImageManager
 import java.io.ByteArrayOutputStream
 import java.util.zip.CRC32
@@ -215,7 +216,8 @@ object DocxExporter {
                     val bytes = if (context != null) VaultImageManager.getImageBytes(context, node.uri, note.bookId, note.id) else null
                     if (bytes != null && bytes.isNotEmpty()) {
                         val rId = "rIdImg${relIdCounter++}"
-                        val ext = if (node.uri.endsWith(".png", true)) "png" else "jpeg"
+                        val detected = ImageMimeUtil.detect(bytes, node.uri)
+                        val ext = if (detected.extension == "jpg") "jpeg" else detected.extension
                         val mediaPath = "media/image_$rId.$ext"
                         mediaEntries["word/$mediaPath"] = bytes
                         relsXml.append("""  <Relationship Id="$rId" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="$mediaPath"/>${"\n"}""")
@@ -320,7 +322,7 @@ object DocxExporter {
         """.trimIndent())
 
         val entries = mutableMapOf<String, ByteArray>()
-        entries["[Content_Types].xml"] = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>  <Default Extension="xml" ContentType="application/xml"/>  <Default Extension="jpeg" ContentType="image/jpeg"/>  <Default Extension="jpg" ContentType="image/jpeg"/>  <Default Extension="png" ContentType="image/png"/>  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>  <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/></Types>""".trimIndent().toByteArray(Charsets.UTF_8)
+        entries["[Content_Types].xml"] = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>  <Default Extension="xml" ContentType="application/xml"/>  <Default Extension="jpeg" ContentType="image/jpeg"/>  <Default Extension="jpg" ContentType="image/jpeg"/>  <Default Extension="png" ContentType="image/png"/>  <Default Extension="gif" ContentType="image/gif"/>  <Default Extension="webp" ContentType="image/webp"/>  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>  <Override PartName="/word/numbering.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.numbering+xml"/></Types>""".trimIndent().toByteArray(Charsets.UTF_8)
         entries["_rels/.rels"] = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>""".trimIndent().toByteArray(Charsets.UTF_8)
         entries["word/_rels/document.xml.rels"] = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">$relsXml</Relationships>""".trimIndent().toByteArray(Charsets.UTF_8)
         entries["word/styles.xml"] = buildStylesXml(fontName, primaryColorHex, textColorHex, config.fontSizePt).toByteArray(Charsets.UTF_8)

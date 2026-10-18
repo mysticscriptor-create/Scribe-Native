@@ -3,6 +3,7 @@ package com.primaloptima.scribe.util.export
 import android.content.Context
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.util.MarkdownUtil
+import com.primaloptima.scribe.util.image.ImageMimeUtil
 import com.primaloptima.scribe.util.image.VaultImageManager
 import java.io.ByteArrayOutputStream
 import java.text.SimpleDateFormat
@@ -74,20 +75,9 @@ object EpubExporter {
             imageCache.getOrPut(src) {
                 val bytes = if (context != null) VaultImageManager.getImageBytes(context, src, note.bookId, note.id) else null
                 if (bytes != null) {
-                    val ext = when {
-                        src.endsWith(".png", true) -> "png"
-                        src.endsWith(".webp", true) -> "webp"
-                        src.endsWith(".gif", true) -> "gif"
-                        src.endsWith(".svg", true) -> "svg"
-                        else -> "jpg"
-                    }
-                    val mime = when (ext) {
-                        "png" -> "image/png"
-                        "webp" -> "image/webp"
-                        "gif" -> "image/gif"
-                        "svg" -> "image/svg+xml"
-                        else -> "image/jpeg"
-                    }
+                    val detected = ImageMimeUtil.detect(bytes, src)
+                    val ext = detected.extension
+                    val mime = detected.mimeType
                     val imgFilename = "image_$imageIndex.$ext"
                     imageEntries["OEBPS/images/$imgFilename"] = bytes
                     imageManifest.add("""    <item id="img_$imageIndex" href="images/$imgFilename" media-type="$mime"/>""")

@@ -21,6 +21,9 @@ import com.primaloptima.scribe.util.export.ExportCacheManager
 import com.primaloptima.scribe.util.export.ExportConfig
 import com.primaloptima.scribe.util.export.ExportFormat
 import com.primaloptima.scribe.util.export.HtmlPdfExporter
+import com.primaloptima.scribe.util.export.PlainEmitter
+import com.primaloptima.scribe.util.export.ScribeMarkdownAstParser
+import com.primaloptima.scribe.util.image.ImageMimeUtil
 import com.primaloptima.scribe.util.image.VaultImageManager
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -46,7 +49,7 @@ object ExportHelper {
         val filename = "$safeName.$finalExt"
 
         val (mime, bytes) = when (format) {
-            ExportFormat.TXT -> "text/plain" to MarkdownUtil.toPlainText(note.content).toByteArray(Charsets.UTF_8)
+            ExportFormat.TXT -> "text/plain" to buildPlainText(note, config).toByteArray(Charsets.UTF_8)
             ExportFormat.MD -> {
                 if (isMdZip) {
                     "application/zip" to buildMarkdownZip(context, note)
@@ -73,6 +76,14 @@ object ExportHelper {
     }
 
     /**
+     * Builds clean Plain Text with optional cover title using [PlainEmitter].
+     */
+    fun buildPlainText(note: Note, config: ExportConfig = ExportConfig()): String {
+        val ast = ScribeMarkdownAstParser.parse(note.content)
+        return PlainEmitter.emit(ast, config, note.name)
+    }
+
+    /**
      * Produces the raw byte array for a given export format and configuration.
      */
     fun exportBytes(
@@ -84,7 +95,7 @@ object ExportHelper {
         val format = ExportFormat.fromId(formatStr)
         val effectiveConfig = config.copy(format = format)
         return when (format) {
-            ExportFormat.TXT -> MarkdownUtil.toPlainText(note.content).toByteArray(Charsets.UTF_8)
+            ExportFormat.TXT -> buildPlainText(note, effectiveConfig).toByteArray(Charsets.UTF_8)
             ExportFormat.MD -> {
                 if (VaultImageManager.hasImages(note.content)) {
                     buildMarkdownZip(context, note)
@@ -138,13 +149,8 @@ object ExportHelper {
             val src = mr.groupValues[2]
             val bytes = VaultImageManager.getImageBytes(context, src, note.bookId, note.id)
             if (bytes != null) {
-                val ext = when {
-                    src.endsWith(".png", true) -> "png"
-                    src.endsWith(".webp", true) -> "webp"
-                    src.endsWith(".gif", true) -> "gif"
-                    src.endsWith(".svg", true) -> "svg"
-                    else -> "jpg"
-                }
+                val detected = ImageMimeUtil.detect(bytes, src)
+                val ext = detected.extension
                 val imgFilename = "image_$imageIndex.$ext"
                 entries["images/$imgFilename"] = bytes
                 imageIndex++

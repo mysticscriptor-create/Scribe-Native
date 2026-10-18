@@ -6,6 +6,7 @@ import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.util.MarkdownUtil
 import com.primaloptima.scribe.util.export.pdf.PdfEngine
 import com.primaloptima.scribe.util.export.pdf.PrintedPdfDocumentEngine
+import com.primaloptima.scribe.util.image.ImageMimeUtil
 import com.primaloptima.scribe.util.image.VaultImageManager
 import java.io.File
 
@@ -65,13 +66,7 @@ object HtmlPdfExporter {
     ): String? {
         val bytes = VaultImageManager.getImageBytes(context, uri, bookId, noteId) ?: return null
         val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-        val mime = when {
-            uri.endsWith(".png", true) -> "image/png"
-            uri.endsWith(".webp", true) -> "image/webp"
-            uri.endsWith(".gif", true) -> "image/gif"
-            uri.endsWith(".svg", true) -> "image/svg+xml"
-            else -> "image/jpeg"
-        }
+        val mime = ImageMimeUtil.detect(bytes, uri).mimeType
         return "data:$mime;base64,$base64"
     }
 

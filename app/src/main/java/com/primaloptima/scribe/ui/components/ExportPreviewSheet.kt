@@ -56,12 +56,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
+import kotlin.math.roundToInt
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -460,7 +462,7 @@ fun ExportPreviewSheet(
                         ExportFormat.TXT -> {
                             SourcePreviewViewer(
                                 artifactFile = currentArtifactFile,
-                                sourceText = MarkdownUtil.toPlainText(note.content),
+                                sourceText = ExportHelper.buildPlainText(note, config),
                                 format = ExportFormat.TXT,
                                 isLoading = isArtifactLoading,
                                 errorMessage = artifactErrorMessage
@@ -657,12 +659,102 @@ private fun StyleOverridesPanel(
                             )
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Font Size Slider (8..24 pt)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Font Size",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "${config.fontSizePt} pt",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Slider(
+                        value = config.fontSizePt.toFloat(),
+                        onValueChange = { onConfigChanged(config.copy(fontSizePt = it.roundToInt())) },
+                        valueRange = 8f..24f,
+                        steps = 15,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Line Spacing Slider (1.0..2.4x)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Line Spacing",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                        val formattedMultiplier = String.format(java.util.Locale.US, "%.1fx", config.lineSpacingMultiplier)
+                        Text(
+                            text = formattedMultiplier,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Slider(
+                        value = config.lineSpacingMultiplier,
+                        onValueChange = { onConfigChanged(config.copy(lineSpacingMultiplier = (Math.round(it * 10f) / 10f))) },
+                        valueRange = 1.0f..2.4f,
+                        steps = 13,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+
+        // Section: Image Resolution & Quality (PDF, EPUB, DOCX, HTML, MD)
+        if (selectedFormat != ExportFormat.TXT) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = "IMAGE QUALITY",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        ImageQuality.entries.forEach { quality ->
+                            FilterChip(
+                                selected = config.imageQuality == quality,
+                                onClick = { onConfigChanged(config.copy(imageQuality = quality)) },
+                                label = { Text(quality.label) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
                 }
             }
         }
 
         // Section: Publication Options
-        if (selectedFormat != ExportFormat.MD && selectedFormat != ExportFormat.TXT) {
+        if (selectedFormat != ExportFormat.MD) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
                 shape = RoundedCornerShape(12.dp)
@@ -675,16 +767,18 @@ private fun StyleOverridesPanel(
                         color = MaterialTheme.colorScheme.primary
                     )
                     // Author / Pen Name Input (EPUB, DOCX, PDF, HTML)
-                    OutlinedTextField(
-                        value = config.authorName,
-                        onValueChange = { onConfigChanged(config.copy(authorName = it)) },
-                        label = { Text("Author / Pen Name") },
-                        placeholder = { Text("e.g. Scribe Author") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                    if (selectedFormat != ExportFormat.TXT) {
+                        OutlinedTextField(
+                            value = config.authorName,
+                            onValueChange = { onConfigChanged(config.copy(authorName = it)) },
+                            label = { Text("Author / Pen Name") },
+                            placeholder = { Text("e.g. Scribe Author") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
 
-                    // Cover Title Switch
+                    // Cover Title Switch (EPUB, DOCX, PDF, HTML, TXT)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,

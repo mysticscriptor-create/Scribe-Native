@@ -3,6 +3,7 @@ package com.primaloptima.scribe.ui.components.export
 import android.util.Base64
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import com.primaloptima.scribe.util.image.ImageMimeUtil
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -147,13 +148,7 @@ fun EpubPreviewViewer(
                             if (entry != null) {
                                 val bytes = zip.getInputStream(entry).use { it.readBytes() }
                                 val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-                                val mime = when {
-                                    imgEntryName.endsWith(".png", true) -> "image/png"
-                                    imgEntryName.endsWith(".webp", true) -> "image/webp"
-                                    imgEntryName.endsWith(".gif", true) -> "image/gif"
-                                    imgEntryName.endsWith(".svg", true) -> "image/svg+xml"
-                                    else -> "image/jpeg"
-                                }
+                                val mime = ImageMimeUtil.detect(bytes, imgEntryName).mimeType
                                 val relPath = imgEntryName.removePrefix("OEBPS/")
                                 imageMap[relPath] = "data:$mime;base64,$base64"
                             }
