@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Visibility
@@ -87,8 +88,10 @@ import com.primaloptima.scribe.ui.components.export.PdfPreviewViewer
 import com.primaloptima.scribe.ui.components.export.SourcePreviewViewer
 import com.primaloptima.scribe.util.ExportHelper
 import com.primaloptima.scribe.util.MarkdownUtil
+import com.primaloptima.scribe.util.ScribeDataStore
 import com.primaloptima.scribe.util.export.ExportArtifactRepository
 import com.primaloptima.scribe.util.export.ExportCacheManager
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import com.primaloptima.scribe.util.export.ExportConfig
 import com.primaloptima.scribe.util.export.ExportFormat
@@ -131,6 +134,10 @@ fun ExportPreviewSheet(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val dataStore = remember { ScribeDataStore(context) }
+    val persistedConfigState by dataStore.exportConfigFlow.collectAsStateWithLifecycle(initialValue = null)
+
+    var hasLoadedPersistedConfig by remember { mutableStateOf(false) }
 
     var selectedFormat by remember {
         mutableStateOf(ExportFormat.fromId(initialFormat))
@@ -140,10 +147,29 @@ fun ExportPreviewSheet(
         mutableStateOf(ExportConfig(format = selectedFormat))
     }
 
+    // Restore persisted settings from ScribeDataStore on initial load
+    LaunchedEffect(persistedConfigState) {
+        val persisted = persistedConfigState
+        if (persisted != null && !hasLoadedPersistedConfig) {
+            hasLoadedPersistedConfig = true
+            val effectiveFmt = if (initialFormat != "pdf") ExportFormat.fromId(initialFormat) else persisted.format
+            selectedFormat = effectiveFmt
+            config = persisted.copy(format = effectiveFmt)
+        }
+    }
+
     // Keep config format synced with selectedFormat
     LaunchedEffect(selectedFormat) {
         if (config.format != selectedFormat) {
             config = config.copy(format = selectedFormat)
+        }
+    }
+
+    // Debounce persistence of config changes (300ms)
+    LaunchedEffect(config) {
+        if (hasLoadedPersistedConfig) {
+            delay(300L)
+            dataStore.saveExportConfig(config)
         }
     }
 
@@ -284,12 +310,14 @@ fun ExportPreviewSheet(
             ) {
                 ALL_FORMATS.forEach { meta ->
                     val isSelected = meta.format == selectedFormat
+                    val isMdZip = meta.format == ExportFormat.MD && hasVaultImages
+                    val chipLabel = if (isMdZip) "Markdown Bundle (.zip)" else meta.format.label
                     FilterChip(
                         selected = isSelected,
                         onClick = { selectedFormat = meta.format },
                         label = {
                             Text(
-                                meta.format.label,
+                                chipLabel,
                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
                             )
                         },
@@ -328,8 +356,13 @@ fun ExportPreviewSheet(
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(10.dp))
+                    val formatDesc = if (selectedFormat == ExportFormat.MD && hasVaultImages) {
+                        "Markdown bundle packaged as ZIP with manuscript.md (relative image links) and images/ directory"
+                    } else {
+                        selectedFormat.description
+                    }
                     Text(
-                        text = selectedFormat.description,
+                        text = formatDesc,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
@@ -338,7 +371,7 @@ fun ExportPreviewSheet(
                 }
             }
 
-            // ── Dual Mode Tabs: [ Document Preview ] vs [ Overrides ] ──
+            // ── Dual Mode Tabs: [ Document Preview ] vs [ Publication Settings ] ──
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -362,7 +395,7 @@ fun ExportPreviewSheet(
                         selected = activeTab == 1,
                         onClick = { activeTab = 1 },
                         icon = { Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                        text = { Text("Style & Layout Overrides", fontSize = 12.sp) }
+                        text = { Text("Publication Settings", fontSize = 12.sp) }
                     )
                 }
             }
@@ -404,11 +437,16 @@ fun ExportPreviewSheet(
                         }
                     }
                 } else {
-                    // Style & Layout Overrides Viewport
+                    // Publication Settings Viewport
                     StyleOverridesPanel(
                         config = config,
                         selectedFormat = selectedFormat,
-                        onConfigChanged = { updated -> config = updated }
+                        onConfigChanged = { updated -> config = updated },
+                        onResetDefaults = {
+                            val reset = ExportConfig(format = selectedFormat)
+                            config = reset
+                            scope.launch { dataStore.resetExportConfig() }
+                        }
                     )
                 }
             }
@@ -495,7 +533,8 @@ fun ExportPreviewSheet(
 private fun StyleOverridesPanel(
     config: ExportConfig,
     selectedFormat: ExportFormat,
-    onConfigChanged: (ExportConfig) -> Unit
+    onConfigChanged: (ExportConfig) -> Unit,
+    onResetDefaults: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -505,7 +544,7 @@ private fun StyleOverridesPanel(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Section: Paper Size (PDF & DOCX)
+        // Section: Paper Size (PDF & DOCX only)
         if (selectedFormat == ExportFormat.PDF || selectedFormat == ExportFormat.DOCX) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
@@ -532,7 +571,7 @@ private fun StyleOverridesPanel(
             }
         }
 
-        // Section: Margins (PDF & DOCX)
+        // Section: Page Margins (PDF & DOCX only)
         if (selectedFormat == ExportFormat.PDF || selectedFormat == ExportFormat.DOCX) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
@@ -562,46 +601,48 @@ private fun StyleOverridesPanel(
             }
         }
 
-        // Section: Typography Preset
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Column(modifier = Modifier.padding(14.dp)) {
-                Text(
-                    text = "TYPOGRAPHY PRESET",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FontChoice.entries.forEach { choice ->
-                        FilterChip(
-                            selected = config.fontChoice == choice,
-                            onClick = { onConfigChanged(config.copy(fontChoice = choice)) },
-                            label = { Text(choice.label) },
-                            modifier = Modifier.fillMaxWidth()
-                        )
+        // Section: Typography Preset (PDF, DOCX, EPUB, HTML)
+        if (selectedFormat != ExportFormat.MD && selectedFormat != ExportFormat.TXT) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(14.dp)) {
+                    Text(
+                        text = "TYPOGRAPHY PRESET",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FontChoice.entries.forEach { choice ->
+                            FilterChip(
+                                selected = config.fontChoice == choice,
+                                onClick = { onConfigChanged(config.copy(fontChoice = choice)) },
+                                label = { Text(choice.label) },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // Section: Document Options
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-            shape = RoundedCornerShape(12.dp)
-        ) {
-            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = "PUBLICATION OPTIONS",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                // Author / Pen Name Input (EPUB, DOCX, PDF)
-                if (selectedFormat == ExportFormat.EPUB || selectedFormat == ExportFormat.DOCX || selectedFormat == ExportFormat.PDF) {
+        // Section: Publication Options
+        if (selectedFormat != ExportFormat.MD && selectedFormat != ExportFormat.TXT) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "PUBLICATION OPTIONS",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    // Author / Pen Name Input (EPUB, DOCX, PDF, HTML)
                     OutlinedTextField(
                         value = config.authorName,
                         onValueChange = { onConfigChanged(config.copy(authorName = it)) },
@@ -610,42 +651,59 @@ private fun StyleOverridesPanel(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
-                }
 
-                // Cover Title Switch
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Include Cover Title", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                        Text("Display manuscript title as primary header", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    Switch(
-                        checked = config.includeCoverTitle,
-                        onCheckedChange = { onConfigChanged(config.copy(includeCoverTitle = it)) }
-                    )
-                }
-
-                // Table of Contents Switch (for EPUB / PDF)
-                if (selectedFormat == ExportFormat.EPUB || selectedFormat == ExportFormat.PDF) {
+                    // Cover Title Switch
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Table of Contents", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
-                            Text("Generate navigation TOC from chapter headings", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("Include Cover Title", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            Text("Display manuscript title as primary header", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Switch(
-                            checked = config.includeTableOfContents,
-                            onCheckedChange = { onConfigChanged(config.copy(includeTableOfContents = it)) }
+                            checked = config.includeCoverTitle,
+                            onCheckedChange = { onConfigChanged(config.copy(includeCoverTitle = it)) }
                         )
+                    }
+
+                    // Table of Contents Switch (for EPUB & PDF only)
+                    if (selectedFormat == ExportFormat.EPUB || selectedFormat == ExportFormat.PDF) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Table of Contents", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                                Text("Generate navigation TOC from chapter headings", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            Switch(
+                                checked = config.includeTableOfContents,
+                                onCheckedChange = { onConfigChanged(config.copy(includeTableOfContents = it)) }
+                            )
+                        }
                     }
                 }
             }
+        }
+
+        // Section: Reset to Defaults Action
+        OutlinedButton(
+            onClick = onResetDefaults,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Refresh,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Reset Publication Settings to Defaults")
         }
     }
 }

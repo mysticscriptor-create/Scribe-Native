@@ -22,8 +22,12 @@ object DocxExporter {
     fun export(context: Context?, note: Note, config: ExportConfig): ByteArray {
         val themeColors = ExportThemeMapper.resolveThemeColors(context)
         val fontName = ExportThemeMapper.resolveDocxFontName(config.fontChoice)
-        val primaryColorHex = ExportThemeMapper.cleanHexForDocx(themeColors.accent, "1A5276")
-        val textColorHex = ExportThemeMapper.cleanHexForDocx(themeColors.text, "222222")
+        val primaryColorHex = if (config.fontChoice == FontChoice.INHERIT_THEME) {
+            ExportThemeMapper.cleanHexForDocx(themeColors.accent, "1A5276")
+        } else {
+            "1A5276"
+        }
+        val textColorHex = "1A1A1A"
 
         val ast = ScribeMarkdownAstParser.parse(note.content)
         val mediaEntries = mutableMapOf<String, ByteArray>()

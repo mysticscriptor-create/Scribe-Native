@@ -29,8 +29,10 @@ object HtmlPdfExporter {
         val title = note.name.ifBlank { "Untitled Manuscript" }
         val titleEscaped = MarkdownUtil.escapeHtml(title)
         val css = ExportThemeMapper.generateExportCss(config, themeColors, isForPrintPdf = isForPrintPdf)
+        val langMeta = EpubExporter.detectLanguageAndDirection(note.content)
+
         val bodyHtml = ScribeMarkdownEngine.toHtml(note.content) { src ->
-            resolveImageToBase64(context, src, note.bookId, note.id) ?: src
+            resolveImageToBase64(context, src, note.bookId, note.id) ?: "MISSING_ASSET"
         }
         val coverTitleHtml = if (config.includeCoverTitle) {
             """<h1 class="document-title">$titleEscaped</h1>"""
@@ -38,7 +40,7 @@ object HtmlPdfExporter {
 
         return """
             <!DOCTYPE html>
-            <html lang="en">
+            <html lang="${langMeta.primaryLanguage}" dir="${langMeta.documentDirection}">
             <head>
               <meta charset="utf-8"/>
               <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -55,7 +57,7 @@ object HtmlPdfExporter {
         """.trimIndent()
     }
 
-    private fun resolveImageToBase64(
+    fun resolveImageToBase64(
         context: Context,
         uri: String,
         bookId: String?,
@@ -63,7 +65,13 @@ object HtmlPdfExporter {
     ): String? {
         val bytes = VaultImageManager.getImageBytes(context, uri, bookId, noteId) ?: return null
         val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
-        val mime = if (uri.endsWith(".png", true)) "image/png" else "image/jpeg"
+        val mime = when {
+            uri.endsWith(".png", true) -> "image/png"
+            uri.endsWith(".webp", true) -> "image/webp"
+            uri.endsWith(".gif", true) -> "image/gif"
+            uri.endsWith(".svg", true) -> "image/svg+xml"
+            else -> "image/jpeg"
+        }
         return "data:$mime;base64,$base64"
     }
 

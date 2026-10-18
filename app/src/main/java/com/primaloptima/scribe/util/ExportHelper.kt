@@ -138,13 +138,20 @@ object ExportHelper {
             val src = mr.groupValues[2]
             val bytes = VaultImageManager.getImageBytes(context, src, note.bookId, note.id)
             if (bytes != null) {
-                val ext = if (src.endsWith(".png", true)) "png" else "jpg"
+                val ext = when {
+                    src.endsWith(".png", true) -> "png"
+                    src.endsWith(".webp", true) -> "webp"
+                    src.endsWith(".gif", true) -> "gif"
+                    src.endsWith(".svg", true) -> "svg"
+                    else -> "jpg"
+                }
                 val imgFilename = "image_$imageIndex.$ext"
                 entries["images/$imgFilename"] = bytes
                 imageIndex++
                 "![$alt](images/$imgFilename)"
             } else {
-                mr.value
+                val label = alt.ifBlank { "Missing Asset" }
+                "![Illustration: $label]"
             }
         }
         entries["$safeName.md"] = processedMd.toByteArray(Charsets.UTF_8)

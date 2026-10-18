@@ -26,7 +26,7 @@ object PlainEmitter {
             }
             is MarkdownNode.BlockNode.Blockquote -> {
                 block.children.joinToString("\n") { child ->
-                    emitBlock(child).lines().joinToString("\n") { line -> "> $line" }
+                    emitBlock(child).lines().joinToString("\n") { line -> "  $line" }
                 }
             }
             is MarkdownNode.BlockNode.ListBlock -> {
@@ -60,7 +60,7 @@ object PlainEmitter {
                 block.code
             }
             is MarkdownNode.BlockNode.ImageBlock -> {
-                val annotation = block.caption ?: block.alt
+                val annotation = (block.caption ?: block.alt).trim()
                 if (annotation.isNotBlank()) "[Illustration: $annotation]" else "[Illustration]"
             }
             is MarkdownNode.BlockNode.ThematicBreak -> {

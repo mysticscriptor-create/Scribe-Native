@@ -66,12 +66,21 @@ object ExportThemeMapper {
         val fontFamily = resolveCssFontFamily(config.fontChoice)
         val fontSizePt = config.fontSizePt
         val lineSpacing = config.lineSpacingMultiplier
-        val primaryColorHex = themeColors.accent.ifBlank { "#1A5276" }
-        val textColorHex = if (isForPrintPdf || isForEpub) "#1A1A1A" else themeColors.text.ifBlank { "#222222" }
-        val bgColorHex = if (isForPrintPdf || isForEpub) "#FFFFFF" else themeColors.background.ifBlank { "#FFFFFF" }
-        val borderColorHex = themeColors.borderSubtle.ifBlank { "#DDDDDD" }
 
-        val printPageRule = if (isForPrintPdf) """
+        // Strict Theme Decoupling:
+        // Publication documents default to neutral, professional print standards:
+        // White page #FFFFFF, dark ink #1A1A1A, neutral border #CCCCCC.
+        // Accent color uses #1A5276 (classic editorial blue) unless fontChoice is explicitly INHERIT_THEME.
+        val primaryColorHex = if (config.fontChoice == FontChoice.INHERIT_THEME) {
+            themeColors.accent.ifBlank { "#1A5276" }
+        } else {
+            "#1A5276"
+        }
+        val textColorHex = "#1A1A1A"
+        val bgColorHex = "#FFFFFF"
+        val borderColorHex = "#CCCCCC"
+
+        val printPageRule = """
         @page {
             size: ${config.paperSize.cssSize};
             margin: ${config.marginPreset.cssMargin};
@@ -82,7 +91,23 @@ object ExportThemeMapper {
                 color: #777777;
             }
         }
-        """ else ""
+        @media print {
+            body {
+                padding: 0 !important;
+                margin: 0 !important;
+                background-color: #FFFFFF !important;
+                color: #1A1A1A !important;
+            }
+            h1, h2, h3, h4, h5, h6 {
+                page-break-after: avoid;
+                break-after: avoid;
+            }
+            table, figure, pre, blockquote {
+                page-break-inside: avoid;
+                break-inside: avoid;
+            }
+        }
+        """.trimIndent()
 
         return """
         $printPageRule

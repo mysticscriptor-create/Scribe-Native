@@ -11,6 +11,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import com.primaloptima.scribe.util.export.*
 
 /**
  * Phase 2-A: Single DataStore for the entire app.
@@ -100,11 +101,60 @@ class ScribeDataStore(private val context: Context) {
         // One-time backfill flag — set after runWordCountBackfill() completes
         // so it never re-runs on subsequent launches.
         val WORD_COUNT_BACKFILL_DONE   = booleanPreferencesKey("word_count_backfill_done")
+
+        // Export preferences (Increment 6)
+        val EXPORT_LAST_FORMAT         = stringPreferencesKey("export_last_format")
+        val EXPORT_PAPER_SIZE          = stringPreferencesKey("export_paper_size")
+        val EXPORT_MARGIN_PRESET       = stringPreferencesKey("export_margin_preset")
+        val EXPORT_FONT_CHOICE         = stringPreferencesKey("export_font_choice")
+        val EXPORT_FONT_SIZE_PT        = intPreferencesKey("export_font_size_pt")
+        val EXPORT_LINE_SPACING        = floatPreferencesKey("export_line_spacing")
+        val EXPORT_INCLUDE_COVER_TITLE = booleanPreferencesKey("export_include_cover_title")
+        val EXPORT_INCLUDE_TOC         = booleanPreferencesKey("export_include_toc")
+        val EXPORT_IMAGE_QUALITY       = stringPreferencesKey("export_image_quality")
+        val EXPORT_AUTHOR_PEN_NAME     = stringPreferencesKey("export_author_pen_name")
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Flows — reactive UI reads. Collect these in ViewModels via stateIn().
     // ─────────────────────────────────────────────────────────────────────────
+
+    val exportConfigFlow: Flow<ExportConfig> = store.data.map { prefs ->
+        val fmtStr = prefs[EXPORT_LAST_FORMAT] ?: "pdf"
+        val format = ExportFormat.fromId(fmtStr)
+
+        val paperStr = prefs[EXPORT_PAPER_SIZE] ?: "A4"
+        val paper = runCatching { PaperSize.valueOf(paperStr) }.getOrDefault(PaperSize.A4)
+
+        val marginStr = prefs[EXPORT_MARGIN_PRESET] ?: "STANDARD"
+        val margin = runCatching { MarginPreset.valueOf(marginStr) }.getOrDefault(MarginPreset.STANDARD)
+
+        val fontStr = prefs[EXPORT_FONT_CHOICE] ?: "CLASSIC_SERIF"
+        val font = runCatching { FontChoice.valueOf(fontStr) }.getOrDefault(FontChoice.CLASSIC_SERIF)
+
+        val fontSize = prefs[EXPORT_FONT_SIZE_PT] ?: 11
+        val lineSpacing = prefs[EXPORT_LINE_SPACING] ?: 1.6f
+        val includeCover = prefs[EXPORT_INCLUDE_COVER_TITLE] ?: true
+        val includeToc = prefs[EXPORT_INCLUDE_TOC] ?: true
+
+        val qualityStr = prefs[EXPORT_IMAGE_QUALITY] ?: "HIGH_RES"
+        val quality = runCatching { ImageQuality.valueOf(qualityStr) }.getOrDefault(ImageQuality.HIGH_RES)
+
+        val author = prefs[EXPORT_AUTHOR_PEN_NAME] ?: ""
+
+        ExportConfig(
+            format = format,
+            paperSize = paper,
+            marginPreset = margin,
+            fontChoice = font,
+            fontSizePt = fontSize.coerceIn(8, 24),
+            lineSpacingMultiplier = lineSpacing.coerceIn(1.0f, 2.4f),
+            includeCoverTitle = includeCover,
+            includeTableOfContents = includeToc,
+            imageQuality = quality,
+            authorName = author
+        )
+    }
 
     val activeNoteIdFlow: Flow<String?>      = store.data.map { it[ACTIVE_NOTE_ID] }
     val vaultNameFlow: Flow<String>          = store.data.map { it[VAULT_NAME] ?: "My Vault" }
@@ -356,6 +406,34 @@ class ScribeDataStore(private val context: Context) {
     suspend fun setThemeBackground(themeId: String, uri: String?, opacity: Float) = store.edit { prefs ->
         if (uri != null) prefs[bgUriKey(themeId)] = uri else prefs.remove(bgUriKey(themeId))
         prefs[bgOpacityKey(themeId)] = opacity
+    }
+
+    // ── Export preferences write functions (Increment 6) ──────────────────────
+
+    suspend fun saveExportConfig(config: ExportConfig) = store.edit { prefs ->
+        prefs[EXPORT_LAST_FORMAT] = config.format.id
+        prefs[EXPORT_PAPER_SIZE] = config.paperSize.name
+        prefs[EXPORT_MARGIN_PRESET] = config.marginPreset.name
+        prefs[EXPORT_FONT_CHOICE] = config.fontChoice.name
+        prefs[EXPORT_FONT_SIZE_PT] = config.fontSizePt
+        prefs[EXPORT_LINE_SPACING] = config.lineSpacingMultiplier
+        prefs[EXPORT_INCLUDE_COVER_TITLE] = config.includeCoverTitle
+        prefs[EXPORT_INCLUDE_TOC] = config.includeTableOfContents
+        prefs[EXPORT_IMAGE_QUALITY] = config.imageQuality.name
+        prefs[EXPORT_AUTHOR_PEN_NAME] = config.authorName
+    }
+
+    suspend fun resetExportConfig() = store.edit { prefs ->
+        prefs.remove(EXPORT_LAST_FORMAT)
+        prefs.remove(EXPORT_PAPER_SIZE)
+        prefs.remove(EXPORT_MARGIN_PRESET)
+        prefs.remove(EXPORT_FONT_CHOICE)
+        prefs.remove(EXPORT_FONT_SIZE_PT)
+        prefs.remove(EXPORT_LINE_SPACING)
+        prefs.remove(EXPORT_INCLUDE_COVER_TITLE)
+        prefs.remove(EXPORT_INCLUDE_TOC)
+        prefs.remove(EXPORT_IMAGE_QUALITY)
+        prefs.remove(EXPORT_AUTHOR_PEN_NAME)
     }
 }
 
