@@ -344,9 +344,13 @@ $spineItems
         ast: MarkdownNode.Document,
         fallbackTitle: String
     ): List<EpubChapter> {
+        val h1Count = ast.children.count { it is MarkdownNode.BlockNode.Heading && it.level == 1 }
+        val h2Count = ast.children.count { it is MarkdownNode.BlockNode.Heading && it.level == 2 }
         val splitLevel = when {
-            ast.children.any { it is MarkdownNode.BlockNode.Heading && it.level == 1 } -> 1
-            ast.children.any { it is MarkdownNode.BlockNode.Heading && it.level == 2 } -> 2
+            h1Count > 1 -> 1
+            h2Count > 1 -> 2
+            h1Count == 1 -> 1
+            h2Count == 1 -> 2
             else -> null
         }
 
