@@ -148,6 +148,9 @@ object ScribeMarkdownAstParser {
 
                 while (i < count && isListLine(lines[i])) {
                     val curLine = lines[i]
+                    if (isOrderedListLine(curLine) != isOrderedList) {
+                        break
+                    }
                     val indent = countLeadingSpaces(curLine)
                     val level = (indent / 2).coerceIn(0, 8)
                     val itemText = stripListMarker(curLine)

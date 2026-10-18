@@ -83,7 +83,7 @@ class ArtifactPreviewIntegrityTest {
 
                 for (chEntry in chapterEntries) {
                     val xhtml = zip.getInputStream(zip.getEntry(chEntry)).bufferedReader(Charsets.UTF_8).use { it.readText() }
-                    assertTrue("Chapter must be valid XHTML", xhtml.contains("<?xml version=\"1.0\" encoding=\"utf-8\"?>"))
+                    assertTrue("Chapter must be valid XHTML", xhtml.contains("<?xml version=\"1.0\" encoding=\"UTF-8\"?>", ignoreCase = true))
                     assertTrue("Chapter must declare EPUB namespace", xhtml.contains("http://www.w3.org/1999/xhtml"))
                 }
             }

@@ -219,7 +219,7 @@ class MarkdownAstEngineTest {
             *Figure 1: Scribe Architecture*
         """.trimIndent()
 
-        val html = ScribeMarkdownEngine.toHtml(markdown)
+        val html = ScribeMarkdownEngine.toHtml(markdown) { "images/" + it.removePrefix("vault-img://") }
         assertTrue(html.contains("<h1>Test Document</h1>"))
         assertTrue(html.contains("<strong>bold</strong>"))
         assertTrue(html.contains("<em>italic</em>"))
