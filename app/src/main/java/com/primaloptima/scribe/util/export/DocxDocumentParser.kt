@@ -147,7 +147,9 @@ object DocxDocumentParser {
 
         // Find body element
         val bodyNodes = doc.getElementsByTagNameNS("http://schemas.openxmlformats.org/wordprocessingml/2006/main", "body")
-        val body = if (bodyNodes.length > 0) bodyNodes.item(0) as? Element else doc.documentElement ?: return ParsedDocxDocument(elements = emptyList())
+        val body = (if (bodyNodes.length > 0) bodyNodes.item(0) as? Element else null)
+            ?: doc.documentElement
+            ?: return ParsedDocxDocument(elements = emptyList())
 
         val childNodes = body.childNodes
         for (i in 0 until childNodes.length) {
@@ -381,7 +383,7 @@ object DocxDocumentParser {
         mediaMap: Map<String, ByteArray>
     ): DocxBlockElement.DrawingImage? {
         val drawings = pElement.getElementsByTagNameNS("http://schemas.openxmlformats.org/wordprocessingml/2006/main", "drawing")
-        val drawingNode = if (drawings.length > 0) drawings.item(0) as? Element else null ?: return null
+        val drawingNode = (if (drawings.length > 0) drawings.item(0) as? Element else null) ?: return null
 
         val blipNodes = drawingNode.getElementsByTagNameNS("http://schemas.openxmlformats.org/drawingml/2006/main", "blip")
         if (blipNodes.length == 0) return null
