@@ -83,6 +83,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.ui.components.export.DocxLayoutViewer
+import com.primaloptima.scribe.ui.components.export.EpubPreviewViewer
 import com.primaloptima.scribe.ui.components.export.HtmlPreviewViewer
 import com.primaloptima.scribe.ui.components.export.PdfPreviewViewer
 import com.primaloptima.scribe.ui.components.export.SourcePreviewViewer
@@ -188,41 +189,40 @@ fun ExportPreviewSheet(
         selectedFormat.mimeType
     }
 
-    // PDF background preview state
-    var pdfPreviewFile by remember { mutableStateOf<File?>(null) }
-    var isPdfLoading by remember { mutableStateOf(false) }
-    var pdfErrorMessage by remember { mutableStateOf<String?>(null) }
+    // Unified background artifact preview state across all 6 formats
+    var currentArtifactFile by remember { mutableStateOf<File?>(null) }
+    var isArtifactLoading by remember { mutableStateOf(false) }
+    var artifactErrorMessage by remember { mutableStateOf<String?>(null) }
 
-    // HTML / EPUB preview state computed off the UI thread
-    var htmlPreviewContent by remember { mutableStateOf("") }
-    LaunchedEffect(selectedFormat, config, note.content, note.name) {
-        if (selectedFormat == ExportFormat.HTML || selectedFormat == ExportFormat.EPUB) {
-            htmlPreviewContent = withContext(Dispatchers.IO) {
-                HtmlPdfExporter.buildHtmlDocument(context, note, config, isForPrintPdf = false)
+    // Retain and release artifact file reference to prevent background eviction while viewing
+    DisposableEffect(currentArtifactFile) {
+        val file = currentArtifactFile
+        if (file != null) {
+            ExportArtifactRepository.retainArtifact(file)
+        }
+        onDispose {
+            if (file != null) {
+                ExportArtifactRepository.releaseArtifact(file)
             }
-        } else {
-            htmlPreviewContent = ""
         }
     }
 
-    // Load PDF artifact via ExportArtifactRepository with debounce
+    // Load artifact for active format via ExportArtifactRepository with 250ms debounce
     LaunchedEffect(selectedFormat, config, note.content, note.name) {
-        if (selectedFormat == ExportFormat.PDF) {
-            isPdfLoading = true
-            pdfErrorMessage = null
-            pdfPreviewFile = null
-            delay(250L) // 250ms debounce for rapid slider/config changes
-            val result = ExportArtifactRepository.getOrCreateArtifact(context, note, ExportFormat.PDF, config)
-            isPdfLoading = false
-            result.fold(
-                onSuccess = { artifact ->
-                    pdfPreviewFile = artifact.file
-                },
-                onFailure = { err ->
-                    pdfErrorMessage = err.localizedMessage ?: "Failed to generate PDF preview"
-                }
-            )
-        }
+        isArtifactLoading = true
+        artifactErrorMessage = null
+        currentArtifactFile = null
+        delay(250L) // 250ms debounce for rapid slider/config changes
+        val result = ExportArtifactRepository.getOrCreateArtifact(context, note, selectedFormat, config)
+        isArtifactLoading = false
+        result.fold(
+            onSuccess = { artifact ->
+                currentArtifactFile = artifact.file
+            },
+            onFailure = { err ->
+                artifactErrorMessage = err.localizedMessage ?: "Failed to generate ${selectedFormat.label} artifact"
+            }
+        )
     }
 
     // SAF CreateDocument Launcher consuming unified artifact from ExportArtifactRepository
@@ -232,12 +232,13 @@ fun ExportPreviewSheet(
         if (destinationUri != null) {
             scope.launch(Dispatchers.IO) {
                 try {
-                    val artifactResult = ExportArtifactRepository.getOrCreateArtifact(
-                        context, note, selectedFormat, config
-                    )
-                    val artifact = artifactResult.getOrThrow()
+                    val fileToStream = currentArtifactFile?.takeIf { it.exists() && it.length() > 0L }
+                        ?: ExportArtifactRepository.getOrCreateArtifact(
+                            context, note, selectedFormat, config
+                        ).getOrThrow().file
+
                     context.contentResolver.openOutputStream(destinationUri)?.use { output ->
-                        artifact.file.inputStream().use { input ->
+                        fileToStream.inputStream().use { input ->
                             input.copyTo(output)
                         }
                     }
@@ -410,30 +411,60 @@ fun ExportPreviewSheet(
                     .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
             ) {
                 if (activeTab == 0) {
-                    // Document Preview Viewport
+                    // Document Preview Viewport - True Artifact Previews across all 6 formats
                     when (selectedFormat) {
                         ExportFormat.PDF -> {
                             PdfPreviewViewer(
-                                pdfFile = pdfPreviewFile,
-                                isLoading = isPdfLoading,
-                                errorMessage = pdfErrorMessage
+                                pdfFile = currentArtifactFile,
+                                isLoading = isArtifactLoading,
+                                errorMessage = artifactErrorMessage
                             )
                         }
 
-                        ExportFormat.EPUB, ExportFormat.HTML -> {
-                            HtmlPreviewViewer(htmlContent = htmlPreviewContent)
+                        ExportFormat.EPUB -> {
+                            EpubPreviewViewer(
+                                epubFile = currentArtifactFile,
+                                isLoading = isArtifactLoading,
+                                errorMessage = artifactErrorMessage
+                            )
+                        }
+
+                        ExportFormat.HTML -> {
+                            HtmlPreviewViewer(
+                                htmlFile = currentArtifactFile,
+                                isLoading = isArtifactLoading,
+                                errorMessage = artifactErrorMessage
+                            )
                         }
 
                         ExportFormat.DOCX -> {
-                            DocxLayoutViewer(note = note, config = config)
+                            DocxLayoutViewer(
+                                docxFile = currentArtifactFile,
+                                note = note,
+                                config = config,
+                                isLoading = isArtifactLoading,
+                                errorMessage = artifactErrorMessage
+                            )
                         }
 
                         ExportFormat.MD -> {
-                            SourcePreviewViewer(sourceText = note.content)
+                            SourcePreviewViewer(
+                                artifactFile = currentArtifactFile,
+                                sourceText = note.content,
+                                format = ExportFormat.MD,
+                                isLoading = isArtifactLoading,
+                                errorMessage = artifactErrorMessage
+                            )
                         }
 
                         ExportFormat.TXT -> {
-                            SourcePreviewViewer(sourceText = MarkdownUtil.toPlainText(note.content))
+                            SourcePreviewViewer(
+                                artifactFile = currentArtifactFile,
+                                sourceText = MarkdownUtil.toPlainText(note.content),
+                                format = ExportFormat.TXT,
+                                isLoading = isArtifactLoading,
+                                errorMessage = artifactErrorMessage
+                            )
                         }
                     }
                 } else {
@@ -469,6 +500,7 @@ fun ExportPreviewSheet(
                         onClick = {
                             ExportHelper.shareNote(context, note, selectedFormat.id, config)
                         },
+                        enabled = !isArtifactLoading,
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp),
@@ -492,7 +524,7 @@ fun ExportPreviewSheet(
                             val defaultName = "$safeName$finalExt"
                             createDocumentLauncher.launch(defaultName)
                         },
-                        enabled = !(selectedFormat == ExportFormat.PDF && isPdfLoading),
+                        enabled = !isArtifactLoading,
                         modifier = Modifier
                             .weight(1.3f)
                             .height(48.dp),
@@ -502,14 +534,14 @@ fun ExportPreviewSheet(
                             contentColor = MaterialTheme.colorScheme.onPrimary
                         )
                     ) {
-                        if (selectedFormat == ExportFormat.PDF && isPdfLoading) {
+                        if (isArtifactLoading) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(18.dp),
                                 strokeWidth = 2.dp,
                                 color = MaterialTheme.colorScheme.onPrimary
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Preparing PDF…")
+                            Text("Preparing ${selectedFormat.label}…")
                         } else {
                             Icon(
                                 imageVector = Icons.Default.Download,

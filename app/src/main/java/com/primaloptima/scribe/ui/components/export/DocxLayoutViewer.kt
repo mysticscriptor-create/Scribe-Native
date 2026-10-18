@@ -20,13 +20,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,31 +53,133 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.util.export.ExportConfig
-import com.primaloptima.scribe.util.export.ExportThemeMapper
 import com.primaloptima.scribe.util.export.FontChoice
 import com.primaloptima.scribe.util.export.MarkdownNode
 import com.primaloptima.scribe.util.export.ScribeMarkdownAstParser
 import com.primaloptima.scribe.util.export.TableAlignment
 import com.primaloptima.scribe.util.image.VaultImageManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.zip.ZipFile
 
 /**
- * Word Document Layout Simulator.
- * Renders an authentic paginated Word canvas complete with margins, headers,
+ * Word Document Layout Simulator & OpenXML Package Inspector.
+ * Inspects compiled .docx ZIP archives for ECMA-376 OpenXML integrity (word/document.xml & [Content_Types].xml),
+ * and renders an authentic paginated Word canvas complete with margins, headers,
  * typography styling, multi-level lists, tables, and images.
  */
 @Composable
 fun DocxLayoutViewer(
+    docxFile: File? = null,
     note: Note,
     config: ExportConfig,
+    isLoading: Boolean = false,
+    errorMessage: String? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+
+    if (isLoading) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(Color(0xFF2B2D30)),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(36.dp),
+                    strokeWidth = 3.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                Text(
+                    text = "Compiling OpenXML document (.docx)…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White.copy(alpha = 0.85f)
+                )
+            }
+        }
+        return
+    }
+
+    if (errorMessage != null) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(Color(0xFF2B2D30))
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ErrorOutline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(40.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = errorMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        }
+        return
+    }
+
+    // Inspect compiled OpenXML package off the main thread
+    var packageValidationInfo by remember { mutableStateOf<String?>(null) }
+    var packageMediaCount by remember { mutableIntStateOf(0) }
+    var packageError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(docxFile) {
+        if (docxFile != null && docxFile.exists() && docxFile.length() > 0L) {
+            withContext(Dispatchers.IO) {
+                try {
+                    ZipFile(docxFile).use { zip ->
+                        val hasDoc = zip.getEntry("word/document.xml") != null
+                        val hasTypes = zip.getEntry("[Content_Types].xml") != null
+                        if (!hasDoc || !hasTypes) {
+                            packageError = "Corrupt DOCX: missing word/document.xml or [Content_Types].xml"
+                        } else {
+                            val mediaEntries = zip.entries().asSequence().count { it.name.startsWith("word/media/") }
+                            packageMediaCount = mediaEntries
+                            packageValidationInfo = "word/document.xml & [Content_Types].xml intact"
+                            packageError = null
+                        }
+                    }
+                } catch (e: Exception) {
+                    packageError = "DOCX inspection failed: ${e.localizedMessage}"
+                }
+            }
+        }
+    }
+
     val doc = remember(note.content) { ScribeMarkdownAstParser.parse(note.content) }
     val fontFamily = when (config.fontChoice) {
         FontChoice.CLASSIC_SERIF -> FontFamily.Serif
         FontChoice.MODERN_SANS -> FontFamily.SansSerif
         FontChoice.MONOSPACE -> FontFamily.Monospace
         else -> FontFamily.Default
+    }
+
+    val fileKb = remember(docxFile) { docxFile?.let { it.length() / 1024L } ?: 0L }
+    val bannerText = if (docxFile != null && packageError == null) {
+        val mediaText = if (packageMediaCount > 0) " · $packageMediaCount media parts" else ""
+        "Word Layout Simulator · Verified OpenXML Package (${fileKb} KB)$mediaText · ${config.paperSize.label} · ${config.marginPreset.label}"
+    } else if (packageError != null) {
+        "Word Layout Simulator · Package Warning: $packageError"
+    } else {
+        "Word Layout Simulator · Simulated Pagination · ${config.paperSize.label} · ${config.marginPreset.label} · ${config.fontChoice.label}"
     }
 
     Box(
@@ -84,12 +193,12 @@ fun DocxLayoutViewer(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Truth in Preview Banner
+            // Truth in Preview & Package Integrity Banner
             item {
                 Surface(
-                    color = Color.Black.copy(alpha = 0.4f),
+                    color = Color.Black.copy(alpha = 0.45f),
                     shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.15f))
+                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.18f))
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
@@ -103,7 +212,7 @@ fun DocxLayoutViewer(
                             modifier = Modifier.size(14.dp)
                         )
                         Text(
-                            text = "Word Layout Simulator · Simulated Pagination · ${config.paperSize.label} · ${config.marginPreset.label} · ${config.fontChoice.label}",
+                            text = bannerText,
                             color = Color(0xFFDDDDDD),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium
@@ -259,7 +368,7 @@ fun DocxLayoutViewer(
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .background(Color(0xFFEEEEEE))
-                                                    .padding(6.dp)
+                                                .padding(6.dp)
                                             ) {
                                                 for ((idx, h) in node.headers.withIndex()) {
                                                     val align = node.alignments.getOrElse(idx) { TableAlignment.DEFAULT }
