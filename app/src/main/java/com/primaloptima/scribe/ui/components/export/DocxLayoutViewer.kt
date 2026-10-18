@@ -103,7 +103,7 @@ fun DocxLayoutViewer(
                             modifier = Modifier.size(14.dp)
                         )
                         Text(
-                            text = "Manuscript Word Layout Preview · ${config.paperSize.label} · ${config.marginPreset.label} · ${config.fontChoice.label}",
+                            text = "Word Layout Simulator · Simulated Pagination · ${config.paperSize.label} · ${config.marginPreset.label} · ${config.fontChoice.label}",
                             color = Color(0xFFDDDDDD),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium

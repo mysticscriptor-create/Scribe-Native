@@ -7,6 +7,7 @@ import com.primaloptima.scribe.util.export.ExportFormat
 import com.primaloptima.scribe.util.export.PaperSize
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
@@ -198,5 +199,63 @@ class DocxExportTest {
         assertTrue("Document must contain <w:gridCol", docXml.contains("<w:gridCol"))
         assertTrue("Table header must have center alignment", docXml.contains("<w:jc w:val=\"center\"/>"))
         assertTrue("Table header must have right alignment", docXml.contains("<w:jc w:val=\"right\"/>"))
+    }
+    @Test
+    fun testMissingImageAssetProducesEditorialCalloutBox() {
+        val note = Note(
+            id = "test-missing-img",
+            name = "Missing Image Test",
+            content = """
+                # Chapter with Image
+                ![Map of Realm](vault-img://missing_map.png)
+                *Ancient Map Description*
+            """.trimIndent()
+        )
+        val config = ExportConfig(format = ExportFormat.DOCX)
+        val docxBytes = DocxExporter.export(null, note, config)
+        val entries = mutableMapOf<String, String>()
+        ZipInputStream(ByteArrayInputStream(docxBytes)).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                entries[entry.name] = zis.readBytes().toString(Charsets.UTF_8)
+                entry = zis.nextEntry
+            }
+        }
+        val docXml = entries["word/document.xml"] ?: ""
+        val relsXml = entries["word/_rels/document.xml.rels"] ?: ""
+
+        // Should NOT corrupt package with unresolvable image relationship
+        assertFalse("Relationships must not contain broken image targets", relsXml.contains("media/image_"))
+        // Should contain styled editorial callout box with caption/alt
+        assertTrue("Document must contain editorial illustration callout", docXml.contains("[Illustration: Ancient Map Description]"))
+        assertTrue("Document callout must have single border", docXml.contains("<w:pBdr>"))
+        assertTrue("Document callout must have shading", docXml.contains("<w:shd"))
+    }
+
+    @Test
+    fun testSoftBreaksReflowNaturallyWithoutWordBreaks() {
+        val note = Note(
+            id = "test-soft-reflow",
+            name = "Reflow Test",
+            content = """
+                The quick brown fox
+                jumps over the lazy dog.
+                Another line in standard paragraph.
+            """.trimIndent()
+        )
+        val config = ExportConfig(format = ExportFormat.DOCX)
+        val docxBytes = DocxExporter.export(null, note, config)
+        val entries = mutableMapOf<String, String>()
+        ZipInputStream(ByteArrayInputStream(docxBytes)).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                entries[entry.name] = zis.readBytes().toString(Charsets.UTF_8)
+                entry = zis.nextEntry
+            }
+        }
+        val docXml = entries["word/document.xml"] ?: ""
+        // Soft line breaks reflow as spaces in a single paragraph, no <w:br/>
+        assertFalse("Soft breaks within a paragraph must not emit <w:br/>", docXml.contains("<w:br/>"))
+        assertTrue("Paragraph text must reflow with spaces", docXml.contains("The quick brown fox jumps over the lazy dog. Another line in standard paragraph."))
     }
 }
