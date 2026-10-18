@@ -17,12 +17,15 @@ import java.util.zip.ZipOutputStream
 /**
  * Modern standards-compliant EPUB 3.3 publication engine for Scribe.
  *
- * Conformance:
- * 1. Uncompressed US-ASCII mimetype at archive byte offset 0 with zero extra fields.
- * 2. Strict XHTML5 / XML conformance across all content documents with self-closing void tags.
- * 3. Safe, non-lossy AST-driven chapter splitting preserving pre-chapter front matter.
- * 4. EPUB 3 navigation document (nav.xhtml) with semantic landmarks and legacy NCX fallback.
- * 5. Dynamic author profile, UUID identifier, and ISO-8601 UTC timestamp metadata.
+ * Conformance & Architecture:
+ * 1. Uncompressed US-ASCII mimetype at archive byte offset 0 with zero extra fields (STORED).
+ * 2. Strict W3C EPUB 3.3 Recommendation targeting with package declaration version="3.0".
+ * 3. Strict XHTML5 / XML conformance across all content documents with self-closing void tags.
+ * 4. Safe, non-lossy AST-driven chapter splitting preserving pre-chapter front matter.
+ * 5. Dynamic language identification and bidirectional (LTR/RTL) metadata separation.
+ * 6. Dynamic author extraction with front matter sniffing and graceful fallback.
+ * 7. EPUB 3 navigation document (nav.xhtml) with semantic landmarks and legacy NCX fallback.
+ * 8. Missing vault image asset fallback callout boxes preventing manifest corruption.
  */
 object EpubExporter {
 
@@ -34,16 +37,26 @@ object EpubExporter {
         val nodes: List<MarkdownNode.BlockNode>
     )
 
+    data class LanguageMetadata(
+        val primaryLanguage: String,
+        val secondaryLanguages: List<String>,
+        val documentDirection: String
+    )
+
     fun export(context: Context?, note: Note, config: ExportConfig): ByteArray {
         val themeColors = ExportThemeMapper.resolveThemeColors(context)
         val title = note.name.ifBlank { "Untitled Manuscript" }
         val titleXml = MarkdownUtil.xmlEscape(title)
-        val authorName = config.authorName.ifBlank { "Scribe Author" }
+
+        val authorName = resolveAuthorName(note, config)
         val authorXml = MarkdownUtil.xmlEscape(authorName)
+
         val uuid = "urn:uuid:" + UUID.nameUUIDFromBytes(note.id.toByteArray()).toString()
         val isoDate = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }.format(Date())
+
+        val langMeta = detectLanguageAndDirection(note.content)
 
         // 1. Parse markdown source into unified AST
         val ast = ScribeMarkdownAstParser.parse(note.content)
@@ -61,15 +74,27 @@ object EpubExporter {
             imageCache.getOrPut(src) {
                 val bytes = if (context != null) VaultImageManager.getImageBytes(context, src, note.bookId, note.id) else null
                 if (bytes != null) {
-                    val ext = if (src.endsWith(".png", true)) "png" else "jpg"
+                    val ext = when {
+                        src.endsWith(".png", true) -> "png"
+                        src.endsWith(".webp", true) -> "webp"
+                        src.endsWith(".gif", true) -> "gif"
+                        src.endsWith(".svg", true) -> "svg"
+                        else -> "jpg"
+                    }
+                    val mime = when (ext) {
+                        "png" -> "image/png"
+                        "webp" -> "image/webp"
+                        "gif" -> "image/gif"
+                        "svg" -> "image/svg+xml"
+                        else -> "image/jpeg"
+                    }
                     val imgFilename = "image_$imageIndex.$ext"
-                    val mime = if (ext == "png") "image/png" else "image/jpeg"
                     imageEntries["OEBPS/images/$imgFilename"] = bytes
                     imageManifest.add("""    <item id="img_$imageIndex" href="images/$imgFilename" media-type="$mime"/>""")
                     imageIndex++
                     "images/$imgFilename"
                 } else {
-                    src
+                    "MISSING_ASSET"
                 }
             }
         }
@@ -89,7 +114,7 @@ object EpubExporter {
 </container>""".trimIndent().toByteArray(Charsets.UTF_8)
 
         // 6. OEBPS/styles.css
-        val cssContent = ExportThemeMapper.generateExportCss(config, themeColors, isForPrintPdf = false)
+        val cssContent = ExportThemeMapper.generateExportCss(config, themeColors, isForPrintPdf = false, isForEpub = true)
         entries["OEBPS/styles.css"] = cssContent.toByteArray(Charsets.UTF_8)
 
         // 7. Chapter XHTML documents with strict XHTML5 XML syntax
@@ -97,12 +122,33 @@ object EpubExporter {
             val chapTitleXml = MarkdownUtil.xmlEscape(chap.title)
             val chapDoc = MarkdownNode.Document(chap.nodes)
             val chapHtml = HtmlEmitter.emit(chapDoc, processImageSrc)
+
             val bodyType = if (chap.isFrontMatter) "frontmatter" else "bodymatter"
             val sectionType = if (chap.isFrontMatter) "prologue" else "chapter"
 
+            val chapRawText = chap.nodes.joinToString(" ") { node ->
+                when (node) {
+                    is MarkdownNode.BlockNode.Paragraph -> node.runs.joinToString("") { it.text }
+                    is MarkdownNode.BlockNode.Heading -> node.runs.joinToString("") { it.text }
+                    else -> ""
+                }
+            }
+            val isChapRtl = HtmlEmitter.isRtlText(chapRawText)
+            val chapLang = if (isChapRtl) {
+                langMeta.secondaryLanguages.firstOrNull { it == "ur" || it == "ar" || it == "he" }
+                    ?: if (langMeta.primaryLanguage == "ur" || langMeta.primaryLanguage == "ar" || langMeta.primaryLanguage == "he") langMeta.primaryLanguage else "ur"
+            } else {
+                if (langMeta.primaryLanguage == "ur" || langMeta.primaryLanguage == "ar" || langMeta.primaryLanguage == "he") {
+                    langMeta.secondaryLanguages.firstOrNull { it == "en" } ?: "en"
+                } else {
+                    langMeta.primaryLanguage
+                }
+            }
+            val chapDir = if (isChapRtl) "rtl" else langMeta.documentDirection
+
             val chapterDoc = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="en" lang="en">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="$chapLang" lang="$chapLang" dir="$chapDir">
 <head>
   <meta charset="utf-8"/>
   <title>$chapTitleXml</title>
@@ -125,7 +171,7 @@ object EpubExporter {
 
         val navDoc = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="en" lang="en">
+<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${langMeta.primaryLanguage}" lang="${langMeta.primaryLanguage}" dir="${langMeta.documentDirection}">
 <head>
   <meta charset="utf-8"/>
   <title>Table of Contents</title>
@@ -138,7 +184,7 @@ object EpubExporter {
 $navItems
     </ol>
   </nav>
-  <nav epub:type="landmarks" hidden="">
+  <nav epub:type="landmarks" hidden="hidden">
     <h2>Landmarks</h2>
     <ol>
       <li><a epub:type="toc" href="#toc">Table of Contents</a></li>
@@ -182,12 +228,17 @@ $ncxNavPoints
         }
         val extraImagesManifest = if (imageManifest.isNotEmpty()) "\n" + imageManifest.joinToString("\n") else ""
 
+        val secondaryLangXml = langMeta.secondaryLanguages
+            .filter { it != langMeta.primaryLanguage }
+            .joinToString("\n") { """    <dc:language>$it</dc:language>""" }
+        val secondaryLangBlock = if (secondaryLangXml.isNotEmpty()) "\n$secondaryLangXml" else ""
+
         val opfDoc = """<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:identifier id="pub-id">$uuid</dc:identifier>
     <dc:title>$titleXml</dc:title>
-    <dc:language>en</dc:language>
+    <dc:language>${langMeta.primaryLanguage}</dc:language>$secondaryLangBlock
     <dc:creator id="author">$authorXml</dc:creator>
     <meta property="dcterms:modified">$isoDate</meta>
   </metadata>
@@ -210,16 +261,106 @@ $spineItems
     }
 
     /**
+     * Extracts dynamic author pen name from [config], with fallback to manuscript front matter,
+     * and a final graceful default of 'Scribe Author'.
+     */
+    fun resolveAuthorName(note: Note, config: ExportConfig): String {
+        if (config.authorName.isNotBlank()) {
+            return config.authorName.trim()
+        }
+        val lines = note.content.lineSequence().take(15)
+        for (line in lines) {
+            val trimmed = line.trim()
+            val prefixes = listOf("author:", "by:", "author -", "author —")
+            for (p in prefixes) {
+                if (trimmed.startsWith(p, ignoreCase = true)) {
+                    val candidate = trimmed.substring(p.length).trim().trim('-', '—', '*', '_')
+                    if (candidate.isNotBlank() && candidate.length in 2..50) {
+                        return candidate
+                    }
+                }
+            }
+        }
+        return "Scribe Author"
+    }
+
+    /**
+     * Determines the primary and secondary language codes and document-level directionality.
+     * Separates language tags from RTL directionality so mixed-script manuscripts are correctly decorated.
+     */
+    fun detectLanguageAndDirection(content: String): LanguageMetadata {
+        var arabicCount = 0
+        var urduSpecificCount = 0
+        var hebrewCount = 0
+        var latinCount = 0
+
+        for (ch in content) {
+            val code = ch.code
+            when {
+                // Urdu-specific letters: ٹ, ڈ, ڑ, ں, ے, ہ, ھ, چ, پ, ژ, گ
+                code in listOf(0x0679, 0x0688, 0x0691, 0x06BA, 0x06D2, 0x06C1, 0x06BE, 0x0686, 0x067E, 0x0698, 0x06AF) -> {
+                    urduSpecificCount++
+                    arabicCount++
+                }
+                // Arabic Unicode blocks
+                code in 0x0600..0x06FF || code in 0x0750..0x077F || code in 0x08A0..0x08FF || code in 0xFB50..0xFDFF || code in 0xFE70..0xFEFF -> {
+                    arabicCount++
+                }
+                // Hebrew Unicode blocks
+                code in 0x0590..0x05FF || code in 0xFB1D..0xFB4F -> {
+                    hebrewCount++
+                }
+                // Latin Unicode blocks
+                code in 0x0041..0x005A || code in 0x0061..0x007A || code in 0x00C0..0x024F -> {
+                    latinCount++
+                }
+            }
+        }
+
+        val totalRtl = arabicCount + hebrewCount
+        val isPrimaryRtl = totalRtl > latinCount
+
+        val primaryLang = when {
+            isPrimaryRtl && urduSpecificCount > 0 -> "ur"
+            isPrimaryRtl && arabicCount > 0 -> "ar"
+            isPrimaryRtl && hebrewCount > 0 -> "he"
+            else -> "en"
+        }
+
+        val secondary = mutableListOf<String>()
+        if (primaryLang == "en") {
+            if (urduSpecificCount > 0) secondary.add("ur")
+            else if (arabicCount > 0) secondary.add("ar")
+            if (hebrewCount > 0) secondary.add("he")
+        } else {
+            if (latinCount > 0) secondary.add("en")
+        }
+
+        val docDirection = if (isPrimaryRtl) "rtl" else "ltr"
+
+        return LanguageMetadata(
+            primaryLanguage = primaryLang,
+            secondaryLanguages = secondary.distinct(),
+            documentDirection = docDirection
+        )
+    }
+
+    /**
      * Safely splits unified AST nodes into individual chapter containers.
      * Guarantees 0% data loss by isolating any pre-chapter prose into [frontmatter.xhtml].
+     * Supports manuscripts with H1 headings or H2 headings.
      */
     fun splitIntoChapters(
         ast: MarkdownNode.Document,
         fallbackTitle: String
     ): List<EpubChapter> {
-        val h1Nodes = ast.children.filterIsInstance<MarkdownNode.BlockNode.Heading>().filter { it.level == 1 }
+        val splitLevel = when {
+            ast.children.any { it is MarkdownNode.BlockNode.Heading && it.level == 1 } -> 1
+            ast.children.any { it is MarkdownNode.BlockNode.Heading && it.level == 2 } -> 2
+            else -> null
+        }
 
-        if (h1Nodes.isEmpty()) {
+        if (splitLevel == null) {
             return listOf(
                 EpubChapter(
                     id = "chap_1",
@@ -233,11 +374,11 @@ $spineItems
 
         val chapters = mutableListOf<EpubChapter>()
         var currentTitle = "Front Matter"
-        var currentNodes = mutableListOf<MarkdownNode.BlockNode>()
+        val currentNodes = mutableListOf<MarkdownNode.BlockNode>()
         var actualChapterIdx = 1
 
         for (node in ast.children) {
-            if (node is MarkdownNode.BlockNode.Heading && node.level == 1) {
+            if (node is MarkdownNode.BlockNode.Heading && node.level == splitLevel) {
                 if (currentNodes.isNotEmpty()) {
                     val isFrontMatter = chapters.isEmpty() && currentTitle == "Front Matter"
                     val id = if (isFrontMatter) "frontmatter" else "chap_$actualChapterIdx"
@@ -256,7 +397,7 @@ $spineItems
                     }
                     currentNodes.clear()
                 }
-                currentTitle = node.runs.joinToString("") { it.text }.ifBlank { "Chapter $actualChapterIdx" }
+                currentTitle = node.runs.joinToString("") { it.text }.trim().ifBlank { "Chapter $actualChapterIdx" }
             }
             currentNodes.add(node)
         }

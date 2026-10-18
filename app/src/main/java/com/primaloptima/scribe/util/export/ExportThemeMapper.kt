@@ -60,14 +60,15 @@ object ExportThemeMapper {
     fun generateExportCss(
         config: ExportConfig,
         themeColors: ThemeColors,
-        isForPrintPdf: Boolean = false
+        isForPrintPdf: Boolean = false,
+        isForEpub: Boolean = false
     ): String {
         val fontFamily = resolveCssFontFamily(config.fontChoice)
         val fontSizePt = config.fontSizePt
         val lineSpacing = config.lineSpacingMultiplier
         val primaryColorHex = themeColors.accent.ifBlank { "#1A5276" }
-        val textColorHex = if (isForPrintPdf) "#1A1A1A" else themeColors.text.ifBlank { "#222222" }
-        val bgColorHex = if (isForPrintPdf) "#FFFFFF" else themeColors.background.ifBlank { "#FFFFFF" }
+        val textColorHex = if (isForPrintPdf || isForEpub) "#1A1A1A" else themeColors.text.ifBlank { "#222222" }
+        val bgColorHex = if (isForPrintPdf || isForEpub) "#FFFFFF" else themeColors.background.ifBlank { "#FFFFFF" }
         val borderColorHex = themeColors.borderSubtle.ifBlank { "#DDDDDD" }
 
         val printPageRule = if (isForPrintPdf) """
@@ -216,6 +217,31 @@ object ExportThemeMapper {
         .page-break {
             page-break-after: always;
             break-after: page;
+        }
+        /* RTL and Bidirectional Support */
+        [dir="rtl"] {
+            direction: rtl;
+            text-align: right;
+            unicode-bidi: embed;
+        }
+        [dir="ltr"] {
+            direction: ltr;
+            text-align: left;
+            unicode-bidi: embed;
+        }
+        blockquote[dir="rtl"] {
+            border-left: none;
+            border-right: 3.5px solid var(--scribe-primary);
+        }
+        .editorial-callout {
+            border: 1px dashed var(--scribe-border, #999999);
+            padding: 14px;
+            margin: 20px 0;
+            text-align: center;
+            font-style: italic;
+            color: #666666;
+            background-color: rgba(0, 0, 0, 0.02);
+            border-radius: 4px;
         }
         """.trimIndent()
     }

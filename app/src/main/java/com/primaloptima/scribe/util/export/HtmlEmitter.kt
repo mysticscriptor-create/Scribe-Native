@@ -3,7 +3,7 @@ package com.primaloptima.scribe.util.export
 /**
  * Standards-compliant XHTML5 HTML Emitter for the Scribe export engine.
  * Converts [MarkdownNode.Document] into well-formed XML/HTML with semantic typography,
- * nested list structures, table alignment styles, and self-closing void elements.
+ * nested list structures, table alignment styles, RTL directionality markers, and self-closing void elements.
  */
 object HtmlEmitter {
 
@@ -25,20 +25,31 @@ object HtmlEmitter {
         return when (block) {
             is MarkdownNode.BlockNode.Heading -> {
                 val tag = "h${block.level.coerceIn(1, 6)}"
-                "<$tag>${emitRuns(block.runs)}</$tag>"
+                val dirAttr = if (isRtlRuns(block.runs)) " dir=\"rtl\"" else ""
+                "<$tag$dirAttr>${emitRuns(block.runs)}</$tag>"
             }
             is MarkdownNode.BlockNode.Paragraph -> {
-                "<p>${emitRuns(block.runs)}</p>"
+                val dirAttr = if (isRtlRuns(block.runs)) " dir=\"rtl\"" else ""
+                "<p$dirAttr>${emitRuns(block.runs)}</p>"
             }
             is MarkdownNode.BlockNode.Blockquote -> {
                 val inner = block.children.joinToString("\n") { emitBlock(it, imageResolver) }
-                "<blockquote>\n$inner\n</blockquote>"
+                val isRtl = block.children.any { child ->
+                    when (child) {
+                        is MarkdownNode.BlockNode.Paragraph -> isRtlRuns(child.runs)
+                        is MarkdownNode.BlockNode.Heading -> isRtlRuns(child.runs)
+                        else -> false
+                    }
+                }
+                val dirAttr = if (isRtl) " dir=\"rtl\"" else ""
+                "<blockquote$dirAttr>\n$inner\n</blockquote>"
             }
             is MarkdownNode.BlockNode.ListBlock -> {
                 emitListBlock(block)
             }
             is MarkdownNode.BlockNode.ListItem -> {
-                "<li>${emitRuns(block.runs)}</li>"
+                val dirAttr = if (isRtlRuns(block.runs)) " dir=\"rtl\"" else ""
+                "<li$dirAttr>${emitRuns(block.runs)}</li>"
             }
             is MarkdownNode.BlockNode.Table -> {
                 emitTable(block)
@@ -52,16 +63,23 @@ object HtmlEmitter {
             is MarkdownNode.BlockNode.ImageBlock -> {
                 val resolvedSrc = imageResolver?.invoke(block.uri) ?: block.uri
                 val altEscaped = escapeHtml(block.alt)
-                val captionHtml = if (!block.caption.isNullOrBlank()) {
-                    "<figcaption style=\"font-size:0.85em; color:#777; margin-top:6px; font-style:italic;\">${escapeHtml(block.caption)}</figcaption>"
-                } else ""
-                "<figure style=\"text-align:center; margin:24px 0;\"><img src=\"$resolvedSrc\" alt=\"$altEscaped\" style=\"max-width:100%; height:auto; border-radius:8px; display:inline-block;\"/>$captionHtml</figure>"
+                val captionEscaped = if (!block.caption.isNullOrBlank()) escapeHtml(block.caption) else ""
+                if (resolvedSrc.isBlank() || resolvedSrc == "MISSING_ASSET" || resolvedSrc.startsWith("vault-img://")) {
+                    val label = if (altEscaped.isNotBlank()) altEscaped else if (captionEscaped.isNotBlank()) captionEscaped else "Image"
+                    "<figure class=\"editorial-callout\"><p style=\"font-style:italic; margin:0;\">[Illustration: $label]</p></figure>"
+                } else {
+                    val captionHtml = if (captionEscaped.isNotBlank()) {
+                        "<figcaption style=\"font-size:0.85em; color:#777; margin-top:6px; font-style:italic;\">$captionEscaped</figcaption>"
+                    } else ""
+                    "<figure style=\"text-align:center; margin:24px 0;\"><img src=\"$resolvedSrc\" alt=\"$altEscaped\" style=\"max-width:100%; height:auto; border-radius:8px; display:inline-block;\"/>$captionHtml</figure>"
+                }
             }
             is MarkdownNode.BlockNode.ThematicBreak -> {
                 "<hr/>"
             }
             is MarkdownNode.BlockNode.TableCell -> {
-                "<td>${emitRuns(block.runs)}</td>"
+                val dirAttr = if (isRtlRuns(block.runs)) " dir=\"rtl\"" else ""
+                "<td$dirAttr>${emitRuns(block.runs)}</td>"
             }
         }
     }
@@ -71,7 +89,6 @@ object HtmlEmitter {
         val isOrdered = listBlock.isOrdered
         val tag = if (isOrdered) "ol" else "ul"
         val startAttr = if (isOrdered && listBlock.startNumber > 1) " start=\"${listBlock.startNumber}\"" else ""
-
         var currentLevel = 0
         val openTags = mutableListOf<String>()
 
@@ -99,7 +116,8 @@ object HtmlEmitter {
                 closeList()
                 currentLevel--
             }
-            sb.append("  <li>${emitRuns(item.runs)}</li>\n")
+            val dirAttr = if (isRtlRuns(item.runs)) " dir=\"rtl\"" else ""
+            sb.append("  <li$dirAttr>${emitRuns(item.runs)}</li>\n")
         }
 
         while (openTags.isNotEmpty()) {
@@ -120,7 +138,8 @@ object HtmlEmitter {
                 val align = table.alignments.getOrElse(colIdx) { TableAlignment.DEFAULT }
                 val alignStyle = alignToStyle(align)
                 val styleAttr = if (alignStyle.isNotEmpty()) " style=\"$alignStyle\"" else ""
-                sb.append("      <th$styleAttr>${emitRuns(cell.runs)}</th>\n")
+                val dirAttr = if (isRtlRuns(cell.runs)) " dir=\"rtl\"" else ""
+                sb.append("      <th$styleAttr$dirAttr>${emitRuns(cell.runs)}</th>\n")
             }
             sb.append("    </tr>\n  </thead>\n")
         }
@@ -134,7 +153,8 @@ object HtmlEmitter {
                     val align = table.alignments.getOrElse(colIdx) { TableAlignment.DEFAULT }
                     val alignStyle = alignToStyle(align)
                     val styleAttr = if (alignStyle.isNotEmpty()) " style=\"$alignStyle\"" else ""
-                    sb.append("      <td$styleAttr>${emitRuns(cell.runs)}</td>\n")
+                    val dirAttr = if (isRtlRuns(cell.runs)) " dir=\"rtl\"" else ""
+                    sb.append("      <td$styleAttr$dirAttr>${emitRuns(cell.runs)}</td>\n")
                 }
                 sb.append("    </tr>\n")
             }
@@ -181,6 +201,34 @@ object HtmlEmitter {
             sb.append(text)
         }
         return sb.toString()
+    }
+
+    fun isRtlText(text: String): Boolean {
+        var rtl = 0
+        var ltr = 0
+        for (ch in text) {
+            when (Character.getDirectionality(ch)) {
+                Character.DIRECTIONALITY_RIGHT_TO_LEFT,
+                Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC -> rtl++
+                Character.DIRECTIONALITY_LEFT_TO_RIGHT -> ltr++
+            }
+        }
+        return rtl > 0 && rtl >= ltr
+    }
+
+    fun isRtlRuns(runs: List<MarkdownNode.InlineRun>): Boolean {
+        var rtl = 0
+        var ltr = 0
+        for (run in runs) {
+            for (ch in run.text) {
+                when (Character.getDirectionality(ch)) {
+                    Character.DIRECTIONALITY_RIGHT_TO_LEFT,
+                    Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC -> rtl++
+                    Character.DIRECTIONALITY_LEFT_TO_RIGHT -> ltr++
+                }
+            }
+        }
+        return rtl > 0 && rtl >= ltr
     }
 
     fun escapeHtml(s: String): String = s

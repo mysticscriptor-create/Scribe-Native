@@ -5,6 +5,7 @@ import com.primaloptima.scribe.util.export.EpubExporter
 import com.primaloptima.scribe.util.export.ExportConfig
 import com.primaloptima.scribe.util.export.ExportFormat
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -111,6 +112,7 @@ class EpubExportTest {
         // Chapters 1 and 2 must follow
         assertTrue(entries.containsKey("OEBPS/chapter_1.xhtml"))
         assertTrue(entries.containsKey("OEBPS/chapter_2.xhtml"))
+
         val chap1Content = entries["OEBPS/chapter_1.xhtml"] ?: ""
         assertTrue(chap1Content.contains("The First Step"))
         assertTrue(chap1Content.contains("ancient manuscript"))
@@ -221,5 +223,193 @@ class EpubExportTest {
         val chapContent = entries["OEBPS/chapter_1.xhtml"] ?: ""
         assertTrue(chapContent.contains("reflective essay written entirely in prose"))
         assertTrue(chapContent.contains("multiple paragraphs and deep thoughts"))
+    }
+
+    @Test
+    fun testLanguageDetectionAndRtlDirectionalitySeparation() {
+        val note = Note(
+            id = "test-bidi-note",
+            name = "Bilingual Poetry Collection",
+            content = """
+                # Chapter 1: Introduction
+                This volume contains reflections in both English and Urdu.
+                
+                ستاروں سے آگے جہاں اور بھی ہیں
+                
+                The journey of thought continues beyond the horizon.
+            """.trimIndent()
+        )
+        val config = ExportConfig(format = ExportFormat.EPUB)
+        val epubBytes = EpubExporter.export(null, note, config)
+        val entries = mutableMapOf<String, String>()
+        ZipInputStream(ByteArrayInputStream(epubBytes)).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                entries[entry.name] = zis.readBytes().toString(Charsets.UTF_8)
+                entry = zis.nextEntry
+            }
+        }
+
+        val opf = entries["OEBPS/content.opf"] ?: ""
+        // Both primary English and secondary Urdu must be declared in metadata
+        assertTrue("Primary language must be en", opf.contains("<dc:language>en</dc:language>"))
+        assertTrue("Secondary language must declare ur", opf.contains("<dc:language>ur</dc:language>"))
+
+        val chapContent = entries["OEBPS/chapter_1.xhtml"] ?: ""
+        // Chapter document remains LTR since English is primary
+        assertTrue("Document root must be ltr", chapContent.contains("dir=\"ltr\""))
+        // But the Urdu paragraph must have explicit dir="rtl"
+        assertTrue("Urdu paragraph must be decorated with dir=rtl", chapContent.contains("<p dir=\"rtl\">ستاروں سے آگے جہاں اور بھی ہیں</p>"))
+        // English paragraph must not have forced rtl
+        assertFalse("English paragraph must not be rtl", chapContent.contains("<p dir=\"rtl\">This volume"))
+    }
+
+    @Test
+    fun testPredominantlyUrduManuscriptSetsGlobalRtl() {
+        val note = Note(
+            id = "test-urdu-note",
+            name = "دیوان غالب",
+            content = """
+                # دیباچہ
+                یہ کتاب مکمل طور پر اردو زبان میں مرتب کی گئی ہے۔
+                
+                دل ناداں تجھے ہوا کیا ہے
+                آخر اس درد کی دوا کیا ہے
+            """.trimIndent()
+        )
+        val config = ExportConfig(format = ExportFormat.EPUB)
+        val epubBytes = EpubExporter.export(null, note, config)
+        val entries = mutableMapOf<String, String>()
+        ZipInputStream(ByteArrayInputStream(epubBytes)).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                entries[entry.name] = zis.readBytes().toString(Charsets.UTF_8)
+                entry = zis.nextEntry
+            }
+        }
+
+        val opf = entries["OEBPS/content.opf"] ?: ""
+        assertTrue("Primary language must be ur", opf.contains("<dc:language>ur</dc:language>"))
+
+        val chapContent = entries["OEBPS/chapter_1.xhtml"] ?: ""
+        assertTrue("Root HTML must have dir=rtl", chapContent.contains("dir=\"rtl\""))
+        assertTrue("Root HTML must have lang=ur", chapContent.contains("lang=\"ur\""))
+    }
+
+    @Test
+    fun testMissingImageEmitsEditorialCalloutWithoutManifestCorruption() {
+        val note = Note(
+            id = "test-missing-img",
+            name = "Illustrated Tale",
+            content = """
+                # Chapter 1: The Expedition
+                ![Lost Map of Eldoria](vault-img://lost_map.png)
+                *Found in the archives of antiquity.*
+            """.trimIndent()
+        )
+        val config = ExportConfig(format = ExportFormat.EPUB)
+        val epubBytes = EpubExporter.export(null, note, config)
+        val entries = mutableMapOf<String, String>()
+        ZipInputStream(ByteArrayInputStream(epubBytes)).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                entries[entry.name] = zis.readBytes().toString(Charsets.UTF_8)
+                entry = zis.nextEntry
+            }
+        }
+
+        val opf = entries["OEBPS/content.opf"] ?: ""
+        // Manifest must NOT contain broken missing_map reference
+        assertFalse("Manifest must not contain unresolved vault images", opf.contains("lost_map"))
+
+        val chapContent = entries["OEBPS/chapter_1.xhtml"] ?: ""
+        // Content must contain editorial illustration callout box
+        assertTrue("Must emit editorial illustration callout", chapContent.contains("[Illustration: Lost Map of Eldoria]"))
+        assertTrue("Callout box must have editorial-callout class", chapContent.contains("class=\"editorial-callout\""))
+        assertFalse("Must not contain dangling vault-img src", chapContent.contains("vault-img://"))
+    }
+
+    @Test
+    fun testEpubVersionIsStrictly3Point0() {
+        val note = Note(
+            id = "test-version-note",
+            name = "Spec Test",
+            content = "# Chapter 1\nContent here."
+        )
+        val config = ExportConfig(format = ExportFormat.EPUB)
+        val epubBytes = EpubExporter.export(null, note, config)
+        val entries = mutableMapOf<String, String>()
+        ZipInputStream(ByteArrayInputStream(epubBytes)).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                entries[entry.name] = zis.readBytes().toString(Charsets.UTF_8)
+                entry = zis.nextEntry
+            }
+        }
+
+        val opf = entries["OEBPS/content.opf"] ?: ""
+        // Strict W3C EPUB 3.3 Recommendation requirement: package version attribute MUST be "3.0"
+        assertTrue("Package declaration must specify version 3.0", opf.contains("<package xmlns=\"http://www.idpf.org/2007/opf\" version=\"3.0\""))
+        assertFalse("Package version must not be set to 3.3", opf.contains("version=\"3.3\""))
+    }
+
+    @Test
+    fun testChapterSplittingOnH2WhenNoH1Present() {
+        val note = Note(
+            id = "test-h2-split",
+            name = "Segmented Essay",
+            content = """
+                ## Part I: Foundations
+                The early principles of the craft.
+                
+                ## Part II: Innovations
+                Modern techniques for high-reliability systems.
+            """.trimIndent()
+        )
+        val config = ExportConfig(format = ExportFormat.EPUB)
+        val epubBytes = EpubExporter.export(null, note, config)
+        val entries = mutableMapOf<String, String>()
+        ZipInputStream(ByteArrayInputStream(epubBytes)).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                entries[entry.name] = zis.readBytes().toString(Charsets.UTF_8)
+                entry = zis.nextEntry
+            }
+        }
+
+        assertTrue("Part I must be chapter_1.xhtml", entries.containsKey("OEBPS/chapter_1.xhtml"))
+        assertTrue("Part II must be chapter_2.xhtml", entries.containsKey("OEBPS/chapter_2.xhtml"))
+
+        val nav = entries["OEBPS/nav.xhtml"] ?: ""
+        assertTrue("Nav must link chapter_1.xhtml", nav.contains("chapter_1.xhtml"))
+        assertTrue("Nav must link chapter_2.xhtml", nav.contains("chapter_2.xhtml"))
+    }
+
+    @Test
+    fun testAuthorExtractionFromManuscriptContent() {
+        val note = Note(
+            id = "test-author-sniff",
+            name = "A Tale of Two Cities",
+            content = """
+                Author: Charles Dickens
+                
+                # Book the First: Recalled to Life
+                It was the best of times, it was the worst of times.
+            """.trimIndent()
+        )
+        // With blank authorName in config
+        val config = ExportConfig(format = ExportFormat.EPUB, authorName = "")
+        val epubBytes = EpubExporter.export(null, note, config)
+        val entries = mutableMapOf<String, String>()
+        ZipInputStream(ByteArrayInputStream(epubBytes)).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                entries[entry.name] = zis.readBytes().toString(Charsets.UTF_8)
+                entry = zis.nextEntry
+            }
+        }
+
+        val opf = entries["OEBPS/content.opf"] ?: ""
+        assertTrue("Must extract author from manuscript front matter", opf.contains("<dc:creator id=\"author\">Charles Dickens</dc:creator>"))
     }
 }
