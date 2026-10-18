@@ -31,7 +31,7 @@ object HtmlPdfExporter {
         val css = ExportThemeMapper.generateExportCss(config, themeColors, isForPrintPdf = isForPrintPdf)
         val langMeta = EpubExporter.detectLanguageAndDirection(note.content)
 
-        val bodyHtml = ScribeMarkdownEngine.toHtml(note.content) { src ->
+        val bodyHtml = ScribeMarkdownEngine.toHtml(note.content, langMeta.documentDirection) { src ->
             resolveImageToBase64(context, src, note.bookId, note.id) ?: "MISSING_ASSET"
         }
         val coverTitleHtml = if (config.includeCoverTitle) {

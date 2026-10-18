@@ -9,31 +9,33 @@ object HtmlEmitter {
 
     fun emit(
         document: MarkdownNode.Document,
-        imageResolver: ((String) -> String)? = null
+        imageResolver: ((String) -> String)? = null,
+        docDirection: String = "ltr"
     ): String {
         val sb = StringBuilder()
         for (block in document.children) {
-            sb.append(emitBlock(block, imageResolver)).append("\n")
+            sb.append(emitBlock(block, imageResolver, docDirection)).append("\n")
         }
         return sb.toString().trimEnd()
     }
 
     fun emitBlock(
         block: MarkdownNode.BlockNode,
-        imageResolver: ((String) -> String)? = null
+        imageResolver: ((String) -> String)? = null,
+        docDirection: String = "ltr"
     ): String {
         return when (block) {
             is MarkdownNode.BlockNode.Heading -> {
                 val tag = "h${block.level.coerceIn(1, 6)}"
-                val dirAttr = if (isRtlRuns(block.runs)) " dir=\"rtl\"" else ""
+                val dirAttr = resolveBlockDir(block.runs, docDirection)
                 "<$tag$dirAttr>${emitRuns(block.runs)}</$tag>"
             }
             is MarkdownNode.BlockNode.Paragraph -> {
-                val dirAttr = if (isRtlRuns(block.runs)) " dir=\"rtl\"" else ""
+                val dirAttr = resolveBlockDir(block.runs, docDirection)
                 "<p$dirAttr>${emitRuns(block.runs)}</p>"
             }
             is MarkdownNode.BlockNode.Blockquote -> {
-                val inner = block.children.joinToString("\n") { emitBlock(it, imageResolver) }
+                val inner = block.children.joinToString("\n") { emitBlock(it, imageResolver, docDirection) }
                 val isRtl = block.children.any { child ->
                     when (child) {
                         is MarkdownNode.BlockNode.Paragraph -> isRtlRuns(child.runs)
@@ -41,24 +43,38 @@ object HtmlEmitter {
                         else -> false
                     }
                 }
-                val dirAttr = if (isRtl) " dir=\"rtl\"" else ""
+                val isLtr = block.children.any { child ->
+                    when (child) {
+                        is MarkdownNode.BlockNode.Paragraph -> isLtrRuns(child.runs)
+                        is MarkdownNode.BlockNode.Heading -> isLtrRuns(child.runs)
+                        else -> false
+                    }
+                }
+                val dirAttr = if (isRtl) {
+                    " dir=\"rtl\""
+                } else if (docDirection == "rtl" && isLtr) {
+                    " dir=\"ltr\""
+                } else {
+                    ""
+                }
                 "<blockquote$dirAttr>\n$inner\n</blockquote>"
             }
             is MarkdownNode.BlockNode.ListBlock -> {
-                emitListBlock(block)
+                emitListBlock(block, docDirection)
             }
             is MarkdownNode.BlockNode.ListItem -> {
-                val dirAttr = if (isRtlRuns(block.runs)) " dir=\"rtl\"" else ""
+                val dirAttr = resolveBlockDir(block.runs, docDirection)
                 "<li$dirAttr>${emitRuns(block.runs)}</li>"
             }
             is MarkdownNode.BlockNode.Table -> {
-                emitTable(block)
+                emitTable(block, docDirection)
             }
             is MarkdownNode.BlockNode.CodeBlock -> {
                 val langClass = if (!block.language.isNullOrBlank()) {
                     " class=\"language-${escapeHtml(block.language)}\""
                 } else ""
-                "<pre><code$langClass>${escapeHtml(block.code)}</code></pre>"
+                val dirAttr = if (docDirection == "rtl") " dir=\"ltr\"" else ""
+                "<pre><code$langClass$dirAttr>${escapeHtml(block.code)}</code></pre>"
             }
             is MarkdownNode.BlockNode.ImageBlock -> {
                 val resolvedSrc = imageResolver?.invoke(block.uri) ?: block.uri
@@ -78,13 +94,13 @@ object HtmlEmitter {
                 "<hr/>"
             }
             is MarkdownNode.BlockNode.TableCell -> {
-                val dirAttr = if (isRtlRuns(block.runs)) " dir=\"rtl\"" else ""
+                val dirAttr = resolveBlockDir(block.runs, docDirection)
                 "<td$dirAttr>${emitRuns(block.runs)}</td>"
             }
         }
     }
 
-    private fun emitListBlock(listBlock: MarkdownNode.BlockNode.ListBlock): String {
+    private fun emitListBlock(listBlock: MarkdownNode.BlockNode.ListBlock, docDirection: String = "ltr"): String {
         val sb = StringBuilder()
         val isOrdered = listBlock.isOrdered
         val tag = if (isOrdered) "ol" else "ul"
@@ -116,7 +132,7 @@ object HtmlEmitter {
                 closeList()
                 currentLevel--
             }
-            val dirAttr = if (isRtlRuns(item.runs)) " dir=\"rtl\"" else ""
+            val dirAttr = resolveBlockDir(item.runs, docDirection)
             sb.append("  <li$dirAttr>${emitRuns(item.runs)}</li>\n")
         }
 
@@ -127,7 +143,7 @@ object HtmlEmitter {
         return sb.toString().trimEnd()
     }
 
-    private fun emitTable(table: MarkdownNode.BlockNode.Table): String {
+    private fun emitTable(table: MarkdownNode.BlockNode.Table, docDirection: String = "ltr"): String {
         val sb = StringBuilder()
         sb.append("<table>\n")
 
@@ -138,7 +154,7 @@ object HtmlEmitter {
                 val align = table.alignments.getOrElse(colIdx) { TableAlignment.DEFAULT }
                 val alignStyle = alignToStyle(align)
                 val styleAttr = if (alignStyle.isNotEmpty()) " style=\"$alignStyle\"" else ""
-                val dirAttr = if (isRtlRuns(cell.runs)) " dir=\"rtl\"" else ""
+                val dirAttr = resolveBlockDir(cell.runs, docDirection)
                 sb.append("      <th$styleAttr$dirAttr>${emitRuns(cell.runs)}</th>\n")
             }
             sb.append("    </tr>\n  </thead>\n")
@@ -153,7 +169,7 @@ object HtmlEmitter {
                     val align = table.alignments.getOrElse(colIdx) { TableAlignment.DEFAULT }
                     val alignStyle = alignToStyle(align)
                     val styleAttr = if (alignStyle.isNotEmpty()) " style=\"$alignStyle\"" else ""
-                    val dirAttr = if (isRtlRuns(cell.runs)) " dir=\"rtl\"" else ""
+                    val dirAttr = resolveBlockDir(cell.runs, docDirection)
                     sb.append("      <td$styleAttr$dirAttr>${emitRuns(cell.runs)}</td>\n")
                 }
                 sb.append("    </tr>\n")
@@ -229,6 +245,31 @@ object HtmlEmitter {
             }
         }
         return rtl > 0 && rtl >= ltr
+    }
+
+    fun isLtrRuns(runs: List<MarkdownNode.InlineRun>): Boolean {
+        var rtl = 0
+        var ltr = 0
+        for (run in runs) {
+            for (ch in run.text) {
+                when (Character.getDirectionality(ch)) {
+                    Character.DIRECTIONALITY_RIGHT_TO_LEFT,
+                    Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC -> rtl++
+                    Character.DIRECTIONALITY_LEFT_TO_RIGHT -> ltr++
+                }
+            }
+        }
+        return ltr > 0 && ltr > rtl
+    }
+
+    fun resolveBlockDir(runs: List<MarkdownNode.InlineRun>, docDirection: String = "ltr"): String {
+        return if (isRtlRuns(runs)) {
+            " dir=\"rtl\""
+        } else if (docDirection == "rtl" && isLtrRuns(runs)) {
+            " dir=\"ltr\""
+        } else {
+            ""
+        }
     }
 
     fun escapeHtml(s: String): String = s

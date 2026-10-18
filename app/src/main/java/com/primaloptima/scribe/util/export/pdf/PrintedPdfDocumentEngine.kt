@@ -180,8 +180,9 @@ object PrintedPdfDocumentEngine : PdfEngine {
                             2 -> h2Paint
                             else -> h3Paint
                         }
+                        val isRtl = HtmlEmitter.isRtlRuns(block.runs)
                         val headingText = buildSpannable(block.runs, defaultBold = true)
-                        val layout = createLayout(headingText, paint, contentWidth)
+                        val layout = createLayout(headingText, paint, contentWidth, isRtl = isRtl)
                         val requiredHeight = layout.height + 20f
                         if (currentY + requiredHeight > contentRect.bottom) {
                             advancePage()
@@ -195,8 +196,9 @@ object PrintedPdfDocumentEngine : PdfEngine {
                     }
 
                     is MarkdownNode.BlockNode.Paragraph -> {
+                        val isRtl = HtmlEmitter.isRtlRuns(block.runs)
                         val paraText = buildSpannable(block.runs)
-                        val layout = createLayout(paraText, bodyPaint, contentWidth, lineSpacing = config.lineSpacingMultiplier)
+                        val layout = createLayout(paraText, bodyPaint, contentWidth, lineSpacing = config.lineSpacingMultiplier, isRtl = isRtl)
                         
                         if (currentY + layout.height <= contentRect.bottom) {
                             canvas.save()
@@ -223,7 +225,7 @@ object PrintedPdfDocumentEngine : PdfEngine {
                                     continue
                                 }
                                 val subText = paraText.subSequence(layout.getLineStart(startLine), layout.getLineEnd(endLine - 1))
-                                val subLayout = createLayout(subText, bodyPaint, contentWidth, lineSpacing = config.lineSpacingMultiplier)
+                                val subLayout = createLayout(subText, bodyPaint, contentWidth, lineSpacing = config.lineSpacingMultiplier, isRtl = isRtl)
                                 canvas.save()
                                 canvas.translate(contentRect.left.toFloat(), currentY)
                                 subLayout.draw(canvas)
@@ -241,24 +243,33 @@ object PrintedPdfDocumentEngine : PdfEngine {
                     is MarkdownNode.BlockNode.ListBlock -> {
                         var num = block.startNumber
                         for (item in block.items) {
+                            val isItemRtl = HtmlEmitter.isRtlRuns(item.runs)
                             val indent = item.level * 16f
                             val prefix = if (block.isOrdered) "${num++}. " else "• "
                             val prefixWidth = bodyPaint.measureText(prefix)
                             val itemWidth = (contentWidth - indent - prefixWidth).toInt().coerceAtLeast(100)
                             val itemText = buildSpannable(item.runs)
-                            val itemLayout = createLayout(itemText, bodyPaint, itemWidth)
+                            val itemLayout = createLayout(itemText, bodyPaint, itemWidth, isRtl = isItemRtl)
 
                             if (currentY + itemLayout.height > contentRect.bottom) {
                                 advancePage()
                             }
 
-                            val itemX = contentRect.left + indent
-                            canvas.drawText(prefix, itemX, currentY + bodyPaint.textSize, bodyPaint)
-
-                            canvas.save()
-                            canvas.translate(itemX + prefixWidth, currentY)
-                            itemLayout.draw(canvas)
-                            canvas.restore()
+                            if (isItemRtl) {
+                                val itemX = contentRect.right - indent - prefixWidth
+                                canvas.drawText(prefix, itemX, currentY + bodyPaint.textSize, bodyPaint)
+                                canvas.save()
+                                canvas.translate(contentRect.left.toFloat(), currentY)
+                                itemLayout.draw(canvas)
+                                canvas.restore()
+                            } else {
+                                val itemX = contentRect.left + indent
+                                canvas.drawText(prefix, itemX, currentY + bodyPaint.textSize, bodyPaint)
+                                canvas.save()
+                                canvas.translate(itemX + prefixWidth, currentY)
+                                itemLayout.draw(canvas)
+                                canvas.restore()
+                            }
                             currentY += itemLayout.height + 6f
                         }
                         currentY += 6f
@@ -271,19 +282,21 @@ object PrintedPdfDocumentEngine : PdfEngine {
                                 is MarkdownNode.BlockNode.Heading -> child.runs
                                 else -> emptyList()
                             }
+                            val isChildRtl = HtmlEmitter.isRtlRuns(childRuns)
                             val quoteText = buildSpannable(childRuns, defaultItalic = true)
                             val quoteWidth = contentWidth - 24
-                            val layout = createLayout(quoteText, bodyPaint, quoteWidth)
+                            val layout = createLayout(quoteText, bodyPaint, quoteWidth, isRtl = isChildRtl)
 
                             if (currentY + layout.height + 8f > contentRect.bottom) {
                                 advancePage()
                             }
 
-                            val barX = contentRect.left.toFloat() + 4f
+                            val barX = if (isChildRtl) contentRect.right.toFloat() - 4f else contentRect.left.toFloat() + 4f
                             canvas.drawLine(barX, currentY, barX, currentY + layout.height, blockquoteBarPaint)
 
+                            val transX = if (isChildRtl) contentRect.left.toFloat() + 8f else contentRect.left.toFloat() + 16f
                             canvas.save()
-                            canvas.translate(contentRect.left + 16f, currentY)
+                            canvas.translate(transX, currentY)
                             layout.draw(canvas)
                             canvas.restore()
                             currentY += layout.height + 10f
@@ -361,7 +374,8 @@ object PrintedPdfDocumentEngine : PdfEngine {
                             val colCount = block.headers.size.coerceAtLeast(block.rows.maxOfOrNull { it.size } ?: 1).coerceAtLeast(1)
                             val colWidth = contentWidth / colCount
                             val headerLayouts = block.headers.map { cell ->
-                                createLayout(buildSpannable(cell.runs, defaultBold = true), bodyPaint, colWidth - 8)
+                                val isCellRtl = HtmlEmitter.isRtlRuns(cell.runs)
+                                createLayout(buildSpannable(cell.runs, defaultBold = true), bodyPaint, colWidth - 8, isRtl = isCellRtl)
                             }
                             val maxHeaderHeight = (headerLayouts.maxOfOrNull { it.height } ?: 20) + 10f
 
@@ -383,7 +397,8 @@ object PrintedPdfDocumentEngine : PdfEngine {
                             // Draw rows
                             for (row in block.rows) {
                                 val cellLayouts = row.map { cell ->
-                                    createLayout(buildSpannable(cell.runs), bodyPaint, colWidth - 8)
+                                    val isCellRtl = HtmlEmitter.isRtlRuns(cell.runs)
+                                    createLayout(buildSpannable(cell.runs), bodyPaint, colWidth - 8, isRtl = isCellRtl)
                                 }
                                 val maxRowHeight = (cellLayouts.maxOfOrNull { it.height } ?: 16) + 8f
                                 if (currentY + maxRowHeight > contentRect.bottom) {
@@ -433,12 +448,19 @@ object PrintedPdfDocumentEngine : PdfEngine {
         paint: TextPaint,
         width: Int,
         alignment: Layout.Alignment = Layout.Alignment.ALIGN_NORMAL,
-        lineSpacing: Float = 1.0f
+        lineSpacing: Float = 1.0f,
+        isRtl: Boolean = false
     ): StaticLayout {
         val safeWidth = width.coerceAtLeast(100)
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val heuristic = if (isRtl) {
+                android.text.TextDirectionHeuristics.RTL
+            } else {
+                android.text.TextDirectionHeuristics.FIRSTSTRONG_LTR
+            }
             StaticLayout.Builder.obtain(text, 0, text.length, paint, safeWidth)
                 .setAlignment(alignment)
+                .setTextDirection(heuristic)
                 .setLineSpacing(0f, lineSpacing)
                 .setIncludePad(false)
                 .build()

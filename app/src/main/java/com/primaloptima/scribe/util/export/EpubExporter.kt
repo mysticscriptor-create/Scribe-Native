@@ -121,7 +121,6 @@ object EpubExporter {
         for (chap in chapters) {
             val chapTitleXml = MarkdownUtil.xmlEscape(chap.title)
             val chapDoc = MarkdownNode.Document(chap.nodes)
-            val chapHtml = HtmlEmitter.emit(chapDoc, processImageSrc)
 
             val bodyType = if (chap.isFrontMatter) "frontmatter" else "bodymatter"
             val sectionType = if (chap.isFrontMatter) "prologue" else "chapter"
@@ -145,6 +144,7 @@ object EpubExporter {
                 }
             }
             val chapDir = if (isChapRtl) "rtl" else langMeta.documentDirection
+            val chapHtml = HtmlEmitter.emit(chapDoc, processImageSrc, docDirection = chapDir)
 
             val chapterDoc = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>

@@ -54,12 +54,14 @@ object DocxExporter {
         // 1. Cover / Title Paragraph if configured
         if (config.includeCoverTitle) {
             val titleEscaped = MarkdownUtil.xmlEscape(note.name.ifBlank { "Untitled Manuscript" })
+            val isTitleRtl = HtmlEmitter.isRtlText(note.name)
+            val bidiXml = if (isTitleRtl) "\n                <w:bidi/>" else ""
             bodyXml.append("""
             <w:p>
               <w:pPr>
                 <w:pStyle w:val="Title"/>
                 <w:jc w:val="center"/>
-                <w:spacing w:before="720" w:after="360"/>
+                <w:spacing w:before="720" w:after="360"/>$bidiXml
               </w:pPr>
               <w:r>
                 <w:rPr>
@@ -85,11 +87,13 @@ object DocxExporter {
                         2 -> "Heading2"
                         else -> "Heading3"
                     }
-                    val headingRuns = buildRunsXml(node.runs, defaultBold = true, onRegisterHyperlink = ::registerHyperlink)
+                    val isRtl = HtmlEmitter.isRtlRuns(node.runs)
+                    val bidiXml = if (isRtl) "\n    <w:bidi/>" else ""
+                    val headingRuns = buildRunsXml(node.runs, defaultBold = true, isRtlParagraph = isRtl, onRegisterHyperlink = ::registerHyperlink)
                     bodyXml.append("""
                     <w:p>
                       <w:pPr>
-                        <w:pStyle w:val="$styleVal"/>
+                        <w:pStyle w:val="$styleVal"/>$bidiXml
                       </w:pPr>
                       $headingRuns
                     </w:p>
@@ -97,11 +101,13 @@ object DocxExporter {
                 }
 
                 is MarkdownNode.BlockNode.Paragraph -> {
-                    val runsXml = buildRunsXml(node.runs, onRegisterHyperlink = ::registerHyperlink)
+                    val isRtl = HtmlEmitter.isRtlRuns(node.runs)
+                    val bidiXml = if (isRtl) "\n    <w:bidi/>" else ""
+                    val runsXml = buildRunsXml(node.runs, isRtlParagraph = isRtl, onRegisterHyperlink = ::registerHyperlink)
                     bodyXml.append("""
                     <w:p>
                       <w:pPr>
-                        <w:spacing w:after="160" w:line="320" w:lineRule="auto"/>
+                        <w:spacing w:after="160" w:line="320" w:lineRule="auto"/>$bidiXml
                       </w:pPr>
                       $runsXml
                     </w:p>
@@ -111,7 +117,9 @@ object DocxExporter {
                 is MarkdownNode.BlockNode.ListBlock -> {
                     val numId = if (node.isOrdered) "2" else "1"
                     for (item in node.items) {
-                        val itemRuns = buildRunsXml(item.runs, onRegisterHyperlink = ::registerHyperlink)
+                        val isRtl = HtmlEmitter.isRtlRuns(item.runs)
+                        val bidiXml = if (isRtl) "\n        <w:bidi/>" else ""
+                        val itemRuns = buildRunsXml(item.runs, isRtlParagraph = isRtl, onRegisterHyperlink = ::registerHyperlink)
                         val ilvl = item.level.coerceIn(0, 8)
                         bodyXml.append("""
                         <w:p>
@@ -120,7 +128,7 @@ object DocxExporter {
                               <w:ilvl w:val="$ilvl"/>
                               <w:numId w:val="$numId"/>
                             </w:numPr>
-                            <w:spacing w:after="80"/>
+                            <w:spacing w:after="80"/>$bidiXml
                           </w:pPr>
                           $itemRuns
                         </w:p>
@@ -130,20 +138,29 @@ object DocxExporter {
 
                 is MarkdownNode.BlockNode.Blockquote -> {
                     for (child in node.children) {
-                        val childRuns = when (child) {
-                            is MarkdownNode.BlockNode.Paragraph -> buildRunsXml(child.runs, defaultItalic = true, onRegisterHyperlink = ::registerHyperlink)
-                            is MarkdownNode.BlockNode.Heading -> buildRunsXml(child.runs, defaultItalic = true, defaultBold = true, onRegisterHyperlink = ::registerHyperlink)
-                            else -> ""
+                        val (childRuns, isChildRtl) = when (child) {
+                            is MarkdownNode.BlockNode.Paragraph -> {
+                                val rtl = HtmlEmitter.isRtlRuns(child.runs)
+                                buildRunsXml(child.runs, defaultItalic = true, isRtlParagraph = rtl, onRegisterHyperlink = ::registerHyperlink) to rtl
+                            }
+                            is MarkdownNode.BlockNode.Heading -> {
+                                val rtl = HtmlEmitter.isRtlRuns(child.runs)
+                                buildRunsXml(child.runs, defaultItalic = true, defaultBold = true, isRtlParagraph = rtl, onRegisterHyperlink = ::registerHyperlink) to rtl
+                            }
+                            else -> "" to false
                         }
+                        val bidiXml = if (isChildRtl) "\n        <w:bidi/>" else ""
+                        val borderSide = if (isChildRtl) "right" else "left"
+                        val indXml = if (isChildRtl) """<w:ind w:right="720"/>""" else """<w:ind w:left="720"/>"""
                         bodyXml.append("""
                         <w:p>
                           <w:pPr>
                             <w:pStyle w:val="Blockquote"/>
                             <w:pBdr>
-                              <w:left w:val="single" w:sz="18" w:space="12" w:color="$primaryColorHex"/>
+                              <w:$borderSide w:val="single" w:sz="18" w:space="12" w:color="$primaryColorHex"/>
                             </w:pBdr>
-                            <w:ind w:left="720"/>
-                            <w:spacing w:after="120"/>
+                            $indXml
+                            <w:spacing w:after="120"/>$bidiXml
                           </w:pPr>
                           $childRuns
                         </w:p>
@@ -324,6 +341,7 @@ object DocxExporter {
         runs: List<MarkdownNode.InlineRun>,
         defaultBold: Boolean = false,
         defaultItalic: Boolean = false,
+        isRtlParagraph: Boolean = false,
         onRegisterHyperlink: ((String) -> String)? = null
     ): String {
         val sb = StringBuilder()
@@ -337,11 +355,13 @@ object DocxExporter {
             val isStrike = run.isStrikethrough
             val isCode = run.isCode
             val isLink = run.linkUrl != null
+            val isRtl = isRtlParagraph || HtmlEmitter.isRtlText(run.text)
 
             val rPr = StringBuilder()
             if (isBold) rPr.append("<w:b/>")
             if (isItalic) rPr.append("<w:i/>")
             if (isStrike) rPr.append("<w:strike/>")
+            if (isRtl) rPr.append("<w:rtl/>")
             if (isCode) {
                 rPr.append("""<w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/><w:shd w:val="clear" w:color="auto" w:fill="F0F0F0"/><w:sz w:val="20"/>""")
             }
@@ -409,8 +429,10 @@ object DocxExporter {
             sb.append("  <w:tr><w:trPr><w:tblHeader/></w:trPr>\n")
             table.headers.forEachIndexed { colIdx, headerCell ->
                 val align = table.alignments.getOrElse(colIdx) { TableAlignment.DEFAULT }
-                val jcVal = alignToJc(align)
-                val runs = buildRunsXml(headerCell.runs, defaultBold = true, onRegisterHyperlink = onRegisterHyperlink)
+                val isRtl = HtmlEmitter.isRtlRuns(headerCell.runs)
+                val jcVal = if (align == TableAlignment.DEFAULT && isRtl) "right" else alignToJc(align)
+                val bidiXml = if (isRtl) "\n                      <w:bidi/>" else ""
+                val runs = buildRunsXml(headerCell.runs, defaultBold = true, isRtlParagraph = isRtl, onRegisterHyperlink = onRegisterHyperlink)
                 sb.append("""
                 <w:tc>
                   <w:tcPr>
@@ -420,7 +442,7 @@ object DocxExporter {
                   <w:p>
                     <w:pPr>
                       <w:jc w:val="$jcVal"/>
-                      <w:spacing w:after="0"/>
+                      <w:spacing w:after="0"/>$bidiXml
                     </w:pPr>
                     $runs
                   </w:p>
@@ -436,8 +458,10 @@ object DocxExporter {
             for (colIdx in 0 until colCount) {
                 val cell = if (colIdx < row.size) row[colIdx] else MarkdownNode.BlockNode.TableCell(emptyList())
                 val align = table.alignments.getOrElse(colIdx) { TableAlignment.DEFAULT }
-                val jcVal = alignToJc(align)
-                val runs = buildRunsXml(cell.runs, onRegisterHyperlink = onRegisterHyperlink)
+                val isRtl = HtmlEmitter.isRtlRuns(cell.runs)
+                val jcVal = if (align == TableAlignment.DEFAULT && isRtl) "right" else alignToJc(align)
+                val bidiXml = if (isRtl) "\n                      <w:bidi/>" else ""
+                val runs = buildRunsXml(cell.runs, isRtlParagraph = isRtl, onRegisterHyperlink = onRegisterHyperlink)
                 sb.append("""
                 <w:tc>
                   <w:tcPr>
@@ -446,7 +470,7 @@ object DocxExporter {
                   <w:p>
                     <w:pPr>
                       <w:jc w:val="$jcVal"/>
-                      <w:spacing w:after="0"/>
+                      <w:spacing w:after="0"/>$bidiXml
                     </w:pPr>
                     $runs
                   </w:p>

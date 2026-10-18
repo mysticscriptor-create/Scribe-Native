@@ -19,9 +19,18 @@ object ScribeMarkdownEngine {
     fun toHtml(
         markdown: String,
         imageResolver: ((String) -> String)? = null
+    ): String = toHtml(markdown, "ltr", imageResolver)
+
+    /**
+     * Converts markdown text into well-formed semantic HTML/XHTML5 with explicit document directionality.
+     */
+    fun toHtml(
+        markdown: String,
+        docDirection: String,
+        imageResolver: ((String) -> String)? = null
     ): String {
         val document = parse(markdown)
-        return HtmlEmitter.emit(document, imageResolver)
+        return HtmlEmitter.emit(document, imageResolver, docDirection)
     }
 
     /**
