@@ -1,21 +1,23 @@
 package com.primaloptima.scribe.util.export.pdf
 
-import android.print.PrintAttributes
-import android.print.PrintDocumentAdapter
-import android.print.PrintDocumentAdapterBridge
+import android.content.Context
+import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.util.export.ExportConfig
 import java.io.File
 
 /**
- * Public PDF print bridge in [com.primaloptima.scribe.util.export.pdf].
- * Delegates to package-level adapter bridge while maintaining clean external architecture.
+ * Public PDF bridge in [com.primaloptima.scribe.util.export.pdf].
+ * Completely eliminates any package-private placement in android.* namespace
+ * ensuring 100% legal compliance with Android 14+ strict runtime classloader verification.
  */
 object PdfPrintDocumentBridge {
-    fun print(
-        adapter: PrintDocumentAdapter,
-        attributes: PrintAttributes,
+    fun render(
+        context: Context,
+        note: Note,
+        config: ExportConfig,
         outputFile: File,
         onComplete: (Boolean, Throwable?) -> Unit
     ) {
-        PrintDocumentAdapterBridge.print(adapter, attributes, outputFile, onComplete)
+        PrintedPdfDocumentEngine.renderPdfToFile(context, note, config, outputFile, onComplete)
     }
 }

@@ -38,6 +38,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,21 +53,18 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.primaloptima.scribe.util.export.ExportArtifactRepository
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * Production-grade, pixel-accurate PDF Page-by-Page Viewer.
- *
- * Architecture & Defect Fixes:
- * 1. ZERO manual `Bitmap.recycle()`: Prevents "Canvas: trying to use a recycled bitmap" crashes.
- * 2. Byte-Bounded LRU Cache: Sized strictly by `maxMemory / 8` based on `bitmap.byteCount`.
- * 3. Mutex Serialization: Enforces strict sequential access on `PdfRenderer.openPage()`.
- * 4. Responsive Resolution: Dynamically adapts rendering dimensions to screen DPI and zoom level.
- * 5. Bounded Memory: Eliminates unbounded Compose state maps to prevent OutOfMemoryError.
+ * Crash-Proof Native PDF Document Viewer for Scribe.
+ * Uses Android's native [PdfRenderer] with serialized access, strict finally page closure,
+ * byte-bounded LRU bitmap caching, active artifact retention, and smooth zoom/pan gestures.
  */
 @Composable
 fun PdfPreviewViewer(
@@ -75,20 +73,29 @@ fun PdfPreviewViewer(
     errorMessage: String?,
     modifier: Modifier = Modifier
 ) {
+    val scope = rememberCoroutineScope()
+
     if (isLoading) {
         Box(
             modifier = modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                .background(Color(0xFF202124)),
             contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator(modifier = Modifier.size(36.dp), color = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.height(12.dp))
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(36.dp),
+                    strokeWidth = 3.dp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(14.dp))
                 Text(
-                    text = "Rendering print pages…",
+                    text = "Rendering PDF vector preview...",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = Color.White.copy(alpha = 0.8f)
                 )
             }
         }
@@ -129,22 +136,34 @@ fun PdfPreviewViewer(
     }
 
     DisposableEffect(pdfFile) {
-        try {
-            val pfd = ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
-            val pdfRenderer = PdfRenderer(pfd)
-            fileDescriptor = pfd
-            renderer = pdfRenderer
-            pageCount = pdfRenderer.pageCount
-        } catch (_: Throwable) {
-            pageCount = 0
+        if (pdfFile.exists() && pdfFile.length() > 0L) {
+            ExportArtifactRepository.retainArtifact(pdfFile)
+            try {
+                val pfd = ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
+                val pdfRenderer = PdfRenderer(pfd)
+                fileDescriptor = pfd
+                renderer = pdfRenderer
+                pageCount = pdfRenderer.pageCount
+            } catch (_: Throwable) {
+                pageCount = 0
+            }
         }
 
         onDispose {
-            try {
-                renderer?.close()
-                fileDescriptor?.close()
-                bitmapCache.evictAll()
-            } catch (_: Throwable) {}
+            val ren = renderer
+            val pfd = fileDescriptor
+            renderer = null
+            fileDescriptor = null
+
+            // Close renderer asynchronously under mutex so active page renders complete first
+            scope.launch(Dispatchers.IO) {
+                renderMutex.withLock {
+                    try { ren?.close() } catch (_: Throwable) {}
+                    try { pfd?.close() } catch (_: Throwable) {}
+                }
+            }
+            bitmapCache.evictAll()
+            ExportArtifactRepository.releaseArtifact(pdfFile)
         }
     }
 
@@ -205,19 +224,25 @@ fun PdfPreviewViewer(
                                 if (existing != null && !existing.isRecycled) {
                                     return@withLock existing
                                 }
-
                                 val ren = renderer ?: return@withLock null
+                                val page = try {
+                                    ren.openPage(idx)
+                                } catch (_: Throwable) {
+                                    return@withLock null
+                                }
                                 try {
-                                    val page = ren.openPage(idx)
                                     val targetHeight = (targetW * (page.height.toFloat() / page.width.toFloat())).toInt().coerceAtLeast(100)
                                     val bmp = Bitmap.createBitmap(targetW, targetHeight, Bitmap.Config.ARGB_8888)
                                     bmp.eraseColor(AndroidColor.WHITE)
                                     page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                                    page.close()
                                     bitmapCache.put(cacheKey, bmp)
                                     bmp
                                 } catch (_: Throwable) {
                                     null
+                                } finally {
+                                    try {
+                                        page.close()
+                                    } catch (_: Throwable) {}
                                 }
                             }
                         }
@@ -261,7 +286,10 @@ private fun PdfPageItem(
     var bitmap by remember(cacheKey) { mutableStateOf(bitmapCache.get(cacheKey)) }
 
     LaunchedEffect(cacheKey) {
-        if (bitmap == null || bitmap?.isRecycled == true) {
+        val cached = bitmapCache.get(cacheKey)
+        if (cached != null && !cached.isRecycled) {
+            bitmap = cached
+        } else {
             val rendered = onRenderPage(pageIndex, targetWidth)
             if (rendered != null && !rendered.isRecycled) {
                 bitmap = rendered
