@@ -22,6 +22,7 @@ import android.text.style.TypefaceSpan
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.util.export.ExportConfig
 import com.primaloptima.scribe.util.export.FontChoice
+import com.primaloptima.scribe.util.export.HtmlEmitter
 import com.primaloptima.scribe.util.export.MarkdownNode
 import com.primaloptima.scribe.util.export.PaperSize
 import com.primaloptima.scribe.util.export.ScribeMarkdownEngine
@@ -71,7 +72,7 @@ object PrintedPdfDocumentEngine : PdfEngine {
                 .build()
 
             val doc = PrintedPdfDocument(context, printAttributes)
-            val contentRect = doc.contentRect
+            val contentRect = doc.pageContentRect
             val contentWidth = contentRect.width().coerceAtLeast(200)
 
             // Setup typefaces
