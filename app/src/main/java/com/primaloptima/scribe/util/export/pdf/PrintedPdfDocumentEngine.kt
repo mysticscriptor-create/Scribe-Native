@@ -40,6 +40,8 @@ import java.io.FileOutputStream
  * 1. Offline, deterministic vector PDF rendering with crisp typography and scalable illustrations.
  * 2. Automatic pagination with proper margins, running headers, and running footers.
  * 3. Thread-safe execution on background dispatchers without Looper or WebView constraints.
+ * 4. Precise coordinate mapping: PrintedPdfDocument canvas recording origin (0,0) corresponds
+ *    directly to (contentRect.left, contentRect.top) with automatic hardware-level clipping.
  */
 object PrintedPdfDocumentEngine : PdfEngine {
 
@@ -74,6 +76,9 @@ object PrintedPdfDocumentEngine : PdfEngine {
             val doc = PrintedPdfDocument(context, printAttributes)
             val contentRect = doc.pageContentRect
             val contentWidth = contentRect.width().coerceAtLeast(200)
+            val contentHeight = contentRect.height().coerceAtLeast(200)
+            // Leave headroom for the running page footer
+            val maxContentY = (contentHeight - 24f).coerceAtLeast(100f)
 
             // Setup typefaces
             val baseTypeface = when (config.fontChoice) {
@@ -143,33 +148,33 @@ object PrintedPdfDocumentEngine : PdfEngine {
             var pageNumber = 1
             var currentPage = doc.startPage(pageNumber)
             var canvas = currentPage.canvas
-            var currentY = contentRect.top.toFloat()
+            var currentY = 0f
 
             fun advancePage() {
-                // Draw footer with page number
+                // Draw footer with page number within the recording canvas bounds
                 canvas.drawText(
                     "- $pageNumber -",
-                    contentRect.centerX().toFloat(),
-                    (doc.pageHeight - (contentRect.top / 2f)).coerceAtMost(doc.pageHeight - 14f),
+                    contentWidth / 2f,
+                    contentHeight - 8f,
                     footerPaint
                 )
                 doc.finishPage(currentPage)
                 pageNumber++
                 currentPage = doc.startPage(pageNumber)
                 canvas = currentPage.canvas
-                currentY = contentRect.top.toFloat()
+                currentY = 0f
             }
 
             // Optional Cover Title
             if (config.includeCoverTitle) {
                 val title = note.name.ifBlank { "Untitled Manuscript" }
                 val titleLayout = createLayout(title, titlePaint, contentWidth, Layout.Alignment.ALIGN_CENTER)
-                currentY += 24f
+                currentY += 8f
                 canvas.save()
-                canvas.translate(contentRect.left.toFloat(), currentY)
+                canvas.translate(0f, currentY)
                 titleLayout.draw(canvas)
                 canvas.restore()
-                currentY += titleLayout.height + 24f
+                currentY += titleLayout.height + 20f
             }
 
             // Iterate AST Blocks
@@ -184,13 +189,13 @@ object PrintedPdfDocumentEngine : PdfEngine {
                         val isRtl = HtmlEmitter.isRtlRuns(block.runs)
                         val headingText = buildSpannable(block.runs, defaultBold = true)
                         val layout = createLayout(headingText, paint, contentWidth, isRtl = isRtl)
-                        val requiredHeight = layout.height + 20f
-                        if (currentY + requiredHeight > contentRect.bottom) {
+                        val requiredHeight = layout.height + 18f
+                        if (currentY + requiredHeight > maxContentY) {
                             advancePage()
                         }
-                        currentY += 12f
+                        currentY += 10f
                         canvas.save()
-                        canvas.translate(contentRect.left.toFloat(), currentY)
+                        canvas.translate(0f, currentY)
                         layout.draw(canvas)
                         canvas.restore()
                         currentY += layout.height + 8f
@@ -201,9 +206,9 @@ object PrintedPdfDocumentEngine : PdfEngine {
                         val paraText = buildSpannable(block.runs)
                         val layout = createLayout(paraText, bodyPaint, contentWidth, lineSpacing = config.lineSpacingMultiplier, isRtl = isRtl)
                         
-                        if (currentY + layout.height <= contentRect.bottom) {
+                        if (currentY + layout.height <= maxContentY) {
                             canvas.save()
-                            canvas.translate(contentRect.left.toFloat(), currentY)
+                            canvas.translate(0f, currentY)
                             layout.draw(canvas)
                             canvas.restore()
                             currentY += layout.height + 10f
@@ -212,7 +217,7 @@ object PrintedPdfDocumentEngine : PdfEngine {
                             var lineIdx = 0
                             val totalLines = layout.lineCount
                             while (lineIdx < totalLines) {
-                                val remainingSpace = contentRect.bottom - currentY
+                                val remainingSpace = maxContentY - currentY
                                 val startLine = lineIdx
                                 var endLine = lineIdx
                                 while (endLine < totalLines) {
@@ -228,7 +233,7 @@ object PrintedPdfDocumentEngine : PdfEngine {
                                 val subText = paraText.subSequence(layout.getLineStart(startLine), layout.getLineEnd(endLine - 1))
                                 val subLayout = createLayout(subText, bodyPaint, contentWidth, lineSpacing = config.lineSpacingMultiplier, isRtl = isRtl)
                                 canvas.save()
-                                canvas.translate(contentRect.left.toFloat(), currentY)
+                                canvas.translate(0f, currentY)
                                 subLayout.draw(canvas)
                                 canvas.restore()
                                 currentY += subLayout.height
@@ -248,23 +253,21 @@ object PrintedPdfDocumentEngine : PdfEngine {
                             val indent = item.level * 16f
                             val prefix = if (block.isOrdered) "${num++}. " else "• "
                             val prefixWidth = bodyPaint.measureText(prefix)
-                            val itemWidth = (contentWidth - indent - prefixWidth).toInt().coerceAtLeast(100)
+                            val itemWidth = (contentWidth - indent - prefixWidth).toInt().coerceAtLeast(60)
                             val itemText = buildSpannable(item.runs)
                             val itemLayout = createLayout(itemText, bodyPaint, itemWidth, isRtl = isItemRtl)
-
-                            if (currentY + itemLayout.height > contentRect.bottom) {
+                            if (currentY + itemLayout.height > maxContentY) {
                                 advancePage()
                             }
-
                             if (isItemRtl) {
-                                val itemX = contentRect.right - indent - prefixWidth
+                                val itemX = contentWidth - indent - prefixWidth
                                 canvas.drawText(prefix, itemX, currentY + bodyPaint.textSize, bodyPaint)
                                 canvas.save()
-                                canvas.translate(contentRect.left.toFloat(), currentY)
+                                canvas.translate(0f, currentY)
                                 itemLayout.draw(canvas)
                                 canvas.restore()
                             } else {
-                                val itemX = contentRect.left + indent
+                                val itemX = indent
                                 canvas.drawText(prefix, itemX, currentY + bodyPaint.textSize, bodyPaint)
                                 canvas.save()
                                 canvas.translate(itemX + prefixWidth, currentY)
@@ -287,15 +290,12 @@ object PrintedPdfDocumentEngine : PdfEngine {
                             val quoteText = buildSpannable(childRuns, defaultItalic = true)
                             val quoteWidth = contentWidth - 24
                             val layout = createLayout(quoteText, bodyPaint, quoteWidth, isRtl = isChildRtl)
-
-                            if (currentY + layout.height + 8f > contentRect.bottom) {
+                            if (currentY + layout.height + 8f > maxContentY) {
                                 advancePage()
                             }
-
-                            val barX = if (isChildRtl) contentRect.right.toFloat() - 4f else contentRect.left.toFloat() + 4f
+                            val barX = if (isChildRtl) (contentWidth - 4f) else 4f
                             canvas.drawLine(barX, currentY, barX, currentY + layout.height, blockquoteBarPaint)
-
-                            val transX = if (isChildRtl) contentRect.left.toFloat() + 8f else contentRect.left.toFloat() + 16f
+                            val transX = if (isChildRtl) 0f else 16f
                             canvas.save()
                             canvas.translate(transX, currentY)
                             layout.draw(canvas)
@@ -305,14 +305,14 @@ object PrintedPdfDocumentEngine : PdfEngine {
                     }
 
                     is MarkdownNode.BlockNode.ThematicBreak -> {
-                        if (currentY + 24f > contentRect.bottom) {
+                        if (currentY + 24f > maxContentY) {
                             advancePage()
                         }
                         currentY += 12f
                         canvas.drawLine(
-                            contentRect.left.toFloat(),
+                            0f,
                             currentY,
-                            contentRect.right.toFloat(),
+                            contentWidth.toFloat(),
                             currentY,
                             dividerPaint
                         )
@@ -322,12 +322,12 @@ object PrintedPdfDocumentEngine : PdfEngine {
                     is MarkdownNode.BlockNode.CodeBlock -> {
                         val codeLines = block.code.lines()
                         for (cLine in codeLines) {
-                            val layout = createLayout(cLine, codePaint, contentWidth)
-                            if (currentY + layout.height > contentRect.bottom) {
+                            val layout = createLayout(cLine, codePaint, contentWidth - 16)
+                            if (currentY + layout.height > maxContentY) {
                                 advancePage()
                             }
                             canvas.save()
-                            canvas.translate(contentRect.left.toFloat() + 8f, currentY)
+                            canvas.translate(8f, currentY)
                             layout.draw(canvas)
                             canvas.restore()
                             currentY += layout.height + 2f
@@ -341,18 +341,34 @@ object PrintedPdfDocumentEngine : PdfEngine {
                             val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
                             if (bitmap != null) {
                                 val maxWidth = contentWidth.toFloat()
-                                val maxHeight = (contentRect.height() * 0.65f)
-                                val scale = minOf(maxWidth / bitmap.width.toFloat(), maxHeight / bitmap.height.toFloat(), 1.0f)
-                                val targetW = (bitmap.width * scale).toInt()
-                                val targetH = (bitmap.height * scale).toInt()
+                                val maxHeight = contentHeight * 0.55f
+                                var scale = minOf(maxWidth / bitmap.width.toFloat(), maxHeight / bitmap.height.toFloat(), 1.0f)
+                                var targetW = (bitmap.width * scale).toInt()
+                                var targetH = (bitmap.height * scale).toInt()
+                                var totalRequired = targetH + 24f
 
-                                val totalRequired = targetH + 30f
-                                if (currentY + totalRequired > contentRect.bottom) {
+                                val remainingSpace = maxContentY - currentY
+                                // If image exceeds remaining space, adaptively scale down if it can fit gracefully
+                                if (totalRequired > remainingSpace && remainingSpace >= 120f) {
+                                    val fitScale = (remainingSpace - 24f) / targetH
+                                    if (fitScale >= 0.5f) {
+                                        targetW = (targetW * fitScale).toInt()
+                                        targetH = (targetH * fitScale).toInt()
+                                        totalRequired = targetH + 24f
+                                    } else {
+                                        advancePage()
+                                    }
+                                } else if (currentY + totalRequired > maxContentY) {
                                     advancePage()
                                 }
 
-                                val leftOffset = contentRect.left + ((contentWidth - targetW) / 2f)
-                                val destRect = Rect(leftOffset.toInt(), currentY.toInt(), (leftOffset + targetW).toInt(), (currentY + targetH).toInt())
+                                val leftOffset = ((contentWidth - targetW) / 2f).coerceAtLeast(0f)
+                                val destRect = Rect(
+                                    leftOffset.toInt(),
+                                    currentY.toInt(),
+                                    (leftOffset + targetW).toInt(),
+                                    (currentY + targetH).toInt()
+                                )
                                 canvas.drawBitmap(bitmap, null, destRect, null)
                                 currentY += targetH + 8f
 
@@ -360,7 +376,7 @@ object PrintedPdfDocumentEngine : PdfEngine {
                                 if (caption.isNotBlank()) {
                                     val capLayout = createLayout(caption, footerPaint, contentWidth, Layout.Alignment.ALIGN_CENTER)
                                     canvas.save()
-                                    canvas.translate(contentRect.left.toFloat(), currentY)
+                                    canvas.translate(0f, currentY)
                                     capLayout.draw(canvas)
                                     canvas.restore()
                                     currentY += capLayout.height + 8f
@@ -373,46 +389,75 @@ object PrintedPdfDocumentEngine : PdfEngine {
                     is MarkdownNode.BlockNode.Table -> {
                         if (block.headers.isNotEmpty() || block.rows.isNotEmpty()) {
                             val colCount = block.headers.size.coerceAtLeast(block.rows.maxOfOrNull { it.size } ?: 1).coerceAtLeast(1)
-                            val colWidth = contentWidth / colCount
-                            val headerLayouts = block.headers.map { cell ->
+
+                            // Calculate proportional column weights based on content character lengths
+                            val maxColChars = (0 until colCount).map { colIdx ->
+                                val headerChars = block.headers.getOrNull(colIdx)?.runs?.sumOf { it.text.length } ?: 0
+                                val maxRowChars = block.rows.maxOfOrNull { it.getOrNull(colIdx)?.runs?.sumOf { r -> r.text.length } ?: 0 } ?: 0
+                                maxOf(headerChars, maxRowChars).coerceAtLeast(3)
+                            }
+                            val totalChars = maxColChars.sum().toFloat().coerceAtLeast(1f)
+                            val minColWidth = (contentWidth / (colCount * 2)).coerceIn(36, 64)
+                            val rawWidths = maxColChars.map {
+                                ((it / totalChars) * contentWidth).toInt().coerceAtLeast(minColWidth)
+                            }
+                            val widthSum = rawWidths.sum()
+                            val diff = contentWidth - widthSum
+                            val colWidths = rawWidths.toMutableList()
+                            if (colWidths.isNotEmpty()) {
+                                colWidths[0] = (colWidths[0] + diff).coerceAtLeast(minColWidth)
+                            }
+
+                            val colOffsets = IntArray(colCount)
+                            var accX = 0
+                            for (i in 0 until colCount) {
+                                colOffsets[i] = accX
+                                accX += colWidths.getOrElse(i) { contentWidth / colCount }
+                            }
+
+                            val headerLayouts = block.headers.mapIndexed { idx, cell ->
                                 val isCellRtl = HtmlEmitter.isRtlRuns(cell.runs)
-                                createLayout(buildSpannable(cell.runs, defaultBold = true), bodyPaint, colWidth - 8, isRtl = isCellRtl)
+                                val cellW = (colWidths.getOrElse(idx) { contentWidth / colCount } - 8).coerceAtLeast(24)
+                                createLayout(buildSpannable(cell.runs, defaultBold = true), bodyPaint, cellW, isRtl = isCellRtl)
                             }
                             val maxHeaderHeight = (headerLayouts.maxOfOrNull { it.height } ?: 20) + 10f
 
-                            if (currentY + maxHeaderHeight > contentRect.bottom) {
+                            if (currentY + maxHeaderHeight > maxContentY) {
                                 advancePage()
                             }
 
                             // Draw headers
                             headerLayouts.forEachIndexed { idx, hLayout ->
+                                val cellX = colOffsets[idx].toFloat() + 4f
                                 canvas.save()
-                                canvas.translate(contentRect.left + (idx * colWidth).toFloat() + 4f, currentY + 4f)
+                                canvas.translate(cellX, currentY + 4f)
                                 hLayout.draw(canvas)
                                 canvas.restore()
                             }
                             currentY += maxHeaderHeight
-                            canvas.drawLine(contentRect.left.toFloat(), currentY, contentRect.right.toFloat(), currentY, dividerPaint)
+                            canvas.drawLine(0f, currentY, contentWidth.toFloat(), currentY, dividerPaint)
                             currentY += 4f
 
                             // Draw rows
                             for (row in block.rows) {
-                                val cellLayouts = row.map { cell ->
+                                val cellLayouts = row.mapIndexed { idx, cell ->
                                     val isCellRtl = HtmlEmitter.isRtlRuns(cell.runs)
-                                    createLayout(buildSpannable(cell.runs), bodyPaint, colWidth - 8, isRtl = isCellRtl)
+                                    val cellW = (colWidths.getOrElse(idx) { contentWidth / colCount } - 8).coerceAtLeast(24)
+                                    createLayout(buildSpannable(cell.runs), bodyPaint, cellW, isRtl = isCellRtl)
                                 }
                                 val maxRowHeight = (cellLayouts.maxOfOrNull { it.height } ?: 16) + 8f
-                                if (currentY + maxRowHeight > contentRect.bottom) {
+                                if (currentY + maxRowHeight > maxContentY) {
                                     advancePage()
                                 }
                                 cellLayouts.forEachIndexed { idx, cLayout ->
+                                    val cellX = colOffsets[idx].toFloat() + 4f
                                     canvas.save()
-                                    canvas.translate(contentRect.left + (idx * colWidth).toFloat() + 4f, currentY + 4f)
+                                    canvas.translate(cellX, currentY + 4f)
                                     cLayout.draw(canvas)
                                     canvas.restore()
                                 }
                                 currentY += maxRowHeight
-                                canvas.drawLine(contentRect.left.toFloat(), currentY, contentRect.right.toFloat(), currentY, dividerPaint)
+                                canvas.drawLine(0f, currentY, contentWidth.toFloat(), currentY, dividerPaint)
                                 currentY += 2f
                             }
                             currentY += 8f
@@ -423,11 +468,11 @@ object PrintedPdfDocumentEngine : PdfEngine {
                 }
             }
 
-            // Finish the last page with footer
+            // Finish the last page with footer within content bounds
             canvas.drawText(
                 "- $pageNumber -",
-                contentRect.centerX().toFloat(),
-                (doc.pageHeight - (contentRect.top / 2f)).coerceAtMost(doc.pageHeight - 14f),
+                contentWidth / 2f,
+                contentHeight - 8f,
                 footerPaint
             )
             doc.finishPage(currentPage)
@@ -452,7 +497,7 @@ object PrintedPdfDocumentEngine : PdfEngine {
         lineSpacing: Float = 1.0f,
         isRtl: Boolean = false
     ): StaticLayout {
-        val safeWidth = width.coerceAtLeast(100)
+        val safeWidth = width.coerceAtLeast(24)
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val heuristic = if (isRtl) {
                 android.text.TextDirectionHeuristics.RTL
