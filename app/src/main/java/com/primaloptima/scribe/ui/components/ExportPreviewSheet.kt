@@ -106,6 +106,7 @@ import com.primaloptima.scribe.util.export.MarginPreset
 import com.primaloptima.scribe.util.export.PaperSize
 import com.primaloptima.scribe.util.export.DropCapStyle
 import com.primaloptima.scribe.util.export.ManuscriptTitleHeader
+import com.primaloptima.scribe.util.export.OrnamentCatalog
 import com.primaloptima.scribe.util.image.VaultImageManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -640,16 +641,14 @@ private fun StyleOverridesPanel(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                val ornamentOptions = listOf(
-                    "classic_diamond" to "Classic Diamond (─── ❖ ───)",
-                    "fleuron" to "Fleuron (─── ❦ ───)",
-                    "asterism" to "Asterism (─── ⁂ ───)",
-                    "celtic_knot" to "Celtic Knot (─── ✢ ───)",
-                    "minimal_rule" to "Minimal Rule (────── • ──────)",
-                    "quatrefoil" to "Quatrefoil (─── ✤ ───)",
-                    "laurel_branch" to "Laurel Branch (─── 🌿 ───)",
-                    "none" to "None (No Divider)"
-                )
+                val ornamentOptions = OrnamentCatalog.entries.map { entry ->
+                    val label = if (entry.id == "none") {
+                        "None (No Divider)"
+                    } else {
+                        "${entry.displayName} (${entry.textDivider})"
+                    }
+                    entry.id to label
+                }
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     ornamentOptions.forEach { (ornamentId, label) ->
                         FilterChip(
@@ -929,6 +928,22 @@ private fun StyleOverridesPanel(
                         Switch(
                             checked = config.includeCoverTitle,
                             onCheckedChange = { onConfigChanged(config.copy(includeCoverTitle = it)) }
+                        )
+                    }
+
+                    // First-Line Indent Switch (for PDF, EPUB, DOCX, HTML, TXT)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("First-Line Paragraph Indent", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            Text("Standard publication indent on prose paragraphs", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(
+                            checked = config.firstLineIndent,
+                            onCheckedChange = { onConfigChanged(config.copy(firstLineIndent = it)) }
                         )
                     }
 

@@ -193,7 +193,8 @@ object PrintedPdfDocumentEngine : PdfEngine {
                 layout: StaticLayout,
                 fullText: CharSequence,
                 paint: TextPaint,
-                isRtl: Boolean
+                isRtl: Boolean,
+                spacingAfter: Float = 10f
             ) {
                 var lineIdx = 0
                 val totalLines = layout.lineCount
@@ -210,7 +211,16 @@ object PrintedPdfDocumentEngine : PdfEngine {
                         advancePage()
                         continue
                     }
-                    val subText = fullText.subSequence(layout.getLineStart(startLine), layout.getLineEnd(endLine - 1))
+                    val subText = if (startLine == 0) {
+                        fullText.subSequence(layout.getLineStart(startLine), layout.getLineEnd(endLine - 1))
+                    } else {
+                        val rawSub = fullText.subSequence(layout.getLineStart(startLine), layout.getLineEnd(endLine - 1))
+                        val clean = SpannableStringBuilder(rawSub)
+                        clean.getSpans(0, clean.length, android.text.style.LeadingMarginSpan::class.java).forEach {
+                            clean.removeSpan(it)
+                        }
+                        clean
+                    }
                     val subLayout = createLayout(subText, paint, contentWidth, lineSpacing = config.lineSpacingMultiplier, isRtl = isRtl)
                     canvas.save()
                     canvas.translate(0f, currentY)
@@ -219,7 +229,7 @@ object PrintedPdfDocumentEngine : PdfEngine {
                     currentY += subLayout.height
                     lineIdx = endLine
                 }
-                currentY += 10f
+                currentY += spacingAfter
             }
 
             // Optional Cover Title Block (Two-Title Hierarchy + Ornament)
@@ -260,11 +270,13 @@ object PrintedPdfDocumentEngine : PdfEngine {
             }
 
             var dropCapApplied = false
+            var isFirstParagraphAfterHeading = true
 
             // Iterate AST Blocks
             for (block in ast.children) {
                 when (block) {
                     is MarkdownNode.BlockNode.Heading -> {
+                        isFirstParagraphAfterHeading = true
                         val paint = when (block.level) {
                             1 -> h1Paint
                             2 -> h2Paint
@@ -292,6 +304,7 @@ object PrintedPdfDocumentEngine : PdfEngine {
 
                         if (shouldDropCap) {
                             dropCapApplied = true
+                            isFirstParagraphAfterHeading = false
                             val fullStr = paraText.toString()
                             val firstChar = fullStr.firstOrNull { !it.isWhitespace() } ?: ' '
                             val hasQuote = firstChar == '"' || firstChar == '“' || firstChar == '\'' || firstChar == '‘'
@@ -307,7 +320,8 @@ object PrintedPdfDocumentEngine : PdfEngine {
                             val initialGlyph = fullStr.substring(0, glyphLen)
                             val remainingText = if (paraText.length > glyphLen) paraText.subSequence(glyphLen, paraText.length) else ""
 
-                            val dropCapWidth = dropCapPaint.measureText(initialGlyph) + 8f
+                            val glyphMargin = (bodyPaint.textSize * 0.2f).coerceIn(2f, 4f)
+                            val dropCapWidth = dropCapPaint.measureText(initialGlyph) + glyphMargin
                             val indentedWidth = (contentWidth - dropCapWidth).toInt().coerceAtLeast(100)
                             val initialLayout = createLayout(remainingText, bodyPaint, indentedWidth, lineSpacing = config.lineSpacingMultiplier)
                             val targetLines = config.dropCapLines
@@ -322,7 +336,7 @@ object PrintedPdfDocumentEngine : PdfEngine {
                                 canvas.translate(dropCapWidth, currentY)
                                 initialLayout.draw(canvas)
                                 canvas.restore()
-                                currentY += blockHeight + 10f
+                                currentY += blockHeight + (if (config.firstLineIndent) 4f else 10f)
                             } else {
                                 val splitCharOffset = initialLayout.getLineEnd(targetLines - 1)
                                 val segAText = remainingText.subSequence(0, splitCharOffset)
@@ -342,18 +356,36 @@ object PrintedPdfDocumentEngine : PdfEngine {
                                 canvas.restore()
                                 currentY += topBlockHeight + 4f
 
-                                drawPaginatedLayout(segBLayout, segBText, bodyPaint, isRtl)
+                                val spacingAfter = if (config.firstLineIndent) 4f else 10f
+                                drawPaginatedLayout(segBLayout, segBText, bodyPaint, isRtl, spacingAfter)
                             }
                         } else {
-                            val layout = createLayout(paraText, bodyPaint, contentWidth, lineSpacing = config.lineSpacingMultiplier, isRtl = isRtl)
+                            val shouldIndent = config.firstLineIndent && !isFirstParagraphAfterHeading
+                            val formattedText: CharSequence = if (shouldIndent) {
+                                val spannable = SpannableStringBuilder(paraText)
+                                val indentPx = (bodyPaint.textSize * 1.5f).toInt()
+                                spannable.setSpan(
+                                    android.text.style.LeadingMarginSpan.Standard(indentPx, 0),
+                                    0,
+                                    spannable.length,
+                                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                                )
+                                spannable
+                            } else {
+                                paraText
+                            }
+                            isFirstParagraphAfterHeading = false
+                            val spacingAfter = if (config.firstLineIndent) 4f else 10f
+
+                            val layout = createLayout(formattedText, bodyPaint, contentWidth, lineSpacing = config.lineSpacingMultiplier, isRtl = isRtl)
                             if (currentY + layout.height <= maxContentY) {
                                 canvas.save()
                                 canvas.translate(0f, currentY)
                                 layout.draw(canvas)
                                 canvas.restore()
-                                currentY += layout.height + 10f
+                                currentY += layout.height + spacingAfter
                             } else {
-                                drawPaginatedLayout(layout, paraText, bodyPaint, isRtl)
+                                drawPaginatedLayout(layout, formattedText, bodyPaint, isRtl, spacingAfter)
                             }
                         }
                     }
@@ -669,13 +701,23 @@ object PrintedPdfDocumentEngine : PdfEngine {
             "asterism" -> {
                 canvas.drawLine(centerX - 55f, y + 8f, centerX - 18f, y + 8f, strokePaint)
                 canvas.drawLine(centerX + 18f, y + 8f, centerX + 55f, y + 8f, strokePaint)
-                val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                val starPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                     this.color = color
-                    textSize = 14f
-                    textAlign = Paint.Align.CENTER
-                    typeface = Typeface.SERIF
+                    style = Paint.Style.STROKE
+                    strokeWidth = 1.0f
+                    strokeCap = Paint.Cap.ROUND
                 }
-                canvas.drawText("⁂", centerX, y + 12f, textPaint)
+                fun drawStarlet(cx: Float, cy: Float, r: Float) {
+                    for (i in 0 until 3) {
+                        val angle = Math.toRadians((i * 60.0))
+                        val dx = (Math.cos(angle) * r).toFloat()
+                        val dy = (Math.sin(angle) * r).toFloat()
+                        canvas.drawLine(cx - dx, cy - dy, cx + dx, cy + dy, starPaint)
+                    }
+                }
+                drawStarlet(centerX, y + 4f, 2.8f)
+                drawStarlet(centerX - 5.5f, y + 12f, 2.8f)
+                drawStarlet(centerX + 5.5f, y + 12f, 2.8f)
             }
             "celtic_knot" -> {
                 canvas.drawLine(centerX - 65f, y + 8f, centerX - 22f, y + 8f, strokePaint)

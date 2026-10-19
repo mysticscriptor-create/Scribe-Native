@@ -36,12 +36,7 @@ object PlainEmitter {
                 sb.append(primary.uppercase()).append("\n")
                 sb.append(secondary).append("\n")
                 if (ornamentId != "none") {
-                    val ornamentTxt = when (ornamentId) {
-                        "fleuron" -> "─── ❦ ───"
-                        "asterism" -> "─── ⁂ ───"
-                        "minimal_rule" -> "────── • ──────"
-                        else -> "─── ❖ ───"
-                    }
+                    val ornamentTxt = OrnamentCatalog.getTextDivider(ornamentId)
                     sb.append(ornamentTxt).append("\n\n")
                 } else {
                     sb.append("\n")
@@ -52,8 +47,23 @@ object PlainEmitter {
                 sb.append(secondary).append("\n\n")
             }
         }
+        var isFirstParaAfterHeading = true
         for (block in document.children) {
-            sb.append(emitBlock(block)).append("\n\n")
+            if (block is MarkdownNode.BlockNode.Heading) {
+                isFirstParaAfterHeading = true
+                sb.append(emitBlock(block)).append("\n\n")
+            } else if (block is MarkdownNode.BlockNode.Paragraph) {
+                val text = emitRuns(block.runs)
+                val formatted = if (config?.firstLineIndent == true && !isFirstParaAfterHeading) {
+                    "    $text"
+                } else {
+                    text
+                }
+                isFirstParaAfterHeading = false
+                sb.append(formatted).append("\n\n")
+            } else {
+                sb.append(emitBlock(block)).append("\n\n")
+            }
         }
         return sb.toString().trim()
     }

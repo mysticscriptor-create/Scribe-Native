@@ -136,5 +136,6 @@ data class ExportConfig(
     val authorName: String = "",
     val ornamentId: String = "classic_diamond",
     val dropCapStyle: DropCapStyle = DropCapStyle.DISABLED,
-    val dropCapLines: Int = 3
+    val dropCapLines: Int = 3,
+    val firstLineIndent: Boolean = false
 )

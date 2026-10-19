@@ -116,6 +116,7 @@ class ScribeDataStore(private val context: Context) {
         val EXPORT_ORNAMENT_ID         = stringPreferencesKey("export_ornament_id")
         val EXPORT_DROP_CAP_STYLE      = stringPreferencesKey("export_drop_cap_style")
         val EXPORT_DROP_CAP_LINES      = intPreferencesKey("export_drop_cap_lines")
+        val EXPORT_FIRST_LINE_INDENT   = booleanPreferencesKey("export_first_line_indent")
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -149,6 +150,7 @@ class ScribeDataStore(private val context: Context) {
         val dropCapStyle = runCatching { com.primaloptima.scribe.util.export.DropCapStyle.valueOf(dropCapStyleStr) }
             .getOrDefault(com.primaloptima.scribe.util.export.DropCapStyle.DISABLED)
         val dropCapLines = prefs[EXPORT_DROP_CAP_LINES] ?: 3
+        val firstLineIndent = prefs[EXPORT_FIRST_LINE_INDENT] ?: false
 
         ExportConfig(
             format = format,
@@ -163,7 +165,8 @@ class ScribeDataStore(private val context: Context) {
             authorName = author,
             ornamentId = ornament,
             dropCapStyle = dropCapStyle,
-            dropCapLines = dropCapLines.coerceIn(2, 4)
+            dropCapLines = dropCapLines.coerceIn(2, 4),
+            firstLineIndent = firstLineIndent
         )
     }
 
@@ -435,6 +438,7 @@ class ScribeDataStore(private val context: Context) {
         prefs[EXPORT_ORNAMENT_ID] = config.ornamentId
         prefs[EXPORT_DROP_CAP_STYLE] = config.dropCapStyle.name
         prefs[EXPORT_DROP_CAP_LINES] = config.dropCapLines
+        prefs[EXPORT_FIRST_LINE_INDENT] = config.firstLineIndent
     }
 
     suspend fun resetExportConfig() = store.edit { prefs ->
@@ -451,6 +455,7 @@ class ScribeDataStore(private val context: Context) {
         prefs.remove(EXPORT_ORNAMENT_ID)
         prefs.remove(EXPORT_DROP_CAP_STYLE)
         prefs.remove(EXPORT_DROP_CAP_LINES)
+        prefs.remove(EXPORT_FIRST_LINE_INDENT)
     }
 }
 

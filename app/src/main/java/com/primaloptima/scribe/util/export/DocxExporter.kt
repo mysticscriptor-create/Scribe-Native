@@ -105,12 +105,7 @@ object DocxExporter {
             """.trimIndent()).append("\n")
 
             if (config.ornamentId != "none") {
-                val dividerText = when (config.ornamentId) {
-                    "fleuron" -> "─── ❦ ───"
-                    "asterism" -> "─── ⁂ ───"
-                    "minimal_rule" -> "────── • ──────"
-                    else -> "─── ❖ ───"
-                }
+                val dividerText = OrnamentCatalog.getTextDivider(config.ornamentId)
                 bodyXml.append("""
             <w:p>
               <w:pPr>
@@ -134,11 +129,13 @@ object DocxExporter {
         val printableDxa = ((config.paperSize.dxaWidth - config.marginPreset.dxaLeft - config.marginPreset.dxaRight).coerceAtLeast(4000L)).toInt()
 
         var dropCapApplied = false
+        var isFirstParagraphAfterHeading = true
 
         // 2. Iterate AST Nodes
         for (node in ast.children) {
             when (node) {
                 is MarkdownNode.BlockNode.Heading -> {
+                    isFirstParagraphAfterHeading = true
                     val styleVal = when (node.level) {
                         1 -> "Heading1"
                         2 -> "Heading2"
@@ -162,6 +159,7 @@ object DocxExporter {
                     val shouldDropCap = !dropCapApplied && config.dropCapStyle != DropCapStyle.DISABLED && !isRtl && node.runs.any { it.text.isNotBlank() }
                     if (shouldDropCap) {
                         dropCapApplied = true
+                        isFirstParagraphAfterHeading = false
                         val fullText = node.runs.joinToString("") { it.text }
                         val firstChar = fullText.firstOrNull { !it.isWhitespace() } ?: ' '
                         val hasQuote = firstChar == '"' || firstChar == '“' || firstChar == '\'' || firstChar == '‘'
@@ -177,29 +175,41 @@ object DocxExporter {
                         val dropGlyph = MarkdownUtil.xmlEscape(fullText.substring(0, glyphLen))
                         val remainingRuns = splitFirstGlyph(node.runs, glyphLen)
                         val runsXml = buildRunsXml(remainingRuns, isRtlParagraph = isRtl, onRegisterHyperlink = ::registerHyperlink)
+                        val dropCapSz = if (config.dropCapLines == 2) 72 else 96
                         bodyXml.append("""
                     <w:p>
                       <w:pPr>
-                        <w:spacing w:after="160" w:line="320" w:lineRule="auto"/>
-                        <w:framePr w:dropCap="drop" w:lines="${config.dropCapLines}" w:wrap="around" w:hSpace="180"/>$bidiXml
+                        <w:framePr w:dropCap="drop" w:lines="${config.dropCapLines}" w:wrap="around" w:vAnchor="text" w:hAnchor="text" w:xAlign="left" w:hSpace="120"/>
+                        <w:spacing w:after="0" w:line="240" w:lineRule="auto"/>
+                        <w:ind w:firstLine="0"/>$bidiXml
                       </w:pPr>
                       <w:r>
                         <w:rPr>
                           <w:rFonts w:ascii="$fontName" w:hAnsi="$fontName"/>
                           <w:b/>
+                          <w:sz w:val="$dropCapSz"/>
                           <w:color w:val="$primaryColorHex"/>
                         </w:rPr>
                         <w:t xml:space="preserve">$dropGlyph</w:t>
                       </w:r>
+                    </w:p>
+                    <w:p>
+                      <w:pPr>
+                        <w:spacing w:after="160" w:line="320" w:lineRule="auto"/>
+                        <w:ind w:firstLine="0"/>$bidiXml
+                      </w:pPr>
                       $runsXml
                     </w:p>
                         """.trimIndent()).append("\n")
                     } else {
+                        val indXml = if (config.firstLineIndent && !isFirstParagraphAfterHeading) "\n    <w:ind w:firstLine=\"360\"/>" else "\n    <w:ind w:firstLine=\"0\"/>"
+                        val spacingAfter = if (config.firstLineIndent && !isFirstParagraphAfterHeading) "0" else "160"
+                        isFirstParagraphAfterHeading = false
                         val runsXml = buildRunsXml(node.runs, isRtlParagraph = isRtl, onRegisterHyperlink = ::registerHyperlink)
                         bodyXml.append("""
                     <w:p>
                       <w:pPr>
-                        <w:spacing w:after="160" w:line="320" w:lineRule="auto"/>$bidiXml
+                        <w:spacing w:after="$spacingAfter" w:line="320" w:lineRule="auto"/>$indXml$bidiXml
                       </w:pPr>
                       $runsXml
                     </w:p>
