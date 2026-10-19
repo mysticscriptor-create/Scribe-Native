@@ -113,6 +113,9 @@ class ScribeDataStore(private val context: Context) {
         val EXPORT_INCLUDE_TOC         = booleanPreferencesKey("export_include_toc")
         val EXPORT_IMAGE_QUALITY       = stringPreferencesKey("export_image_quality")
         val EXPORT_AUTHOR_PEN_NAME     = stringPreferencesKey("export_author_pen_name")
+        val EXPORT_ORNAMENT_ID         = stringPreferencesKey("export_ornament_id")
+        val EXPORT_DROP_CAP_STYLE      = stringPreferencesKey("export_drop_cap_style")
+        val EXPORT_DROP_CAP_LINES      = intPreferencesKey("export_drop_cap_lines")
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -141,6 +144,11 @@ class ScribeDataStore(private val context: Context) {
         val quality = runCatching { ImageQuality.valueOf(qualityStr) }.getOrDefault(ImageQuality.HIGH_RES)
 
         val author = prefs[EXPORT_AUTHOR_PEN_NAME] ?: ""
+        val ornament = prefs[EXPORT_ORNAMENT_ID] ?: (prefs[MANUSCRIPT_ORNAMENT_ID] ?: "classic_diamond")
+        val dropCapStyleStr = prefs[EXPORT_DROP_CAP_STYLE] ?: "DISABLED"
+        val dropCapStyle = runCatching { com.primaloptima.scribe.util.export.DropCapStyle.valueOf(dropCapStyleStr) }
+            .getOrDefault(com.primaloptima.scribe.util.export.DropCapStyle.DISABLED)
+        val dropCapLines = prefs[EXPORT_DROP_CAP_LINES] ?: 3
 
         ExportConfig(
             format = format,
@@ -152,7 +160,10 @@ class ScribeDataStore(private val context: Context) {
             includeCoverTitle = includeCover,
             includeTableOfContents = includeToc,
             imageQuality = quality,
-            authorName = author
+            authorName = author,
+            ornamentId = ornament,
+            dropCapStyle = dropCapStyle,
+            dropCapLines = dropCapLines.coerceIn(2, 4)
         )
     }
 
@@ -421,6 +432,9 @@ class ScribeDataStore(private val context: Context) {
         prefs[EXPORT_INCLUDE_TOC] = config.includeTableOfContents
         prefs[EXPORT_IMAGE_QUALITY] = config.imageQuality.name
         prefs[EXPORT_AUTHOR_PEN_NAME] = config.authorName
+        prefs[EXPORT_ORNAMENT_ID] = config.ornamentId
+        prefs[EXPORT_DROP_CAP_STYLE] = config.dropCapStyle.name
+        prefs[EXPORT_DROP_CAP_LINES] = config.dropCapLines
     }
 
     suspend fun resetExportConfig() = store.edit { prefs ->
@@ -434,6 +448,9 @@ class ScribeDataStore(private val context: Context) {
         prefs.remove(EXPORT_INCLUDE_TOC)
         prefs.remove(EXPORT_IMAGE_QUALITY)
         prefs.remove(EXPORT_AUTHOR_PEN_NAME)
+        prefs.remove(EXPORT_ORNAMENT_ID)
+        prefs.remove(EXPORT_DROP_CAP_STYLE)
+        prefs.remove(EXPORT_DROP_CAP_LINES)
     }
 }
 

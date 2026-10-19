@@ -5,6 +5,8 @@ package com.primaloptima.scribe.util.export
  * Converts [MarkdownNode.Document] into formatted, syntax-free prose,
  * replacing illustration elements with editorial annotations.
  */
+object PlainEmitter {
+
     fun emit(
         document: MarkdownNode.Document,
         includeCoverTitle: Boolean = false,
@@ -26,22 +28,17 @@ package com.primaloptima.scribe.util.export
         val includeCoverTitle = config?.includeCoverTitle ?: false
         if (includeCoverTitle && !title.isNullOrBlank()) {
             val ornamentId = config?.ornamentId ?: "classic_diamond"
-            val parts = title.split('
-')
+            val parts = title.split('\n')
             val primary = parts.getOrNull(0)?.trim() ?: ""
             val secondary = if (parts.size > 1) parts.drop(1).joinToString(" ").trim() else ""
 
             if (primary.isNotBlank() && secondary.isNotBlank()) {
-                sb.append(primary.uppercase()).append("
-")
-                sb.append(secondary).append("
-")
+                sb.append(primary.uppercase()).append("\n")
+                sb.append(secondary).append("\n")
             } else if (primary.isNotBlank()) {
-                sb.append(primary.uppercase()).append("
-")
+                sb.append(primary).append("\n")
             } else if (secondary.isNotBlank()) {
-                sb.append(secondary).append("
-")
+                sb.append(secondary).append("\n")
             }
 
             if (ornamentId != "none") {
@@ -51,21 +48,17 @@ package com.primaloptima.scribe.util.export
                     "minimal_rule" -> "────── • ──────"
                     else -> "─── ❖ ───"
                 }
-                sb.append(ornamentTxt).append("
-
-")
+                sb.append(ornamentTxt).append("\n\n")
             } else {
-                sb.append("
-")
+                sb.append("\n")
             }
         }
         for (block in document.children) {
-            sb.append(emitBlock(block)).append("
-
-")
+            sb.append(emitBlock(block)).append("\n\n")
         }
         return sb.toString().trim()
     }
+
     fun emitBlock(block: MarkdownNode.BlockNode): String {
         return when (block) {
             is MarkdownNode.BlockNode.Heading -> {

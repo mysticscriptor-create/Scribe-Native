@@ -226,7 +226,8 @@ object PrintedPdfDocumentEngine : PdfEngine {
             val header = ManuscriptTitleHeader.from(note, config.ornamentId)
             if (config.includeCoverTitle && header.isPresent) {
                 currentY += 8f
-                if (header.hasPrimary) {
+                val hasBoth = header.hasPrimary && header.hasSecondary
+                if (hasBoth) {
                     val kickerText = header.primaryTitle.uppercase()
                     val kickerLayout = createLayout(kickerText, kickerPaint, contentWidth, Layout.Alignment.ALIGN_CENTER)
                     canvas.save()
@@ -235,22 +236,19 @@ object PrintedPdfDocumentEngine : PdfEngine {
                     canvas.restore()
                     currentY += kickerLayout.height + 6f
                 }
-                if (header.hasSecondary) {
-                    val secLayout = createLayout(header.secondaryTitle, titlePaint, contentWidth, Layout.Alignment.ALIGN_CENTER)
-                    canvas.save()
-                    canvas.translate(0f, currentY)
-                    secLayout.draw(canvas)
-                    canvas.restore()
-                    currentY += secLayout.height + 10f
-                } else if (!header.hasPrimary) {
-                    val fallbackTitle = note.name.ifBlank { "Untitled Manuscript" }
-                    val secLayout = createLayout(fallbackTitle, titlePaint, contentWidth, Layout.Alignment.ALIGN_CENTER)
-                    canvas.save()
-                    canvas.translate(0f, currentY)
-                    secLayout.draw(canvas)
-                    canvas.restore()
-                    currentY += secLayout.height + 10f
+
+                val mainTitleText = when {
+                    hasBoth -> header.secondaryTitle
+                    header.hasSecondary -> header.secondaryTitle
+                    header.hasPrimary -> header.primaryTitle
+                    else -> note.name.ifBlank { "Untitled Manuscript" }
                 }
+                val secLayout = createLayout(mainTitleText, titlePaint, contentWidth, Layout.Alignment.ALIGN_CENTER)
+                canvas.save()
+                canvas.translate(0f, currentY)
+                secLayout.draw(canvas)
+                canvas.restore()
+                currentY += secLayout.height + 10f
 
                 if (config.ornamentId != "none") {
                     currentY += 4f
@@ -296,8 +294,16 @@ object PrintedPdfDocumentEngine : PdfEngine {
                             dropCapApplied = true
                             val fullStr = paraText.toString()
                             val firstChar = fullStr.firstOrNull { !it.isWhitespace() } ?: ' '
-                            val hasQuote = firstChar == '"' || firstChar == '“' || firstChar == ''' || firstChar == '‘'
-                            val glyphLen = if (hasQuote && fullStr.length >= 2) 2 else 1
+                            val hasQuote = firstChar == '"' || firstChar == '“' || firstChar == '\'' || firstChar == '‘'
+                            val charIter = java.text.BreakIterator.getCharacterInstance()
+                            charIter.setText(fullStr)
+                            val firstBound = charIter.next()
+                            val glyphLen = if (hasQuote && fullStr.length > firstBound) {
+                                val secondBound = charIter.next()
+                                if (secondBound != java.text.BreakIterator.DONE) secondBound else firstBound
+                            } else {
+                                if (firstBound != java.text.BreakIterator.DONE) firstBound else 1
+                            }
                             val initialGlyph = fullStr.substring(0, glyphLen)
                             val remainingText = if (paraText.length > glyphLen) paraText.subSequence(glyphLen, paraText.length) else ""
 

@@ -158,12 +158,15 @@ object EpubExporter {
 
             // Two-title header and ornament embedding at the top of the body chapter
             val headerHtml = if (config.includeCoverTitle && chapIdx == firstBodyChapterIdx && header.isPresent) {
-                val kickerHtml = if (header.hasPrimary) """<p class="title-kicker">${MarkdownUtil.xmlEscape(header.primaryTitle)}</p>""" else ""
-                val mainTitleHtml = if (header.hasSecondary) {
-                    """<h1 class="document-title">${MarkdownUtil.xmlEscape(header.secondaryTitle)}</h1>"""
-                } else if (!header.hasPrimary) {
-                    """<h1 class="document-title">$titleXml</h1>"""
-                } else ""
+                val hasBoth = header.hasPrimary && header.hasSecondary
+                val kickerHtml = if (hasBoth) """<p class="title-kicker">${MarkdownUtil.xmlEscape(header.primaryTitle)}</p>""" else ""
+                val mainTitleText = when {
+                    hasBoth -> header.secondaryTitle
+                    header.hasSecondary -> header.secondaryTitle
+                    header.hasPrimary -> header.primaryTitle
+                    else -> title
+                }
+                val mainTitleHtml = """<h1 class="document-title">${MarkdownUtil.xmlEscape(mainTitleText)}</h1>"""
                 val ornamentSvg = if (config.ornamentId != "none") {
                     val svg = ExportThemeMapper.renderOrnamentSvg(config.ornamentId)
                     if (svg.isNotBlank()) """<div class="manuscript-ornament" aria-hidden="true">$svg</div>""" else ""
@@ -482,17 +485,25 @@ $spineItems
     /**
      * Safely splits unified AST nodes into individual chapter containers.
      * Guarantees 0% data loss by isolating any pre-chapter prose into [frontmatter.xhtml].
-     * CRITICAL RULE: Splits ONLY on explicit chapter boundaries (e.g. multiple H1s).
-     * NEVER splits on H2..H6 ordinary subheadings.
+     * CRITICAL RULE: Splits on chapter boundaries:
+     * - If document has multiple H1s, splits on H1 (H2..H6 stay inside chapter).
+     * - If document has single/zero H1 and multiple H2s, splits on H2 (H3..H6 stay inside chapter).
+     * - Otherwise keeps as a single chapter.
      */
     fun splitIntoChapters(
         ast: MarkdownNode.Document,
         fallbackTitle: String
     ): List<EpubChapter> {
         val h1Count = ast.children.count { it is MarkdownNode.BlockNode.Heading && it.level == 1 }
+        val h2Count = ast.children.count { it is MarkdownNode.BlockNode.Heading && it.level == 2 }
 
-        // If there are NOT multiple H1 headings, keep the entire document as a single chapter
-        if (h1Count <= 1) {
+        val splitLevel = when {
+            h1Count > 1 -> 1
+            h1Count <= 1 && h2Count > 1 -> 2
+            else -> null
+        }
+
+        if (splitLevel == null) {
             val title = ast.children
                 .filterIsInstance<MarkdownNode.BlockNode.Heading>()
                 .firstOrNull { it.level == 1 }
@@ -510,14 +521,14 @@ $spineItems
             )
         }
 
-        // Multiple H1s: Split at each H1 boundary
+        // Split at the determined splitLevel (1 or 2)
         val chapters = mutableListOf<EpubChapter>()
         var currentTitle = "Front Matter"
         val currentNodes = mutableListOf<MarkdownNode.BlockNode>()
         var actualChapterIdx = 1
 
         for (node in ast.children) {
-            if (node is MarkdownNode.BlockNode.Heading && node.level == 1) {
+            if (node is MarkdownNode.BlockNode.Heading && node.level == splitLevel) {
                 if (currentNodes.isNotEmpty()) {
                     val isFrontMatter = chapters.isEmpty() && currentTitle == "Front Matter"
                     val id = if (isFrontMatter) "frontmatter" else "chap_$actualChapterIdx"

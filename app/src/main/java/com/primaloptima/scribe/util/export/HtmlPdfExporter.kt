@@ -44,14 +44,19 @@ object HtmlPdfExporter {
         }
 
         val coverTitleHtml = if (config.includeCoverTitle && header.isPresent) {
-            val kickerHtml = if (header.hasPrimary) {
+            val hasBoth = header.hasPrimary && header.hasSecondary
+            val kickerHtml = if (hasBoth) {
                 """<p class="title-kicker">${MarkdownUtil.escapeHtml(header.primaryTitle)}</p>"""
             } else ""
-            val mainTitleHtml = if (header.hasSecondary) {
-                """<h1 class="document-title">${MarkdownUtil.escapeHtml(header.secondaryTitle)}</h1>"""
-            } else if (!header.hasPrimary) {
-                """<h1 class="document-title">$titleEscaped</h1>"""
-            } else ""
+
+            val mainTitleText = when {
+                hasBoth -> header.secondaryTitle
+                header.hasSecondary -> header.secondaryTitle
+                header.hasPrimary -> header.primaryTitle
+                else -> titleText
+            }
+            val mainTitleHtml = """<h1 class="document-title">${MarkdownUtil.escapeHtml(mainTitleText)}</h1>"""
+
             val ornamentSvg = if (config.ornamentId != "none") {
                 val svg = ExportThemeMapper.renderOrnamentSvg(config.ornamentId)
                 if (svg.isNotBlank()) """<div class="manuscript-ornament" aria-hidden="true">$svg</div>""" else ""

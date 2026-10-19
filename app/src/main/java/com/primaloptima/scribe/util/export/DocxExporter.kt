@@ -56,9 +56,9 @@ object DocxExporter {
         val header = ManuscriptTitleHeader.from(note, config.ornamentId)
         if (config.includeCoverTitle && header.isPresent) {
             val isTitleRtl = HtmlEmitter.isRtlText(note.name)
-            val bidiXml = if (isTitleRtl) "
-                <w:bidi/>" else ""
-            if (header.hasPrimary) {
+            val bidiXml = if (isTitleRtl) "\n                <w:bidi/>" else ""
+            val hasBoth = header.hasPrimary && header.hasSecondary
+            if (hasBoth) {
                 val kickerEscaped = MarkdownUtil.xmlEscape(header.primaryTitle.uppercase())
                 bodyXml.append("""
             <w:p>
@@ -76,12 +76,17 @@ object DocxExporter {
                 <w:t xml:space="preserve">$kickerEscaped</w:t>
               </w:r>
             </w:p>
-                """.trimIndent()).append("
-")
+                """.trimIndent()).append("\n")
             }
-            if (header.hasSecondary) {
-                val secEscaped = MarkdownUtil.xmlEscape(header.secondaryTitle)
-                bodyXml.append("""
+
+            val mainTitleText = when {
+                hasBoth -> header.secondaryTitle
+                header.hasSecondary -> header.secondaryTitle
+                header.hasPrimary -> header.primaryTitle
+                else -> note.name.ifBlank { "Untitled Manuscript" }
+            }
+            val secEscaped = MarkdownUtil.xmlEscape(mainTitleText)
+            bodyXml.append("""
             <w:p>
               <w:pPr>
                 <w:pStyle w:val="Title"/>
@@ -97,29 +102,8 @@ object DocxExporter {
                 <w:t xml:space="preserve">$secEscaped</w:t>
               </w:r>
             </w:p>
-                """.trimIndent()).append("
-")
-            } else if (!header.hasPrimary) {
-                val fallbackEscaped = MarkdownUtil.xmlEscape(note.name.ifBlank { "Untitled Manuscript" })
-                bodyXml.append("""
-            <w:p>
-              <w:pPr>
-                <w:pStyle w:val="Title"/>
-                <w:jc w:val="center"/>
-                <w:spacing w:before="600" w:after="240"/>$bidiXml
-              </w:pPr>
-              <w:r>
-                <w:rPr>
-                  <w:b/>
-                  <w:sz w:val="48"/>
-                  <w:color w:val="$primaryColorHex"/>
-                </w:rPr>
-                <w:t xml:space="preserve">$fallbackEscaped</w:t>
-              </w:r>
-            </w:p>
-                """.trimIndent()).append("
-")
-            }
+            """.trimIndent()).append("\n")
+        }
             if (config.ornamentId != "none") {
                 val dividerText = when (config.ornamentId) {
                     "fleuron" -> "─── ❦ ───"
@@ -184,8 +168,16 @@ object DocxExporter {
                         dropCapApplied = true
                         val fullText = node.runs.joinToString("") { it.text }
                         val firstChar = fullText.firstOrNull { !it.isWhitespace() } ?: ' '
-                        val hasQuote = firstChar == '"' || firstChar == '“' || firstChar == ''' || firstChar == '‘'
-                        val glyphLen = if (hasQuote && fullText.length >= 2) 2 else 1
+                        val hasQuote = firstChar == '"' || firstChar == '“' || firstChar == '\'' || firstChar == '‘'
+                        val charIter = java.text.BreakIterator.getCharacterInstance()
+                        charIter.setText(fullText)
+                        val firstBound = charIter.next()
+                        val glyphLen = if (hasQuote && fullText.length > firstBound) {
+                            val secondBound = charIter.next()
+                            if (secondBound != java.text.BreakIterator.DONE) secondBound else firstBound
+                        } else {
+                            if (firstBound != java.text.BreakIterator.DONE) firstBound else 1
+                        }
                         val dropGlyph = MarkdownUtil.xmlEscape(fullText.substring(0, glyphLen))
                         val remainingRuns = splitFirstGlyph(node.runs, glyphLen)
                         val runsXml = buildRunsXml(remainingRuns, isRtlParagraph = isRtl, onRegisterHyperlink = ::registerHyperlink)

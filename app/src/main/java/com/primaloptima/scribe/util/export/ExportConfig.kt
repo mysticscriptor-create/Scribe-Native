@@ -96,10 +96,11 @@ data class ManuscriptTitleHeader(
 
     /**
      * Produces a clean, single-line TOC label combining primary and secondary titles without newline contamination.
+     * Trims redundant colons or separators.
      */
     fun toTocLabel(fallback: String = "Untitled Manuscript"): String {
-        val p = primaryTitle.trim()
-        val s = secondaryTitle.trim()
+        val p = primaryTitle.trim().trimEnd(':', '-', '—', '·').trim()
+        val s = secondaryTitle.trim().trimStart(':', '-', '—', '·').trim()
         return when {
             p.isNotEmpty() && s.isNotEmpty() -> "$p: $s"
             p.isNotEmpty() -> p

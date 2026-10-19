@@ -104,6 +104,8 @@ import com.primaloptima.scribe.util.export.HtmlPdfExporter
 import com.primaloptima.scribe.util.export.ImageQuality
 import com.primaloptima.scribe.util.export.MarginPreset
 import com.primaloptima.scribe.util.export.PaperSize
+import com.primaloptima.scribe.util.export.DropCapStyle
+import com.primaloptima.scribe.util.export.ManuscriptTitleHeader
 import com.primaloptima.scribe.util.image.VaultImageManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -473,6 +475,7 @@ fun ExportPreviewSheet(
                 } else {
                     // Publication Settings Viewport
                     StyleOverridesPanel(
+                        note = note,
                         config = config,
                         selectedFormat = selectedFormat,
                         onConfigChanged = { updated -> config = updated },
@@ -566,6 +569,7 @@ fun ExportPreviewSheet(
 
 @Composable
 private fun StyleOverridesPanel(
+    note: Note,
     config: ExportConfig,
     selectedFormat: ExportFormat,
     onConfigChanged: (ExportConfig) -> Unit,
@@ -579,6 +583,139 @@ private fun StyleOverridesPanel(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Section 1: Manuscript Title Hierarchy & Combined TOC Entry
+        val header = ManuscriptTitleHeader.from(note, config.ornamentId)
+        val tocLabel = header.toTocLabel(fallback = note.name.ifBlank { "Untitled Manuscript" })
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "TITLE HIERARCHY & TOC ENTRY",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                if (header.hasPrimary) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Kicker (Title 1):", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(header.primaryTitle, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                    }
+                }
+                if (header.hasSecondary) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Main Title (Title 2):", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(header.secondaryTitle, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                    }
+                }
+                HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                Column {
+                    Text("Combined Table of Contents Label:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "• $tocLabel",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+        }
+
+        // Section 2: Manuscript Ornament Divider
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "MANUSCRIPT ORNAMENT",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = "Decorative divider rendered between the title header and prose",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                val ornamentOptions = listOf(
+                    "classic_diamond" to "Classic Diamond (─── ❖ ───)",
+                    "fleuron" to "Fleuron (─── ❦ ───)",
+                    "asterism" to "Asterism (─── ⁂ ───)",
+                    "celtic_knot" to "Celtic Knot (─── ✢ ───)",
+                    "minimal_rule" to "Minimal Rule (────── • ──────)",
+                    "quatrefoil" to "Quatrefoil (─── ✤ ───)",
+                    "laurel_branch" to "Laurel Branch (─── 🌿 ───)",
+                    "none" to "None (No Divider)"
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    ornamentOptions.forEach { (ornamentId, label) ->
+                        FilterChip(
+                            selected = config.ornamentId == ornamentId,
+                            onClick = { onConfigChanged(config.copy(ornamentId = ornamentId)) },
+                            label = { Text(label, fontSize = 12.sp) },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+        }
+
+        // Section 3: Drop Caps (Initial Letter) - PDF, EPUB, DOCX, HTML
+        if (selectedFormat == ExportFormat.PDF || selectedFormat == ExportFormat.EPUB ||
+            selectedFormat == ExportFormat.DOCX || selectedFormat == ExportFormat.HTML) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "DROP CAPS (INITIAL LETTER)",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Typeset opening letters large and dropped into paragraphs (automatically bypassed on RTL scripts)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        DropCapStyle.entries.forEach { style ->
+                            FilterChip(
+                                selected = config.dropCapStyle == style,
+                                onClick = { onConfigChanged(config.copy(dropCapStyle = style)) },
+                                label = { Text(style.label, fontSize = 12.sp) }
+                            )
+                        }
+                    }
+                    if (config.dropCapStyle != DropCapStyle.DISABLED) {
+                        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Drop Cap Depth", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf(2, 3).forEach { lines ->
+                                    FilterChip(
+                                        selected = config.dropCapLines == lines,
+                                        onClick = { onConfigChanged(config.copy(dropCapLines = lines)) },
+                                        label = { Text("$lines lines") }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // Section: Paper Size (PDF & DOCX only)
         if (selectedFormat == ExportFormat.PDF || selectedFormat == ExportFormat.DOCX) {
             Card(
