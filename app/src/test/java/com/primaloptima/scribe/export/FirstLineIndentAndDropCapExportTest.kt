@@ -9,6 +9,7 @@ import com.primaloptima.scribe.util.export.ExportThemeMapper
 import com.primaloptima.scribe.util.export.MarkdownNode
 import com.primaloptima.scribe.util.export.OrnamentCatalog
 import com.primaloptima.scribe.util.export.PlainEmitter
+import com.primaloptima.scribe.util.model.ThemeColors
 import com.primaloptima.scribe.util.export.ScribeMarkdownAstParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -75,11 +76,17 @@ class FirstLineIndentAndDropCapExportTest {
 
     @Test
     fun testExportThemeMapperGeneratesFirstLineIndentCss() {
+        val colors = ThemeColors(
+            background = "#FFFFFF",
+            surface = "#F8F8F8",
+            text = "#1A1A1A",
+            accent = "#1A5276"
+        )
         val indentedConfig = ExportConfig(firstLineIndent = true)
         val normalConfig = ExportConfig(firstLineIndent = false)
 
-        val indentedCss = ExportThemeMapper.generateCss(indentedConfig)
-        val normalCss = ExportThemeMapper.generateCss(normalConfig)
+        val indentedCss = ExportThemeMapper.generateExportCss(indentedConfig, colors)
+        val normalCss = ExportThemeMapper.generateExportCss(normalConfig, colors)
 
         assertTrue("Indented CSS must include text-indent: 1.5em", indentedCss.contains("text-indent: 1.5em;"))
         assertTrue("Indented CSS must reset text-indent on h1 + p", indentedCss.contains("h1 + p"))
@@ -107,7 +114,7 @@ class FirstLineIndentAndDropCapExportTest {
             firstLineIndent = true
         )
 
-        val bytes = DocxExporter.buildDocx(null, note, config)
+        val bytes = DocxExporter.export(null, note, config)
         var documentXml: String? = null
 
         ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
@@ -152,7 +159,7 @@ class FirstLineIndentAndDropCapExportTest {
         val plainText = PlainEmitter.emit(
             document = ScribeMarkdownAstParser.parse(note.content),
             config = config,
-            noteName = note.name
+            title = note.name
         )
 
         assertTrue("Must contain celtic knot ornament divider", plainText.contains(OrnamentCatalog.getTextDivider("celtic_knot")))
@@ -182,7 +189,7 @@ class FirstLineIndentAndDropCapExportTest {
             firstLineIndent = true,
             docxCompatibilityMode = false
         )
-        val bytes = DocxExporter.buildDocx(null, note, config)
+        val bytes = DocxExporter.export(null, note, config)
         var xml = ""
         ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
             var entry = zis.nextEntry
@@ -218,7 +225,7 @@ class FirstLineIndentAndDropCapExportTest {
             format = ExportFormat.DOCX,
             firstLineIndent = true
         )
-        val bytes = DocxExporter.buildDocx(null, note, config)
+        val bytes = DocxExporter.export(null, note, config)
         var xml = ""
         ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
             var entry = zis.nextEntry
@@ -248,7 +255,7 @@ class FirstLineIndentAndDropCapExportTest {
             dropCapStyle = DropCapStyle.OPENING_PARAGRAPH_ONLY,
             docxCompatibilityMode = true
         )
-        val bytes = DocxExporter.buildDocx(null, note, config)
+        val bytes = DocxExporter.export(null, note, config)
         var xml = ""
         ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
             var entry = zis.nextEntry
@@ -266,8 +273,14 @@ class FirstLineIndentAndDropCapExportTest {
 
     @Test
     fun testThematicBreakCMOSRuleInHtml() {
+        val colors = ThemeColors(
+            background = "#FFFFFF",
+            surface = "#F8F8F8",
+            text = "#1A1A1A",
+            accent = "#1A5276"
+        )
         val config = ExportConfig(firstLineIndent = true)
-        val css = ExportThemeMapper.generateCss(config)
+        val css = ExportThemeMapper.generateExportCss(config, colors)
         assertTrue("CSS reset must include hr + p", css.contains("hr + p"))
     }
 }
