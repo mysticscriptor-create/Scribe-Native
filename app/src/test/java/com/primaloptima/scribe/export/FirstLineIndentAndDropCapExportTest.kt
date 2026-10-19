@@ -101,8 +101,11 @@ class FirstLineIndentAndDropCapExportTest {
             name = "Test Note",
             content = """
                 # Chapter 1
+
                 Opening paragraph with a drop cap.
+
                 Second paragraph that should have a first-line indent.
+
                 Third paragraph that should also be indented.
             """.trimIndent()
         )
@@ -145,7 +148,9 @@ class FirstLineIndentAndDropCapExportTest {
             name = "Chapter 1\nThe Secret Path",
             content = """
                 # Title
+
                 First paragraph after heading.
+
                 Second paragraph should be indented.
             """.trimIndent()
         )
@@ -174,11 +179,15 @@ class FirstLineIndentAndDropCapExportTest {
             name = "Novel",
             content = """
                 # Chapter 1
+
                 First chapter opening paragraph.
+
                 Second paragraph of chapter 1.
 
                 # Chapter 2
+
                 Second chapter opening paragraph.
+
                 Second paragraph of chapter 2.
             """.trimIndent()
         )
