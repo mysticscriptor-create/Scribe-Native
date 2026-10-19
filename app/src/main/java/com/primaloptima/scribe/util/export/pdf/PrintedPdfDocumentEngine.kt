@@ -759,8 +759,7 @@ object PrintedPdfDocumentEngine : PdfEngine {
         val sb = SpannableStringBuilder()
         for (run in runs) {
             if (run.isHardBreak) {
-                sb.append("
-")
+                sb.append("\n")
                 continue
             }
             val start = sb.length

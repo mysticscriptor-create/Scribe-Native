@@ -126,8 +126,7 @@ object DocxExporter {
                 <w:t xml:space="preserve">$dividerText</w:t>
               </w:r>
             </w:p>
-                """.trimIndent()).append("
-")
+                """.trimIndent()).append("\n")
             }
         }
 
@@ -146,8 +145,7 @@ object DocxExporter {
                         else -> "Heading3"
                     }
                     val isRtl = HtmlEmitter.isRtlRuns(node.runs)
-                    val bidiXml = if (isRtl) "
-    <w:bidi/>" else ""
+                    val bidiXml = if (isRtl) "\n    <w:bidi/>" else ""
                     val headingRuns = buildRunsXml(node.runs, defaultBold = true, isRtlParagraph = isRtl, onRegisterHyperlink = ::registerHyperlink)
                     bodyXml.append("""
                     <w:p>
@@ -156,13 +154,11 @@ object DocxExporter {
                       </w:pPr>
                       $headingRuns
                     </w:p>
-                    """.trimIndent()).append("
-")
+                    """.trimIndent()).append("\n")
                 }
                 is MarkdownNode.BlockNode.Paragraph -> {
                     val isRtl = HtmlEmitter.isRtlRuns(node.runs)
-                    val bidiXml = if (isRtl) "
-    <w:bidi/>" else ""
+                    val bidiXml = if (isRtl) "\n    <w:bidi/>" else ""
                     val shouldDropCap = !dropCapApplied && config.dropCapStyle != DropCapStyle.DISABLED && !isRtl && node.runs.any { it.text.isNotBlank() }
                     if (shouldDropCap) {
                         dropCapApplied = true
@@ -197,8 +193,7 @@ object DocxExporter {
                       </w:r>
                       $runsXml
                     </w:p>
-                        """.trimIndent()).append("
-")
+                        """.trimIndent()).append("\n")
                     } else {
                         val runsXml = buildRunsXml(node.runs, isRtlParagraph = isRtl, onRegisterHyperlink = ::registerHyperlink)
                         bodyXml.append("""
@@ -208,8 +203,7 @@ object DocxExporter {
                       </w:pPr>
                       $runsXml
                     </w:p>
-                        """.trimIndent()).append("
-")
+                        """.trimIndent()).append("\n")
                     }
                 }
                 is MarkdownNode.BlockNode.ListBlock -> {

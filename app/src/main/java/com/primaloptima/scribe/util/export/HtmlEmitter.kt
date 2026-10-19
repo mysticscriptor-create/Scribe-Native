@@ -29,8 +29,7 @@ object HtmlEmitter {
             if (shouldApplyDropCap) {
                 dropCapApplied = true
             }
-            sb.append(emitBlock(block, imageResolver, docDirection, shouldApplyDropCap, addHeadingAnchors, idx)).append("
-")
+            sb.append(emitBlock(block, imageResolver, docDirection, shouldApplyDropCap, addHeadingAnchors, idx)).append("\n")
         }
         return sb.toString().trimEnd()
     }
@@ -50,16 +49,16 @@ object HtmlEmitter {
                 val idAttr = if (addHeadingAnchors) {
                     val rawText = block.runs.joinToString("") { it.text }
                     val slug = generateHeadingSlug(rawText, blockIndex)
-                    " id="$slug""
+                    " id=\"$slug\""
                 } else ""
                 "<$tag$idAttr$dirAttr>${emitRuns(block.runs)}</$tag>"
             }
             is MarkdownNode.BlockNode.Paragraph -> {
                 val dirAttr = resolveBlockDir(block.runs, docDirection)
-                val classAttr = if (isDropCap) " class="has-dropcap"" else ""
+                val classAttr = if (isDropCap) " class=\"has-dropcap\"" else ""
                 "<p$classAttr$dirAttr>${emitRuns(block.runs)}</p>"
             }
-                        is MarkdownNode.BlockNode.Blockquote -> {
+            is MarkdownNode.BlockNode.Blockquote -> {
                 val inner = block.children.joinToString("\n") { emitBlock(it, imageResolver, docDirection) }
                 val isRtl = block.children.any { child ->
                     when (child) {

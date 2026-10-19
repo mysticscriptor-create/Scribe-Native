@@ -267,24 +267,18 @@ object EpubExporter {
         // 9. OEBPS/nav.xhtml (EPUB 3 Navigation Document with Nested Lists & Landmarks)
         fun buildNavList(nodes: List<TocNode>): String {
             if (nodes.isEmpty()) return ""
-            val sb = StringBuilder("<ol>
-")
+            val sb = StringBuilder("<ol>\n")
             for (n in nodes) {
                 val safeLabel = MarkdownUtil.xmlEscape(n.label)
                 if (n.children.isEmpty()) {
-                    sb.append("      <li><a href="${n.target}">$safeLabel</a></li>
-")
+                    sb.append("      <li><a href=\"${n.target}\">$safeLabel</a></li>\n")
                 } else {
-                    sb.append("      <li>
-        <a href="${n.target}">$safeLabel</a>
-")
+                    sb.append("      <li>\n        <a href=\"${n.target}\">$safeLabel</a>\n")
                     sb.append(buildNavList(n.children).prependIndent("        "))
-                    sb.append("      </li>
-")
+                    sb.append("      </li>\n")
                 }
             }
-            sb.append("    </ol>
-")
+            sb.append("    </ol>\n")
             return sb.toString()
         }
 
@@ -328,8 +322,7 @@ object EpubExporter {
                 if (n.children.isNotEmpty()) {
                     sb.append(buildNcxPoints(n.children).prependIndent("  "))
                 }
-                sb.append("    </navPoint>
-")
+                sb.append("    </navPoint>\n")
             }
             return sb.toString()
         }
@@ -351,23 +344,17 @@ $ncxNavPoints  </navMap>
         entries["OEBPS/toc.ncx"] = tocNcx.toByteArray(Charsets.UTF_8)
 
         // 11. OEBPS/content.opf (Package Document)
-        val manifestChapters = chapters.joinToString("
-") { chap ->
+        val manifestChapters = chapters.joinToString("\n") { chap ->
             """    <item id="${chap.id}" href="${chap.filename}" media-type="application/xhtml+xml"/>"""
         }
-        val spineItems = chapters.joinToString("
-") { chap ->
+        val spineItems = chapters.joinToString("\n") { chap ->
             """    <itemref idref="${chap.id}"/>"""
         }
-        val extraImagesManifest = if (imageManifest.isNotEmpty()) "
-" + imageManifest.joinToString("
-") else ""
+        val extraImagesManifest = if (imageManifest.isNotEmpty()) "\n" + imageManifest.joinToString("\n") else ""
         val secondaryLangXml = langMeta.secondaryLanguages
             .filter { it != langMeta.primaryLanguage }
-            .joinToString("
-") { """    <dc:language>$it</dc:language>""" }
-        val secondaryLangBlock = if (secondaryLangXml.isNotEmpty()) "
-$secondaryLangXml" else ""
+            .joinToString("\n") { """    <dc:language>$it</dc:language>""" }
+        val secondaryLangBlock = if (secondaryLangXml.isNotEmpty()) "\n$secondaryLangXml" else ""
 
         val opfDoc = """<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id">
