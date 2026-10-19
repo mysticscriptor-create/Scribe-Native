@@ -277,6 +277,9 @@ object PrintedPdfDocumentEngine : PdfEngine {
                 when (block) {
                     is MarkdownNode.BlockNode.Heading -> {
                         isFirstParagraphAfterHeading = true
+                        if (config.dropCapStyle == DropCapStyle.EVERY_CHAPTER && block.level <= 2) {
+                            dropCapApplied = false
+                        }
                         val paint = when (block.level) {
                             1 -> h1Paint
                             2 -> h2Paint
@@ -455,16 +458,22 @@ object PrintedPdfDocumentEngine : PdfEngine {
                     }
 
                     is MarkdownNode.BlockNode.ThematicBreak -> {
-                        if (currentY + 20f > maxContentY) advancePage()
-                        currentY += 10f
-                        canvas.drawLine(
-                            contentWidth * 0.2f,
-                            currentY,
-                            contentWidth * 0.8f,
-                            currentY,
-                            dividerPaint
-                        )
-                        currentY += 14f
+                        isFirstParagraphAfterHeading = true
+                        if (currentY + 28f > maxContentY) advancePage()
+                        currentY += 8f
+                        if (config.ornamentId != "none") {
+                            drawOrnament(canvas, config.ornamentId, contentWidth, currentY, primaryColor)
+                            currentY += 22f
+                        } else {
+                            canvas.drawLine(
+                                contentWidth * 0.2f,
+                                currentY,
+                                contentWidth * 0.8f,
+                                currentY,
+                                dividerPaint
+                            )
+                            currentY += 14f
+                        }
                     }
 
                     is MarkdownNode.BlockNode.CodeBlock -> {
@@ -657,140 +666,9 @@ object PrintedPdfDocumentEngine : PdfEngine {
     }
 
     private fun drawOrnament(canvas: Canvas, ornamentId: String, contentWidth: Int, y: Float, color: Int) {
+        if (ornamentId == "none") return
         val centerX = contentWidth / 2f
-        val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = color
-            style = Paint.Style.STROKE
-            strokeWidth = 1.2f
-            strokeCap = Paint.Cap.ROUND
-        }
-        val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = color
-            style = Paint.Style.FILL
-        }
-
-        when (ornamentId) {
-            "classic_diamond" -> {
-                // Left and right hairline rules
-                canvas.drawLine(centerX - 65f, y + 8f, centerX - 18f, y + 8f, strokePaint)
-                canvas.drawLine(centerX + 18f, y + 8f, centerX + 65f, y + 8f, strokePaint)
-                // Central lozenge diamond
-                val diamondPath = Path().apply {
-                    moveTo(centerX, y + 1f)
-                    lineTo(centerX + 8f, y + 8f)
-                    lineTo(centerX, y + 15f)
-                    lineTo(centerX - 8f, y + 8f)
-                    close()
-                }
-                canvas.drawPath(diamondPath, fillPaint)
-                // Satellite accent pips
-                canvas.drawCircle(centerX - 13f, y + 8f, 1.8f, fillPaint)
-                canvas.drawCircle(centerX + 13f, y + 8f, 1.8f, fillPaint)
-            }
-            "fleuron" -> {
-                canvas.drawLine(centerX - 60f, y + 8f, centerX - 18f, y + 8f, strokePaint)
-                canvas.drawLine(centerX + 18f, y + 8f, centerX + 60f, y + 8f, strokePaint)
-                val fleuronPath = Path().apply {
-                    moveTo(centerX, y + 2f)
-                    cubicTo(centerX - 6f, y + 6f, centerX - 10f, y + 12f, centerX, y + 16f)
-                    cubicTo(centerX + 10f, y + 12f, centerX + 6f, y + 6f, centerX, y + 2f)
-                    close()
-                }
-                canvas.drawPath(fleuronPath, fillPaint)
-            }
-            "asterism" -> {
-                canvas.drawLine(centerX - 55f, y + 8f, centerX - 18f, y + 8f, strokePaint)
-                canvas.drawLine(centerX + 18f, y + 8f, centerX + 55f, y + 8f, strokePaint)
-                val starPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    this.color = color
-                    style = Paint.Style.STROKE
-                    strokeWidth = 1.0f
-                    strokeCap = Paint.Cap.ROUND
-                }
-                fun drawStarlet(cx: Float, cy: Float, r: Float) {
-                    for (i in 0 until 3) {
-                        val angle = Math.toRadians((i * 60.0))
-                        val dx = (Math.cos(angle) * r).toFloat()
-                        val dy = (Math.sin(angle) * r).toFloat()
-                        canvas.drawLine(cx - dx, cy - dy, cx + dx, cy + dy, starPaint)
-                    }
-                }
-                drawStarlet(centerX, y + 4f, 2.8f)
-                drawStarlet(centerX - 5.5f, y + 12f, 2.8f)
-                drawStarlet(centerX + 5.5f, y + 12f, 2.8f)
-            }
-            "celtic_knot" -> {
-                canvas.drawLine(centerX - 65f, y + 8f, centerX - 22f, y + 8f, strokePaint)
-                canvas.drawLine(centerX + 22f, y + 8f, centerX + 65f, y + 8f, strokePaint)
-                canvas.save()
-                canvas.rotate(45f, centerX, y + 8f)
-                val rect = RectF(centerX - 7f, (y + 8f) - 7f, centerX + 7f, (y + 8f) + 7f)
-                canvas.drawRoundRect(rect, 2f, 2f, strokePaint)
-                canvas.restore()
-                canvas.drawCircle(centerX, y + 8f, 4f, strokePaint)
-            }
-            "minimal_rule" -> {
-                strokePaint.strokeWidth = 0.9f
-                canvas.drawLine(centerX - 70f, y + 8f, centerX - 8f, y + 8f, strokePaint)
-                canvas.drawLine(centerX + 8f, y + 8f, centerX + 70f, y + 8f, strokePaint)
-                canvas.drawCircle(centerX, y + 8f, 2.5f, fillPaint)
-            }
-            "quatrefoil" -> {
-                canvas.drawLine(centerX - 65f, y + 8f, centerX - 22f, y + 8f, strokePaint)
-                canvas.drawLine(centerX + 22f, y + 8f, centerX + 65f, y + 8f, strokePaint)
-                val r = 3.5f
-                canvas.drawCircle(centerX, (y + 8f) - 4f, r, fillPaint)
-                canvas.drawCircle(centerX, (y + 8f) + 4f, r, fillPaint)
-                canvas.drawCircle(centerX - 4f, y + 8f, r, fillPaint)
-                canvas.drawCircle(centerX + 4f, y + 8f, r, fillPaint)
-                val whitePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    this.color = Color.WHITE
-                    style = Paint.Style.FILL
-                }
-                canvas.drawCircle(centerX, y + 8f, 1.5f, whitePaint)
-            }
-            "laurel_branch" -> {
-                canvas.drawLine(centerX - 65f, y + 8f, centerX - 22f, y + 8f, strokePaint)
-                canvas.drawLine(centerX + 22f, y + 8f, centerX + 65f, y + 8f, strokePaint)
-                val laurelPath = Path().apply {
-                    moveTo(centerX - 10f, y + 8f)
-                    cubicTo(centerX - 5f, y + 3f, centerX + 5f, y + 3f, centerX + 10f, y + 8f)
-                    cubicTo(centerX + 5f, y + 13f, centerX - 5f, y + 13f, centerX - 10f, y + 8f)
-                    close()
-                }
-                canvas.drawPath(laurelPath, fillPaint)
-                canvas.drawCircle(centerX - 14f, y + 8f, 2f, fillPaint)
-                canvas.drawCircle(centerX + 14f, y + 8f, 2f, fillPaint)
-            }
-            else -> {}
-        }
-    }
-
-    private fun createLayout(
-        text: CharSequence,
-        paint: TextPaint,
-        width: Int,
-        alignment: Layout.Alignment = Layout.Alignment.ALIGN_NORMAL,
-        lineSpacing: Float = 1.0f,
-        isRtl: Boolean = false
-    ): StaticLayout {
-        val safeWidth = width.coerceAtLeast(24)
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val heuristic = if (isRtl) {
-                android.text.TextDirectionHeuristics.RTL
-            } else {
-                android.text.TextDirectionHeuristics.FIRSTSTRONG_LTR
-            }
-            StaticLayout.Builder.obtain(text, 0, text.length, paint, safeWidth)
-                .setAlignment(alignment)
-                .setTextDirection(heuristic)
-                .setLineSpacing(0f, lineSpacing)
-                .setIncludePad(false)
-                .build()
-        } else {
-            @Suppress("DEPRECATION")
-            StaticLayout(text, paint, safeWidth, alignment, lineSpacing, 0f, false)
-        }
+        OrnamentCatalog.drawOrnament(canvas, ornamentId, centerX, y + 8f, color, 1.0f)
     }
 
     private fun buildSpannable(

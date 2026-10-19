@@ -204,7 +204,7 @@ object ScribeMarkdownAstParser {
                 val pLine = lines[i]
                 val pTrim = pLine.trim()
 
-                val isIndented = countLeadingSpaces(pLine) >= 2
+                val isIndented = countLeadingSpaces(pLine) >= 4 || pLine.startsWith("\t")
                 if (pTrim.isEmpty() ||
                     (paragraphRuns.isNotEmpty() && isIndented) ||
                     pTrim.startsWith("#") ||
@@ -252,7 +252,7 @@ object ScribeMarkdownAstParser {
 
     private fun isBlockStarter(line: String): Boolean {
         val trimmed = line.trim()
-        return countLeadingSpaces(line) >= 2 ||
+        return countLeadingSpaces(line) >= 4 || line.startsWith("\t") ||
                 trimmed.startsWith("#") ||
                 trimmed.startsWith(">") ||
                 trimmed.startsWith("```") ||

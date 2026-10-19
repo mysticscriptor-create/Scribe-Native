@@ -163,6 +163,7 @@ object ExportThemeMapper {
         }
         .manuscript-header + p,
         .manuscript-ornament + p,
+        hr + p,
         h1 + p, h2 + p, h3 + p, h4 + p, h5 + p, h6 + p,
         p:first-of-type,
         p.has-dropcap {

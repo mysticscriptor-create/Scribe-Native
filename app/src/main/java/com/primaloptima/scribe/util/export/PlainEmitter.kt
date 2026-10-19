@@ -52,6 +52,10 @@ object PlainEmitter {
             if (block is MarkdownNode.BlockNode.Heading) {
                 isFirstParaAfterHeading = true
                 sb.append(emitBlock(block)).append("\n\n")
+            } else if (block is MarkdownNode.BlockNode.ThematicBreak) {
+                isFirstParaAfterHeading = true
+                val ornamentTxt = config?.ornamentId?.let { OrnamentCatalog.getTextDivider(it) }?.ifBlank { "---" } ?: "---"
+                sb.append(ornamentTxt).append("\n\n")
             } else if (block is MarkdownNode.BlockNode.Paragraph) {
                 val text = emitRuns(block.runs)
                 val formatted = if (config?.firstLineIndent == true && !isFirstParaAfterHeading) {

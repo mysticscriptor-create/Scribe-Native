@@ -79,7 +79,8 @@ enum class ImageQuality(
 enum class DropCapStyle(val label: String) {
     DISABLED("Off"),
     OPENING_PARAGRAPH_ONLY("First Paragraph Only"),
-    EVERY_CHAPTER("Every Chapter")
+    EVERY_CHAPTER("Every Chapter"),
+    TRADITIONAL("Traditional First Paragraph")
 }
 
 /**
@@ -137,5 +138,7 @@ data class ExportConfig(
     val ornamentId: String = "classic_diamond",
     val dropCapStyle: DropCapStyle = DropCapStyle.DISABLED,
     val dropCapLines: Int = 3,
-    val firstLineIndent: Boolean = false
+    val firstLineIndent: Boolean = false,
+    val indentSizePt: Float = 18f,
+    val docxCompatibilityMode: Boolean = false
 )

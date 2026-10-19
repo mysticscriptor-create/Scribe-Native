@@ -20,15 +20,19 @@ object HtmlEmitter {
         imageResolver: ((String) -> String)? = null,
         docDirection: String = "ltr",
         enableDropCaps: Boolean = false,
-        addHeadingAnchors: Boolean = false
+        addHeadingAnchors: Boolean = false,
+        dropCapStyle: DropCapStyle = DropCapStyle.OPENING_PARAGRAPH_ONLY
     ): String {
         val sb = StringBuilder()
         var dropCapApplied = false
         for ((idx, block) in document.children.withIndex()) {
+            if (block is MarkdownNode.BlockNode.Heading && dropCapStyle == DropCapStyle.EVERY_CHAPTER && block.level <= 2) {
+                dropCapApplied = false
+            }
             val shouldApplyDropCap = enableDropCaps && !dropCapApplied &&
                     block is MarkdownNode.BlockNode.Paragraph &&
                     !isRtlRuns(block.runs) &&
-                    block.runs.any { it.text.isNotBlank() }
+                    block.runs.any { it.text.trim().isNotEmpty() }
             if (shouldApplyDropCap) {
                 dropCapApplied = true
             }

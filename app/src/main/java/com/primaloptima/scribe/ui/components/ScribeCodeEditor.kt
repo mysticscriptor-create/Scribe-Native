@@ -555,26 +555,15 @@ class ScribeCodeEditor @JvmOverloads constructor(
             if (!hasContentAfterPrefix) {
                 // List termination (Double Enter on an empty list item):
                 // Break out of the list and reset line to base indent (or empty if indent is 0)
-                val baseIndent = if (firstLineIndentSpaces > 0) " ".repeat(firstLineIndentSpaces) else ""
-                text.replace(line, 0, line, lineStr.length, baseIndent)
-                setSelection(line, baseIndent.length)
+                text.replace(line, 0, line, lineStr.length, "")
+                setSelection(line, 0)
                 ensureSelectionVisible()
                 notifyIMEExternalCursorChange()
                 return
             } else {
                 // Line has content after list marker:
                 // Ensure the next prefix strictly honors the set indent floor
-                val rawNextPrefix = ScribeListEngine.nextSequencePrefix(listMatch)
-                val nextPrefix = if (firstLineIndentSpaces > 0) {
-                    val baseIndent = " ".repeat(firstLineIndentSpaces)
-                    if (listMatch.leadingWhitespace.length < firstLineIndentSpaces) {
-                        baseIndent + rawNextPrefix.substring(listMatch.leadingWhitespace.length)
-                    } else {
-                        rawNextPrefix
-                    }
-                } else {
-                    rawNextPrefix
-                }
+                val nextPrefix = ScribeListEngine.nextSequencePrefix(listMatch)
 
                 if (col >= prefix.length) {
                     // Cursor is after or at marker: split line and continue list sequence
@@ -588,43 +577,18 @@ class ScribeCodeEditor @JvmOverloads constructor(
             }
         }
 
-        // ── Phase 1: Indent Hierarchy & Preserved Spacing ─────────────────────
+                // ── Phase 1: Indent Hierarchy & Clean Semantic Paragraph Breaks ───────
         if (firstLineIndentSpaces > 0) {
-            val baseIndent = " ".repeat(firstLineIndentSpaces)
             if (isWhitespaceOnly) {
-                val currentSpaceCount = lineStr.length
-                if (currentSpaceCount > firstLineIndentSpaces) {
-                    // Chain breaking: User pressed enter on an empty hierarchical indent line.
-                    // Collapse the current line's extra spaces back to the set indent,
-                    // and start the next line cleanly at the set indent.
-                    text.replace(line, 0, line, currentSpaceCount, baseIndent)
-                    text.insert(line, baseIndent.length, "\n$baseIndent")
-                    setSelection(line + 1, baseIndent.length)
-                } else {
-                    // Line is already at base indent (or completely blank):
-                    // Normal paragraph break at base indent. Cursor never retreats behind base indent.
-                    if (lineStr != baseIndent) {
-                        text.replace(line, 0, line, lineStr.length, baseIndent)
-                    }
-                    text.insert(line, baseIndent.length, "\n$baseIndent")
-                    setSelection(line + 1, baseIndent.length)
-                }
+                text.replace(line, 0, line, lineStr.length, "\n")
+                setSelection(line + 1, 0)
                 ensureSelectionVisible()
                 notifyIMEExternalCursorChange()
                 return
             } else {
-                // Line has text: Measure user's total leading spaces (base indent + hierarchy spaces)
-                var p = 0
-                val maxCheck = minOf(col, lineStr.length)
-                while (p < maxCheck && (lineStr[p] == ' ' || lineStr[p] == '\t')) {
-                    p++
-                }
-                val totalLeading = if (p >= firstLineIndentSpaces) {
-                    lineStr.substring(0, p)
-                } else {
-                    baseIndent
-                }
-                text.insert(line, col, "\n$totalLeading")
+                // Semantic Markdown paragraph separation without inserting raw spaces
+                text.insert(line, col, "\n\n")
+                setSelection(line + 2, 0)
                 ensureSelectionVisible()
                 notifyIMEExternalCursorChange()
                 return

@@ -159,4 +159,115 @@ class FirstLineIndentAndDropCapExportTest {
         assertTrue("Second paragraph must have 4 spaces indent", plainText.contains("    Second paragraph should be indented."))
         assertFalse("First paragraph after heading must not be indented", plainText.contains("    First paragraph after heading."))
     }
+
+    @Test
+    fun testEveryChapterDropCapInDocx() {
+        val note = Note(
+            id = "docx-multi-chap",
+            name = "Novel",
+            content = """
+                # Chapter 1
+                First chapter opening paragraph.
+                Second paragraph of chapter 1.
+
+                # Chapter 2
+                Second chapter opening paragraph.
+                Second paragraph of chapter 2.
+            """.trimIndent()
+        )
+        val config = ExportConfig(
+            format = ExportFormat.DOCX,
+            dropCapStyle = DropCapStyle.EVERY_CHAPTER,
+            dropCapLines = 3,
+            firstLineIndent = true,
+            docxCompatibilityMode = false
+        )
+        val bytes = DocxExporter.buildDocx(null, note, config)
+        var xml = ""
+        ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                if (entry.name == "word/document.xml") {
+                    xml = zis.bufferedReader().readText()
+                    break
+                }
+                entry = zis.nextEntry
+            }
+        }
+        val dropCapCount = xml.split("w:framePr w:dropCap=\"drop\"").size - 1
+        assertEquals("Both Chapter 1 and Chapter 2 should have drop caps", 2, dropCapCount)
+    }
+
+    @Test
+    fun testThematicBreakSuppressesIndentInDocx() {
+        val note = Note(
+            id = "docx-thematic",
+            name = "Scene Break Test",
+            content = """
+                # Chapter 1
+                Paragraph one before break.
+
+                ---
+
+                Paragraph after scene break should not have first-line indent.
+
+                Subsequent paragraph should have first-line indent.
+            """.trimIndent()
+        )
+        val config = ExportConfig(
+            format = ExportFormat.DOCX,
+            firstLineIndent = true
+        )
+        val bytes = DocxExporter.buildDocx(null, note, config)
+        var xml = ""
+        ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                if (entry.name == "word/document.xml") {
+                    xml = zis.bufferedReader().readText()
+                    break
+                }
+                entry = zis.nextEntry
+            }
+        }
+        assertTrue("Must contain centered ornament divider or border", xml.contains("w:jc w:val=\"center\"") || xml.contains("w:pBdr"))
+    }
+
+    @Test
+    fun testDocxUniversalCompatibilityMode() {
+        val note = Note(
+            id = "docx-compat",
+            name = "Google Docs Test",
+            content = """
+                # Chapter 1
+                Opening paragraph with universal drop cap.
+            """.trimIndent()
+        )
+        val config = ExportConfig(
+            format = ExportFormat.DOCX,
+            dropCapStyle = DropCapStyle.OPENING_PARAGRAPH_ONLY,
+            docxCompatibilityMode = true
+        )
+        val bytes = DocxExporter.buildDocx(null, note, config)
+        var xml = ""
+        ZipInputStream(ByteArrayInputStream(bytes)).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                if (entry.name == "word/document.xml") {
+                    xml = zis.bufferedReader().readText()
+                    break
+                }
+                entry = zis.nextEntry
+            }
+        }
+        assertFalse("Universal compatibility mode must avoid w:framePr", xml.contains("w:framePr w:dropCap=\"drop\""))
+        assertTrue("Universal mode must style drop letter with w:sz", xml.contains("<w:sz w:val=\"96\"/>"))
+    }
+
+    @Test
+    fun testThematicBreakCMOSRuleInHtml() {
+        val config = ExportConfig(firstLineIndent = true)
+        val css = ExportThemeMapper.generateCss(config)
+        assertTrue("CSS reset must include hr + p", css.contains("hr + p"))
+    }
 }

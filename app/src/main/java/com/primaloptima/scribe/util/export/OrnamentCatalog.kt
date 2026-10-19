@@ -1,5 +1,12 @@
 package com.primaloptima.scribe.util.export
 
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
+
+
 /**
  * Single Source of Truth (SSoT) for all manuscript ornament divider styles across Scribe.
  * Maps ornament identifiers to:
@@ -130,4 +137,142 @@ object OrnamentCatalog {
 
     fun getSvgMarkup(id: String): String =
         getById(id).svgMarkup
+
+    /**
+     * Unified Single Source of Truth (SSoT) 2D vector renderer across Canvas engines (PDF & Compose).
+     * Draws resolution-independent vector paths centered at (cx, cy).
+     */
+    fun drawOrnament(
+        canvas: Canvas,
+        ornamentId: String,
+        cx: Float,
+        cy: Float,
+        color: Int,
+        scale: Float = 1.0f
+    ) {
+        if (ornamentId == "none") return
+
+        val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = color
+            style = Paint.Style.STROKE
+            strokeWidth = 1.1f * scale
+            strokeCap = Paint.Cap.ROUND
+        }
+        val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = color
+            style = Paint.Style.FILL
+        }
+
+        when (ornamentId) {
+            "classic_diamond" -> {
+                val s = scale
+                canvas.drawLine(cx - 65f * s, cy, cx - 18f * s, cy, strokePaint)
+                canvas.drawLine(cx + 18f * s, cy, cx + 65f * s, cy, strokePaint)
+                val diamondPath = Path().apply {
+                    moveTo(cx, cy - 7f * s)
+                    lineTo(cx + 7.5f * s, cy)
+                    lineTo(cx, cy + 7f * s)
+                    lineTo(cx - 7.5f * s, cy)
+                    close()
+                }
+                canvas.drawPath(diamondPath, fillPaint)
+                canvas.drawCircle(cx - 12f * s, cy, 1.8f * s, fillPaint)
+                canvas.drawCircle(cx + 12f * s, cy, 1.8f * s, fillPaint)
+            }
+            "fleuron" -> {
+                val s = scale
+                canvas.drawLine(cx - 60f * s, cy, cx - 18f * s, cy, strokePaint)
+                canvas.drawLine(cx + 18f * s, cy, cx + 60f * s, cy, strokePaint)
+                val fleuronPath = Path().apply {
+                    moveTo(cx, cy - 6f * s)
+                    cubicTo(cx - 6f * s, cy - 2f * s, cx - 10f * s, cy + 4f * s, cx, cy + 8f * s)
+                    cubicTo(cx + 10f * s, cy + 4f * s, cx + 6f * s, cy - 2f * s, cx, cy - 6f * s)
+                    close()
+                }
+                canvas.drawPath(fleuronPath, fillPaint)
+            }
+            "asterism" -> {
+                val s = scale
+                canvas.drawLine(cx - 55f * s, cy, cx - 18f * s, cy, strokePaint)
+                canvas.drawLine(cx + 18f * s, cy, cx + 55f * s, cy, strokePaint)
+                val starPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    this.color = color
+                    style = Paint.Style.STROKE
+                    strokeWidth = 1.0f * s
+                    strokeCap = Paint.Cap.ROUND
+                }
+                fun drawStarlet(scx: Float, scy: Float, r: Float) {
+                    for (i in 0 until 3) {
+                        val angle = Math.toRadians((i * 60.0))
+                        val dx = (Math.cos(angle) * r).toFloat()
+                        val dy = (Math.sin(angle) * r).toFloat()
+                        canvas.drawLine(scx - dx, scy - dy, scx + dx, scy + dy, starPaint)
+                    }
+                }
+                drawStarlet(cx, cy - 4f * s, 2.8f * s)
+                drawStarlet(cx - 5.5f * s, cy + 4f * s, 2.8f * s)
+                drawStarlet(cx + 5.5f * s, cy + 4f * s, 2.8f * s)
+            }
+            "celtic_knot" -> {
+                val s = scale
+                canvas.drawLine(cx - 65f * s, cy, cx - 22f * s, cy, strokePaint)
+                canvas.drawLine(cx + 22f * s, cy, cx + 65f * s, cy, strokePaint)
+                canvas.save()
+                canvas.rotate(45f, cx, cy)
+                val rect = RectF(cx - 7f * s, cy - 7f * s, cx + 7f * s, cy + 7f * s)
+                canvas.drawRoundRect(rect, 2f * s, 2f * s, strokePaint)
+                canvas.restore()
+                canvas.drawCircle(cx, cy, 4f * s, strokePaint)
+            }
+            "minimal_rule" -> {
+                val s = scale
+                strokePaint.strokeWidth = 0.9f * s
+                canvas.drawLine(cx - 70f * s, cy, cx - 8f * s, cy, strokePaint)
+                canvas.drawLine(cx + 8f * s, cy, cx + 70f * s, cy, strokePaint)
+                canvas.drawCircle(cx, cy, 2.5f * s, fillPaint)
+            }
+            "quatrefoil" -> {
+                val s = scale
+                canvas.drawLine(cx - 65f * s, cy, cx - 22f * s, cy, strokePaint)
+                canvas.drawLine(cx + 22f * s, cy, cx + 65f * s, cy, strokePaint)
+                val r = 3.5f * s
+                canvas.drawCircle(cx, cy - 4f * s, r, fillPaint)
+                canvas.drawCircle(cx, cy + 4f * s, r, fillPaint)
+                canvas.drawCircle(cx - 4f * s, cy, r, fillPaint)
+                canvas.drawCircle(cx + 4f * s, cy, r, fillPaint)
+                val whitePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    this.color = Color.WHITE
+                    style = Paint.Style.FILL
+                }
+                canvas.drawCircle(cx, cy, 1.5f * s, whitePaint)
+            }
+            "laurel_branch" -> {
+                val s = scale
+                canvas.drawLine(cx - 65f * s, cy, cx - 22f * s, cy, strokePaint)
+                canvas.drawLine(cx + 22f * s, cy, cx + 65f * s, cy, strokePaint)
+                val leafPath = Path().apply {
+                    moveTo(cx, cy - 7f * s)
+                    cubicTo(cx - 7f * s, cy - 3f * s, cx - 7f * s, cy + 3f * s, cx, cy + 7f * s)
+                    cubicTo(cx + 7f * s, cy + 3f * s, cx + 7f * s, cy - 3f * s, cx, cy - 7f * s)
+                    close()
+                }
+                canvas.drawPath(leafPath, fillPaint)
+                canvas.drawCircle(cx - 15f * s, cy, 2.0f * s, fillPaint)
+                canvas.drawCircle(cx + 15f * s, cy, 2.0f * s, fillPaint)
+            }
+            else -> {
+                val s = scale
+                canvas.drawLine(cx - 65f * s, cy, cx - 18f * s, cy, strokePaint)
+                canvas.drawLine(cx + 18f * s, cy, cx + 65f * s, cy, strokePaint)
+                val diamondPath = Path().apply {
+                    moveTo(cx, cy - 7f * s)
+                    lineTo(cx + 7.5f * s, cy)
+                    lineTo(cx, cy + 7f * s)
+                    lineTo(cx - 7.5f * s, cy)
+                    close()
+                }
+                canvas.drawPath(diamondPath, fillPaint)
+            }
+        }
+    }
 }

@@ -136,6 +136,9 @@ object DocxExporter {
             when (node) {
                 is MarkdownNode.BlockNode.Heading -> {
                     isFirstParagraphAfterHeading = true
+                    if (config.dropCapStyle == DropCapStyle.EVERY_CHAPTER && node.level <= 2) {
+                        dropCapApplied = false
+                    }
                     val styleVal = when (node.level) {
                         1 -> "Heading1"
                         2 -> "Heading2"
@@ -156,30 +159,53 @@ object DocxExporter {
                 is MarkdownNode.BlockNode.Paragraph -> {
                     val isRtl = HtmlEmitter.isRtlRuns(node.runs)
                     val bidiXml = if (isRtl) "\n    <w:bidi/>" else ""
-                    val shouldDropCap = !dropCapApplied && config.dropCapStyle != DropCapStyle.DISABLED && !isRtl && node.runs.any { it.text.isNotBlank() }
+                    val fullText = node.runs.joinToString("") { it.text }
+                    val trimmedOffset = fullText.indexOfFirst { !it.isWhitespace() }
+                    val shouldDropCap = !dropCapApplied && config.dropCapStyle != DropCapStyle.DISABLED && !isRtl && trimmedOffset >= 0
                     if (shouldDropCap) {
                         dropCapApplied = true
                         isFirstParagraphAfterHeading = false
-                        val fullText = node.runs.joinToString("") { it.text }
-                        val firstChar = fullText.firstOrNull { !it.isWhitespace() } ?: ' '
+                        val contentStr = fullText.substring(trimmedOffset)
+                        val firstChar = contentStr.first()
                         val hasQuote = firstChar == '"' || firstChar == '“' || firstChar == '\'' || firstChar == '‘'
                         val charIter = java.text.BreakIterator.getCharacterInstance()
-                        charIter.setText(fullText)
+                        charIter.setText(contentStr)
                         val firstBound = charIter.next()
-                        val glyphLen = if (hasQuote && fullText.length > firstBound) {
+                        val glyphLen = if (hasQuote && contentStr.length > firstBound) {
                             val secondBound = charIter.next()
                             if (secondBound != java.text.BreakIterator.DONE) secondBound else firstBound
                         } else {
                             if (firstBound != java.text.BreakIterator.DONE) firstBound else 1
                         }
-                        val dropGlyph = MarkdownUtil.xmlEscape(fullText.substring(0, glyphLen))
-                        val remainingRuns = splitFirstGlyph(node.runs, glyphLen)
+                        val dropGlyph = MarkdownUtil.xmlEscape(contentStr.substring(0, glyphLen))
+                        val remainingRuns = splitFirstGlyph(node.runs, trimmedOffset + glyphLen)
                         val runsXml = buildRunsXml(remainingRuns, isRtlParagraph = isRtl, onRegisterHyperlink = ::registerHyperlink)
                         val dropCapSz = if (config.dropCapLines == 2) 72 else 96
-                        bodyXml.append("""
+
+                        if (config.docxCompatibilityMode) {
+                            bodyXml.append("""
                     <w:p>
                       <w:pPr>
-                        <w:framePr w:dropCap="drop" w:lines="${config.dropCapLines}" w:wrap="around" w:vAnchor="text" w:hAnchor="text" w:xAlign="left" w:hSpace="120"/>
+                        <w:spacing w:after="160" w:line="320" w:lineRule="auto"/>
+                        <w:ind w:firstLine="0"/>$bidiXml
+                      </w:pPr>
+                      <w:r>
+                        <w:rPr>
+                          <w:rFonts w:ascii="$fontName" w:hAnsi="$fontName"/>
+                          <w:b/>
+                          <w:sz w:val="$dropCapSz"/>
+                          <w:color w:val="$primaryColorHex"/>
+                        </w:rPr>
+                        <w:t xml:space="preserve">$dropGlyph</w:t>
+                      </w:r>
+                      $runsXml
+                    </w:p>
+                            """.trimIndent()).append("\n")
+                        } else {
+                            bodyXml.append("""
+                    <w:p>
+                      <w:pPr>
+                        <w:framePr w:dropCap="drop" w:lines="${config.dropCapLines}" w:wrap="around" w:vAnchor="text" w:hAnchor="text" w:xAlign="left" w:hSpace="120" w:hRule="exact"/>
                         <w:spacing w:after="0" w:line="240" w:lineRule="auto"/>
                         <w:ind w:firstLine="0"/>$bidiXml
                       </w:pPr>
@@ -200,9 +226,11 @@ object DocxExporter {
                       </w:pPr>
                       $runsXml
                     </w:p>
-                        """.trimIndent()).append("\n")
+                            """.trimIndent()).append("\n")
+                        }
                     } else {
-                        val indXml = if (config.firstLineIndent && !isFirstParagraphAfterHeading) "\n    <w:ind w:firstLine=\"360\"/>" else "\n    <w:ind w:firstLine=\"0\"/>"
+                        val indDxa = (config.indentSizePt * 20f).toInt().coerceAtLeast(100)
+                        val indXml = if (config.firstLineIndent && !isFirstParagraphAfterHeading) "\n    <w:ind w:firstLine=\"$indDxa\"/>" else "\n    <w:ind w:firstLine=\"0\"/>"
                         val spacingAfter = if (config.firstLineIndent && !isFirstParagraphAfterHeading) "0" else "160"
                         isFirstParagraphAfterHeading = false
                         val runsXml = buildRunsXml(node.runs, isRtlParagraph = isRtl, onRegisterHyperlink = ::registerHyperlink)
@@ -271,7 +299,26 @@ object DocxExporter {
                 }
 
                 is MarkdownNode.BlockNode.ThematicBreak -> {
-                    bodyXml.append("""
+                    isFirstParagraphAfterHeading = true
+                    if (config.ornamentId != "none") {
+                        val dividerText = OrnamentCatalog.getTextDivider(config.ornamentId)
+                        bodyXml.append("""
+                    <w:p>
+                      <w:pPr>
+                        <w:jc w:val="center"/>
+                        <w:spacing w:before="240" w:after="240"/>
+                      </w:pPr>
+                      <w:r>
+                        <w:rPr>
+                          <w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math"/>
+                          <w:color w:val="$primaryColorHex"/>
+                        </w:rPr>
+                        <w:t xml:space="preserve">$dividerText</w:t>
+                      </w:r>
+                    </w:p>
+                        """.trimIndent()).append("\n")
+                    } else {
+                        bodyXml.append("""
                     <w:p>
                       <w:pPr>
                         <w:pBdr>
@@ -280,7 +327,8 @@ object DocxExporter {
                         <w:spacing w:before="240" w:after="240"/>
                       </w:pPr>
                     </w:p>
-                    """.trimIndent()).append("\n")
+                        """.trimIndent()).append("\n")
+                    }
                 }
 
                 is MarkdownNode.BlockNode.Table -> {
