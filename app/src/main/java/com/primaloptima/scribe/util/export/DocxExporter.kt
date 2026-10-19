@@ -103,7 +103,7 @@ object DocxExporter {
               </w:r>
             </w:p>
             """.trimIndent()).append("\n")
-        }
+
             if (config.ornamentId != "none") {
                 val dividerText = when (config.ornamentId) {
                     "fleuron" -> "─── ❦ ───"
