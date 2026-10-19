@@ -30,10 +30,10 @@ object HtmlPdfExporter {
         val header = ManuscriptTitleHeader.from(note, config.ornamentId)
         val titleText = header.toTocLabel(fallback = note.name.ifBlank { "Untitled Manuscript" })
         val titleEscaped = MarkdownUtil.escapeHtml(titleText)
-        val css = ExportThemeMapper.generateExportCss(config, themeColors, isForPrintPdf = isForPrintPdf)
         val langMeta = EpubExporter.detectLanguageAndDirection(note.content)
-
         val enableDropCaps = config.dropCapStyle != DropCapStyle.DISABLED && langMeta.documentDirection != "rtl"
+        val effectiveConfig = if (!enableDropCaps) config.copy(dropCapStyle = DropCapStyle.DISABLED) else config
+        val css = ExportThemeMapper.generateExportCss(effectiveConfig, themeColors, isForPrintPdf = isForPrintPdf)
 
         val bodyHtml = ScribeMarkdownEngine.toHtml(
             markdown = note.content,

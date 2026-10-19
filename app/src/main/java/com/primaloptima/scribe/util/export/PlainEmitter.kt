@@ -35,22 +35,21 @@ object PlainEmitter {
             if (primary.isNotBlank() && secondary.isNotBlank()) {
                 sb.append(primary.uppercase()).append("\n")
                 sb.append(secondary).append("\n")
-            } else if (primary.isNotBlank()) {
-                sb.append(primary).append("\n")
-            } else if (secondary.isNotBlank()) {
-                sb.append(secondary).append("\n")
-            }
-
-            if (ornamentId != "none") {
-                val ornamentTxt = when (ornamentId) {
-                    "fleuron" -> "─── ❦ ───"
-                    "asterism" -> "─── ⁂ ───"
-                    "minimal_rule" -> "────── • ──────"
-                    else -> "─── ❖ ───"
+                if (ornamentId != "none") {
+                    val ornamentTxt = when (ornamentId) {
+                        "fleuron" -> "─── ❦ ───"
+                        "asterism" -> "─── ⁂ ───"
+                        "minimal_rule" -> "────── • ──────"
+                        else -> "─── ❖ ───"
+                    }
+                    sb.append(ornamentTxt).append("\n\n")
+                } else {
+                    sb.append("\n")
                 }
-                sb.append(ornamentTxt).append("\n\n")
-            } else {
-                sb.append("\n")
+            } else if (primary.isNotBlank()) {
+                sb.append(primary.uppercase()).append("\n\n")
+            } else if (secondary.isNotBlank()) {
+                sb.append(secondary).append("\n\n")
             }
         }
         for (block in document.children) {

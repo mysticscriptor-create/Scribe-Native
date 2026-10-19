@@ -8,7 +8,10 @@ package com.primaloptima.scribe.util.export
 object HtmlEmitter {
 
     fun generateHeadingSlug(rawText: String, index: Int): String {
-        val slug = rawText.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+        var slug = rawText.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+        if (slug.startsWith("section-")) {
+            slug = "sec-" + slug.removePrefix("section-")
+        }
         return if (slug.isNotBlank()) slug else "sec-$index"
     }
 

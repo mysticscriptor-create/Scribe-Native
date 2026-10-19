@@ -187,6 +187,40 @@ object ExportThemeMapper {
         }
         """.trimIndent()
 
+        val dropCapCss = if (config.dropCapStyle != DropCapStyle.DISABLED) {
+            """
+        .has-dropcap::first-letter {
+            font-family: $fontFamily;
+            font-weight: 700;
+            color: var(--scribe-primary);
+            float: left;
+            font-size: 3.2em;
+            line-height: 0.82;
+            margin-top: 0.08em;
+            margin-right: 0.12em;
+            margin-bottom: -0.05em;
+        }
+        @supports (initial-letter: 3) or (-webkit-initial-letter: 3) {
+            .has-dropcap::first-letter {
+                -webkit-initial-letter: 3;
+                initial-letter: 3;
+                float: none;
+                margin: 0 0.15em 0 0;
+            }
+        }
+        [dir="rtl"] .has-dropcap::first-letter {
+            float: none !important;
+            font-size: inherit !important;
+            font-weight: inherit !important;
+            color: inherit !important;
+            margin: 0 !important;
+            initial-letter: normal !important;
+        }
+            """.trimIndent()
+        } else {
+            ""
+        }
+
         return """
         $printPageRule
         :root {
@@ -241,33 +275,7 @@ object ExportThemeMapper {
             page-break-after: avoid;
             break-after: avoid;
         }
-        .has-dropcap::first-letter {
-            font-family: $fontFamily;
-            font-weight: 700;
-            color: var(--scribe-primary);
-            float: left;
-            font-size: 3.2em;
-            line-height: 0.82;
-            margin-top: 0.08em;
-            margin-right: 0.12em;
-            margin-bottom: -0.05em;
-        }
-        @supports (initial-letter: 3) or (-webkit-initial-letter: 3) {
-            .has-dropcap::first-letter {
-                -webkit-initial-letter: 3;
-                initial-letter: 3;
-                float: none;
-                margin: 0 0.15em 0 0;
-            }
-        }
-        [dir="rtl"] .has-dropcap::first-letter {
-            float: none !important;
-            font-size: inherit !important;
-            font-weight: inherit !important;
-            color: inherit !important;
-            margin: 0 !important;
-            initial-letter: normal !important;
-        }
+$dropCapCss
         h1, h2, h3, h4, h5, h6 {
             color: var(--scribe-primary);
             font-family: $fontFamily;

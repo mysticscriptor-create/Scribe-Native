@@ -222,7 +222,8 @@ object EpubExporter {
                     // Duplicate suppression: Skip if heading in body matches manuscript secondary title or combined title
                     if (isMainChapter && (headingText.equals(secTitle, ignoreCase = true) ||
                                           headingText.equals(priTitle, ignoreCase = true) ||
-                                          headingText.equals(chapLabel, ignoreCase = true))) {
+                                          headingText.equals(chapLabel, ignoreCase = true) ||
+                                          headingText.equals(chap.title, ignoreCase = true))) {
                         continue
                     }
                     val anchor = HtmlEmitter.generateHeadingSlug(headingText, nodeIdx)
@@ -481,12 +482,23 @@ $spineItems
         ast: MarkdownNode.Document,
         fallbackTitle: String
     ): List<EpubChapter> {
-        val h1Count = ast.children.count { it is MarkdownNode.BlockNode.Heading && it.level == 1 }
-        val h2Count = ast.children.count { it is MarkdownNode.BlockNode.Heading && it.level == 2 }
+        val h1Headings = ast.children.filterIsInstance<MarkdownNode.BlockNode.Heading>().filter { it.level == 1 }
+        val h2Headings = ast.children.filterIsInstance<MarkdownNode.BlockNode.Heading>().filter { it.level == 2 }
+        val h1Count = h1Headings.size
+        val h2Count = h2Headings.size
 
         val splitLevel = when {
             h1Count > 1 -> 1
-            h1Count <= 1 && h2Count > 1 -> 2
+            h1Count == 0 && h2Count > 1 -> 2
+            h1Count == 1 && h2Count > 1 -> {
+                val h1Text = h1Headings.first().runs.joinToString("") { it.text }.trim()
+                val isH1Chapter = Regex("""^(chapter|part|act|book)\b""", RegexOption.IGNORE_CASE).containsMatchIn(h1Text)
+                val h2HasChapters = h2Headings.any { h2 ->
+                    val text = h2.runs.joinToString("") { it.text }.trim()
+                    Regex("""^(chapter|part|act|book)\b""", RegexOption.IGNORE_CASE).containsMatchIn(text)
+                }
+                if (!isH1Chapter && h2HasChapters) 2 else null
+            }
             else -> null
         }
 
