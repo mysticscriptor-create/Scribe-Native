@@ -5,21 +5,16 @@ package com.primaloptima.scribe.util.export
  * Converts [MarkdownNode.Document] into formatted, syntax-free prose,
  * replacing illustration elements with editorial annotations.
  */
-object PlainEmitter {
-
     fun emit(
         document: MarkdownNode.Document,
         includeCoverTitle: Boolean = false,
         title: String? = null
     ): String {
-        val sb = StringBuilder()
-        if (includeCoverTitle && !title.isNullOrBlank()) {
-            sb.append(title.uppercase()).append("\n\n")
-        }
-        for (block in document.children) {
-            sb.append(emitBlock(block)).append("\n\n")
-        }
-        return sb.toString().trim()
+        return emit(
+            document = document,
+            config = ExportConfig(includeCoverTitle = includeCoverTitle),
+            title = title
+        )
     }
 
     fun emit(
@@ -27,13 +22,50 @@ object PlainEmitter {
         config: ExportConfig?,
         title: String? = null
     ): String {
-        return emit(
-            document = document,
-            includeCoverTitle = config?.includeCoverTitle ?: false,
-            title = title
-        )
-    }
+        val sb = StringBuilder()
+        val includeCoverTitle = config?.includeCoverTitle ?: false
+        if (includeCoverTitle && !title.isNullOrBlank()) {
+            val ornamentId = config?.ornamentId ?: "classic_diamond"
+            val parts = title.split('
+')
+            val primary = parts.getOrNull(0)?.trim() ?: ""
+            val secondary = if (parts.size > 1) parts.drop(1).joinToString(" ").trim() else ""
 
+            if (primary.isNotBlank() && secondary.isNotBlank()) {
+                sb.append(primary.uppercase()).append("
+")
+                sb.append(secondary).append("
+")
+            } else if (primary.isNotBlank()) {
+                sb.append(primary.uppercase()).append("
+")
+            } else if (secondary.isNotBlank()) {
+                sb.append(secondary).append("
+")
+            }
+
+            if (ornamentId != "none") {
+                val ornamentTxt = when (ornamentId) {
+                    "fleuron" -> "─── ❦ ───"
+                    "asterism" -> "─── ⁂ ───"
+                    "minimal_rule" -> "────── • ──────"
+                    else -> "─── ❖ ───"
+                }
+                sb.append(ornamentTxt).append("
+
+")
+            } else {
+                sb.append("
+")
+            }
+        }
+        for (block in document.children) {
+            sb.append(emitBlock(block)).append("
+
+")
+        }
+        return sb.toString().trim()
+    }
     fun emitBlock(block: MarkdownNode.BlockNode): String {
         return when (block) {
             is MarkdownNode.BlockNode.Heading -> {

@@ -27,16 +27,43 @@ object HtmlPdfExporter {
         isForPrintPdf: Boolean = false
     ): String {
         val themeColors = ExportThemeMapper.resolveThemeColors(context)
-        val title = note.name.ifBlank { "Untitled Manuscript" }
-        val titleEscaped = MarkdownUtil.escapeHtml(title)
+        val header = ManuscriptTitleHeader.from(note, config.ornamentId)
+        val titleText = header.toTocLabel(fallback = note.name.ifBlank { "Untitled Manuscript" })
+        val titleEscaped = MarkdownUtil.escapeHtml(titleText)
         val css = ExportThemeMapper.generateExportCss(config, themeColors, isForPrintPdf = isForPrintPdf)
         val langMeta = EpubExporter.detectLanguageAndDirection(note.content)
 
-        val bodyHtml = ScribeMarkdownEngine.toHtml(note.content, langMeta.documentDirection) { src ->
+        val enableDropCaps = config.dropCapStyle != DropCapStyle.DISABLED && langMeta.documentDirection != "rtl"
+
+        val bodyHtml = ScribeMarkdownEngine.toHtml(
+            markdown = note.content,
+            docDirection = langMeta.documentDirection,
+            enableDropCaps = enableDropCaps
+        ) { src ->
             resolveImageToBase64(context, src, note.bookId, note.id) ?: "MISSING_ASSET"
         }
-        val coverTitleHtml = if (config.includeCoverTitle) {
-            """<h1 class="document-title">$titleEscaped</h1>"""
+
+        val coverTitleHtml = if (config.includeCoverTitle && header.isPresent) {
+            val kickerHtml = if (header.hasPrimary) {
+                """<p class="title-kicker">${MarkdownUtil.escapeHtml(header.primaryTitle)}</p>"""
+            } else ""
+            val mainTitleHtml = if (header.hasSecondary) {
+                """<h1 class="document-title">${MarkdownUtil.escapeHtml(header.secondaryTitle)}</h1>"""
+            } else if (!header.hasPrimary) {
+                """<h1 class="document-title">$titleEscaped</h1>"""
+            } else ""
+            val ornamentSvg = if (config.ornamentId != "none") {
+                val svg = ExportThemeMapper.renderOrnamentSvg(config.ornamentId)
+                if (svg.isNotBlank()) """<div class="manuscript-ornament" aria-hidden="true">$svg</div>""" else ""
+            } else ""
+
+            """
+              <header class="manuscript-header">
+                $kickerHtml
+                $mainTitleHtml
+                $ornamentSvg
+              </header>
+            """.trimIndent()
         } else ""
 
         return """

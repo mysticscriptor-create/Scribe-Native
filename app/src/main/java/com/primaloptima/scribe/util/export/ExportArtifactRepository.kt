@@ -136,12 +136,12 @@ object ExportArtifactRepository {
         assetRevisionsHash: String = ""
     ): String {
         val canonicalConfig = when (format) {
-            ExportFormat.PDF -> "p:${config.paperSize.name}_m:${config.marginPreset.name}_f:${config.fontChoice.name}_sz:${config.fontSizePt}_lh:${config.lineSpacingMultiplier}_c:${config.includeCoverTitle}_q:${config.imageQuality.name}_a:${config.authorName}"
-            ExportFormat.DOCX -> "p:${config.paperSize.name}_m:${config.marginPreset.name}_f:${config.fontChoice.name}_sz:${config.fontSizePt}_c:${config.includeCoverTitle}_a:${config.authorName}"
-            ExportFormat.EPUB -> "f:${config.fontChoice.name}_c:${config.includeCoverTitle}_toc:${config.includeTableOfContents}_q:${config.imageQuality.name}_a:${config.authorName}"
-            ExportFormat.HTML -> "f:${config.fontChoice.name}_c:${config.includeCoverTitle}_a:${config.authorName}"
-            ExportFormat.TXT -> "c:${config.includeCoverTitle}"
-            ExportFormat.MD -> "raw"
+            ExportFormat.PDF -> "p:${config.paperSize.name}_m:${config.marginPreset.name}_f:${config.fontChoice.name}_sz:${config.fontSizePt}_lh:${config.lineSpacingMultiplier}_c:${config.includeCoverTitle}_orn:${config.ornamentId}_dc:${config.dropCapStyle.name}_dcl:${config.dropCapLines}_q:${config.imageQuality.name}_a:${config.authorName}"
+            ExportFormat.DOCX -> "p:${config.paperSize.name}_m:${config.marginPreset.name}_f:${config.fontChoice.name}_sz:${config.fontSizePt}_c:${config.includeCoverTitle}_orn:${config.ornamentId}_dc:${config.dropCapStyle.name}_dcl:${config.dropCapLines}_a:${config.authorName}"
+            ExportFormat.EPUB -> "f:${config.fontChoice.name}_c:${config.includeCoverTitle}_toc:${config.includeTableOfContents}_orn:${config.ornamentId}_dc:${config.dropCapStyle.name}_dcl:${config.dropCapLines}_q:${config.imageQuality.name}_a:${config.authorName}"
+            ExportFormat.HTML -> "f:${config.fontChoice.name}_c:${config.includeCoverTitle}_orn:${config.ornamentId}_dc:${config.dropCapStyle.name}_dcl:${config.dropCapLines}_a:${config.authorName}"
+            ExportFormat.TXT -> "c:${config.includeCoverTitle}_orn:${config.ornamentId}"
+            ExportFormat.MD -> "c:${config.includeCoverTitle}_orn:${config.ornamentId}"
         }
 
         val rawInput = buildString {

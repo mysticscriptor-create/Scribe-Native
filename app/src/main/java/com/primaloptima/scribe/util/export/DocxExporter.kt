@@ -53,16 +53,40 @@ object DocxExporter {
         val bodyXml = StringBuilder()
 
         // 1. Cover / Title Paragraph if configured
-        if (config.includeCoverTitle) {
-            val titleEscaped = MarkdownUtil.xmlEscape(note.name.ifBlank { "Untitled Manuscript" })
+        val header = ManuscriptTitleHeader.from(note, config.ornamentId)
+        if (config.includeCoverTitle && header.isPresent) {
             val isTitleRtl = HtmlEmitter.isRtlText(note.name)
-            val bidiXml = if (isTitleRtl) "\n                <w:bidi/>" else ""
-            bodyXml.append("""
+            val bidiXml = if (isTitleRtl) "
+                <w:bidi/>" else ""
+            if (header.hasPrimary) {
+                val kickerEscaped = MarkdownUtil.xmlEscape(header.primaryTitle.uppercase())
+                bodyXml.append("""
+            <w:p>
+              <w:pPr>
+                <w:pStyle w:val="Subtitle"/>
+                <w:jc w:val="center"/>
+                <w:spacing w:before="600" w:after="120"/>$bidiXml
+              </w:pPr>
+              <w:r>
+                <w:rPr>
+                  <w:b/>
+                  <w:sz w:val="26"/>
+                  <w:color w:val="$primaryColorHex"/>
+                </w:rPr>
+                <w:t xml:space="preserve">$kickerEscaped</w:t>
+              </w:r>
+            </w:p>
+                """.trimIndent()).append("
+")
+            }
+            if (header.hasSecondary) {
+                val secEscaped = MarkdownUtil.xmlEscape(header.secondaryTitle)
+                bodyXml.append("""
             <w:p>
               <w:pPr>
                 <w:pStyle w:val="Title"/>
                 <w:jc w:val="center"/>
-                <w:spacing w:before="720" w:after="360"/>$bidiXml
+                <w:spacing w:before="120" w:after="240"/>$bidiXml
               </w:pPr>
               <w:r>
                 <w:rPr>
@@ -70,14 +94,63 @@ object DocxExporter {
                   <w:sz w:val="48"/>
                   <w:color w:val="$primaryColorHex"/>
                 </w:rPr>
-                <w:t xml:space="preserve">$titleEscaped</w:t>
+                <w:t xml:space="preserve">$secEscaped</w:t>
               </w:r>
             </w:p>
-            """.trimIndent()).append("\n")
+                """.trimIndent()).append("
+")
+            } else if (!header.hasPrimary) {
+                val fallbackEscaped = MarkdownUtil.xmlEscape(note.name.ifBlank { "Untitled Manuscript" })
+                bodyXml.append("""
+            <w:p>
+              <w:pPr>
+                <w:pStyle w:val="Title"/>
+                <w:jc w:val="center"/>
+                <w:spacing w:before="600" w:after="240"/>$bidiXml
+              </w:pPr>
+              <w:r>
+                <w:rPr>
+                  <w:b/>
+                  <w:sz w:val="48"/>
+                  <w:color w:val="$primaryColorHex"/>
+                </w:rPr>
+                <w:t xml:space="preserve">$fallbackEscaped</w:t>
+              </w:r>
+            </w:p>
+                """.trimIndent()).append("
+")
+            }
+            if (config.ornamentId != "none") {
+                val dividerText = when (config.ornamentId) {
+                    "fleuron" -> "─── ❦ ───"
+                    "asterism" -> "─── ⁂ ───"
+                    "minimal_rule" -> "────── • ──────"
+                    else -> "─── ❖ ───"
+                }
+                bodyXml.append("""
+            <w:p>
+              <w:pPr>
+                <w:jc w:val="center"/>
+                <w:spacing w:before="180" w:after="360"/>
+              </w:pPr>
+              <w:r>
+                <w:rPr>
+                  <w:rFonts w:ascii="Cambria Math" w:hAnsi="Cambria Math"/>
+                  <w:color w:val="$primaryColorHex"/>
+                  <w:sz w:val="26"/>
+                </w:rPr>
+                <w:t xml:space="preserve">$dividerText</w:t>
+              </w:r>
+            </w:p>
+                """.trimIndent()).append("
+")
+            }
         }
 
         // Printable width in dxa (1/20 of a pt)
         val printableDxa = ((config.paperSize.dxaWidth - config.marginPreset.dxaLeft - config.marginPreset.dxaRight).coerceAtLeast(4000L)).toInt()
+
+        var dropCapApplied = false
 
         // 2. Iterate AST Nodes
         for (node in ast.children) {
@@ -89,7 +162,8 @@ object DocxExporter {
                         else -> "Heading3"
                     }
                     val isRtl = HtmlEmitter.isRtlRuns(node.runs)
-                    val bidiXml = if (isRtl) "\n    <w:bidi/>" else ""
+                    val bidiXml = if (isRtl) "
+    <w:bidi/>" else ""
                     val headingRuns = buildRunsXml(node.runs, defaultBold = true, isRtlParagraph = isRtl, onRegisterHyperlink = ::registerHyperlink)
                     bodyXml.append("""
                     <w:p>
@@ -98,23 +172,54 @@ object DocxExporter {
                       </w:pPr>
                       $headingRuns
                     </w:p>
-                    """.trimIndent()).append("\n")
+                    """.trimIndent()).append("
+")
                 }
-
                 is MarkdownNode.BlockNode.Paragraph -> {
                     val isRtl = HtmlEmitter.isRtlRuns(node.runs)
-                    val bidiXml = if (isRtl) "\n    <w:bidi/>" else ""
-                    val runsXml = buildRunsXml(node.runs, isRtlParagraph = isRtl, onRegisterHyperlink = ::registerHyperlink)
-                    bodyXml.append("""
+                    val bidiXml = if (isRtl) "
+    <w:bidi/>" else ""
+                    val shouldDropCap = !dropCapApplied && config.dropCapStyle != DropCapStyle.DISABLED && !isRtl && node.runs.any { it.text.isNotBlank() }
+                    if (shouldDropCap) {
+                        dropCapApplied = true
+                        val fullText = node.runs.joinToString("") { it.text }
+                        val firstChar = fullText.firstOrNull { !it.isWhitespace() } ?: ' '
+                        val hasQuote = firstChar == '"' || firstChar == '“' || firstChar == ''' || firstChar == '‘'
+                        val glyphLen = if (hasQuote && fullText.length >= 2) 2 else 1
+                        val dropGlyph = MarkdownUtil.xmlEscape(fullText.substring(0, glyphLen))
+                        val remainingRuns = splitFirstGlyph(node.runs, glyphLen)
+                        val runsXml = buildRunsXml(remainingRuns, isRtlParagraph = isRtl, onRegisterHyperlink = ::registerHyperlink)
+                        bodyXml.append("""
+                    <w:p>
+                      <w:pPr>
+                        <w:spacing w:after="160" w:line="320" w:lineRule="auto"/>
+                        <w:framePr w:dropCap="drop" w:lines="${config.dropCapLines}" w:wrap="around" w:hSpace="180"/>$bidiXml
+                      </w:pPr>
+                      <w:r>
+                        <w:rPr>
+                          <w:rFonts w:ascii="$fontName" w:hAnsi="$fontName"/>
+                          <w:b/>
+                          <w:color w:val="$primaryColorHex"/>
+                        </w:rPr>
+                        <w:t xml:space="preserve">$dropGlyph</w:t>
+                      </w:r>
+                      $runsXml
+                    </w:p>
+                        """.trimIndent()).append("
+")
+                    } else {
+                        val runsXml = buildRunsXml(node.runs, isRtlParagraph = isRtl, onRegisterHyperlink = ::registerHyperlink)
+                        bodyXml.append("""
                     <w:p>
                       <w:pPr>
                         <w:spacing w:after="160" w:line="320" w:lineRule="auto"/>$bidiXml
                       </w:pPr>
                       $runsXml
                     </w:p>
-                    """.trimIndent()).append("\n")
+                        """.trimIndent()).append("
+")
+                    }
                 }
-
                 is MarkdownNode.BlockNode.ListBlock -> {
                     val numId = if (node.isOrdered) "2" else "1"
                     for (item in node.items) {
@@ -560,4 +665,21 @@ object DocxExporter {
         }
         return baos.toByteArray()
     }
+
+    private fun splitFirstGlyph(runs: List<MarkdownNode.InlineRun>, glyphLen: Int): List<MarkdownNode.InlineRun> {
+        var remainingToTrim = glyphLen
+        val result = mutableListOf<MarkdownNode.InlineRun>()
+        for (run in runs) {
+            if (remainingToTrim <= 0) {
+                result.add(run)
+            } else if (run.text.length <= remainingToTrim) {
+                remainingToTrim -= run.text.length
+            } else {
+                result.add(run.copy(text = run.text.substring(remainingToTrim)))
+                remainingToTrim = 0
+            }
+        }
+        return result
+    }
+
 }

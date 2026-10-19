@@ -19,7 +19,7 @@ object ScribeMarkdownEngine {
     fun toHtml(
         markdown: String,
         imageResolver: ((String) -> String)? = null
-    ): String = toHtml(markdown, "ltr", imageResolver)
+    ): String = toHtml(markdown, "ltr", enableDropCaps = false, imageResolver = imageResolver)
 
     /**
      * Converts markdown text into well-formed semantic HTML/XHTML5 with explicit document directionality.
@@ -28,9 +28,19 @@ object ScribeMarkdownEngine {
         markdown: String,
         docDirection: String,
         imageResolver: ((String) -> String)? = null
+    ): String = toHtml(markdown, docDirection, enableDropCaps = false, imageResolver = imageResolver)
+
+    /**
+     * Converts markdown text into well-formed semantic HTML/XHTML5 with explicit document directionality and drop cap option.
+     */
+    fun toHtml(
+        markdown: String,
+        docDirection: String,
+        enableDropCaps: Boolean,
+        imageResolver: ((String) -> String)? = null
     ): String {
         val document = parse(markdown)
-        return HtmlEmitter.emit(document, imageResolver, docDirection)
+        return HtmlEmitter.emit(document, imageResolver, docDirection, enableDropCaps = enableDropCaps)
     }
 
     /**

@@ -1,5 +1,9 @@
 package com.primaloptima.scribe.util.export
 
+import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.data.primaryTitle
+import com.primaloptima.scribe.data.secondaryTitle
+
 /**
  * Modern typed configuration models for Scribe's multi-format export pipeline.
  */
@@ -72,6 +76,49 @@ enum class ImageQuality(
     COMPRESSED("Web Standard (Fast)", 1400, 80)
 }
 
+enum class DropCapStyle(val label: String) {
+    DISABLED("Off"),
+    OPENING_PARAGRAPH_ONLY("First Paragraph Only"),
+    EVERY_CHAPTER("Every Chapter")
+}
+
+/**
+ * Encapsulates the canonical two-title manuscript header and ornament metadata.
+ */
+data class ManuscriptTitleHeader(
+    val primaryTitle: String,
+    val secondaryTitle: String,
+    val ornamentId: String
+) {
+    val hasPrimary: Boolean get() = primaryTitle.isNotBlank()
+    val hasSecondary: Boolean get() = secondaryTitle.isNotBlank()
+    val isPresent: Boolean get() = hasPrimary || hasSecondary
+
+    /**
+     * Produces a clean, single-line TOC label combining primary and secondary titles without newline contamination.
+     */
+    fun toTocLabel(fallback: String = "Untitled Manuscript"): String {
+        val p = primaryTitle.trim()
+        val s = secondaryTitle.trim()
+        return when {
+            p.isNotEmpty() && s.isNotEmpty() -> "$p: $s"
+            p.isNotEmpty() -> p
+            s.isNotEmpty() -> s
+            else -> fallback
+        }
+    }
+
+    companion object {
+        fun from(note: Note, ornamentId: String = "classic_diamond"): ManuscriptTitleHeader {
+            return ManuscriptTitleHeader(
+                primaryTitle = note.primaryTitle.trim(),
+                secondaryTitle = note.secondaryTitle.trim(),
+                ornamentId = ornamentId
+            )
+        }
+    }
+}
+
 /**
  * Complete immutable configuration state driving export generation and previews.
  */
@@ -85,5 +132,8 @@ data class ExportConfig(
     val includeCoverTitle: Boolean = true,
     val includeTableOfContents: Boolean = true,
     val imageQuality: ImageQuality = ImageQuality.HIGH_RES,
-    val authorName: String = ""
+    val authorName: String = "",
+    val ornamentId: String = "classic_diamond",
+    val dropCapStyle: DropCapStyle = DropCapStyle.DISABLED,
+    val dropCapLines: Int = 3
 )

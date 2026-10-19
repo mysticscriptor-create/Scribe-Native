@@ -22,11 +22,12 @@ import java.util.zip.ZipOutputStream
  * 1. Uncompressed US-ASCII mimetype at archive byte offset 0 with zero extra fields (STORED).
  * 2. Strict W3C EPUB 3.3 Recommendation targeting with package declaration version="3.0".
  * 3. Strict XHTML5 / XML conformance across all content documents with self-closing void tags.
- * 4. Safe, non-lossy AST-driven chapter splitting preserving pre-chapter front matter.
+ * 4. Safe, non-lossy AST-driven chapter splitting on explicit chapter boundaries (never on H2..H6).
  * 5. Dynamic language identification and bidirectional (LTR/RTL) metadata separation.
  * 6. Dynamic author extraction with front matter sniffing and graceful fallback.
- * 7. EPUB 3 navigation document (nav.xhtml) with semantic landmarks and legacy NCX fallback.
- * 8. Missing vault image asset fallback callout boxes preventing manifest corruption.
+ * 7. Hierarchical EPUB 3 navigation document (nav.xhtml) with semantic landmarks and nested legacy NCX fallback.
+ * 8. Two-title manuscript header and vector ornament embedding in chapter body.
+ * 9. Missing vault image asset fallback callout boxes preventing manifest corruption.
  */
 object EpubExporter {
 
@@ -44,25 +45,29 @@ object EpubExporter {
         val documentDirection: String
     )
 
+    data class TocNode(
+        val label: String,
+        val target: String,
+        val children: MutableList<TocNode> = mutableListOf()
+    )
+
     fun export(context: Context?, note: Note, config: ExportConfig): ByteArray {
         val themeColors = ExportThemeMapper.resolveThemeColors(context)
-        val title = note.name.ifBlank { "Untitled Manuscript" }
+        val header = ManuscriptTitleHeader.from(note, config.ornamentId)
+        val title = header.toTocLabel(fallback = note.name.ifBlank { "Untitled Manuscript" })
         val titleXml = MarkdownUtil.xmlEscape(title)
-
         val authorName = resolveAuthorName(note, config)
         val authorXml = MarkdownUtil.xmlEscape(authorName)
-
         val uuid = "urn:uuid:" + UUID.nameUUIDFromBytes(note.id.toByteArray()).toString()
         val isoDate = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
             timeZone = TimeZone.getTimeZone("UTC")
         }.format(Date())
-
         val langMeta = detectLanguageAndDirection(note.content)
 
         // 1. Parse markdown source into unified AST
         val ast = ScribeMarkdownAstParser.parse(note.content)
 
-        // 2. Split into chapters with zero data loss guarantee
+        // 2. Split into chapters on top-level boundaries only (never H2..H6)
         val chapters = splitIntoChapters(ast, title)
 
         // 3. Resolve images across chapters
@@ -107,11 +112,12 @@ object EpubExporter {
         val cssContent = ExportThemeMapper.generateExportCss(config, themeColors, isForPrintPdf = false, isForEpub = true)
         entries["OEBPS/styles.css"] = cssContent.toByteArray(Charsets.UTF_8)
 
+        val firstBodyChapterIdx = chapters.indexOfFirst { !it.isFrontMatter }.let { if (it >= 0) it else 0 }
+
         // 7. Chapter XHTML documents with strict XHTML5 XML syntax
-        for (chap in chapters) {
+        for ((chapIdx, chap) in chapters.withIndex()) {
             val chapTitleXml = MarkdownUtil.xmlEscape(chap.title)
             val chapDoc = MarkdownNode.Document(chap.nodes)
-
             val bodyType = if (chap.isFrontMatter) "frontmatter" else "bodymatter"
             val sectionType = if (chap.isFrontMatter) "prologue" else "chapter"
 
@@ -122,6 +128,7 @@ object EpubExporter {
                     else -> ""
                 }
             }
+
             val isChapRtl = HtmlEmitter.isRtlText(chapRawText)
             val chapLang = if (isChapRtl) {
                 langMeta.secondaryLanguages.firstOrNull { it == "ur" || it == "ar" || it == "he" }
@@ -134,7 +141,41 @@ object EpubExporter {
                 }
             }
             val chapDir = if (isChapRtl) "rtl" else langMeta.documentDirection
-            val chapHtml = HtmlEmitter.emit(chapDoc, processImageSrc, docDirection = chapDir)
+
+            val enableDropCaps = !isChapRtl && when (config.dropCapStyle) {
+                DropCapStyle.DISABLED -> false
+                DropCapStyle.OPENING_PARAGRAPH_ONLY -> (chapIdx == firstBodyChapterIdx)
+                DropCapStyle.EVERY_CHAPTER -> !chap.isFrontMatter
+            }
+
+            val chapHtml = HtmlEmitter.emit(
+                document = chapDoc,
+                imageResolver = processImageSrc,
+                docDirection = chapDir,
+                enableDropCaps = enableDropCaps,
+                addHeadingAnchors = true
+            )
+
+            // Two-title header and ornament embedding at the top of the body chapter
+            val headerHtml = if (config.includeCoverTitle && chapIdx == firstBodyChapterIdx && header.isPresent) {
+                val kickerHtml = if (header.hasPrimary) """<p class="title-kicker">${MarkdownUtil.xmlEscape(header.primaryTitle)}</p>""" else ""
+                val mainTitleHtml = if (header.hasSecondary) {
+                    """<h1 class="document-title">${MarkdownUtil.xmlEscape(header.secondaryTitle)}</h1>"""
+                } else if (!header.hasPrimary) {
+                    """<h1 class="document-title">$titleXml</h1>"""
+                } else ""
+                val ornamentSvg = if (config.ornamentId != "none") {
+                    val svg = ExportThemeMapper.renderOrnamentSvg(config.ornamentId)
+                    if (svg.isNotBlank()) """<div class="manuscript-ornament" aria-hidden="true">$svg</div>""" else ""
+                } else ""
+                """
+  <header class="manuscript-header">
+    $kickerHtml
+    $mainTitleHtml
+    $ornamentSvg
+  </header>
+                """.trimIndent()
+            } else ""
 
             val chapterDoc = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
@@ -146,19 +187,106 @@ object EpubExporter {
 </head>
 <body epub:type="$bodyType">
   <section epub:type="$sectionType">
+    $headerHtml
     $chapHtml
   </section>
 </body>
 </html>""".trimIndent()
+
             entries["OEBPS/${chap.filename}"] = chapterDoc.toByteArray(Charsets.UTF_8)
         }
 
-        // 8. OEBPS/nav.xhtml (EPUB 3 Navigation Document with TOC & Landmarks)
-        val navItems = chapters.joinToString("\n") { chap ->
-            """      <li><a href="${chap.filename}">${MarkdownUtil.xmlEscape(chap.title)}</a></li>"""
-        }
-        val firstBodyChapter = chapters.firstOrNull { !it.isFrontMatter } ?: chapters.first()
+        // 8. Build Hierarchical TOC Navigation Tree
+        val tocRootNodes = mutableListOf<TocNode>()
+        for ((chapIdx, chap) in chapters.withIndex()) {
+            val isMainChapter = (chapIdx == firstBodyChapterIdx)
+            val chapLabel = if (isMainChapter && header.isPresent) {
+                header.toTocLabel(fallback = chap.title)
+            } else {
+                chap.title
+            }
+            val chapNode = TocNode(label = chapLabel, target = chap.filename)
 
+            // Extract headings within the chapter to form a nested hierarchy
+            val secTitle = header.secondaryTitle.trim()
+            val priTitle = header.primaryTitle.trim()
+            var currentH2: TocNode? = null
+            var currentH3: TocNode? = null
+
+            for ((nodeIdx, node) in chap.nodes.withIndex()) {
+                if (node is MarkdownNode.BlockNode.Heading) {
+                    val headingText = node.runs.joinToString("") { it.text }.trim()
+                    // Duplicate suppression: Skip if heading in body matches manuscript secondary title or combined title
+                    if (isMainChapter && (headingText.equals(secTitle, ignoreCase = true) ||
+                                          headingText.equals(priTitle, ignoreCase = true) ||
+                                          headingText.equals(chapLabel, ignoreCase = true))) {
+                        continue
+                    }
+                    val anchor = HtmlEmitter.generateHeadingSlug(headingText, nodeIdx)
+                    val target = "${chap.filename}#$anchor"
+                    val subNode = TocNode(label = headingText.ifBlank { "Section $nodeIdx" }, target = target)
+
+                    when (node.level) {
+                        1 -> {
+                            // Secondary H1 within chapter
+                            chapNode.children.add(subNode)
+                            currentH2 = null
+                            currentH3 = null
+                        }
+                        2 -> {
+                            chapNode.children.add(subNode)
+                            currentH2 = subNode
+                            currentH3 = null
+                        }
+                        3 -> {
+                            if (currentH2 != null) {
+                                currentH2.children.add(subNode)
+                            } else {
+                                chapNode.children.add(subNode)
+                            }
+                            currentH3 = subNode
+                        }
+                        else -> {
+                            if (currentH3 != null) {
+                                currentH3.children.add(subNode)
+                            } else if (currentH2 != null) {
+                                currentH2.children.add(subNode)
+                            } else {
+                                chapNode.children.add(subNode)
+                            }
+                        }
+                    }
+                }
+            }
+            tocRootNodes.add(chapNode)
+        }
+
+        // 9. OEBPS/nav.xhtml (EPUB 3 Navigation Document with Nested Lists & Landmarks)
+        fun buildNavList(nodes: List<TocNode>): String {
+            if (nodes.isEmpty()) return ""
+            val sb = StringBuilder("<ol>
+")
+            for (n in nodes) {
+                val safeLabel = MarkdownUtil.xmlEscape(n.label)
+                if (n.children.isEmpty()) {
+                    sb.append("      <li><a href="${n.target}">$safeLabel</a></li>
+")
+                } else {
+                    sb.append("      <li>
+        <a href="${n.target}">$safeLabel</a>
+")
+                    sb.append(buildNavList(n.children).prependIndent("        "))
+                    sb.append("      </li>
+")
+                }
+            }
+            sb.append("    </ol>
+")
+            return sb.toString()
+        }
+
+        val navItems = buildNavList(tocRootNodes)
+        val firstBodyChapter = chapters.getOrNull(firstBodyChapterIdx) ?: chapters.first()
         val navDoc = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="${langMeta.primaryLanguage}" lang="${langMeta.primaryLanguage}" dir="${langMeta.documentDirection}">
@@ -170,10 +298,7 @@ object EpubExporter {
 <body>
   <nav epub:type="toc" id="toc">
     <h1>Table of Contents</h1>
-    <ol>
-$navItems
-    </ol>
-  </nav>
+    $navItems  </nav>
   <nav epub:type="landmarks" hidden="hidden">
     <h2>Landmarks</h2>
     <ol>
@@ -183,45 +308,63 @@ $navItems
   </nav>
 </body>
 </html>""".trimIndent()
+
         entries["OEBPS/nav.xhtml"] = navDoc.toByteArray(Charsets.UTF_8)
 
-        // 9. OEBPS/toc.ncx (Backwards compatibility for legacy e-readers)
-        val ncxNavPoints = chapters.mapIndexed { idx, chap ->
-            val order = idx + 1
-            """    <navPoint id="navPoint-$order" playOrder="$order">
-      <navLabel><text>${MarkdownUtil.xmlEscape(chap.title)}</text></navLabel>
-      <content src="${chap.filename}"/>
-    </navPoint>"""
-        }.joinToString("\n")
+        // 10. OEBPS/toc.ncx (Backwards compatibility for legacy e-readers with nested navPoints)
+        var ncxOrderCounter = 1
+        fun buildNcxPoints(nodes: List<TocNode>): String {
+            val sb = StringBuilder()
+            for (n in nodes) {
+                val order = ncxOrderCounter++
+                val safeLabel = MarkdownUtil.xmlEscape(n.label)
+                sb.append("""    <navPoint id="navPoint-$order" playOrder="$order">
+      <navLabel><text>$safeLabel</text></navLabel>
+      <content src="${n.target}"/>
+""")
+                if (n.children.isNotEmpty()) {
+                    sb.append(buildNcxPoints(n.children).prependIndent("  "))
+                }
+                sb.append("    </navPoint>
+")
+            }
+            return sb.toString()
+        }
 
+        val ncxNavPoints = buildNcxPoints(tocRootNodes)
         val tocNcx = """<?xml version="1.0" encoding="UTF-8"?>
 <ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
   <head>
     <meta name="dtb:uid" content="$uuid"/>
-    <meta name="dtb:depth" content="1"/>
+    <meta name="dtb:depth" content="3"/>
     <meta name="dtb:totalPageCount" content="0"/>
     <meta name="dtb:maxPageNumber" content="0"/>
   </head>
   <docTitle><text>$titleXml</text></docTitle>
   <navMap>
-$ncxNavPoints
-  </navMap>
+$ncxNavPoints  </navMap>
 </ncx>""".trimIndent()
+
         entries["OEBPS/toc.ncx"] = tocNcx.toByteArray(Charsets.UTF_8)
 
-        // 10. OEBPS/content.opf (Package Document)
-        val manifestChapters = chapters.joinToString("\n") { chap ->
+        // 11. OEBPS/content.opf (Package Document)
+        val manifestChapters = chapters.joinToString("
+") { chap ->
             """    <item id="${chap.id}" href="${chap.filename}" media-type="application/xhtml+xml"/>"""
         }
-        val spineItems = chapters.joinToString("\n") { chap ->
+        val spineItems = chapters.joinToString("
+") { chap ->
             """    <itemref idref="${chap.id}"/>"""
         }
-        val extraImagesManifest = if (imageManifest.isNotEmpty()) "\n" + imageManifest.joinToString("\n") else ""
-
+        val extraImagesManifest = if (imageManifest.isNotEmpty()) "
+" + imageManifest.joinToString("
+") else ""
         val secondaryLangXml = langMeta.secondaryLanguages
             .filter { it != langMeta.primaryLanguage }
-            .joinToString("\n") { """    <dc:language>$it</dc:language>""" }
-        val secondaryLangBlock = if (secondaryLangXml.isNotEmpty()) "\n$secondaryLangXml" else ""
+            .joinToString("
+") { """    <dc:language>$it</dc:language>""" }
+        val secondaryLangBlock = if (secondaryLangXml.isNotEmpty()) "
+$secondaryLangXml" else ""
 
         val opfDoc = """<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id">
@@ -242,9 +385,10 @@ $manifestChapters$extraImagesManifest
 $spineItems
   </spine>
 </package>""".trimIndent()
+
         entries["OEBPS/content.opf"] = opfDoc.toByteArray(Charsets.UTF_8)
 
-        // 11. Add embedded images
+        // 12. Add embedded images
         entries.putAll(imageEntries)
 
         return buildEpubZip(entries)
@@ -338,41 +482,42 @@ $spineItems
     /**
      * Safely splits unified AST nodes into individual chapter containers.
      * Guarantees 0% data loss by isolating any pre-chapter prose into [frontmatter.xhtml].
-     * Supports manuscripts with H1 headings or H2 headings.
+     * CRITICAL RULE: Splits ONLY on explicit chapter boundaries (e.g. multiple H1s).
+     * NEVER splits on H2..H6 ordinary subheadings.
      */
     fun splitIntoChapters(
         ast: MarkdownNode.Document,
         fallbackTitle: String
     ): List<EpubChapter> {
         val h1Count = ast.children.count { it is MarkdownNode.BlockNode.Heading && it.level == 1 }
-        val h2Count = ast.children.count { it is MarkdownNode.BlockNode.Heading && it.level == 2 }
-        val splitLevel = when {
-            h1Count > 1 -> 1
-            h2Count > 1 -> 2
-            h1Count == 1 -> 1
-            h2Count == 1 -> 2
-            else -> null
-        }
 
-        if (splitLevel == null) {
+        // If there are NOT multiple H1 headings, keep the entire document as a single chapter
+        if (h1Count <= 1) {
+            val title = ast.children
+                .filterIsInstance<MarkdownNode.BlockNode.Heading>()
+                .firstOrNull { it.level == 1 }
+                ?.runs?.joinToString("") { it.text }?.trim()
+                ?: fallbackTitle
+
             return listOf(
                 EpubChapter(
                     id = "chap_1",
                     filename = "chapter_1.xhtml",
-                    title = fallbackTitle,
+                    title = title.ifBlank { fallbackTitle },
                     isFrontMatter = false,
                     nodes = ast.children
                 )
             )
         }
 
+        // Multiple H1s: Split at each H1 boundary
         val chapters = mutableListOf<EpubChapter>()
         var currentTitle = "Front Matter"
         val currentNodes = mutableListOf<MarkdownNode.BlockNode>()
         var actualChapterIdx = 1
 
         for (node in ast.children) {
-            if (node is MarkdownNode.BlockNode.Heading && node.level == splitLevel) {
+            if (node is MarkdownNode.BlockNode.Heading && node.level == 1) {
                 if (currentNodes.isNotEmpty()) {
                     val isFrontMatter = chapters.isEmpty() && currentTitle == "Front Matter"
                     val id = if (isFrontMatter) "frontmatter" else "chap_$actualChapterIdx"
@@ -418,28 +563,26 @@ $spineItems
         val baos = ByteArrayOutputStream()
         ZipOutputStream(baos).use { zos ->
             // Crucial: mimetype MUST be stored first uncompressed with zero extra fields
-            val mimeBytes = entries["mimetype"] ?: "application/epub+zip".toByteArray(Charsets.US_ASCII)
+            val mimetypeBytes = entries["mimetype"] ?: "application/epub+zip".toByteArray(Charsets.US_ASCII)
             val mimeEntry = ZipEntry("mimetype").apply {
                 method = ZipEntry.STORED
-                size = mimeBytes.size.toLong()
-                compressedSize = mimeBytes.size.toLong()
+                size = mimetypeBytes.size.toLong()
+                compressedSize = mimetypeBytes.size.toLong()
                 val crc = CRC32()
-                crc.update(mimeBytes)
+                crc.update(mimetypeBytes)
                 this.crc = crc.value
-                extra = null
             }
             zos.putNextEntry(mimeEntry)
-            zos.write(mimeBytes)
+            zos.write(mimetypeBytes)
             zos.closeEntry()
 
-            // Remaining entries compressed
-            for ((name, bytes) in entries) {
-                if (name == "mimetype") continue
-                val entry = ZipEntry(name).apply {
+            for ((path, data) in entries) {
+                if (path == "mimetype") continue
+                val entry = ZipEntry(path).apply {
                     method = ZipEntry.DEFLATED
                 }
                 zos.putNextEntry(entry)
-                zos.write(bytes)
+                zos.write(data)
                 zos.closeEntry()
             }
         }

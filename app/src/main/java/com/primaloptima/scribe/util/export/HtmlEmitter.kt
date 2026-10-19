@@ -7,14 +7,30 @@ package com.primaloptima.scribe.util.export
  */
 object HtmlEmitter {
 
+    fun generateHeadingSlug(rawText: String, index: Int): String {
+        val slug = rawText.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+        return if (slug.isNotBlank()) slug else "sec-$index"
+    }
+
     fun emit(
         document: MarkdownNode.Document,
         imageResolver: ((String) -> String)? = null,
-        docDirection: String = "ltr"
+        docDirection: String = "ltr",
+        enableDropCaps: Boolean = false,
+        addHeadingAnchors: Boolean = false
     ): String {
         val sb = StringBuilder()
-        for (block in document.children) {
-            sb.append(emitBlock(block, imageResolver, docDirection)).append("\n")
+        var dropCapApplied = false
+        for ((idx, block) in document.children.withIndex()) {
+            val shouldApplyDropCap = enableDropCaps && !dropCapApplied &&
+                    block is MarkdownNode.BlockNode.Paragraph &&
+                    !isRtlRuns(block.runs) &&
+                    block.runs.any { it.text.isNotBlank() }
+            if (shouldApplyDropCap) {
+                dropCapApplied = true
+            }
+            sb.append(emitBlock(block, imageResolver, docDirection, shouldApplyDropCap, addHeadingAnchors, idx)).append("
+")
         }
         return sb.toString().trimEnd()
     }
@@ -22,19 +38,28 @@ object HtmlEmitter {
     fun emitBlock(
         block: MarkdownNode.BlockNode,
         imageResolver: ((String) -> String)? = null,
-        docDirection: String = "ltr"
+        docDirection: String = "ltr",
+        isDropCap: Boolean = false,
+        addHeadingAnchors: Boolean = false,
+        blockIndex: Int = 0
     ): String {
         return when (block) {
             is MarkdownNode.BlockNode.Heading -> {
                 val tag = "h${block.level.coerceIn(1, 6)}"
                 val dirAttr = resolveBlockDir(block.runs, docDirection)
-                "<$tag$dirAttr>${emitRuns(block.runs)}</$tag>"
+                val idAttr = if (addHeadingAnchors) {
+                    val rawText = block.runs.joinToString("") { it.text }
+                    val slug = generateHeadingSlug(rawText, blockIndex)
+                    " id="$slug""
+                } else ""
+                "<$tag$idAttr$dirAttr>${emitRuns(block.runs)}</$tag>"
             }
             is MarkdownNode.BlockNode.Paragraph -> {
                 val dirAttr = resolveBlockDir(block.runs, docDirection)
-                "<p$dirAttr>${emitRuns(block.runs)}</p>"
+                val classAttr = if (isDropCap) " class="has-dropcap"" else ""
+                "<p$classAttr$dirAttr>${emitRuns(block.runs)}</p>"
             }
-            is MarkdownNode.BlockNode.Blockquote -> {
+                        is MarkdownNode.BlockNode.Blockquote -> {
                 val inner = block.children.joinToString("\n") { emitBlock(it, imageResolver, docDirection) }
                 val isRtl = block.children.any { child ->
                     when (child) {
