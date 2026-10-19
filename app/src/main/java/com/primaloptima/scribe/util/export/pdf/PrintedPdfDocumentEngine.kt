@@ -28,6 +28,7 @@ import com.primaloptima.scribe.util.export.FontChoice
 import com.primaloptima.scribe.util.export.HtmlEmitter
 import com.primaloptima.scribe.util.export.ManuscriptTitleHeader
 import com.primaloptima.scribe.util.export.MarkdownNode
+import com.primaloptima.scribe.util.export.OrnamentCatalog
 import com.primaloptima.scribe.util.export.PaperSize
 import com.primaloptima.scribe.util.export.ScribeMarkdownEngine
 import com.primaloptima.scribe.util.image.VaultImageManager
@@ -669,6 +670,33 @@ object PrintedPdfDocumentEngine : PdfEngine {
         if (ornamentId == "none") return
         val centerX = contentWidth / 2f
         OrnamentCatalog.drawOrnament(canvas, ornamentId, centerX, y + 8f, color, 1.0f)
+    }
+
+    private fun createLayout(
+        text: CharSequence,
+        paint: TextPaint,
+        width: Int,
+        alignment: Layout.Alignment = Layout.Alignment.ALIGN_NORMAL,
+        lineSpacing: Float = 1.0f,
+        isRtl: Boolean = false
+    ): StaticLayout {
+        val safeWidth = width.coerceAtLeast(24)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val heuristic = if (isRtl) {
+                android.text.TextDirectionHeuristics.RTL
+            } else {
+                android.text.TextDirectionHeuristics.FIRSTSTRONG_LTR
+            }
+            StaticLayout.Builder.obtain(text, 0, text.length, paint, safeWidth)
+                .setAlignment(alignment)
+                .setTextDirection(heuristic)
+                .setLineSpacing(0f, lineSpacing)
+                .setIncludePad(false)
+                .build()
+        } else {
+            @Suppress("DEPRECATION")
+            StaticLayout(text, paint, safeWidth, alignment, lineSpacing, 0f, false)
+        }
     }
 
     private fun buildSpannable(

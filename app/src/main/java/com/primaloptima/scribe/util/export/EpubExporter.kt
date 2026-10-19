@@ -144,7 +144,7 @@ object EpubExporter {
 
             val enableDropCaps = !isChapRtl && when (config.dropCapStyle) {
                 DropCapStyle.DISABLED -> false
-                DropCapStyle.OPENING_PARAGRAPH_ONLY -> (chapIdx == firstBodyChapterIdx)
+                DropCapStyle.OPENING_PARAGRAPH_ONLY, DropCapStyle.TRADITIONAL -> (chapIdx == firstBodyChapterIdx)
                 DropCapStyle.EVERY_CHAPTER -> !chap.isFrontMatter
             }
 
