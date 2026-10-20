@@ -710,7 +710,7 @@ fun ExportStudioScreen(
                     MetadataSummaryRow("Character Count", "$charCount characters")
                     MetadataSummaryRow("Estimated Reading Time", "~$readingTime min")
                     MetadataSummaryRow("Embedded Images", if (hasVaultImages) "Yes (packaged as .zip for Markdown)" else "None")
-                    MetadataSummaryRow("Ornament Divider", OrnamentCatalog.fromId(config.ornamentId)?.displayName ?: "None")
+                    MetadataSummaryRow("Ornament Divider", OrnamentCatalog.getById(config.ornamentId).displayName)
                 }
             },
             confirmButton = {

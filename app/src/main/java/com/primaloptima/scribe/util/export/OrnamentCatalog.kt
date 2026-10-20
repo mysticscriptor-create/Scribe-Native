@@ -132,6 +132,9 @@ object OrnamentCatalog {
     fun getById(id: String): OrnamentEntry =
         mapById[id] ?: mapById["classic_diamond"]!!
 
+    fun fromId(id: String): OrnamentEntry? =
+        mapById[id]
+
     fun getTextDivider(id: String): String =
         getById(id).textDivider
 
