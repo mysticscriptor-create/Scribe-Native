@@ -435,9 +435,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
 
     override fun commitText(text: CharSequence, applyAutoIndent: Boolean, applySymbolCompletion: Boolean) {
-        if (text == "
-" || text == "
-" || text == "") {
+        if (text == "\n" || text == "\r\n" || text == "\r") {
             handleProseNewline()
             return
         }
@@ -451,13 +449,13 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
                 val replacement = ScribeEditorIndentFormatter.computeEmptyLineFloor(lineStr, firstLineIndentSpaces)
                 if (replacement != null) {
-                    val processed = if (text.contains('
-') || text.contains('') || isPastedOrMultiLineText(text)) {
+                    val processed = if (text.contains('\n') || text.contains('\r') || isPastedOrMultiLineText(text)) {
                         formatPastedText(text)
                     } else {
-                        ""
+                        text
                     }
-                    this.text.replace(line, 0, line, lineStr.length, "")
+                    this.text.replace(line, 0, line, lineStr.length, replacement)
+                    setSelection(line, replacement.length)
                     super.commitText(processed, applyAutoIndent, applySymbolCompletion)
                     return
                 }
@@ -471,15 +469,13 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     }
                 }
 
-                if (text.contains('
-') || text.contains('') || isPastedOrMultiLineText(text)) {
+                if (text.contains('\n') || text.contains('\r') || isPastedOrMultiLineText(text)) {
                     val processed = formatPastedText(text)
                     super.commitText(processed, applyAutoIndent, applySymbolCompletion)
                     return
                 }
             } else {
-                if (text.contains('
-') || text.contains('') || text.length > 1) {
+                if (text.contains('\n') || text.contains('\r') || text.length > 1) {
                     val processed = formatPastedText(text)
                     super.commitText(processed, applyAutoIndent, applySymbolCompletion)
                     return
@@ -490,8 +486,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
 
     private fun isPastedOrMultiLineText(text: CharSequence): Boolean {
-        if (text.contains('
-') || text.contains('')) {
+        if (text.contains('\n') || text.contains('\r')) {
             return true
         }
         val cur = cursor
@@ -550,8 +545,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 val nextPrefix = ScribeListEngine.nextSequencePrefix(listMatch)
                 if (col >= prefix.length) {
                     // Cursor is after or at marker: split line and continue list sequence
-                    val insertStr = "
-"
+                    val insertStr = "\n$nextPrefix"
                     text.insert(line, col, insertStr)
                     ensureSelectionVisible()
                     notifyIMEExternalCursorChange()
