@@ -41,6 +41,7 @@ import androidx.navigation3.runtime.metadata
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import com.primaloptima.scribe.navigation.Route
 import com.primaloptima.scribe.ui.screens.BookScreen
+import com.primaloptima.scribe.ui.screens.ExportStudioScreen
 import com.primaloptima.scribe.ui.screens.GuideScreen
 import com.primaloptima.scribe.ui.screens.HistoryScreen
 import com.primaloptima.scribe.ui.screens.HomeScreen
@@ -348,6 +349,18 @@ class ScribeActivity : ComponentActivity() {
                             onOpenSheets    = {
                                 if (backStack.lastOrNull() !is Route.Sheets)
                                     backStack.add(Route.Sheets())
+                            },
+                            onOpenExportStudio = { format ->
+                                if (backStack.lastOrNull() !is Route.ExportStudio) {
+                                    val currentNote = editorVm.activeNote.value
+                                    backStack.add(
+                                        Route.ExportStudio(
+                                            bookId = key.bookId,
+                                            noteId = currentNote?.id ?: key.noteId,
+                                            initialFormat = format
+                                        )
+                                    )
+                                }
                             }
                         )
                     }
@@ -528,6 +541,49 @@ class ScribeActivity : ComponentActivity() {
                 ) {
                     ShortcutsScreen(
                         vm     = shortcutsVm,
+                        onBack = { backStack.removeLastOrNull() }
+                    )
+                }
+
+                // ── Export Studio ──────────────────────────────────────────────
+                // Full-screen publishing workspace floating above the editor.
+                entry<Route.ExportStudio>(
+                    metadata = metadata {
+                        put(NavDisplay.TransitionKey) {
+                            (slideInVertically(tween(320, easing = FastOutSlowInEasing)) { it }
+                                + fadeIn(tween(200, easing = FastOutSlowInEasing))) togetherWith
+                                fadeOut(tween(100, easing = LinearEasing))
+                        }
+                        put(NavDisplay.PopTransitionKey) {
+                            fadeIn(tween(150, easing = FastOutSlowInEasing)) togetherWith
+                                (slideOutVertically(tween(300, easing = FastOutSlowInEasing)) { it }
+                                    + fadeOut(tween(200, easing = LinearEasing)))
+                        }
+                        put(NavDisplay.PredictivePopTransitionKey) { _ ->
+                            fadeIn(tween(150, easing = FastOutSlowInEasing)) togetherWith
+                                (slideOutVertically(tween(300, easing = FastOutSlowInEasing)) { it }
+                                    + fadeOut(tween(200, easing = LinearEasing)))
+                        }
+                    }
+                ) { key ->
+                    val editorVm = activeEditorVm
+                    val activeNote = editorVm?.activeNote?.value
+                    val note = activeNote ?: run {
+                        val bookVm: BookViewModel = viewModel()
+                        val noteListVm: NoteListViewModel = viewModel()
+                        bookVm.notes.value.firstOrNull { it.id == key.noteId }
+                            ?: noteListVm.notes.value.firstOrNull { it.id == key.noteId }
+                    }
+
+                    if (note == null) {
+                        LaunchedEffect(Unit) { backStack.removeLastOrNull() }
+                        return@entry
+                    }
+
+                    ExportStudioScreen(
+                        note = note,
+                        bookId = key.bookId,
+                        initialFormat = key.initialFormat ?: "pdf",
                         onBack = { backStack.removeLastOrNull() }
                     )
                 }

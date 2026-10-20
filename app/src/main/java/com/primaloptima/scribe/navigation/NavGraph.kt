@@ -26,4 +26,11 @@ sealed interface Route : NavKey {
     // The old ThemeEdit data object is removed — it had no fields and was only
     // used as a sub-graph placeholder; the new class carries the themeId directly.
     @Serializable data class ThemeEditArgs(val themeId: String)             : Route
+
+    // ── Dedicated Full-Screen Export Studio ──────────────────────────────
+    @Serializable data class ExportStudio(
+        val bookId: String? = null,
+        val noteId: String,
+        val initialFormat: String? = null
+    ) : Route
 }

@@ -259,7 +259,8 @@ fun MainEditorScreen(
     onOpenGuide: () -> Unit,
     onOpenThemes: () -> Unit = {},
     onOpenSettings: () -> Unit,
-    onOpenSheets: () -> Unit
+    onOpenSheets: () -> Unit,
+    onOpenExportStudio: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val haptic  = LocalHapticFeedback.current
@@ -395,8 +396,6 @@ fun MainEditorScreen(
     var activeLightboxOriginOffset by remember { mutableStateOf<Offset?>(null) }
     var activeLightboxOriginSize by remember { mutableStateOf<Size?>(null) }
     var showManuscriptPreview by remember { mutableStateOf(false) }
-    var showExportPreview by rememberSaveable { mutableStateOf(false) }
-    var selectedExportFormat by rememberSaveable { mutableStateOf("pdf") }
 
     val captureSessionScrollBeforeNavigate: () -> Unit = {
         if (!isExitingNote) {
@@ -2855,9 +2854,12 @@ fun MainEditorScreen(
                     showManuscriptPreview = true
                 },
                 onExport         = { fmt ->
+                    saveCurrentCursorStateToDb(soraEditorRef)
+                    captureSessionScrollBeforeNavigate()
+                    wasSheetOpen = false
                     activeSheetPage = null
-                    selectedExportFormat = fmt
-                    showExportPreview = true
+                    editorVm.flushContent(soraEditorRef?.text?.toString() ?: "")
+                    onOpenExportStudio(fmt)
                 },
                 onVersionHistory = {
                     saveCurrentCursorStateToDb(soraEditorRef)
@@ -3059,16 +3061,6 @@ fun MainEditorScreen(
                     activeTheme = activeTheme,
                     selectedOrnamentId = selectedOrnamentId,
                     onDismiss = { showManuscriptPreview = false }
-                )
-            }
-
-            // ── Export Preview Sheet ────────────────────────────────────
-            if (showExportPreview && activeNote != null) {
-                ExportPreviewSheet(
-                    note = activeNote!!,
-                    bookId = activeNote?.bookId,
-                    initialFormat = selectedExportFormat,
-                    onDismiss = { showExportPreview = false }
                 )
             }
 
