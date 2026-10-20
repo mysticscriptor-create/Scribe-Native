@@ -8,13 +8,12 @@ import kotlinx.coroutines.yield
  *
  * Implements:
  * 1. Single-pass StringBuilder document processing on Dispatchers.Default with cooperative yield().
- * 2. Edge Case handling (Requirement 8): scans and strips pre-existing manual
- *    spaces/tabs before writing new spaces to prevent double indentation.
+ * 2. Automatic-Prefix Invariant: Distinguishes legitimate automatic indentation from manual
+ *    indentation, preventing loss of manual spaces when changing or disabling settings.
  * 3. Preserves Markdown headings (#), scene breaks (---, ***, * * *), blockquotes (>),
- *    code blocks (```), tables (|), and HTML tags (<).
- *    Note: Lists (bullets, numbered, tasks) are treated as prose paragraphs so they
- *    consistently receive first-line indent formatting uniformly with the rest of the manuscript.
- * 4. Normalizes blank lines to empty strings (never pollutes empty lines with trailing spaces).
+ *    code blocks (```), tables (|), HTML tags (<), and manual tab characters ('\t').
+ * 4. Empty-line floor: Empty lines retain the auto-indent floor as column 0 when indent is ON,
+ *    and clean empty strings when indent is OFF.
  * 5. Accurate cursor column calculation relative to pre-formatted text.
  * 6. Flawless line-ending handling across LF, CRLF, and mixed files.
  * 7. Zero-allocation fast checks for line-level visual hints directly on Content buffer.
@@ -26,16 +25,7 @@ object ScribeIndentEngine {
      * Lists are treated as prose so they participate in document indentation.
      */
     fun isNonProseLine(trimmed: String): Boolean {
-        if (trimmed.isEmpty()) return false
-        // Markdown headings, scene breaks, blockquotes, code fences, tables, XML tags
-        if (trimmed.startsWith("#") || trimmed.startsWith("---") ||
-            trimmed.startsWith("***") || trimmed.startsWith("* * *") ||
-            trimmed.startsWith("###") || trimmed.startsWith("___") ||
-            trimmed.startsWith(">") || trimmed.startsWith("```") ||
-            trimmed.startsWith("|") || trimmed.startsWith("<")) {
-            return true
-        }
-        return false
+        return ScribeEditorIndentFormatter.isNonProseLine(trimmed)
     }
 
     /**
@@ -56,14 +46,12 @@ object ScribeIndentEngine {
             idx++
         }
         if (idx == len) return -1 // Whitespace only line -> no indent
-
         val firstChar = content.charAt(lineIndex, idx)
 
         // Quick non-prose checks: headings, blockquotes, code fences, tables, XML tags
         if (firstChar == '#' || firstChar == '>' || firstChar == '`' || firstChar == '|' || firstChar == '<') {
             return -1
         }
-
         // Scene breaks (horizontal rules) starting with '---', '***', '___'
         if ((firstChar == '-' || firstChar == '*' || firstChar == '_') && idx + 2 < len) {
             val c2 = content.charAt(lineIndex, idx + 1)
@@ -72,7 +60,6 @@ object ScribeIndentEngine {
                 return -1
             }
         }
-
         return idx
     }
 
@@ -94,10 +81,10 @@ object ScribeIndentEngine {
         val isCrlf = originalText.contains("\r\n")
         val newline = if (isCrlf) "\r\n" else "\n"
         val rawLines = originalText.split("\n")
-        val sb = StringBuilder(originalText.length + rawLines.size * newIndent)
+        val sb = StringBuilder(originalText.length + rawLines.size * (newIndent + 2))
 
+        var inCodeBlock = false
         for (i in rawLines.indices) {
-            // Cooperative multitasking: periodically yield every 100 lines to let other coroutines breathe
             if (i % 100 == 0 && i > 0) {
                 yield()
             }
@@ -105,36 +92,33 @@ object ScribeIndentEngine {
             val line = if (rawLine.endsWith("\r")) rawLine.substring(0, rawLine.length - 1) else rawLine
             val trimmed = line.trimStart()
 
-            if (trimmed.isEmpty()) {
-                // Empty or blank line: normalize to completely empty (never indent blank lines)
-                sb.append("")
-            } else if (isNonProseLine(trimmed)) {
-                // Non-prose elements (headings, scene breaks, code blocks) retain original text
+            if (trimmed.startsWith("```")) {
+                inCodeBlock = !inCodeBlock
                 sb.append(line)
+            } else if (inCodeBlock || line.startsWith("\t") || isNonProseLine(trimmed)) {
+                // Non-prose elements and tab stops retain original text
+                sb.append(line)
+            } else if (trimmed.isEmpty()) {
+                // Empty / blank lines: retain auto-indent floor when ON, clean string when OFF
+                if (newIndent > 0) {
+                    sb.append(newIndentStr)
+                } else {
+                    sb.append("")
+                }
             } else {
                 // Prose paragraph (including lists):
-                // Scan pre-existing manual spaces or tabs (Requirement 8)
-                var leadingSpaces = 0
-                while (leadingSpaces < line.length && (line[leadingSpaces] == ' ' || line[leadingSpaces] == '\t')) {
-                    leadingSpaces++
-                }
-
-                // Strip existing leading whitespace first to prevent double-indentation
-                val proseContent = if (leadingSpaces > 0) line.substring(leadingSpaces) else line
-
-                if (newIndent > 0) {
-                    sb.append(newIndentStr).append(proseContent)
-                } else {
-                    // Indent turned OFF: write clean unindented prose
-                    sb.append(proseContent)
-                }
+                val leadingSpaces = ScribeEditorIndentFormatter.countLeadingSpaces(line)
+                val legitimateOldAuto = if (oldIndent > 0 && leadingSpaces >= oldIndent) oldIndent else 0
+                val manualSpaces = leadingSpaces - legitimateOldAuto
+                val proseContent = line.substring(leadingSpaces)
+                val newLeading = newIndentStr + " ".repeat(manualSpaces)
+                sb.append(newLeading).append(proseContent)
             }
 
             if (i < rawLines.size - 1) {
                 sb.append(newline)
             }
         }
-
         return sb.toString()
     }
 
@@ -146,31 +130,15 @@ object ScribeIndentEngine {
         originalText: String,
         lineIndex: Int,
         originalCol: Int,
-        newIndent: Int
+        newIndent: Int,
+        oldIndent: Int = 0
     ): Int {
-        val rawLines = originalText.split("\n")
-        if (lineIndex !in rawLines.indices) return originalCol
-        val rawLine = rawLines[lineIndex]
-        val line = if (rawLine.endsWith("\r")) rawLine.substring(0, rawLine.length - 1) else rawLine
-        val trimmed = line.trimStart()
-
-        if (trimmed.isEmpty() || isNonProseLine(trimmed)) {
-            return originalCol
-        }
-
-        var oldLeadingSpaces = 0
-        while (oldLeadingSpaces < line.length && (line[oldLeadingSpaces] == ' ' || line[oldLeadingSpaces] == '\t')) {
-            oldLeadingSpaces++
-        }
-
-        return if (newIndent > 0) {
-            if (originalCol <= oldLeadingSpaces) {
-                newIndent
-            } else {
-                (originalCol - oldLeadingSpaces + newIndent).coerceAtLeast(newIndent)
-            }
-        } else {
-            (originalCol - oldLeadingSpaces).coerceAtLeast(0)
-        }
+        return ScribeEditorIndentFormatter.calculateAdjustedCol(
+            originalText = originalText,
+            lineIndex = lineIndex,
+            originalCol = originalCol,
+            oldIndent = oldIndent,
+            newIndent = newIndent
+        )
     }
 }

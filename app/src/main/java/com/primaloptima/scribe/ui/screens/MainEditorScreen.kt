@@ -1683,7 +1683,8 @@ fun MainEditorScreen(
                                                         originalText = rawText,
                                                         lineIndex = curLine,
                                                         originalCol = curCol,
-                                                        newIndent = newFirstLineIndent
+                                                        newIndent = newFirstLineIndent,
+                                                        oldIndent = oldIndent
                                                     )
                                                     Pair(text, col)
                                                 }

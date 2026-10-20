@@ -28,6 +28,9 @@ import com.primaloptima.scribe.engine.ScribeSmartEnterEngine
 import com.primaloptima.scribe.util.model.ShortcutAction
 import com.primaloptima.scribe.engine.IndentInlayHint
 import com.primaloptima.scribe.engine.IndentInlayHintRenderer
+import com.primaloptima.scribe.engine.ScribeEditorIndentFormatter
+import com.primaloptima.scribe.engine.FormatterNewlineAction
+import com.primaloptima.scribe.engine.FormatterDeleteAction
 
 import kotlin.math.abs
 
@@ -178,6 +181,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
             subscribeEvent(io.github.rosemoe.sora.event.SelectionChangeEvent::class.java) { _, _ ->
                 val cur = try { cursor } catch (_: Throwable) { null } ?: return@subscribeEvent
                 if (!cur.isSelected && cur.leftLine < text.lineCount) {
+                    enforceAutoIndentFloor()
                     val line = cur.leftLine
                     val col = cur.leftColumn
                     val lineStr = try { text.getLineString(line) } catch (_: Throwable) { "" }
@@ -398,12 +402,45 @@ class ScribeCodeEditor @JvmOverloads constructor(
         }
     }
 
-    override fun commitText(text: CharSequence, applyAutoIndent: Boolean, applySymbolCompletion: Boolean) {
-        if (text == "\n" || text == "\r\n" || text == "\r") {
-            handleProseNewline()
+    private var isEnforcingIndentFloor: Boolean = false
+
+    fun enforceAutoIndentFloor() {
+        if (firstLineIndentSpaces <= 0 || isEnforcingIndentFloor || isBatchApplyingIndent) return
+        val cur = try { cursor } catch (_: Throwable) { null } ?: return
+        if (cur.isSelected) return
+        val line = cur.leftLine
+        val col = cur.leftColumn
+        if (line >= text.lineCount) return
+        val lineStr = try { text.getLineString(line) } catch (_: Throwable) { "" }
+
+        val replacement = ScribeEditorIndentFormatter.computeEmptyLineFloor(lineStr, firstLineIndentSpaces)
+        if (replacement != null) {
+            isEnforcingIndentFloor = true
+            try {
+                text.replace(line, 0, line, lineStr.length, replacement)
+                setSelection(line, replacement.length)
+                notifyIMEExternalCursorChange()
+            } finally {
+                isEnforcingIndentFloor = false
+            }
             return
         }
 
+        // If line starts with the auto-indent floor and cursor landed inside the floor (col < firstLineIndentSpaces):
+        val indent = " ".repeat(firstLineIndentSpaces)
+        if (col < firstLineIndentSpaces && lineStr.startsWith(indent)) {
+            setSelection(line, firstLineIndentSpaces)
+            notifyIMEExternalCursorChange()
+        }
+    }
+
+    override fun commitText(text: CharSequence, applyAutoIndent: Boolean, applySymbolCompletion: Boolean) {
+        if (text == "
+" || text == "
+" || text == "") {
+            handleProseNewline()
+            return
+        }
         if (!isInternalPasting && firstLineIndentSpaces > 0) {
             val cur = cursor
             if (!cur.isSelected) {
@@ -412,55 +449,49 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 val lineStr = if (line < this.text.lineCount) this.text.getLineString(line) else ""
                 val indent = " ".repeat(firstLineIndentSpaces)
 
-                if (lineStr.isEmpty()) {
-                    // Line is completely empty: ensure it starts with indent
-                    val processed = if (text.contains('\n') || text.contains('\r') || text.length > 1) {
+                val replacement = ScribeEditorIndentFormatter.computeEmptyLineFloor(lineStr, firstLineIndentSpaces)
+                if (replacement != null) {
+                    val processed = if (text.contains('
+') || text.contains('') || isPastedOrMultiLineText(text)) {
                         formatPastedText(text)
                     } else {
-                        "$indent$text"
+                        ""
                     }
+                    this.text.replace(line, 0, line, lineStr.length, "")
                     super.commitText(processed, applyAutoIndent, applySymbolCompletion)
                     return
                 }
 
-                // If user taps behind the set indent (col < firstLineIndentSpaces):
-                // Enforce the invariant that no text may exist or be typed behind the set indent.
                 if (col < firstLineIndentSpaces) {
                     if (lineStr.startsWith(indent)) {
-                        // The line already has the set indent, but user tapped in the indent whitespace.
-                        // Automatically advance cursor to the set indent boundary before committing text.
                         setSelection(line, firstLineIndentSpaces)
                     } else {
-                        // The line lacks the full set indent (e.g. fewer leading spaces):
-                        // Ensure leading whitespace is brought up to full set indent before typing.
-                        var leadingWs = 0
-                        while (leadingWs < lineStr.length && (lineStr[leadingWs] == ' ' || lineStr[leadingWs] == '\t')) {
-                            leadingWs++
-                        }
-                        this.text.replace(line, 0, line, leadingWs, indent)
+                        this.text.insert(line, 0, indent)
                         setSelection(line, firstLineIndentSpaces)
                     }
                 }
 
-                if (text.contains('\n') || text.contains('\r') || isPastedOrMultiLineText(text)) {
+                if (text.contains('
+') || text.contains('') || isPastedOrMultiLineText(text)) {
                     val processed = formatPastedText(text)
                     super.commitText(processed, applyAutoIndent, applySymbolCompletion)
                     return
                 }
             } else {
-                if (text.contains('\n') || text.contains('\r') || text.length > 1) {
+                if (text.contains('
+') || text.contains('') || text.length > 1) {
                     val processed = formatPastedText(text)
                     super.commitText(processed, applyAutoIndent, applySymbolCompletion)
                     return
                 }
             }
         }
-
         super.commitText(text, applyAutoIndent, applySymbolCompletion)
     }
 
     private fun isPastedOrMultiLineText(text: CharSequence): Boolean {
-        if (text.contains('\n') || text.contains('\r')) {
+        if (text.contains('
+') || text.contains('')) {
             return true
         }
         val cur = cursor
@@ -473,56 +504,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     private fun formatPastedText(rawText: CharSequence): String {
         if (firstLineIndentSpaces <= 0) return rawText.toString()
-        val indent = " ".repeat(firstLineIndentSpaces)
         val cur = cursor
         val line = cur.leftLine
         val col = cur.leftColumn
         val lineStr = if (line < text.lineCount) text.getLineString(line) else ""
-        val isCursorAtStart = col == 0 || (col <= firstLineIndentSpaces && lineStr.trim().isEmpty())
-        val lineAlreadyHasIndent = lineStr.startsWith(indent) && col >= indent.length
-
-        // If current line has unselected whitespace only and cursor is at start without full indent,
-        // clear it before paste so leading spaces are not duplicated.
-        if (!cur.isSelected && isCursorAtStart && !lineAlreadyHasIndent && lineStr.isNotEmpty() && lineStr.all { it == ' ' || it == '\t' }) {
-            text.delete(line, 0, line, lineStr.length)
-        }
-
-        val splitLines = rawText.toString().lines()
-        val result = StringBuilder()
-
-        for (i in splitLines.indices) {
-            val rawLine = splitLines[i]
-            val trimmed = rawLine.trimStart()
-
-            val isMarkdownNonProse = trimmed.startsWith("#") ||
-                trimmed.startsWith("---") ||
-                trimmed.startsWith("***") ||
-                trimmed.startsWith("* * *") ||
-                trimmed.startsWith("###") ||
-                trimmed.startsWith("___") ||
-                trimmed.startsWith(">") ||
-                trimmed.startsWith("```")
-
-            val indentedLine = when {
-                isMarkdownNonProse -> trimmed
-                trimmed.isEmpty() -> indent
-                else -> "$indent$trimmed"
-            }
-
-            if (i == 0) {
-                if (lineAlreadyHasIndent) {
-                    result.append(trimmed)
-                } else if (!isCursorAtStart && lineStr.trim().isNotEmpty()) {
-                    result.append(rawLine)
-                } else {
-                    result.append(indentedLine)
-                }
-            } else {
-                result.append("\n").append(indentedLine)
-            }
-        }
-
-        return result.toString()
+        return ScribeEditorIndentFormatter.formatPastedText(rawText, firstLineIndentSpaces, lineStr, col)
     }
 
     private fun handleProseNewline() {
@@ -530,12 +516,13 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (cur.isSelected) {
             text.delete(cur.leftLine, cur.leftColumn, cur.rightLine, cur.rightColumn)
         }
-        val line = cur.leftLine
-        val col = cur.leftColumn
-        val lineStr = text.getLineString(line)
+        // Re-read cursor to prevent operating on stale coordinates after selection deletion
+        val validCur = cursor
+        val line = validCur.leftLine
+        val col = validCur.leftColumn
+        val lineStr = if (line < text.lineCount) text.getLineString(line) else ""
+
         // ── Phase 0: Smart Pair Exit (Smooth Exit Outside Pair) ───────────────
-        // When typing inside quotes, brackets, or markdown wrap, pressing Enter before
-        // the closing delimiter smoothly moves the cursor outside the pair on the same line!
         val pairExit = ScribeSmartEnterEngine.checkPairExit(lineStr, col, activeShortcuts)
         if (pairExit != null) {
             setSelection(line, pairExit.jumpPastCol)
@@ -544,30 +531,27 @@ class ScribeCodeEditor @JvmOverloads constructor(
             return
         }
 
-        val isWhitespaceOnly = lineStr.isEmpty() || lineStr.all { it == ' ' || it == '\t' }
-
         // ── Phase 2: Smart List Continuation / Termination ───────────────────
         val listMatch = ScribeSmartEnterEngine.parsePrefix(lineStr, activeShortcuts)
         if (listMatch != null) {
             val prefix = listMatch.fullPrefix
             val hasContentAfterPrefix = lineStr.length > prefix.length && lineStr.substring(prefix.length).trim().isNotEmpty()
-
             if (!hasContentAfterPrefix) {
                 // List termination (Double Enter on an empty list item):
                 // Break out of the list and reset line to base indent (or empty if indent is 0)
-                text.replace(line, 0, line, lineStr.length, "")
-                setSelection(line, 0)
+                val exitIndent = if (firstLineIndentSpaces > 0) " ".repeat(firstLineIndentSpaces) else ""
+                text.replace(line, 0, line, lineStr.length, exitIndent)
+                setSelection(line, exitIndent.length)
                 ensureSelectionVisible()
                 notifyIMEExternalCursorChange()
                 return
             } else {
                 // Line has content after list marker:
-                // Ensure the next prefix strictly honors the set indent floor
                 val nextPrefix = ScribeListEngine.nextSequencePrefix(listMatch)
-
                 if (col >= prefix.length) {
                     // Cursor is after or at marker: split line and continue list sequence
-                    val insertStr = "\n$nextPrefix"
+                    val insertStr = "
+"
                     text.insert(line, col, insertStr)
                     ensureSelectionVisible()
                     notifyIMEExternalCursorChange()
@@ -577,46 +561,22 @@ class ScribeCodeEditor @JvmOverloads constructor(
             }
         }
 
-                // ── Phase 1: Indent Hierarchy & Clean Semantic Paragraph Breaks ───────
-        if (firstLineIndentSpaces > 0) {
-            if (isWhitespaceOnly) {
-                text.replace(line, 0, line, lineStr.length, "\n")
-                setSelection(line + 1, 0)
+        // ── Phase 1: Indent Hierarchy & Single-Newline Calculation ───────────
+        when (val action = ScribeEditorIndentFormatter.computeNewline(lineStr, line, col, firstLineIndentSpaces)) {
+            is FormatterNewlineAction.ReplaceAndInsertNewline -> {
+                text.replace(action.lineToReplace, 0, action.lineToReplace, action.oldLineLength, action.normalizedLine)
+                text.insert(action.lineToReplace, action.normalizedLine.length, action.textToInsert)
+                setSelection(action.targetLine, action.targetCol)
                 ensureSelectionVisible()
                 notifyIMEExternalCursorChange()
-                return
-            } else {
-                // Semantic Markdown paragraph separation without inserting raw spaces
-                text.insert(line, col, "\n\n")
-                setSelection(line + 2, 0)
+            }
+            is FormatterNewlineAction.InsertNewline -> {
+                text.insert(line, action.insertCol, action.textToInsert)
+                setSelection(action.targetLine, action.targetCol)
                 ensureSelectionVisible()
                 notifyIMEExternalCursorChange()
-                return
             }
         }
-
-        // ── Manual Mode (firstLineIndentSpaces == 0) ─────────────────────────
-        if (isWhitespaceOnly) {
-            text.replace(line, 0, line, lineStr.length, "\n")
-            ensureSelectionVisible()
-            notifyIMEExternalCursorChange()
-            return
-        }
-
-        val indentToInsert = if (lineStr.isEmpty()) {
-            ""
-        } else {
-            var p = 0
-            val maxCheck = minOf(col, lineStr.length)
-            while (p < maxCheck && (lineStr[p] == ' ' || lineStr[p] == '\t')) {
-                p++
-            }
-            if (p > 0) lineStr.substring(0, p) else ""
-        }
-        val insertStr = "\n$indentToInsert"
-        text.insert(line, col, insertStr)
-        ensureSelectionVisible()
-        notifyIMEExternalCursorChange()
     }
 
     override fun deleteText() {
@@ -625,14 +585,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
             super.deleteText()
             return
         }
-
         val line = cur.leftLine
         val col = cur.leftColumn
-        val lineStr = text.getLineString(line)
+        val lineStr = if (line < text.lineCount) text.getLineString(line) else ""
 
         // ── Tag Guardrail & Immutability ──────────────────────────────────────
-        // When cursor is positioned immediately after an image markdown tag, or inside it:
-        // Protect image tag from accidental deletion and snap cursor safely to the left boundary.
         if (lineStr.contains("![")) {
             val imgRegex = Regex("""!\[(.*?)\]\((vault-img://[^\s)]+|https?://[^\s)]+|content://[^\s)]+|[^\s)]+)\)""")
             val imgMatch = imgRegex.findAll(lineStr).firstOrNull { m ->
@@ -662,7 +619,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val listMatch = ScribeSmartEnterEngine.parsePrefix(lineStr, activeShortcuts)
         if (listMatch != null) {
             val prefix = listMatch.fullPrefix
-            // If cursor is positioned at the end of the empty list prefix, delete prefix in one keystroke
             if (col == prefix.length && lineStr.substring(prefix.length).trim().isEmpty()) {
                 val replacement = if (firstLineIndentSpaces > 0) " ".repeat(firstLineIndentSpaces) else listMatch.leadingWhitespace
                 text.replace(line, 0, line, lineStr.length, replacement)
@@ -673,58 +629,27 @@ class ScribeCodeEditor @JvmOverloads constructor(
             }
         }
 
-        // ── Phase 1: Indent Hierarchy & Step-down Backspace ──────────────────
-        val isWhitespaceOnly = lineStr.isEmpty() || lineStr.all { it == ' ' || it == '\t' }
-        if (firstLineIndentSpaces > 0) {
-            val indent = " ".repeat(firstLineIndentSpaces)
-            if (isWhitespaceOnly) {
-                // If the empty line has extra hierarchical spaces (> firstLineIndentSpaces):
-                // Step-down backspace: Reduce extra hierarchy spaces back down to set indent first!
-                if (lineStr.length > firstLineIndentSpaces) {
-                    text.replace(line, 0, line, lineStr.length, indent)
-                    setSelection(line, indent.length)
-                    ensureSelectionVisible()
-                    notifyIMEExternalCursorChange()
-                    return
-                }
-
-                // If line is at base indent (or empty), delete line and merge into previous line
-                if (line > 0) {
-                    val prevLine = line - 1
-                    val prevCol = text.getColumnCount(prevLine)
-                    text.delete(prevLine, prevCol, line, lineStr.length)
-                    setSelection(prevLine, prevCol)
-                    ensureSelectionVisible()
-                    notifyIMEExternalCursorChange()
-                    return
-                } else {
-                    // On line 0 empty line: ensure it has indent spaces and cursor at indent.length
-                    if (lineStr != indent) {
-                        text.replace(0, 0, 0, lineStr.length, indent)
-                    }
-                    setSelection(0, indent.length)
-                    ensureSelectionVisible()
-                    notifyIMEExternalCursorChange()
-                    return
-                }
-            } else if (col <= firstLineIndentSpaces && lineStr.startsWith(indent)) {
-                // Cursor is at or before the indentation boundary of a line with text:
-                // (e.g. col == firstLineIndentSpaces, right in front of the text)
-                // Backspace merges this line's text with previous line!
-                if (line > 0) {
-                    val prevLine = line - 1
-                    val prevCol = text.getColumnCount(prevLine)
-                    text.delete(prevLine, prevCol, line, firstLineIndentSpaces)
-                    setSelection(prevLine, prevCol)
-                    ensureSelectionVisible()
-                    notifyIMEExternalCursorChange()
-                    return
-                }
+        // ── Phase 1: Indent Hierarchy & Backspace Calculation ────────────────
+        val prevLineLength = if (line > 0) text.getColumnCount(line - 1) else 0
+        when (val deleteAction = ScribeEditorIndentFormatter.computeDelete(lineStr, line, col, firstLineIndentSpaces, prevLineLength)) {
+            is FormatterDeleteAction.MergeWithPreviousLine -> {
+                text.delete(deleteAction.prevLine, deleteAction.prevCol, deleteAction.currentLine, deleteAction.deleteToCol)
+                setSelection(deleteAction.prevLine, deleteAction.prevCol)
+                ensureSelectionVisible()
+                notifyIMEExternalCursorChange()
+                return
+            }
+            is FormatterDeleteAction.ClampCursorLineZero -> {
+                setSelection(0, deleteAction.targetCol)
+                ensureSelectionVisible()
+                notifyIMEExternalCursorChange()
+                return
+            }
+            is FormatterDeleteAction.DelegateToStandardDelete -> {
+                super.deleteText()
+                return
             }
         }
-
-        // Standard delete behavior (when indent is OFF or normal character deletion)
-        super.deleteText()
     }
     var isBatchApplyingIndent: Boolean = false
         private set
