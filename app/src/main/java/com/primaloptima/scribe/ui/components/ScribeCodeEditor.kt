@@ -101,10 +101,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
             }
             val maxScrollWithBottomSpace = (layoutH - targetWritingViewport).coerceAtLeast(0)
 
-            // Pure Writer Stationary Content Retention:
-            // Never clamp below current offsetY when keyboard dismisses or document is positioned
-            val currentOffsetY = offsetY
-            maxOf(baseSora, maxScrollWithBottomSpace, if (currentOffsetY > 0) currentOffsetY else 0)
+            maxOf(baseSora, maxScrollWithBottomSpace)
         } catch (_: Throwable) {
             super.getScrollMaxY()
         }
@@ -172,6 +169,10 @@ class ScribeCodeEditor @JvmOverloads constructor(
         props.autoIndent = false
         props.deleteEmptyLineFast = false
         props.deleteMultiSpaces = 1
+        try {
+            cursorAnimator = ScribeCursorAnimator(this)
+            isCursorAnimationEnabled = true
+        } catch (_: Throwable) { }
         try {
             subscribeEvent(HandleStateChangeEvent::class.java) { event, _ ->
                 isHandleDragging = event.isHeld
@@ -518,6 +519,23 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val col = validCur.leftColumn
         val lineStr = if (line < text.lineCount) text.getLineString(line) else ""
 
+        // Capture visual start position BEFORE any text insertion for smooth line break glide
+        val scribeAnimator = cursorAnimator as? ScribeCursorAnimator
+        val lay = layout
+        if (scribeAnimator != null && lay != null) {
+            val startOff = try { lay.getCharLayoutOffset(line, col) } catch (_: Throwable) { null }
+            if (startOff != null) {
+                val startX = measureTextRegionOffset() + startOff[1]
+                val startY = startOff[0]
+                scribeAnimator.armGlide(
+                    startX = startX,
+                    startY = startY,
+                    startHeight = rowHeight.toFloat(),
+                    fallbackTargetY = startY + rowHeight
+                )
+            }
+        }
+
         // ── Phase 0: Smart Pair Exit (Smooth Exit Outside Pair) ───────────────
         val pairExit = ScribeSmartEnterEngine.checkPairExit(lineStr, col, activeShortcuts)
         if (pairExit != null) {
@@ -578,12 +596,34 @@ class ScribeCodeEditor @JvmOverloads constructor(
     override fun deleteText() {
         val cur = cursor
         if (cur.isSelected) {
+            val wasAllSelected = (cur.leftLine == 0 && cur.leftColumn == 0 &&
+                cur.rightLine >= text.lineCount - 1 && cur.rightColumn >= text.getColumnCount(cur.rightLine))
             super.deleteText()
+            if (wasAllSelected || text.isEmpty()) {
+                parentCanvas?.resetDocumentToTop(smooth = true)
+            }
             return
         }
         val line = cur.leftLine
         val col = cur.leftColumn
         val lineStr = if (line < text.lineCount) text.getLineString(line) else ""
+
+        // Capture visual start position BEFORE delete for smooth line merge glide
+        val scribeAnimator = cursorAnimator as? ScribeCursorAnimator
+        val lay = layout
+        if (scribeAnimator != null && lay != null) {
+            val startOff = try { lay.getCharLayoutOffset(line, col) } catch (_: Throwable) { null }
+            if (startOff != null) {
+                val startX = measureTextRegionOffset() + startOff[1]
+                val startY = startOff[0]
+                scribeAnimator.armGlide(
+                    startX = startX,
+                    startY = startY,
+                    startHeight = rowHeight.toFloat(),
+                    fallbackTargetY = startY - rowHeight
+                )
+            }
+        }
 
         // ── Tag Guardrail & Immutability ──────────────────────────────────────
         if (lineStr.contains("![")) {

@@ -254,8 +254,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     /**
      * Enforces that editor scroll and canvas scroll are within physical bounds.
-     * When document height shrinks (e.g. reducing or turning off indent), clamps
-     * excess editor.offsetY back to editor.scrollMaxY and pulls canvas smoothly
+     * When document height shrinks (e.g. reducing or turning off indent, or deleting paragraphs),
+     * clamps excess editor.offsetY back to editor.scrollMaxY and pulls canvas smoothly
      * so that the end of the document never disappears off-screen.
      */
     fun clampEditorScrollToMax() {
@@ -263,6 +263,28 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (editor.offsetY > maxScrollY) {
             val excess = (editor.offsetY - maxScrollY).toFloat()
             scrollCanvasBy(-excess)
+        }
+        if (editor.text.isEmpty() && scrollD > 0) {
+            scrollCanvasBy(-scrollD.toFloat())
+        }
+    }
+
+    /**
+     * Smoothly returns the document canvas to the top (scrollD = 0, offsetY = 0),
+     * ensuring the header and title section are fully restored into view as one continuous document.
+     */
+    fun resetDocumentToTop(smooth: Boolean = true) {
+        cancelCanvasAnimation()
+        try {
+            editor.scroller?.abortAnimation()
+        } catch (_: Throwable) {}
+        val totalScroll = scrollD + editor.offsetY
+        if (totalScroll > 0) {
+            if (smooth) {
+                smoothScrollCanvasBy(-totalScroll.toFloat(), durationMs = 240L, interpolator = FastOutSlowInInterpolator)
+            } else {
+                scrollCanvasBy(-totalScroll.toFloat())
+            }
         }
     }
 
@@ -500,15 +522,26 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val density = resources.displayMetrics.density
         val marginPx = (24 * density).roundToInt()
         val deadbandPx = (4 * density).roundToInt()
+        val targetLineBottom = visibleHeight - marginPx
+        val isLastLine = line >= (editor.text.lineCount - 1)
 
         if (visibleHeight > 0) {
-            if (screenBottom > (visibleHeight - marginPx + deadbandPx)) {
-                val overflow = screenBottom - (visibleHeight - marginPx)
+            if (screenBottom > (targetLineBottom + deadbandPx)) {
+                val overflow = screenBottom - targetLineBottom
                 lastEnsureCursorTime = now
                 if (smooth) {
                     smoothScrollCanvasBy(overflow.toFloat(), durationMs = customDurationMs, interpolator = FastOutSlowInInterpolator)
                 } else {
                     scrollCanvasBy(overflow.toFloat())
+                }
+            } else if (isLastLine && screenBottom < (targetLineBottom - deadbandPx) && (scrollD > 0 || editor.offsetY > 0)) {
+                // When on the last line and deleting text: smoothly scroll down so the last line stays anchored above the shortcut bar
+                val underflow = screenBottom - targetLineBottom
+                lastEnsureCursorTime = now
+                if (smooth) {
+                    smoothScrollCanvasBy(underflow.toFloat(), durationMs = 140L, interpolator = FastOutSlowInInterpolator)
+                } else {
+                    scrollCanvasBy(underflow.toFloat())
                 }
             } else if (screenTop < -deadbandPx && (scrollD > 0 || editor.offsetY > 0)) {
                 val underflow = screenTop
@@ -584,10 +617,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val scribeEditor = editor as? ScribeCodeEditor
         val isReady = scribeEditor?.isWordwrapReady() ?: true
         val layoutH = editor.layout?.layoutHeight ?: 0
-        val isLayoutPopulated = editor.text.length == 0 || layoutH > 0
-        val totalContentHeight = headerHeight + layoutH + persistentBottomSpacePx.toInt()
-
-        if (isReady && isLayoutPopulated && totalContentHeight <= viewportHeight && editor.text.isEmpty()) {
+        if (editor.text.isEmpty()) {
             if (editor.offsetY > 0) {
                 try {
                     editor.scroller?.let { s ->

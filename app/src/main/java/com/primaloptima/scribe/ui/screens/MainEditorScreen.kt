@@ -1528,7 +1528,11 @@ fun MainEditorScreen(
                                         editorCurrentText = current
                                         if (loadedNoteId != null)
                                             editorVm.onContentChanged(current)
-                                        unifiedCanvasRef?.ensureCursorVisibleAboveKeyboard()
+                                        if (current.isEmpty()) {
+                                            unifiedCanvasRef?.resetDocumentToTop(smooth = true)
+                                        } else {
+                                            unifiedCanvasRef?.ensureCursorVisibleAboveKeyboard()
+                                        }
                                     }
                                     setOnFocusChangeListener { _, hasFocus ->
                                         if (hasFocus) {
