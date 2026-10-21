@@ -14,15 +14,22 @@ import io.github.rosemoe.sora.widget.style.CursorAnimator
  * 3. Tapping on different lines in the document (matching Sora's signature glide feel).
  * 4. Mid-flight interruption: if the cursor is already in motion and a new navigation
  *    or edit occurs, it smoothly glides from its current intermediate position without jumping.
+ *
+ * Crash Guard:
+ * ValueAnimator instances are only created via ValueAnimator.ofFloat() with explicit ranges.
+ * If start() is called when no movement has occurred (e.g., initial document load),
+ * it returns safely without invoking start() on an uninitialized ValueAnimator.
  */
 class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, ValueAnimator.AnimatorUpdateListener {
 
     private val glideInterpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
     private val glideDurationMs = 140L
 
-    private var animatorX = ValueAnimator()
-    private var animatorY = ValueAnimator()
-    private var animatorHeight = ValueAnimator()
+    private var animatorX: ValueAnimator? = null
+    private var animatorY: ValueAnimator? = null
+    private var animatorHeight: ValueAnimator? = null
+
+    private var isAnimationReady: Boolean = false
 
     private var currentVisualX = 0f
     private var currentVisualY = 0f
@@ -86,24 +93,29 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
         currentVisualY = fromY
         currentVisualHeight = fromHeight
 
-        animatorX = ValueAnimator.ofFloat(fromX, toX).apply {
+        val ax = ValueAnimator.ofFloat(fromX, toX).apply {
             duration = glideDurationMs
             interpolator = glideInterpolator
             addUpdateListener(this@ScribeCursorAnimator)
         }
-        animatorY = ValueAnimator.ofFloat(fromY, toY).apply {
+        val ay = ValueAnimator.ofFloat(fromY, toY).apply {
             duration = glideDurationMs
             interpolator = glideInterpolator
         }
-        animatorHeight = ValueAnimator.ofFloat(fromHeight, toHeight).apply {
+        val ah = ValueAnimator.ofFloat(fromHeight, toHeight).apply {
             duration = glideDurationMs
             interpolator = glideInterpolator
         }
 
+        animatorX = ax
+        animatorY = ay
+        animatorHeight = ah
+
         lastAnimateTimestamp = System.currentTimeMillis()
-        animatorX.start()
-        animatorY.start()
-        animatorHeight.start()
+        isAnimationReady = false
+        ax.start()
+        ay.start()
+        ah.start()
     }
 
     override fun markStartPos() {
@@ -174,6 +186,10 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
         }
 
         cancel()
+        currentVisualX = fromX
+        currentVisualY = fromY
+        currentVisualHeight = fromH
+
         animatorX = ValueAnimator.ofFloat(fromX, toX).apply {
             duration = glideDurationMs
             interpolator = glideInterpolator
@@ -187,33 +203,39 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
             duration = glideDurationMs
             interpolator = glideInterpolator
         }
+        isAnimationReady = true
     }
 
     override fun start() {
-        if (!editor.isCursorAnimationEnabled) return
+        if (!editor.isCursorAnimationEnabled || !isAnimationReady) return
+        isAnimationReady = false
         lastAnimateTimestamp = System.currentTimeMillis()
-        animatorX.start()
-        animatorY.start()
-        animatorHeight.start()
+        animatorX?.start()
+        animatorY?.start()
+        animatorHeight?.start()
     }
 
     override fun cancel() {
-        animatorX.cancel()
-        animatorY.cancel()
-        animatorHeight.cancel()
+        isAnimationReady = false
+        animatorX?.cancel()
+        animatorY?.cancel()
+        animatorHeight?.cancel()
+        animatorX = null
+        animatorY = null
+        animatorHeight = null
     }
 
     override fun isRunning(): Boolean =
-        animatorX.isRunning || animatorY.isRunning || animatorHeight.isRunning
+        animatorX?.isRunning == true || animatorY?.isRunning == true || animatorHeight?.isRunning == true
 
     override fun animatedX(): Float =
-        if (animatorX.isRunning) (animatorX.animatedValue as Float) else currentVisualX
+        animatorX?.takeIf { it.isRunning }?.animatedValue as? Float ?: currentVisualX
 
     override fun animatedY(): Float =
-        if (animatorY.isRunning) (animatorY.animatedValue as Float) else currentVisualY
+        animatorY?.takeIf { it.isRunning }?.animatedValue as? Float ?: currentVisualY
 
     override fun animatedLineHeight(): Float =
-        if (animatorHeight.isRunning) (animatorHeight.animatedValue as Float) else currentVisualHeight
+        animatorHeight?.takeIf { it.isRunning }?.animatedValue as? Float ?: currentVisualHeight
 
     override fun animatedLineBottom(): Float = animatedY()
 
