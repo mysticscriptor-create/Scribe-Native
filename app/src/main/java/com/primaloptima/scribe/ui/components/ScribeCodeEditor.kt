@@ -506,7 +506,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
         return ScribeEditorIndentFormatter.formatPastedText(rawText, firstLineIndentSpaces, lineStr, col)
     }
 
-    private fun handleProseNewline() {
+    fun handleProseNewline() {
+        clearKeyMetaStates()
         val cur = cursor
         if (cur.isSelected) {
             text.delete(cur.leftLine, cur.leftColumn, cur.rightLine, cur.rightColumn)
@@ -547,6 +548,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     // Cursor is after or at marker: split line and continue list sequence
                     val insertStr = "\n$nextPrefix"
                     text.insert(line, col, insertStr)
+                    setSelection(line + 1, nextPrefix.length)
                     ensureSelectionVisible()
                     notifyIMEExternalCursorChange()
                     return
@@ -911,6 +913,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
      * to the editor screen mid-session (Context B). Guarantees zero blank screen state.
      */
     fun refreshRenderingOnResume() {
+        clearKeyMetaStates()
         removeCallbacks(safetyFadeInRunnable)
         isAwaitingLayoutReady = false
         alpha = 1f
@@ -1239,7 +1242,24 @@ class ScribeCodeEditor @JvmOverloads constructor(
         }
     }
 
+    /**
+     * Clears persistent/sticky key meta states (Shift, Alt, Sym) in Sora Editor's
+     * KeyMetaStates tracker. This prevents stale modifier flags from lingering after
+     * app backgrounding, screen sleep, or window focus transitions, which would otherwise
+     * cause normal Enter to be misinterpreted as Shift+Enter (triggering startNewLine).
+     */
+    fun clearKeyMetaStates() {
+        try {
+            keyMetaStates.clearMetaStates(
+                android.text.method.MetaKeyKeyListener.META_SHIFT_ON or
+                android.text.method.MetaKeyKeyListener.META_ALT_ON or
+                android.text.method.MetaKeyKeyListener.META_SYM_ON
+            )
+        } catch (_: Throwable) {}
+    }
+
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
+        clearKeyMetaStates()
         val connection = super.onCreateInputConnection(outAttrs)
         outAttrs.inputType = outAttrs.inputType or
             InputType.TYPE_CLASS_TEXT or
@@ -1268,6 +1288,22 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) {
         super.onFocusChanged(gainFocus, direction, previouslyFocusedRect)
+        clearKeyMetaStates()
+    }
+
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        clearKeyMetaStates()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        clearKeyMetaStates()
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        clearKeyMetaStates()
     }
 
     override fun ensureSelectionVisible() {

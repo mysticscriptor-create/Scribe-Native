@@ -1559,15 +1559,34 @@ fun MainEditorScreen(
                                         }
                                     } catch (_: Throwable) { }
                                     subscribeEvent(EditorKeyEvent::class.java) { event, _ ->
-                                        if (event.action != android.view.KeyEvent.ACTION_DOWN) return@subscribeEvent
                                         if (event.keyCode != android.view.KeyEvent.KEYCODE_ENTER) return@subscribeEvent
-                                        val cur = this.cursor
-                                        if (cur.isSelected) return@subscribeEvent
-                                        val lineStr = this.text.getLineString(cur.leftLine)
-                                        val col  = cur.leftColumn
-                                        val pairExit = com.primaloptima.scribe.engine.ScribeSmartEnterEngine.checkPairExit(lineStr, col, shortcuts)
-                                        if (pairExit != null) {
-                                            setSelection(cur.leftLine, pairExit.jumpPastCol)
+                                        if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+                                            val scribeEditor = this as? com.primaloptima.scribe.ui.components.ScribeCodeEditor
+                                            scribeEditor?.clearKeyMetaStates()
+                                            val cur = this.cursor
+                                            if (cur.isSelected) {
+                                                scribeEditor?.handleProseNewline()
+                                                event.intercept()
+                                                return@subscribeEvent
+                                            }
+                                            val line = cur.leftLine
+                                            val col  = cur.leftColumn
+                                            val lineStr = if (line < this.text.lineCount) this.text.getLineString(line) else ""
+                                            val pairExit = com.primaloptima.scribe.engine.ScribeSmartEnterEngine.checkPairExit(lineStr, col, shortcuts)
+                                            if (pairExit != null) {
+                                                setSelection(line, pairExit.jumpPastCol)
+                                                ensureSelectionVisible()
+                                                notifyIMEExternalCursorChange()
+                                                event.intercept()
+                                                return@subscribeEvent
+                                            }
+                                            if (scribeEditor != null) {
+                                                scribeEditor.handleProseNewline()
+                                                event.intercept()
+                                            } else {
+                                                event.intercept()
+                                            }
+                                        } else {
                                             event.intercept()
                                         }
                                     }

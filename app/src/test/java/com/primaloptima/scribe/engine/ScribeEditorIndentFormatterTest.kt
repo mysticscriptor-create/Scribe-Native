@@ -310,4 +310,55 @@ class ScribeEditorIndentFormatterTest {
         val expected = "    First paragraph\n    Second paragraph\n# Heading"
         assertEquals(expected, formatted)
     }
+
+    // ──────────────────────────────────────────────────────────────────────────
+    // 7. Mid-Sentence Splitting & Smart List Continuation Invariants
+    // ──────────────────────────────────────────────────────────────────────────
+    @Test
+    fun testNewline_inMiddleOfManualIndent_splitsSentenceCorrectly() {
+        val lineStr = "    The quick brown fox jumps"
+        val col = 17 // Between "The quick brown " and "fox jumps"
+        val action = ScribeEditorIndentFormatter.computeNewline(
+            lineStr = lineStr,
+            line = 0,
+            col = col,
+            autoIndentSpaces = 4
+        )
+        assertTrue(action is FormatterNewlineAction.InsertNewline)
+        val insert = action as FormatterNewlineAction.InsertNewline
+        assertEquals("\n    ", insert.textToInsert)
+        assertEquals(17, insert.insertCol)
+        assertEquals(1, insert.targetLine)
+        assertEquals(4, insert.targetCol)
+
+        // Verify simulated line splitting:
+        val firstPart = lineStr.substring(0, insert.insertCol)
+        val secondPart = insert.textToInsert.trimStart('\n') + lineStr.substring(insert.insertCol)
+        assertEquals("    The quick brown ", firstPart)
+        assertEquals("    fox jumps", secondPart)
+    }
+
+    @Test
+    fun testNewline_inMiddleOfSmartNumericList_splitsSentenceAndIncrementsPrefix() {
+        val lineStr = "1. The quick brown fox jumps"
+        val listMatch = ScribeListEngine.parseListLine(lineStr)
+        assertTrue(listMatch != null)
+        val match = listMatch!!
+        assertTrue(match.isOrdered)
+        assertEquals(1L, match.orderNumber)
+        assertEquals("1. ", match.fullPrefix)
+
+        val nextPrefix = ScribeListEngine.nextSequencePrefix(match)
+        assertEquals("2. ", nextPrefix)
+
+        val col = 17 // Between "The quick brown " and "fox jumps"
+        assertTrue(col >= match.fullPrefix.length)
+
+        // Simulating the insertion at col:
+        val firstPart = lineStr.substring(0, col)
+        val secondPart = nextPrefix + lineStr.substring(col)
+        assertEquals("1. The quick brown ", firstPart)
+        assertEquals("2. fox jumps", secondPart)
+        assertEquals(3, nextPrefix.length) // Target col on next line
+    }
 }
