@@ -176,6 +176,12 @@ object ScribeScrollPolicy {
         val totalScroll = scrollD + offsetY
         if (totalScroll <= 0 || viewportHeight <= 0) return 0f
 
+        // 1. Full document fit: If remaining document content fits completely within viewport
+        val totalContentHeight = headerHeight + layoutHeight
+        if (totalContentHeight <= viewportHeight) {
+            return -totalScroll.toFloat()
+        }
+
         val headerRemaining = headerHeight - scrollD
         val textBottomScreenY = (headerRemaining + layoutHeight - offsetY).toFloat()
 
@@ -183,7 +189,7 @@ object ScribeScrollPolicy {
         val deadbandPx = (CURSOR_DEADBAND_DP * density).roundToInt()
         val targetLineBottom = viewportHeight - marginPx
 
-        // 1. Text bottom detection: If the bottom of all text is floating above targetLineBottom
+        // 2. Text bottom detection: If the bottom of all text is floating above targetLineBottom
         if (textBottomScreenY < (targetLineBottom - deadbandPx)) {
             val gap = targetLineBottom - textBottomScreenY
             val scrollDownBy = minOf(gap, totalScroll.toFloat())
@@ -192,7 +198,7 @@ object ScribeScrollPolicy {
             }
         }
 
-        // 2. Physical bounds check: If total scroll exceeds maxCanvasScroll
+        // 3. Physical bounds check: If total scroll exceeds maxCanvasScroll
         if (totalScroll > maxCanvasScroll) {
             val excess = (totalScroll - maxCanvasScroll).toFloat()
             if (excess >= 1f) {
@@ -207,10 +213,9 @@ object ScribeScrollPolicy {
      * Calculates the safe maximum vertical scroll for the editor layout, accounting for
      * persistent bottom space (keyboard + shortcut bar).
      *
-     * When keyboard is visible (isKeyboardVisible = true), viewportHeight is ALREADY reduced
-     * by Compose's Modifier.padding(bottom = docBottomPadding).
-     * Therefore, only breathingMarginPx (24dp) is needed so the last line sits comfortably
-     * above the shortcut bar without double-counting keyboard height.
+     * When keyboard is visible (isKeyboardVisible = true), provides generous bottom clearance
+     * (at least 45% of viewport height) so that typing or tapping at the end of the document
+     * never feels choked against the shortcut bar and never snaps downward on keyboard appearance.
      * When keyboard is dismissed (isKeyboardVisible = false), persistentBottomSpacePx is used
      * to keep the text stationary behind the dismissed keyboard surface.
      */
@@ -228,7 +233,7 @@ object ScribeScrollPolicy {
         if (isTextEmpty || layoutHeight <= 0 || viewportHeight <= 0) return 0
 
         val space = if (isKeyboardVisible) {
-            breathingMarginPx
+            maxOf(breathingMarginPx, (viewportHeight * 0.45f).toInt())
         } else if (persistentBottomSpacePx > 0) {
             persistentBottomSpacePx
         } else {

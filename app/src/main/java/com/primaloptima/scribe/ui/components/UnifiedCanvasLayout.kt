@@ -95,7 +95,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val layoutH = editor.layout?.layoutHeight ?: 0
             val breathingMargin = breathingMarginPx.roundToInt()
             val bottomSpace = if (isKeyboardVisible) {
-                breathingMargin
+                maxOf(breathingMargin, (height * 0.45f).roundToInt())
             } else if (editor.isFocused || editor.offsetY > 0) {
                 persistentBottomSpacePx.roundToInt()
             } else {
@@ -534,9 +534,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             var deltaY = screenBottom - targetLineBottom
 
             // Pure Writer Persistent Bottom Space:
-            // Document bounds include the persistent bottom space (estimatedKeyboardHeightPx + breathingMarginPx)
-            // so that lines near the end of the document can glide fluidly above the shortcut bar without restriction.
-            val totalContentHeight = (headerHeight + layout.layoutHeight + marginPx).toFloat()
+            // Document bounds include generous bottom clearance so that lines near the end
+            // of the document can glide fluidly above the shortcut bar without restriction.
+            val bottomClearance = maxOf(marginPx.toFloat(), futureViewportHeight * 0.45f)
+            val totalContentHeight = (headerHeight + layout.layoutHeight + bottomClearance)
             val maxScrollFuture = (totalContentHeight - futureViewportHeight).coerceAtLeast(0f)
             val currentScroll = (scrollD + editor.offsetY).toFloat()
             val maxAllowedDelta = (maxScrollFuture - currentScroll).coerceAtLeast(0f)
@@ -916,6 +917,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 scroller.forceFinished(true)
                 scroller.startScroll(currX, currY, 0, targetY - currY, 0)
                 scroller.abortAnimation()
+                try {
+                    editor.renderContext.invalidateRenderNodes()
+                } catch (_: Throwable) {}
                 editor.invalidate()
             }
         } catch (_: Throwable) {}

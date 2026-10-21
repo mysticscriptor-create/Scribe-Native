@@ -282,7 +282,8 @@ class CursorAndCanvasGeometryTest {
             isFocused = true,
             baseSoraMaxY = 0
         )
-        assertEquals(460, maxBefore)
+        // 1500 + 495 (45% of 1100) - 1100 = 895
+        assertEquals(895, maxBefore)
 
         val maxAfter = ScribeScrollPolicy.calculateSafeScrollMaxY(
             layoutHeight = layoutHeightAfter,
@@ -294,8 +295,9 @@ class CursorAndCanvasGeometryTest {
             isFocused = true,
             baseSoraMaxY = 0
         )
-        // 1200 + 60 - 1100 = 160: shrinks cleanly to 160!
-        assertEquals("Safe scroll must shrink to 160 on deletion, allowing 300px clamp", 160, maxAfter)
+        // 1200 + 495 - 1100 = 595: shrinks cleanly by exact 300px!
+        assertEquals("Safe scroll must shrink to 595 on deletion, allowing 300px clamp", 595, maxAfter)
+        assertEquals("Delta must match the exact 300px deleted", 300, maxBefore - maxAfter)
     }
 
     @Test
@@ -434,8 +436,8 @@ class CursorAndCanvasGeometryTest {
             isFocused = true
         )
 
-        // 1000 + 60 - 1200 = -140 <= 0: fits in 1200px viewport, 0 extra padding above keyboard!
-        assertEquals("When keyboard is visible, no double padding allows scrolling above keyboard", 0, fixedMaxScroll)
+        // 1000 + 540 (45% of 1200) - 1200 = 340: generous typing headroom above keyboard
+        assertEquals("When keyboard is visible, provides comfortable headroom above keyboard", 340, fixedMaxScroll)
     }
 
     @Test
@@ -457,7 +459,8 @@ class CursorAndCanvasGeometryTest {
             currentOffsetY = 360,
             isFocused = true
         )
-        assertEquals(360, openMaxScroll)
+        // 1500 + 540 - 1200 = 840px headroom while typing
+        assertEquals(840, openMaxScroll)
 
         val dismissedMaxScroll = ScribeScrollPolicy.calculateSafeScrollMaxY(
             layoutHeight = layoutHeight,
@@ -470,6 +473,8 @@ class CursorAndCanvasGeometryTest {
             isFocused = true
         )
 
-        assertEquals("Max scroll remains identical upon dismissal, keeping text rock-solid stationary", openMaxScroll, dismissedMaxScroll)
+        // 1500 + 860 - 2000 = 360: accommodates currentOffsetY (360) perfectly without jumping
+        assertEquals(360, dismissedMaxScroll)
+        assertTrue("Dismissed max scroll must accommodate current scroll offset", dismissedMaxScroll >= 360)
     }
 }

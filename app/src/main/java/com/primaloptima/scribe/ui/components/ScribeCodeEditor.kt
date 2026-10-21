@@ -612,6 +612,10 @@ class ScribeCodeEditor @JvmOverloads constructor(
             super.deleteText()
             if (wasAllSelected || text.isEmpty()) {
                 parentCanvas?.resetDocumentToTop(smooth = true)
+            } else {
+                post {
+                    parentCanvas?.clampCanvasScrollToMax(smooth = true)
+                }
             }
             return
         }
@@ -1123,7 +1127,14 @@ class ScribeCodeEditor @JvmOverloads constructor(
             if (!event.isLayoutBusy) {
                 post {
                     checkAndTriggerReady()
-                    (parent as? UnifiedCanvasLayout)?.clampEditorScrollToMax()
+                    val pCanvas = parentCanvas
+                    if (pCanvas != null) {
+                        val totalScroll = pCanvas.scrollD + offsetY
+                        val maxScroll = pCanvas.maxCanvasScroll
+                        if (totalScroll > maxScroll || text.isEmpty()) {
+                            pCanvas.clampCanvasScrollToMax(smooth = true)
+                        }
+                    }
                 }
             }
         }
