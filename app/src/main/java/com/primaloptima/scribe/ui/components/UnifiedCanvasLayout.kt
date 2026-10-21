@@ -266,7 +266,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         isPredictiveGlideRunning = false
         targetPredictedScrollTotal = -1f
         if (!scroller.isFinished) {
-            scroller.abortAnimation()
+            scroller.forceFinished(true)
         }
     }
 
@@ -414,31 +414,16 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     fun resetScroll() {
         if (!scroller.isFinished) {
-            scroller.abortAnimation()
+            scroller.forceFinished(true)
         }
-        try {
-            editor.scroller?.abortAnimation()
-        } catch (_: Throwable) {}
+        editor.stopFling()
         scrollDFloat = 0f
         scrollD = 0
         isDraggingCanvas = false
         applyTranslations()
         onUnifiedScrollChanged?.invoke(0, headerHeight)
         try {
-            val scroller = editor.scroller
-            if (scroller != null) {
-                scroller.forceFinished(true)
-                val currY = scroller.currY
-                val currX = scroller.currX
-                if (currY != 0) {
-                    scroller.startScroll(currX, currY, 0, -currY, 0)
-                    scroller.abortAnimation()
-                }
-                try {
-                    editor.renderContext.invalidateRenderNodes()
-                } catch (_: Throwable) {}
-                editor.invalidate()
-            }
+            editor.jumpScrollTo(editor.offsetX, 0)
         } catch (_: Throwable) {}
     }
 
@@ -450,7 +435,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (isUserTouching || isDraggingCanvas) return
         if (scrollD <= 0) return
         if (!scroller.isFinished) {
-            scroller.abortAnimation()
+            scroller.forceFinished(true)
         }
         val vy = -abs(velocity).toInt()
         lastScrollerY = scrollD
@@ -579,11 +564,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         // Line 0 is never drawn behind the titles.
         if (scrollD < headerHeight && editor.offsetY > 0) {
             try {
-                editor.scroller?.let { s ->
-                    val currY = s.currY
-                    s.startScroll(s.currX, currY, 0, -currY, 0)
-                    s.abortAnimation()
-                }
+                editor.jumpScrollTo(editor.offsetX, 0)
             } catch (_: Throwable) {}
         }
         val d = scrollD.toFloat()
@@ -637,11 +618,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (editor.text.isEmpty()) {
             if (editor.offsetY > 0) {
                 try {
-                    editor.scroller?.let { s ->
-                        val currY = s.currY
-                        s.startScroll(s.currX, currY, 0, -currY, 0)
-                        s.abortAnimation()
-                    }
+                    editor.jumpScrollTo(editor.offsetX, 0)
                 } catch (_: Throwable) {}
             }
             if (scrollD > 0) {
@@ -873,10 +850,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     private fun dispatchScrollToEditor(dy: Float) {
         try {
             val scroller = editor.scroller ?: return
-            val currY = scroller.currY
+            val currY = editor.offsetY
+            val currX = editor.offsetX
             val targetY = (currY + dy).roundToInt().coerceIn(0, editor.safeScrollMaxY)
             if (targetY != currY) {
-                scroller.startScroll(scroller.currX, currY, 0, targetY - currY, 0)
+                scroller.forceFinished(true)
+                scroller.startScroll(currX, currY, 0, targetY - currY, 0)
                 scroller.abortAnimation()
                 editor.invalidate()
             }
@@ -891,9 +870,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 isUserTouching = true
                 onUserTouchDown?.invoke()
                 cancelCanvasAnimation()
-                try {
-                    editor.scroller?.abortAnimation()
-                } catch (_: Throwable) {}
+                editor.stopFling()
                 initialDownX = ev.x
                 initialDownY = ev.y
                 lastTouchX = ev.x
@@ -926,8 +903,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     topEdgeEffect.onRelease()
                     postInvalidateOnAnimation()
                 }
-                if (isDraggingCanvas) {
-                    isDraggingCanvas = false
+                val wasDragging = isDraggingCanvas
+                if (wasDragging && ev.actionMasked == MotionEvent.ACTION_UP) {
                     velocityTracker?.computeCurrentVelocity(1000, maxFlingVelocity.toFloat())
                     val vy = velocityTracker?.yVelocity ?: 0f
                     if (abs(vy) > minFlingVelocity) {
@@ -937,8 +914,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                         scroller.fling(0, lastScrollerY, 0, scrollerVy, 0, 0, 0, maxScroll, 0, 0)
                         postInvalidateOnAnimation()
                     }
-                    velocityTracker?.recycle()
-                    velocityTracker = null
+                }
+                isDraggingCanvas = false
+                velocityTracker?.recycle()
+                velocityTracker = null
+                if (wasDragging) {
                     return true
                 }
             }
@@ -1003,11 +983,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> {
                 isUserTouching = true
                 if (!scroller.isFinished) {
-                    scroller.abortAnimation()
+                    scroller.forceFinished(true)
                 }
-                try {
-                    editor.scroller?.abortAnimation()
-                } catch (_: Throwable) {}
+                editor.stopFling()
                 lastTouchX = ev.x
                 lastTouchY = ev.y
                 initialDownY = ev.y

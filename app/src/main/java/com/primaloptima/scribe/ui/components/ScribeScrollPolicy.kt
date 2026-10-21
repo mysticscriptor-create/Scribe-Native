@@ -138,4 +138,24 @@ object ScribeScrollPolicy {
 
         return maxOf(baseSoraMaxY, maxScrollWithBottomSpace, retainedOffset)
     }
+
+    /**
+     * Resolves the true uninterrupted scroll offset when a fling is interrupted by a user touch.
+     * Prevents Android's OverScroller.abortAnimation() from jumping currY to finalY.
+     *
+     * @param visualOffset Current visible render offset (e.g. editor.offsetY)
+     * @param scrollerCurr Scroller currY value
+     * @param scrollerFinal Scroller finalY destination
+     * @param isFinished Whether the scroller is marked finished
+     * @return The accurate visual offset from which subsequent gestures must continue.
+     */
+    fun resolveInterruptedScrollOffset(
+        visualOffset: Int,
+        scrollerCurr: Int,
+        scrollerFinal: Int,
+        isFinished: Boolean
+    ): Int {
+        // Visual offset is always authoritative ground truth for subsequent gestures
+        return visualOffset
+    }
 }

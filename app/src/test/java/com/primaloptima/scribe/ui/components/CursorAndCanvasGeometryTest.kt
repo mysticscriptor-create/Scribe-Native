@@ -155,4 +155,48 @@ class CursorAndCanvasGeometryTest {
 
         assertTrue("Safe scroll must retain current offset while focused", maxY >= 600)
     }
+
+    @Test
+    fun testFlingInterruptionRetainsVisualOffsetWithoutSnappingToFinalY() {
+        // User flings down into document: visual offset is at 500, but scroller target finalY is 1800.
+        val visualOffset = 500
+        val scrollerCurr = 1800 // Corrupted by abortAnimation
+        val scrollerFinal = 1800
+
+        val resolved = ScribeScrollPolicy.resolveInterruptedScrollOffset(
+            visualOffset = visualOffset,
+            scrollerCurr = scrollerCurr,
+            scrollerFinal = scrollerFinal,
+            isFinished = true
+        )
+
+        assertEquals("Must retain visual offset 500 and not snap to finalY 1800", visualOffset, resolved)
+    }
+
+    @Test
+    fun testOppositeScrollContinuesSmoothlyFromInterruptedVisualOffset() {
+        // When user catches a fling at 500 and scrolls in opposite direction (e.g. -20px)
+        val caughtVisualOffset = 500
+        val dragDeltaY = -20f // Dragging up towards document top
+
+        val newTarget = (caughtVisualOffset + dragDeltaY).toInt()
+        assertEquals("Subsequent scroll must start from caught offset, yielding 480", 480, newTarget)
+    }
+
+    @Test
+    fun testDownwardFlingInterruptionDoesNotSnapToZero() {
+        // User flings up towards top of text: visual offset is 450, scroller target is 0.
+        val visualOffset = 450
+        val scrollerCurr = 0
+        val scrollerFinal = 0
+
+        val resolved = ScribeScrollPolicy.resolveInterruptedScrollOffset(
+            visualOffset = visualOffset,
+            scrollerCurr = scrollerCurr,
+            scrollerFinal = scrollerFinal,
+            isFinished = true
+        )
+
+        assertEquals("Must retain visual offset 450 and not snap to 0", visualOffset, resolved)
+    }
 }

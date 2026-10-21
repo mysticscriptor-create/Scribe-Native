@@ -854,6 +854,27 @@ class ScribeCodeEditor @JvmOverloads constructor(
     private var forceNextLayoutClear = false
 
     /**
+     * Instantly and safely halts any momentum fling animation without jumping or snapping.
+     * Prevents OverScroller.abortAnimation() from forcing currY to finalY.
+     * Explicitly synchronizes scroller state to exact visual offset (offsetX/offsetY).
+     */
+    fun stopFling() {
+        isFlingActive = false
+        try {
+            val s = scroller ?: return
+            if (!s.isFinished) {
+                s.forceFinished(true)
+            }
+            val curY = offsetY
+            val curX = offsetX
+            if (s.currY != curY || s.currX != curX) {
+                s.startScroll(curX, curY, 0, 0, 0)
+                s.abortAnimation()
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /**
      * Updates the editor's text typeface and base font weight.
      * Clears the wordwrap table cache to ensure new glyph advances and metrics
      * are re-measured, updates the language tokenizer with the new base weight,
@@ -1146,6 +1167,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 touchDownTime = System.currentTimeMillis()
                 isTouchMoved = false
                 parentCanvas?.cancelCanvasAnimation()
+                stopFling()
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = kotlin.math.abs(event.x - touchDownX)
@@ -1196,13 +1218,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         }
         if (parentCanvas != null && parentCanvas.scrollD < parentCanvas.headerHeight && offsetY > 0) {
             val strayY = offsetY
-            try {
-                scroller?.let { s ->
-                    val currY = s.currY
-                    s.startScroll(s.currX, currY, 0, -currY, 0)
-                    s.abortAnimation()
-                }
-            } catch (_: Throwable) {}
+            jumpScrollTo(offsetX, 0)
             parentCanvas.scrollCanvasBy(strayY.toFloat())
         }
         return result
@@ -1235,8 +1251,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
     fun jumpScrollTo(targetX: Int, targetY: Int) {
         val scroller = scroller ?: return
         scroller.forceFinished(true)
-        val currX = scroller.currX
-        val currY = scroller.currY
+        val currX = offsetX
+        val currY = offsetY
         val maxX = try { scrollMaxX.coerceAtLeast(0) } catch (_: Throwable) { 0 }
         val maxY = try { scrollMaxY.coerceAtLeast(0) } catch (_: Throwable) { 0 }
         val clampedX = targetX.coerceIn(0, maxX)
@@ -1363,13 +1379,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val parentCanvas = parent as? UnifiedCanvasLayout
         if (parentCanvas != null && parentCanvas.scrollD < parentCanvas.headerHeight && offsetY > 0) {
             val strayY = offsetY
-            try {
-                scroller?.let { s ->
-                    val currY = s.currY
-                    s.startScroll(s.currX, currY, 0, -currY, 0)
-                    s.abortAnimation()
-                }
-            } catch (_: Throwable) {}
+            jumpScrollTo(offsetX, 0)
             parentCanvas.scrollCanvasBy(strayY.toFloat())
         }
         val scroller = scroller
@@ -1383,7 +1393,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
             val velocity = scroller.currVelocity
             if (velocity > 0f && isFlingActive && parentCanvas?.isUserTouching != true) {
                 isFlingActive = false
-                scroller.abortAnimation()
+                scroller.forceFinished(true)
                 parentCanvas?.continueFlingFromEditor(velocity)
             }
         }
