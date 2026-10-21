@@ -612,8 +612,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
             super.deleteText()
             if (wasAllSelected || text.isEmpty()) {
                 parentCanvas?.resetDocumentToTop(smooth = true)
-            } else {
-                parentCanvas?.anchorCanvasAfterDeletion(smooth = true)
             }
             return
         }
@@ -621,10 +619,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val col = cur.leftColumn
         val lineStr = if (line < text.lineCount) text.getLineString(line) else ""
 
-        val isCursorOnLastLine = line >= (text.lineCount - 1)
-        if (isCursorOnLastLine) {
-            parentCanvas?.notifyLastLineDeletionStarted()
-        }
+
 
         // Capture visual start position BEFORE delete for smooth line merge glide
         val scribeAnimator = cursorAnimator as? ScribeCursorAnimator

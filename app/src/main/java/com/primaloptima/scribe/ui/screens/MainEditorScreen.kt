@@ -1530,9 +1530,7 @@ fun MainEditorScreen(
                                             editorVm.onContentChanged(current)
                                         if (current.isEmpty()) {
                                             unifiedCanvasRef?.resetDocumentToTop(smooth = true)
-                                        } else if (event.action == ContentChangeEvent.ACTION_DELETE) {
-                                            unifiedCanvasRef?.anchorCanvasAfterDeletion(smooth = true)
-                                        } else {
+                                        } else if (event.action != ContentChangeEvent.ACTION_DELETE) {
                                             unifiedCanvasRef?.ensureCursorVisibleAboveKeyboard()
                                         }
                                     }
