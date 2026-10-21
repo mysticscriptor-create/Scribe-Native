@@ -90,6 +90,29 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     val persistentBottomSpacePx: Float
         get() = estimatedKeyboardHeightPx + breathingMarginPx
 
+    val maxCanvasScroll: Int
+        get() {
+            val layoutH = editor.layout?.layoutHeight ?: 0
+            val breathingMargin = breathingMarginPx.roundToInt()
+            val bottomSpace = if (isKeyboardVisible) {
+                breathingMargin
+            } else if (editor.isFocused || editor.offsetY > 0) {
+                persistentBottomSpacePx.roundToInt()
+            } else {
+                0
+            }
+            return ScribeScrollPolicy.calculateMaxCanvasScroll(
+                headerHeight = headerHeight,
+                layoutHeight = layoutH,
+                viewportHeight = height,
+                bottomSpace = bottomSpace,
+                isTextEmpty = editor.text.isEmpty()
+            )
+        }
+
+    val maxHeaderScrollD: Int
+        get() = ScribeScrollPolicy.calculateMaxHeaderScroll(headerHeight, maxCanvasScroll)
+
     var estimatedKeyboardHeightPx: Float = (280f + 44f) * context.resources.displayMetrics.density
         set(value) {
             field = value
@@ -282,8 +305,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val excess = (editor.offsetY - maxScrollY).toFloat()
             scrollCanvasBy(-excess)
         }
-        if (editor.text.isEmpty() && scrollD > 0) {
-            scrollCanvasBy(-scrollD.toFloat())
+        val maxHeaderD = maxHeaderScrollD
+        if (scrollD > maxHeaderD) {
+            val excessHeader = (scrollD - maxHeaderD).toFloat()
+            scrollCanvasBy(-excessHeader)
         }
     }
 
@@ -485,7 +510,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             // Pure Writer Persistent Bottom Space:
             // Document bounds include the persistent bottom space (estimatedKeyboardHeightPx + breathingMarginPx)
             // so that lines near the end of the document can glide fluidly above the shortcut bar without restriction.
-            val totalContentHeight = (headerHeight + layout.layoutHeight + persistentBottomSpacePx).toFloat()
+            val totalContentHeight = (headerHeight + layout.layoutHeight + marginPx).toFloat()
             val maxScrollFuture = (totalContentHeight - futureViewportHeight).coerceAtLeast(0f)
             val currentScroll = (scrollD + editor.offsetY).toFloat()
             val maxAllowedDelta = (maxScrollFuture - currentScroll).coerceAtLeast(0f)
@@ -626,9 +651,16 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 scrollDFloat = 0f
                 onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
             }
-        } else if (editor.offsetY > 0) {
-            scrollD = headerHeight
-            scrollDFloat = headerHeight.toFloat()
+        } else {
+            val maxHeaderD = maxHeaderScrollD
+            if (scrollD > maxHeaderD) {
+                scrollD = maxHeaderD
+                scrollDFloat = maxHeaderD.toFloat()
+                onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
+            } else if (editor.offsetY > 0) {
+                scrollD = headerHeight
+                scrollDFloat = headerHeight.toFloat()
+            }
         }
         applyTranslations()
     }
@@ -776,12 +808,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 }
             }
 
-            // 2. Consume delta into scrollD until header is fully off screen
-            if (scrollDFloat < headerHeight) {
-                val canConsume = headerHeight - scrollDFloat
+            // 2. Consume delta into scrollD until header reaches logical maximum displacement
+            val maxHeaderD = maxHeaderScrollD
+            if (scrollDFloat < maxHeaderD) {
+                val canConsume = maxHeaderD - scrollDFloat
                 val consume = minOf(dy, canConsume)
                 scrollDFloat += consume
-                scrollD = scrollDFloat.roundToInt().coerceIn(0, headerHeight)
+                scrollD = scrollDFloat.roundToInt().coerceIn(0, maxHeaderD)
                 applyTranslations()
                 onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
                 val unconsumed = dy - consume
@@ -910,8 +943,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     if (abs(vy) > minFlingVelocity) {
                         val scrollerVy = -vy.toInt()
                         lastScrollerY = scrollD + editor.offsetY
-                        val maxScroll = headerHeight + editor.safeScrollMaxY
-                        scroller.fling(0, lastScrollerY, 0, scrollerVy, 0, 0, 0, maxScroll, 0, 0)
+                        val maxScroll = maxCanvasScroll
+                        if (maxScroll > 0) {
+                            scroller.fling(0, lastScrollerY, 0, scrollerVy, 0, 0, 0, maxScroll, 0, 0)
+                        }
                         postInvalidateOnAnimation()
                     }
                 }
@@ -952,18 +987,24 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val totalDy = initialDownY - ev.y
 
                 if (abs(totalDy) > touchSlop && abs(totalDy) > abs(totalDx)) {
-                    if (scrollD < headerHeight) {
+                    val maxHeaderD = maxHeaderScrollD
+                    if (totalDy > 0f && maxCanvasScroll <= 0) {
+                        return false
+                    }
+                    if (scrollD < maxHeaderD && totalDy > 0f) {
                         isDraggingCanvas = true
                         lastTouchX = ev.x
                         lastTouchY = ev.y
                         parent?.requestDisallowInterceptTouchEvent(true)
                         return true
                     } else if (editor.offsetY <= 0 && (totalDy < 0f || (lastTouchY - ev.y) < 0f)) {
-                        isDraggingCanvas = true
-                        lastTouchX = ev.x
-                        lastTouchY = ev.y
-                        parent?.requestDisallowInterceptTouchEvent(true)
-                        return true
+                        if (scrollD > 0) {
+                            isDraggingCanvas = true
+                            lastTouchX = ev.x
+                            lastTouchY = ev.y
+                            parent?.requestDisallowInterceptTouchEvent(true)
+                            return true
+                        }
                     }
                 }
             }
@@ -1013,8 +1054,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 if (abs(vy) > minFlingVelocity) {
                     val scrollerVy = -vy.toInt()
                     lastScrollerY = scrollD + editor.offsetY
-                    val maxScroll = headerHeight + editor.safeScrollMaxY
-                    scroller.fling(0, lastScrollerY, 0, scrollerVy, 0, 0, 0, maxScroll, 0, 0)
+                    val maxScroll = maxCanvasScroll
+                    if (maxScroll > 0) {
+                        scroller.fling(0, lastScrollerY, 0, scrollerVy, 0, 0, 0, maxScroll, 0, 0)
+                    }
                     postInvalidateOnAnimation()
                 }
                 isDraggingCanvas = false

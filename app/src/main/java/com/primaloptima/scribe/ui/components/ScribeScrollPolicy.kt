@@ -119,24 +119,76 @@ object ScribeScrollPolicy {
     }
 
     /**
+     * Calculates the maximum vertical scroll allowed for the entire unified canvas
+     * (the combination of header displacement `scrollD` and editor `offsetY`).
+     *
+     * @param headerHeight Measured height of the document header/title view
+     * @param layoutHeight Measured height of the editor text layout
+     * @param viewportHeight Measured usable viewport height of the canvas
+     * @param bottomSpace Additional bottom clearance (breathing margin or persistent bottom space)
+     * @param isTextEmpty Whether the editor text is completely empty (no text in body)
+     * @return Total allowable vertical scroll distance across header and editor
+     */
+    fun calculateMaxCanvasScroll(
+        headerHeight: Int,
+        layoutHeight: Int,
+        viewportHeight: Int,
+        bottomSpace: Int = 0,
+        isTextEmpty: Boolean = false
+    ): Int {
+        if (isTextEmpty || viewportHeight <= 0) return 0
+        val totalContentHeight = headerHeight + layoutHeight + bottomSpace
+        return (totalContentHeight - viewportHeight).coerceAtLeast(0)
+    }
+
+    /**
+     * Calculates the maximum displacement allowed for the header view (scrollD).
+     * The header can only scroll as much as the total content overflows the viewport,
+     * up to its own height (headerHeight).
+     */
+    fun calculateMaxHeaderScroll(
+        headerHeight: Int,
+        maxCanvasScroll: Int
+    ): Int {
+        if (headerHeight <= 0 || maxCanvasScroll <= 0) return 0
+        return minOf(headerHeight, maxCanvasScroll)
+    }
+
+    /**
      * Calculates the safe maximum vertical scroll for the editor layout, accounting for
      * persistent bottom space (keyboard + shortcut bar) and focused content retention.
+     *
+     * When keyboard is visible (isKeyboardVisible = true), viewportHeight is ALREADY reduced
+     * by Compose's Modifier.padding(bottom = docBottomPadding).
+     * Therefore, only breathingMarginPx (24dp) is needed so the last line sits comfortably
+     * above the shortcut bar without double-counting keyboard height.
+     * When keyboard is dismissed (isKeyboardVisible = false), persistentBottomSpacePx is used
+     * to keep the text stationary behind the dismissed keyboard surface.
      */
     fun calculateSafeScrollMaxY(
         layoutHeight: Int,
         viewportHeight: Int,
         persistentBottomSpacePx: Int,
-        currentOffsetY: Int,
-        isFocused: Boolean,
-        baseSoraMaxY: Int
+        currentOffsetY: Int = 0,
+        isFocused: Boolean = false,
+        baseSoraMaxY: Int = 0,
+        isKeyboardVisible: Boolean = false,
+        breathingMarginPx: Int = 0,
+        isTextEmpty: Boolean = false
     ): Int {
-        if (layoutHeight <= 0 || viewportHeight <= 0) return baseSoraMaxY
+        if (isTextEmpty || layoutHeight <= 0 || viewportHeight <= 0) return 0
 
-        val space = if (persistentBottomSpacePx > 0) persistentBottomSpacePx else (viewportHeight * 0.45f).toInt()
+        val space = if (isKeyboardVisible) {
+            breathingMarginPx
+        } else if (persistentBottomSpacePx > 0) {
+            persistentBottomSpacePx
+        } else {
+            (viewportHeight * 0.45f).toInt()
+        }
+
         val maxScrollWithBottomSpace = (layoutHeight + space - viewportHeight).coerceAtLeast(0)
         val retainedOffset = if (currentOffsetY > 0 && isFocused) currentOffsetY else 0
-
-        return maxOf(baseSoraMaxY, maxScrollWithBottomSpace, retainedOffset)
+        return maxOf(baseSoraMaxY.coerceAtLeast(0), maxScrollWithBottomSpace, retainedOffset)
     }
 
     /**

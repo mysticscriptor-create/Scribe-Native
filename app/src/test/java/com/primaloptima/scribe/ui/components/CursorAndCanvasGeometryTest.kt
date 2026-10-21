@@ -199,4 +199,135 @@ class CursorAndCanvasGeometryTest {
 
         assertEquals("Must retain visual offset 450 and not snap to 0", visualOffset, resolved)
     }
+
+    @Test
+    fun testEmptyDocumentMaxCanvasScrollIsZeroAndTitleDoesNotDisplace() {
+        val headerHeight = 220
+        val layoutHeight = 0
+        val viewportHeight = 1600
+        val persistentBottomSpacePx = 800
+
+        val maxCanvasScroll = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = layoutHeight,
+            viewportHeight = viewportHeight,
+            bottomSpace = persistentBottomSpacePx,
+            isTextEmpty = true
+        )
+
+        val maxHeaderScroll = ScribeScrollPolicy.calculateMaxHeaderScroll(
+            headerHeight = headerHeight,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        assertEquals("Canvas scroll on empty document must be 0", 0, maxCanvasScroll)
+        assertEquals("Header displacement on empty document must be 0 (title remains stationary)", 0, maxHeaderScroll)
+    }
+
+    @Test
+    fun testShortDocumentKeepsTitleStationaryUntilTextReachesDown() {
+        val headerHeight = 220
+        val layoutHeight = 300 // 5 short lines
+        val viewportHeight = 1600
+        val bottomSpace = 0
+
+        val maxCanvasScroll = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = layoutHeight,
+            viewportHeight = viewportHeight,
+            bottomSpace = bottomSpace,
+            isTextEmpty = false
+        )
+
+        val maxHeaderScroll = ScribeScrollPolicy.calculateMaxHeaderScroll(
+            headerHeight = headerHeight,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        assertEquals("Short document fitting on screen must not scroll", 0, maxCanvasScroll)
+        assertEquals("Title must not move up when text does not reach down", 0, maxHeaderScroll)
+    }
+
+    @Test
+    fun testTitleScrollsLogicallyAsTextReachesDown() {
+        val headerHeight = 200
+        val layoutHeight = 1500
+        val viewportHeight = 1600
+        val bottomSpace = 0
+
+        val maxCanvasScroll = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = layoutHeight,
+            viewportHeight = viewportHeight,
+            bottomSpace = bottomSpace,
+            isTextEmpty = false
+        )
+
+        val maxHeaderScroll = ScribeScrollPolicy.calculateMaxHeaderScroll(
+            headerHeight = headerHeight,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        assertEquals("Total canvas scroll allows reaching bottom text", 100, maxCanvasScroll)
+        assertEquals("Header moves up by exactly 100px overflow so content is visible", 100, maxHeaderScroll)
+    }
+
+    @Test
+    fun testKeyboardOpenEliminatesDoublePaddingAboveKeyboard() {
+        val layoutHeight = 1000
+        val fullScreenHeight = 2000
+        val keyboardHeight = 800
+        val viewportHeightWithKeyboard = fullScreenHeight - keyboardHeight // 1200px (Compose padding applied)
+        val persistentBottomSpacePx = 800
+        val breathingMarginPx = 60 // 24dp at 2.5 density
+
+        val fixedMaxScroll = ScribeScrollPolicy.calculateSafeScrollMaxY(
+            layoutHeight = layoutHeight,
+            viewportHeight = viewportHeightWithKeyboard,
+            persistentBottomSpacePx = persistentBottomSpacePx,
+            breathingMarginPx = breathingMarginPx,
+            isKeyboardVisible = true,
+            isTextEmpty = false,
+            currentOffsetY = 0,
+            isFocused = true
+        )
+
+        // 1000 + 60 - 1200 = -140 <= 0: fits in 1200px viewport, 0 extra padding above keyboard!
+        assertEquals("When keyboard is visible, no double padding allows scrolling above keyboard", 0, fixedMaxScroll)
+    }
+
+    @Test
+    fun testKeyboardDismissalRetainsStationaryDocumentPosition() {
+        val layoutHeight = 1500
+        val fullScreenHeight = 2000
+        val keyboardHeight = 800
+        val viewportHeightWithKeyboard = fullScreenHeight - keyboardHeight // 1200px
+        val persistentBottomSpacePx = 860 // 800 keyboard + 60 breathing margin
+        val breathingMarginPx = 60
+
+        val openMaxScroll = ScribeScrollPolicy.calculateSafeScrollMaxY(
+            layoutHeight = layoutHeight,
+            viewportHeight = viewportHeightWithKeyboard,
+            persistentBottomSpacePx = persistentBottomSpacePx,
+            breathingMarginPx = breathingMarginPx,
+            isKeyboardVisible = true,
+            isTextEmpty = false,
+            currentOffsetY = 360,
+            isFocused = true
+        )
+        assertEquals(360, openMaxScroll)
+
+        val dismissedMaxScroll = ScribeScrollPolicy.calculateSafeScrollMaxY(
+            layoutHeight = layoutHeight,
+            viewportHeight = fullScreenHeight,
+            persistentBottomSpacePx = persistentBottomSpacePx,
+            breathingMarginPx = breathingMarginPx,
+            isKeyboardVisible = false,
+            isTextEmpty = false,
+            currentOffsetY = 360,
+            isFocused = true
+        )
+
+        assertEquals("Max scroll remains identical upon dismissal, keeping text rock-solid stationary", openMaxScroll, dismissedMaxScroll)
+    }
 }
