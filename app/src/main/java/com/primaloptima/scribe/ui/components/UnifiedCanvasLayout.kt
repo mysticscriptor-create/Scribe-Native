@@ -194,6 +194,24 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var targetPredictedScrollTotal: Float = -1f
         private set
 
+    /**
+     * Set to true strictly during text deletion on the last line of the document.
+     * Prevents downward anchoring scroll from triggering on taps, focus, or general edits.
+     */
+    var isLastLineDeletionActive: Boolean = false
+        private set
+    private var resetDeletionActiveRunnable: Runnable? = null
+
+    fun notifyLastLineDeletionStarted() {
+        isLastLineDeletionActive = true
+        resetDeletionActiveRunnable?.let { removeCallbacks(it) }
+        val r = Runnable {
+            isLastLineDeletionActive = false
+        }
+        resetDeletionActiveRunnable = r
+        postDelayed(r, 220L)
+    }
+
     companion object {
         val FastOutSlowInInterpolator: android.view.animation.Interpolator =
             PathInterpolator(0.4f, 0f, 0.2f, 1f)
@@ -281,7 +299,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val totalScroll = scrollD + editor.offsetY
         if (totalScroll > 0) {
             if (smooth) {
-                smoothScrollCanvasBy(-totalScroll.toFloat(), durationMs = 240L, interpolator = FastOutSlowInInterpolator)
+                smoothScrollCanvasBy(-totalScroll.toFloat(), durationMs = ScribeScrollPolicy.DURATION_RESET_TOP_MS, interpolator = FastOutSlowInInterpolator)
             } else {
                 scrollCanvasBy(-totalScroll.toFloat())
             }
@@ -463,7 +481,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val yOffset = layoutOffset[0] // Doc coordinate of line bottom
 
         val headerRemaining = headerHeight - scrollD
-        val screenBottom = headerRemaining + yOffset - editor.offsetY
+        val screenBottom = (headerRemaining + yOffset - editor.offsetY).toFloat()
 
         val isKeyboardOrDrawerActive = isKeyboardVisible || (height <= resources.displayMetrics.heightPixels * 0.65f)
         val futureViewportHeight = if (isKeyboardOrDrawerActive) {
@@ -472,9 +490,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             (height - estimatedKeyboardHeightPx).coerceAtLeast(editor.rowHeight * 3f)
         }
 
-        val marginPx = (24 * density).roundToInt()
-        if (screenBottom > (futureViewportHeight - marginPx)) {
-            var deltaY = screenBottom - (futureViewportHeight - marginPx)
+        val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
+        val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
+        val targetLineBottom = futureViewportHeight - marginPx
+
+        if (screenBottom > (targetLineBottom + deadbandPx)) {
+            var deltaY = screenBottom - targetLineBottom
 
             // Pure Writer Persistent Bottom Space:
             // Document bounds include the persistent bottom space (estimatedKeyboardHeightPx + breathingMarginPx)
@@ -485,12 +506,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val maxAllowedDelta = (maxScrollFuture - currentScroll).coerceAtLeast(0f)
             deltaY = minOf(deltaY, maxAllowedDelta)
 
-            if (deltaY > 2f) {
+            if (deltaY > ScribeScrollPolicy.DRAG_THRESHOLD_DP) {
                 isPredictiveGlideRunning = true
                 targetPredictedScrollTotal = currentScroll + deltaY
                 smoothScrollCanvasBy(
                     dy = deltaY,
-                    durationMs = 280L,
+                    durationMs = ScribeScrollPolicy.DURATION_PREDICTIVE_GLIDE_MS,
                     interpolator = FastOutSlowInInterpolator
                 ) {
                     isPredictiveGlideRunning = false
@@ -502,10 +523,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     private var lastEnsureCursorTime = 0L
 
-    fun ensureCursorVisibleAboveKeyboard(smooth: Boolean = true, customDurationMs: Long = 280L) {
+    fun ensureCursorVisibleAboveKeyboard(
+        smooth: Boolean = true,
+        customDurationMs: Long = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
+    ) {
         if (!editor.isFocused || isImeClosing || isPredictiveGlideRunning) return
         val now = System.currentTimeMillis()
-        if (now - lastEnsureCursorTime < 80L) return
+        if (now - lastEnsureCursorTime < 60L) return
         val cursor = try { editor.cursor } catch (_: Throwable) { null } ?: return
         val line = cursor.leftLine
         val col = cursor.leftColumn
@@ -515,42 +539,35 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val yOffset = layoutOffset[0] // doc coordinate of line bottom
         val rowHeight = editor.rowHeight
         val headerRemaining = headerHeight - scrollD
-        val screenBottom = headerRemaining + yOffset - editor.offsetY
+        val screenBottom = (headerRemaining + yOffset - editor.offsetY).toFloat()
         val screenTop = screenBottom - rowHeight
 
         val visibleHeight = height
         val density = resources.displayMetrics.density
-        val marginPx = (24 * density).roundToInt()
-        val deadbandPx = (4 * density).roundToInt()
-        val targetLineBottom = visibleHeight - marginPx
         val isLastLine = line >= (editor.text.lineCount - 1)
+        val hasScroll = scrollD > 0 || editor.offsetY > 0
 
-        if (visibleHeight > 0) {
-            if (screenBottom > (targetLineBottom + deadbandPx)) {
-                val overflow = screenBottom - targetLineBottom
-                lastEnsureCursorTime = now
-                if (smooth) {
-                    smoothScrollCanvasBy(overflow.toFloat(), durationMs = customDurationMs, interpolator = FastOutSlowInInterpolator)
-                } else {
-                    scrollCanvasBy(overflow.toFloat())
-                }
-            } else if (isLastLine && screenBottom < (targetLineBottom - deadbandPx) && (scrollD > 0 || editor.offsetY > 0)) {
-                // When on the last line and deleting text: smoothly scroll down so the last line stays anchored above the shortcut bar
-                val underflow = screenBottom - targetLineBottom
-                lastEnsureCursorTime = now
-                if (smooth) {
-                    smoothScrollCanvasBy(underflow.toFloat(), durationMs = 140L, interpolator = FastOutSlowInInterpolator)
-                } else {
-                    scrollCanvasBy(underflow.toFloat())
-                }
-            } else if (screenTop < -deadbandPx && (scrollD > 0 || editor.offsetY > 0)) {
-                val underflow = screenTop
-                lastEnsureCursorTime = now
-                if (smooth) {
-                    smoothScrollCanvasBy(underflow.toFloat(), durationMs = customDurationMs, interpolator = FastOutSlowInInterpolator)
-                } else {
-                    scrollCanvasBy(underflow.toFloat())
-                }
+        val resolution = ScribeScrollPolicy.resolveCursorScrollDelta(
+            screenBottom = screenBottom,
+            screenTop = screenTop,
+            visibleHeight = visibleHeight,
+            density = density,
+            isLastLine = isLastLine,
+            isDeletionActive = isLastLineDeletionActive,
+            hasScrollOffset = hasScroll
+        )
+
+        if (resolution.shouldScroll) {
+            lastEnsureCursorTime = now
+            val duration = if (resolution.isAnchorDownward) {
+                ScribeScrollPolicy.DURATION_DELETION_ANCHOR_MS
+            } else {
+                customDurationMs
+            }
+            if (smooth) {
+                smoothScrollCanvasBy(resolution.deltaY, durationMs = duration, interpolator = FastOutSlowInInterpolator)
+            } else {
+                scrollCanvasBy(resolution.deltaY)
             }
         }
     }
@@ -648,8 +665,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 // Viewport shrinking (keyboard appearing)
                 if (editor.isFocused) {
                     val density = resources.displayMetrics.density
-                    val marginPx = (24 * density).roundToInt()
-                    val deadbandPx = (4 * density).roundToInt()
+                    val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
+                    val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
 
                     val isCursorInSafeZone = try {
                         val cur = editor.cursor
@@ -670,7 +687,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     if (!isPredictiveGlideRunning && !isCursorInSafeZone) {
                         post {
                             if (!isPredictiveGlideRunning) {
-                                ensureCursorVisibleAboveKeyboard(smooth = true, customDurationMs = 280L)
+                                ensureCursorVisibleAboveKeyboard(smooth = true, customDurationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS)
                             }
                         }
                     }
@@ -729,12 +746,15 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val screenTop = (headerHeight - scrollD) + rectangle.top
             val screenBottom = (headerHeight - scrollD) + rectangle.bottom
             val visibleHeight = height
-            val marginPx = (14 * resources.displayMetrics.density).roundToInt()
-            if (screenBottom > visibleHeight - marginPx) {
-                val delta = (screenBottom - (visibleHeight - marginPx)).toFloat()
+            val density = resources.displayMetrics.density
+            val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
+            val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
+            val targetLineBottom = visibleHeight - marginPx
+            if (screenBottom > (targetLineBottom + deadbandPx)) {
+                val delta = (screenBottom - targetLineBottom).toFloat()
                 scrollCanvasBy(delta)
                 return true
-            } else if (screenTop < 0 && (scrollD > 0 || editor.offsetY > 0)) {
+            } else if (screenTop < -deadbandPx && (scrollD > 0 || editor.offsetY > 0)) {
                 val delta = screenTop.toFloat()
                 scrollCanvasBy(delta)
                 return true

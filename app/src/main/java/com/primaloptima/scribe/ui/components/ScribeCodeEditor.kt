@@ -90,18 +90,15 @@ class ScribeCodeEditor @JvmOverloads constructor(
         return try {
             val layout = this.layout ?: return super.getScrollMaxY()
             val layoutH = layout.layoutHeight
-            if (layoutH <= 0 || height <= 0) return super.getScrollMaxY()
-
             val baseSora = super.getScrollMaxY()
-            val space = if (persistentBottomSpacePx > 0) persistentBottomSpacePx else (height * 0.45f).toInt()
-            val targetWritingViewport = if (isKeyboardVisible) {
-                height
-            } else {
-                (height - space).coerceAtLeast((rowHeight * 2).toInt())
-            }
-            val maxScrollWithBottomSpace = (layoutH - targetWritingViewport).coerceAtLeast(0)
-
-            maxOf(baseSora, maxScrollWithBottomSpace)
+            ScribeScrollPolicy.calculateSafeScrollMaxY(
+                layoutHeight = layoutH,
+                viewportHeight = height,
+                persistentBottomSpacePx = persistentBottomSpacePx,
+                currentOffsetY = offsetY,
+                isFocused = isFocused,
+                baseSoraMaxY = baseSora
+            )
         } catch (_: Throwable) {
             super.getScrollMaxY()
         }
@@ -607,6 +604,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val line = cur.leftLine
         val col = cur.leftColumn
         val lineStr = if (line < text.lineCount) text.getLineString(line) else ""
+
+        val isCursorOnLastLine = line >= (text.lineCount - 1)
+        if (isCursorOnLastLine) {
+            parentCanvas?.notifyLastLineDeletionStarted()
+        }
 
         // Capture visual start position BEFORE delete for smooth line merge glide
         val scribeAnimator = cursorAnimator as? ScribeCursorAnimator
@@ -1434,34 +1436,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 }
                 return
             }
-            val headerRemaining = parentCanvas.headerHeight - parentCanvas.scrollD
-            val screenYBottom = headerRemaining + yOffset - offsetY
-            val screenYTop = screenYBottom - rowHeight
-
-            val visibleHeight = parentCanvas.height
-            val bottomMargin = 4f * dpUnit
-
-            if (visibleHeight > 0) {
-                if (screenYBottom > visibleHeight - bottomMargin) {
-                    val deltaY = screenYBottom - (visibleHeight - bottomMargin)
-                    if (noAnimation) {
-                        parentCanvas.scrollCanvasBy(deltaY)
-                    } else if (isInternalPasting) {
-                        parentCanvas.smoothScrollCanvasBy(deltaY, durationMs = 280)
-                    } else if (kotlin.math.abs(deltaY) > rowHeight * 1.5f) {
-                        parentCanvas.smoothScrollCanvasBy(deltaY, durationMs = 180)
-                    } else {
-                        parentCanvas.smoothScrollCanvasBy(deltaY, durationMs = 120)
-                    }
-                } else if (screenYTop < 0 && (parentCanvas.scrollD > 0 || offsetY > 0)) {
-                    val deltaY = screenYTop
-                    if (noAnimation) {
-                        parentCanvas.scrollCanvasBy(deltaY)
-                    } else {
-                        parentCanvas.smoothScrollCanvasBy(deltaY, durationMs = 120)
-                    }
-                }
-            }
+            parentCanvas.ensureCursorVisibleAboveKeyboard(smooth = !noAnimation)
             invalidate()
             return
         }
