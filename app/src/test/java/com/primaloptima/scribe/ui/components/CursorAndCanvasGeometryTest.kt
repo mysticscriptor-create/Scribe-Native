@@ -38,18 +38,17 @@ class CursorAndCanvasGeometryTest {
     }
 
     @Test
-    fun testDeleteOnLastLineTriggersDownwardAnchor() {
-        // When deleting text on the last line, isDeletionActive is TRUE.
-        // It must smoothly pull the canvas down so the last line stays anchored.
+    fun testDeleteWhileCursorInViewDoesNotJump() {
+        // Bug 3 Fix: When editing text and cursor is already comfortably visible in the viewport,
+        // deleting must NOT trigger an unexpected downward jump towards the shortcut bar.
         val visibleHeight = 1200
         val density = 2.5f
         val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density) // 60px
         val targetLineBottom = visibleHeight - marginPx // 1140px
-        val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density) // 10px
 
-        // Line is deleted, so bottom moves 40px up from target (1100px vs target 1140px)
-        val screenBottom = 1100f
-        val screenTop = 1060f
+        // Cursor is comfortably visible a few lines above shortcut bar (e.g. 900px)
+        val screenBottom = 900f
+        val screenTop = 860f
 
         val resolution = ScribeScrollPolicy.resolveCursorScrollDelta(
             screenBottom = screenBottom,
@@ -57,14 +56,43 @@ class CursorAndCanvasGeometryTest {
             visibleHeight = visibleHeight,
             density = density,
             isLastLine = true,
-            isDeletionActive = true, // ACTIVE DELETION
+            isDeletionActive = true,
             hasScrollOffset = true
         )
 
-        assertTrue("Delete on last line must trigger downward anchoring", resolution.shouldScroll)
-        assertTrue("Resolution must be marked as anchor downward", resolution.isAnchorDownward)
-        assertEquals(-40f, resolution.deltaY, 0.001f)
-        assertEquals(ScribeScrollPolicy.DURATION_DELETION_ANCHOR_MS, resolution.recommendedDurationMs)
+        assertFalse("Cursor already in view must never jump on delete", resolution.shouldScroll)
+        assertEquals(0f, resolution.deltaY, 0.001f)
+    }
+
+    @Test
+    fun testDeleteOnLastLineClampsExcessScrollViaCanvasMax() {
+        // Bug 1 Fix: When at the end of document and deleting lines, the document content
+        // shrinks, causing currentTotal scroll to exceed maxCanvasScroll.
+        // Canvas clamping naturally pulls the document down by the exact excess.
+        val headerHeight = 200
+        val layoutHeightBefore = 1500
+        val layoutHeightAfter = 1420 // 1 line deleted (80px)
+        val viewportHeight = 1200
+        val breathingMarginPx = 60
+
+        val maxCanvasBefore = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = layoutHeightBefore,
+            viewportHeight = viewportHeight,
+            bottomSpace = breathingMarginPx,
+            isTextEmpty = false
+        ) // 200 + 1500 + 60 - 1200 = 560
+
+        val maxCanvasAfter = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = layoutHeightAfter,
+            viewportHeight = viewportHeight,
+            bottomSpace = breathingMarginPx,
+            isTextEmpty = false
+        ) // 200 + 1420 + 60 - 1200 = 480
+
+        val excess = maxCanvasBefore - maxCanvasAfter
+        assertEquals("Excess scroll to clamp down must match the exact 80px line deleted", 80, excess)
     }
 
     @Test
@@ -138,22 +166,40 @@ class CursorAndCanvasGeometryTest {
     }
 
     @Test
-    fun testSafeScrollMaxYRetainsStationaryOffsetWhileFocused() {
-        val layoutHeight = 1500
-        val viewportHeight = 1000
-        val persistentBottomSpacePx = 0
-        val currentOffsetY = 600
+    fun testSafeScrollMaxYShrinksOnDeletionWithoutBeingFrozenByRetainedOffset() {
+        // Bug 1 & 2 Fix: When user deletes text or selected text while focused,
+        // safeScrollMaxY must shrink so the view can clamp excess scroll down.
+        val layoutHeightBefore = 1500
+        val layoutHeightAfter = 1200 // 300px deleted
+        val viewportHeight = 1100
+        val persistentBottomSpacePx = 800
+        val breathingMarginPx = 60
+        val currentOffsetY = 460
 
-        val maxY = ScribeScrollPolicy.calculateSafeScrollMaxY(
-            layoutHeight = layoutHeight,
+        val maxBefore = ScribeScrollPolicy.calculateSafeScrollMaxY(
+            layoutHeight = layoutHeightBefore,
             viewportHeight = viewportHeight,
             persistentBottomSpacePx = persistentBottomSpacePx,
+            breathingMarginPx = breathingMarginPx,
+            isKeyboardVisible = true,
             currentOffsetY = currentOffsetY,
             isFocused = true,
-            baseSoraMaxY = 500
+            baseSoraMaxY = 0
         )
+        assertEquals(460, maxBefore)
 
-        assertTrue("Safe scroll must retain current offset while focused", maxY >= 600)
+        val maxAfter = ScribeScrollPolicy.calculateSafeScrollMaxY(
+            layoutHeight = layoutHeightAfter,
+            viewportHeight = viewportHeight,
+            persistentBottomSpacePx = persistentBottomSpacePx,
+            breathingMarginPx = breathingMarginPx,
+            isKeyboardVisible = true,
+            currentOffsetY = currentOffsetY,
+            isFocused = true,
+            baseSoraMaxY = 0
+        )
+        // 1200 + 60 - 1100 = 160: shrinks cleanly to 160!
+        assertEquals("Safe scroll must shrink to 160 on deletion, allowing 300px clamp", 160, maxAfter)
     }
 
     @Test

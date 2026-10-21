@@ -37,7 +37,7 @@ object ScribeScrollPolicy {
     /** Standard cursor repositioning smooth scroll duration */
     const val DURATION_ENSURE_CURSOR_MS = 280L
 
-    /** Rapid downward anchoring when deleting text on the final line */
+    /** Rapid downward anchoring when deleting text on the final line or shrinking layout */
     const val DURATION_DELETION_ANCHOR_MS = 140L
 
     /** Restoring document canvas to top (title + header in view) */
@@ -55,12 +55,17 @@ object ScribeScrollPolicy {
     /**
      * Authoritative calculation for cursor visibility adjustments.
      *
+     * Invariant:
+     * - If cursor bottom is occluded below the shortcut bar/keyboard, scroll UP to make it visible.
+     * - If cursor top is scrolled above the visible canvas top, scroll DOWN to make it visible.
+     * - If cursor is already within the visible safe zone, DO NOT scroll (prevents jumping while typing).
+     *
      * @param screenBottom Visual bottom coordinate of cursor row in canvas space
      * @param screenTop Visual top coordinate of cursor row in canvas space
      * @param visibleHeight Usable height of the viewport above shortcut bar / keyboard
      * @param density Screen display metrics density
-     * @param isLastLine Whether cursor is currently on the final line of document
-     * @param isDeletionActive Whether the current operation is an active text deletion
+     * @param isLastLine Whether cursor is currently on the final line of document (optional)
+     * @param isDeletionActive Whether an active text deletion is in progress (optional)
      * @param hasScrollOffset Whether either canvas header (scrollD) or editor (offsetY) has positive scroll
      */
     fun resolveCursorScrollDelta(
@@ -68,9 +73,9 @@ object ScribeScrollPolicy {
         screenTop: Float,
         visibleHeight: Int,
         density: Float,
-        isLastLine: Boolean,
-        isDeletionActive: Boolean,
-        hasScrollOffset: Boolean
+        isLastLine: Boolean = false,
+        isDeletionActive: Boolean = false,
+        hasScrollOffset: Boolean = false
     ): ScrollResolution {
         if (visibleHeight <= 0) {
             return ScrollResolution(0f, false)
@@ -91,20 +96,7 @@ object ScribeScrollPolicy {
             )
         }
 
-        // Case 2: Cursor is on the last line AND text was just deleted, causing last line to drift up.
-        // We only pull the canvas downward if an active text deletion is in progress!
-        // On tap or general cursor movement, isDeletionActive is false, preventing accidental pull-down.
-        if (isLastLine && isDeletionActive && screenBottom < (targetLineBottom - deadbandPx) && hasScrollOffset) {
-            val underflow = screenBottom - targetLineBottom
-            return ScrollResolution(
-                deltaY = underflow,
-                shouldScroll = true,
-                isAnchorDownward = true,
-                recommendedDurationMs = DURATION_DELETION_ANCHOR_MS
-            )
-        }
-
-        // Case 3: Cursor scrolled above top edge of visible canvas
+        // Case 2: Cursor scrolled above top edge of visible canvas
         if (screenTop < -deadbandPx && hasScrollOffset) {
             val underflow = screenTop
             return ScrollResolution(
@@ -115,6 +107,7 @@ object ScribeScrollPolicy {
             )
         }
 
+        // Case 3: Cursor is within visible safe zone — rock solid, no scroll needed
         return ScrollResolution(0f, false)
     }
 
@@ -156,7 +149,7 @@ object ScribeScrollPolicy {
 
     /**
      * Calculates the safe maximum vertical scroll for the editor layout, accounting for
-     * persistent bottom space (keyboard + shortcut bar) and focused content retention.
+     * persistent bottom space (keyboard + shortcut bar).
      *
      * When keyboard is visible (isKeyboardVisible = true), viewportHeight is ALREADY reduced
      * by Compose's Modifier.padding(bottom = docBottomPadding).
@@ -187,8 +180,7 @@ object ScribeScrollPolicy {
         }
 
         val maxScrollWithBottomSpace = (layoutHeight + space - viewportHeight).coerceAtLeast(0)
-        val retainedOffset = if (currentOffsetY > 0 && isFocused) currentOffsetY else 0
-        return maxOf(baseSoraMaxY.coerceAtLeast(0), maxScrollWithBottomSpace, retainedOffset)
+        return maxOf(baseSoraMaxY.coerceAtLeast(0), maxScrollWithBottomSpace)
     }
 
     /**

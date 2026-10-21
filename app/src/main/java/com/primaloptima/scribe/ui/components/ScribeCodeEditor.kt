@@ -289,9 +289,18 @@ class ScribeCodeEditor @JvmOverloads constructor(
             }
         } catch (_: Throwable) { }
         try {
-            subscribeEvent(io.github.rosemoe.sora.event.ContentChangeEvent::class.java) { _, _ ->
+            subscribeEvent(io.github.rosemoe.sora.event.ContentChangeEvent::class.java) { event, _ ->
                 if (!isBatchApplyingIndent) {
                     documentVersion++
+                }
+                if (event.action == io.github.rosemoe.sora.event.ContentChangeEvent.ACTION_DELETE) {
+                    if (text.isEmpty()) {
+                        (parent as? UnifiedCanvasLayout)?.resetDocumentToTop(smooth = true)
+                    } else {
+                        post {
+                            (parent as? UnifiedCanvasLayout)?.clampCanvasScrollToMax(smooth = true)
+                        }
+                    }
                 }
             }
         } catch (_: Throwable) { }
@@ -603,6 +612,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
             super.deleteText()
             if (wasAllSelected || text.isEmpty()) {
                 parentCanvas?.resetDocumentToTop(smooth = true)
+            } else {
+                parentCanvas?.clampCanvasScrollToMax(smooth = true)
             }
             return
         }
