@@ -317,7 +317,7 @@ class ScribeEditorIndentFormatterTest {
     @Test
     fun testNewline_inMiddleOfManualIndent_splitsSentenceCorrectly() {
         val lineStr = "    The quick brown fox jumps"
-        val col = 17 // Between "The quick brown " and "fox jumps"
+        val col = lineStr.indexOf("fox") // Exactly right before "fox" (col = 20)
         val action = ScribeEditorIndentFormatter.computeNewline(
             lineStr = lineStr,
             line = 0,
@@ -327,7 +327,7 @@ class ScribeEditorIndentFormatterTest {
         assertTrue(action is FormatterNewlineAction.InsertNewline)
         val insert = action as FormatterNewlineAction.InsertNewline
         assertEquals("\n    ", insert.textToInsert)
-        assertEquals(17, insert.insertCol)
+        assertEquals(col, insert.insertCol)
         assertEquals(1, insert.targetLine)
         assertEquals(4, insert.targetCol)
 
@@ -351,7 +351,7 @@ class ScribeEditorIndentFormatterTest {
         val nextPrefix = ScribeListEngine.nextSequencePrefix(match)
         assertEquals("2. ", nextPrefix)
 
-        val col = 17 // Between "The quick brown " and "fox jumps"
+        val col = lineStr.indexOf("fox") // Exactly right before "fox" (col = 19)
         assertTrue(col >= match.fullPrefix.length)
 
         // Simulating the insertion at col:
