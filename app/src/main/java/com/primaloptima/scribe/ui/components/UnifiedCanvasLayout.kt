@@ -294,35 +294,48 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     /**
-     * Enforces that editor scroll and canvas scroll are within physical bounds.
+     * Enforces that editor scroll and canvas scroll are naturally anchored after text deletion.
      * When document height shrinks (e.g. deleting lines, deleting selections, or reducing indent),
-     * clamps excess canvas scroll (scrollD + offsetY) back to maxCanvasScroll and pulls canvas smoothly
-     * so that the end of the document never disappears off-screen or freezes in empty void.
+     * checks whether the bottom of the document text has drifted away from the shortcut bar,
+     * and smoothly pulls the canvas down so that:
+     * 1. The bottom of the document text stays comfortably anchored above the shortcut bar, OR
+     * 2. The title and header are restored to the top if the remaining document fits in view.
      */
-    fun clampCanvasScrollToMax(smooth: Boolean = true) {
-        val currentTotal = scrollD + editor.offsetY
-        val maxScroll = maxCanvasScroll
-        if (currentTotal > maxScroll) {
-            val excess = (currentTotal - maxScroll).toFloat()
-            if (excess >= 1f) {
-                if (smooth) {
-                    smoothScrollCanvasBy(
-                        dy = -excess,
-                        durationMs = ScribeScrollPolicy.DURATION_DELETION_ANCHOR_MS,
-                        interpolator = FastOutSlowInInterpolator
-                    )
-                } else {
-                    scrollCanvasBy(-excess)
-                }
+    fun anchorCanvasAfterDeletion(smooth: Boolean = true) {
+        val deltaY = ScribeScrollPolicy.calculateDeletionAnchorDelta(
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            layoutHeight = editor.layout?.layoutHeight ?: 0,
+            offsetY = editor.offsetY,
+            viewportHeight = height,
+            density = resources.displayMetrics.density,
+            maxCanvasScroll = maxCanvasScroll
+        )
+        if (deltaY < -1f) {
+            if (smooth) {
+                smoothScrollCanvasBy(
+                    dy = deltaY,
+                    durationMs = ScribeScrollPolicy.DURATION_DELETION_ANCHOR_MS,
+                    interpolator = FastOutSlowInInterpolator
+                )
+            } else {
+                scrollCanvasBy(deltaY)
             }
         }
+    }
+
+    /**
+     * Clamps excess canvas scroll back to physical content bounds.
+     */
+    fun clampCanvasScrollToMax(smooth: Boolean = true) {
+        anchorCanvasAfterDeletion(smooth = smooth)
     }
 
     /**
      * Legacy adapter for backward compatibility.
      */
     fun clampEditorScrollToMax() {
-        clampCanvasScrollToMax(smooth = false)
+        anchorCanvasAfterDeletion(smooth = false)
     }
 
     /**

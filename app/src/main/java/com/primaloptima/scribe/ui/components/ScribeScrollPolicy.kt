@@ -148,6 +148,62 @@ object ScribeScrollPolicy {
     }
 
     /**
+     * Calculates the downward canvas adjustment needed after text deletion so that
+     * the bottom of the document text never leaves an artificial empty void above the
+     * shortcut bar / keyboard surface while the canvas has positive scroll offset.
+     *
+     * Detects how far the bottom of the document text has drifted from the target line
+     * (shortcut bar + breathing margin) and smoothly pulls the canvas down.
+     *
+     * @param headerHeight Measured height of the document header view
+     * @param scrollD Current header displacement
+     * @param layoutHeight Measured height of the editor text layout
+     * @param offsetY Current editor scroll offset
+     * @param viewportHeight Usable height of the canvas above shortcut bar
+     * @param density Screen display metrics density
+     * @param maxCanvasScroll Maximum allowable physical canvas scroll
+     * @return Negative deltaY to smoothly pull the canvas down, or 0f if no adjustment needed
+     */
+    fun calculateDeletionAnchorDelta(
+        headerHeight: Int,
+        scrollD: Int,
+        layoutHeight: Int,
+        offsetY: Int,
+        viewportHeight: Int,
+        density: Float,
+        maxCanvasScroll: Int
+    ): Float {
+        val totalScroll = scrollD + offsetY
+        if (totalScroll <= 0 || viewportHeight <= 0) return 0f
+
+        val headerRemaining = headerHeight - scrollD
+        val textBottomScreenY = (headerRemaining + layoutHeight - offsetY).toFloat()
+
+        val marginPx = (CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
+        val deadbandPx = (CURSOR_DEADBAND_DP * density).roundToInt()
+        val targetLineBottom = viewportHeight - marginPx
+
+        // 1. Text bottom detection: If the bottom of all text is floating above targetLineBottom
+        if (textBottomScreenY < (targetLineBottom - deadbandPx)) {
+            val gap = targetLineBottom - textBottomScreenY
+            val scrollDownBy = minOf(gap, totalScroll.toFloat())
+            if (scrollDownBy >= 1f) {
+                return -scrollDownBy
+            }
+        }
+
+        // 2. Physical bounds check: If total scroll exceeds maxCanvasScroll
+        if (totalScroll > maxCanvasScroll) {
+            val excess = (totalScroll - maxCanvasScroll).toFloat()
+            if (excess >= 1f) {
+                return -excess
+            }
+        }
+
+        return 0f
+    }
+
+    /**
      * Calculates the safe maximum vertical scroll for the editor layout, accounting for
      * persistent bottom space (keyboard + shortcut bar).
      *

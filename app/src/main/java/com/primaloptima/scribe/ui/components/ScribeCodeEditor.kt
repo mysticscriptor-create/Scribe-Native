@@ -298,7 +298,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                         (parent as? UnifiedCanvasLayout)?.resetDocumentToTop(smooth = true)
                     } else {
                         post {
-                            (parent as? UnifiedCanvasLayout)?.clampCanvasScrollToMax(smooth = true)
+                            (parent as? UnifiedCanvasLayout)?.anchorCanvasAfterDeletion(smooth = true)
                         }
                     }
                 }
@@ -613,7 +613,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
             if (wasAllSelected || text.isEmpty()) {
                 parentCanvas?.resetDocumentToTop(smooth = true)
             } else {
-                parentCanvas?.clampCanvasScrollToMax(smooth = true)
+                parentCanvas?.anchorCanvasAfterDeletion(smooth = true)
             }
             return
         }

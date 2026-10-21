@@ -96,6 +96,102 @@ class CursorAndCanvasGeometryTest {
     }
 
     @Test
+    fun testDeleteLastParagraphCalculatesAccurateDownwardAnchorDelta() {
+        // When deleting the last paragraph, the text bottom drifts above the shortcut bar.
+        // calculateDeletionAnchorDelta must detect the exact gap and return the downward delta.
+        val headerHeight = 200
+        val scrollD = 200
+        val layoutHeight = 1400
+        val offsetY = 800
+        val viewportHeight = 1200
+        val density = 2.5f // margin = 60px, targetLineBottom = 1140px
+
+        // textBottom = (200 - 200) + 1400 - 800 = 600px.
+        // Gap to 1140: 1140 - 600 = 540px.
+        // totalScroll = 200 + 800 = 1000px.
+        val delta = ScribeScrollPolicy.calculateDeletionAnchorDelta(
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            layoutHeight = layoutHeight,
+            offsetY = offsetY,
+            viewportHeight = viewportHeight,
+            density = density,
+            maxCanvasScroll = 500
+        )
+        assertEquals(-540f, delta, 0.001f)
+    }
+
+    @Test
+    fun testDeleteSecondToLastParagraphCalculatesAccurateDownwardAnchorDelta() {
+        // When deleting in the second-to-last paragraph, the end of document drifts up by 80px.
+        val headerHeight = 200
+        val scrollD = 200
+        val layoutHeight = 1860
+        val offsetY = 800
+        val viewportHeight = 1200
+        val density = 2.5f
+
+        // textBottom = 0 + 1860 - 800 = 1060px.
+        // Gap to 1140: 1140 - 1060 = 80px.
+        val delta = ScribeScrollPolicy.calculateDeletionAnchorDelta(
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            layoutHeight = layoutHeight,
+            offsetY = offsetY,
+            viewportHeight = viewportHeight,
+            density = density,
+            maxCanvasScroll = 800
+        )
+        assertEquals(-80f, delta, 0.001f)
+    }
+
+    @Test
+    fun testDeleteWithContentBelowScreenDoesNotAnchorDownward() {
+        // When editing with paragraphs continuing below the screen, deletion must not move canvas.
+        val headerHeight = 200
+        val scrollD = 200
+        val layoutHeight = 3500
+        val offsetY = 800
+        val viewportHeight = 1200
+        val density = 2.5f
+
+        // textBottom = 0 + 3500 - 800 = 2700px (far below 1140px).
+        val delta = ScribeScrollPolicy.calculateDeletionAnchorDelta(
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            layoutHeight = layoutHeight,
+            offsetY = offsetY,
+            viewportHeight = viewportHeight,
+            density = density,
+            maxCanvasScroll = 2560
+        )
+        assertEquals(0f, delta, 0.001f)
+    }
+
+    @Test
+    fun testDeleteShrinkingDocumentToFitOnScreenRestoresTitle() {
+        // When document shrinks so small it fits on screen, downward delta restores all scroll.
+        val headerHeight = 200
+        val scrollD = 200
+        val layoutHeight = 100
+        val offsetY = 800
+        val viewportHeight = 1200
+        val density = 2.5f
+
+        // totalScroll = 200 + 800 = 1000px.
+        val delta = ScribeScrollPolicy.calculateDeletionAnchorDelta(
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            layoutHeight = layoutHeight,
+            offsetY = offsetY,
+            viewportHeight = viewportHeight,
+            density = density,
+            maxCanvasScroll = 0
+        )
+        assertEquals(-1000f, delta, 0.001f)
+    }
+
+    @Test
     fun testCursorOccludedOverflowTriggersUpwardScroll() {
         val visibleHeight = 1200
         val density = 2.5f

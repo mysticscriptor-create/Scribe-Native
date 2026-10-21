@@ -1520,7 +1520,7 @@ fun MainEditorScreen(
                                         ).isEnabled = true
                                     } catch (_: Exception) { }
 
-                                    subscribeEvent(ContentChangeEvent::class.java) { _, _ ->
+                                    subscribeEvent(ContentChangeEvent::class.java) { event, _ ->
                                         if (editor is ScribeCodeEditor && editor.isBatchApplyingIndent) {
                                             return@subscribeEvent
                                         }
@@ -1530,6 +1530,8 @@ fun MainEditorScreen(
                                             editorVm.onContentChanged(current)
                                         if (current.isEmpty()) {
                                             unifiedCanvasRef?.resetDocumentToTop(smooth = true)
+                                        } else if (event.action == ContentChangeEvent.ACTION_DELETE) {
+                                            unifiedCanvasRef?.anchorCanvasAfterDeletion(smooth = true)
                                         } else {
                                             unifiedCanvasRef?.ensureCursorVisibleAboveKeyboard()
                                         }
