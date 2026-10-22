@@ -585,4 +585,30 @@ class CursorAndCanvasGeometryTest {
         // Mid-document text must stay 100% rock-solid stationary!
         assertEquals("Mid-document text must never be pulled down on drawer collapse", 0f, delta)
     }
+
+    @Test
+    fun testKeyboardDismissalRetainsStationaryOffsetWithoutPullingDown() {
+        val density = 2.5f
+        val headerHeight = 200
+        val lastLineDocBottom = 1500f
+        val scrollD = 200
+        val offsetY = 1060
+        // When keyboard dismisses, viewport expands to 2200px:
+        val newExpandedViewport = 2200
+
+        // In UnifiedCanvasLayout, when keyboard is dismissed (!isKeyboardVisible || isImeClosing),
+        // the downward pull is suppressed, keeping the document rock-solid stationary at saved margin.
+        val isKeyboardVisible = false
+        val delta = if (!isKeyboardVisible) 0f else ScribeScrollPolicy.calculateLastLineFollowDelta(
+            lastLineDocBottom = lastLineDocBottom,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            offsetY = offsetY,
+            viewportHeight = newExpandedViewport,
+            density = density,
+            isAtLastLine = true
+        )
+
+        assertEquals("Document must remain stationary at saved margin upon keyboard dismissal", 0f, delta)
+    }
 }

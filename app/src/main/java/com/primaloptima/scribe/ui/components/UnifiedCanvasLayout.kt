@@ -754,10 +754,17 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 }
             } else if (dh < 0) {
                 // Viewport expanding (accessory drawer contracting, emoji keyboard closing, or bottom surface lowering)
+                // Pure Writer Invariant:
+                // When keyboard is dismissed or closing, the document MUST remain completely stationary at the saved margin
+                // (keyboard height + shortcut bar + breathing margin). Never pull down to the bottom of the screen.
+                if (!isKeyboardVisible || isImeClosing) {
+                    return
+                }
+
                 // Downward Following Invariant:
-                // If user is editing on the last line of the document, the last line must smoothly follow
-                // the shortcut bar downward maintaining the exact 24dp breathing margin.
-                // If user is editing in the middle or upper parts of the document, the text remains completely stationary.
+                // Only when keyboard remains active (e.g. accessory drawer collapsed to keyboard,
+                // or taller emoji keyboard returned to standard keyboard), smoothly follow the
+                // shortcut bar downward maintaining the exact 24dp breathing margin.
                 val isAtLastLine = try {
                     val cur = editor.cursor
                     (cur != null && cur.leftLine >= (editor.text.lineCount - 1)) || (editor.text.lineCount <= 1)

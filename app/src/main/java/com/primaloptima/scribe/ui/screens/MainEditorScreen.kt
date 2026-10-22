@@ -1389,7 +1389,7 @@ fun MainEditorScreen(
 
                             val bottomHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight else compactHeightDp
                             val curEstimatedKbPx = (bottomHeightDp.value + 44f) * density
-                            val curIsKeyboardVisible = isKeyboardVisible
+                            val curIsKeyboardVisible = isKeyboardVisible || isAwaitingKeyboardOpen || isBarTransitionLatched
 
                             UnifiedCanvasLayout(ctx).apply {
                                 horizontalPaddingDp = initialPadH
@@ -1620,7 +1620,7 @@ fun MainEditorScreen(
                             val density = layout.context.resources.displayMetrics.density
                             val bottomHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight else compactHeightDp
                             layout.estimatedKeyboardHeightPx = (bottomHeightDp.value + 44f) * density
-                            layout.isKeyboardVisible = isKeyboardVisible
+                            layout.isKeyboardVisible = isKeyboardVisible || isAwaitingKeyboardOpen || isBarTransitionLatched
                             val editor = layout.editor
                             val scribeEditor = editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor
                             scribeEditor?.activeShortcuts = shortcuts
