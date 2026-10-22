@@ -93,6 +93,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
             val baseSora = super.getScrollMaxY()
             val density = context.resources.displayMetrics.density
             val breathingMargin = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
+            val pCanvas = parent as? UnifiedCanvasLayout
+            val activeGlideTarget = if (pCanvas != null && pCanvas.targetPredictedScrollTotal > 0f) {
+                (pCanvas.targetPredictedScrollTotal - pCanvas.scrollD).toInt().coerceAtLeast(0)
+            } else {
+                0
+            }
             ScribeScrollPolicy.calculateSafeScrollMaxY(
                 layoutHeight = layoutH,
                 viewportHeight = height,
@@ -102,7 +108,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 baseSoraMaxY = baseSora,
                 isKeyboardVisible = isKeyboardVisible,
                 breathingMarginPx = breathingMargin,
-                isTextEmpty = text.isEmpty()
+                isTextEmpty = text.isEmpty(),
+                activeGlideTargetY = activeGlideTarget
             )
         } catch (_: Throwable) {
             super.getScrollMaxY()
