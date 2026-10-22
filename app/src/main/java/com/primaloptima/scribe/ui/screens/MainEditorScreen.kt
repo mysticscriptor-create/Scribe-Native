@@ -1116,7 +1116,6 @@ fun MainEditorScreen(
                 isBarTransitionLatched = true
                 unifiedCanvasRef?.isBottomSurfaceActive = true
                 unifiedCanvasRef?.isKeyboardVisible = true
-                unifiedCanvasRef?.isAccessoryDrawerOpen = false
                 isWritingBarSearchActive = false
                 drawerSearchQuery = ""
                 previewItem = null
@@ -1127,7 +1126,6 @@ fun MainEditorScreen(
             } else if (activeAccessoryDrawer != null) {
                 // Seamless instantaneous switch between open drawers: zero keyboard/cursor flicker
                 activeAccessoryDrawer = targetMode
-                unifiedCanvasRef?.isAccessoryDrawerOpen = true
                 isWritingBarSearchActive = false
                 drawerSearchQuery = ""
                 previewItem = null
@@ -1139,7 +1137,6 @@ fun MainEditorScreen(
                 try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
                 activeAccessoryDrawer = targetMode
                 drawerState = AccessoryDrawerState.COMPACT
-                unifiedCanvasRef?.isAccessoryDrawerOpen = true
                 scope.launch { drawerHeightDpAnim.snapTo(compactHeightDp.value) }
                 isWritingBarSearchActive = false
                 drawerSearchQuery = ""
@@ -1395,16 +1392,14 @@ fun MainEditorScreen(
 
                             val bottomHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight else compactHeightDp
                             val curEstimatedKbPx = (bottomHeightDp.value + 36f) * density
-                            val curIsKeyboardVisible = isKeyboardVisible || isAwaitingKeyboardOpen || isBarTransitionLatched
                             val curIsBottomSurfaceActive = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched) && shortcuts.isNotEmpty()
 
                             UnifiedCanvasLayout(ctx).apply {
                                 horizontalPaddingDp = initialPadH
                                 setBackgroundColor(bgArgb)
                                 estimatedKeyboardHeightPx = curEstimatedKbPx
-                                this.isKeyboardVisible = curIsKeyboardVisible
+                                this.isKeyboardVisible = curIsBottomSurfaceActive
                                 this.isBottomSurfaceActive = curIsBottomSurfaceActive
-                                this.isAccessoryDrawerOpen = activeAccessoryDrawer != null
                                 onUserTouchDown = {
                                     if (activeAccessoryDrawer != null) {
                                         activeAccessoryDrawer = null
@@ -1413,7 +1408,6 @@ fun MainEditorScreen(
                                         isBarTransitionLatched = true
                                         unifiedCanvasRef?.isBottomSurfaceActive = true
                                         unifiedCanvasRef?.isKeyboardVisible = true
-                                        unifiedCanvasRef?.isAccessoryDrawerOpen = false
                                         isWritingBarSearchActive = false
                                         drawerSearchQuery = ""
                                         previewItem = null
@@ -1622,7 +1616,6 @@ fun MainEditorScreen(
                                     isBarTransitionLatched = true
                                     unifiedCanvasRef?.isBottomSurfaceActive = true
                                     unifiedCanvasRef?.isKeyboardVisible = true
-                                    unifiedCanvasRef?.isAccessoryDrawerOpen = false
                                     isWritingBarSearchActive = false
                                     drawerSearchQuery = ""
                                     previewItem = null
@@ -1635,11 +1628,9 @@ fun MainEditorScreen(
                             val density = layout.context.resources.displayMetrics.density
                             val bottomHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight else compactHeightDp
                             layout.estimatedKeyboardHeightPx = (bottomHeightDp.value + 36f) * density
-                            val curIsKeyboardVisible = isKeyboardVisible || isAwaitingKeyboardOpen || isBarTransitionLatched
                             val curIsBottomSurfaceActive = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched) && shortcuts.isNotEmpty()
-                            layout.isKeyboardVisible = curIsKeyboardVisible
+                            layout.isKeyboardVisible = curIsBottomSurfaceActive
                             layout.isBottomSurfaceActive = curIsBottomSurfaceActive
-                            layout.isAccessoryDrawerOpen = activeAccessoryDrawer != null
                             val editor = layout.editor
                             val scribeEditor = editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor
                             scribeEditor?.activeShortcuts = shortcuts
@@ -2418,7 +2409,6 @@ fun MainEditorScreen(
                                                 drawerState = it
                                                 unifiedCanvasRef?.isBottomSurfaceActive = true
                                                 unifiedCanvasRef?.isKeyboardVisible = true
-                                                unifiedCanvasRef?.isAccessoryDrawerOpen = true
                                             },
                                             onDragStart = {
                                                 isDrawerDragging = true

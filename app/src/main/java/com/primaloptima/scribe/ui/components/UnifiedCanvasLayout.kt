@@ -129,7 +129,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
     var isBottomSurfaceActive: Boolean = false
-    var isAccessoryDrawerOpen: Boolean = false
 
     init {
         addView(headerView)
@@ -767,11 +766,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val isBottomActive = isBottomSurfaceActive || isKeyboardVisible || hasBottomObstruction
 
                 // Pure Writer Invariant:
-                // Downward following is ONLY permitted when an Accessory Drawer is actively open
-                // and collapsing. When dismissing the keyboard or when no accessory drawer is active,
-                // the document MUST remain 100% stationary at the saved margin
+                // When keyboard is dismissed (no bottom bar or keyboard surface active),
+                // the document MUST remain completely stationary at the saved margin
                 // (keyboard height + shortcut bar + breathing margin). Never pull down to the bottom of the screen.
-                if (!isAccessoryDrawerOpen || isImeClosing || !isBottomActive) {
+                if (!isBottomActive) {
                     return
                 }
 
