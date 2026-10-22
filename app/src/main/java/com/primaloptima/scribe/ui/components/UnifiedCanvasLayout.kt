@@ -129,6 +129,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
     var isBottomSurfaceActive: Boolean = false
+    var isAccessoryDrawerOpen: Boolean = false
 
     init {
         addView(headerView)
@@ -766,10 +767,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val isBottomActive = isBottomSurfaceActive || isKeyboardVisible || hasBottomObstruction
 
                 // Pure Writer Invariant:
-                // When keyboard is dismissed (no bottom bar or keyboard surface active),
+                // When keyboard is dismissed or closing (no bottom accessory drawer active),
                 // the document MUST remain completely stationary at the saved margin
                 // (keyboard height + shortcut bar + breathing margin). Never pull down to the bottom of the screen.
-                if (!isBottomActive) {
+                if (isImeClosing || (!isAccessoryDrawerOpen && !isKeyboardVisible) || !isBottomActive) {
                     return
                 }
 
