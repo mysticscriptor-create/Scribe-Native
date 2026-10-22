@@ -753,11 +753,47 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     }
                 }
             } else if (dh < 0) {
-                // Viewport expanding (keyboard dismissing)
-                // Pure Writer Architecture:
-                // When keyboard is dismissed, the document remains completely stationary.
-                // It does NOT move down or snap down; the keyboard slides away, revealing
-                // the persistent bottom space below the text.
+                // Viewport expanding (accessory drawer contracting, emoji keyboard closing, or bottom surface lowering)
+                // Downward Following Invariant:
+                // If user is editing on the last line of the document, the last line must smoothly follow
+                // the shortcut bar downward maintaining the exact 24dp breathing margin.
+                // If user is editing in the middle or upper parts of the document, the text remains completely stationary.
+                val isAtLastLine = try {
+                    val cur = editor.cursor
+                    (cur != null && cur.leftLine >= (editor.text.lineCount - 1)) || (editor.text.lineCount <= 1)
+                } catch (_: Throwable) {
+                    false
+                }
+
+                if (isAtLastLine && (scrollD > 0 || editor.offsetY > 0)) {
+                    val density = resources.displayMetrics.density
+                    val lastLine = (editor.text.lineCount - 1).coerceAtLeast(0)
+                    val lastCol = try { editor.text.getColumnCount(lastLine) } catch (_: Throwable) { 0 }
+                    val lay = editor.layout
+                    val off = try { lay?.getCharLayoutOffset(lastLine, lastCol) } catch (_: Throwable) { null }
+                    val lastLineDocBottom = off?.get(0)
+                        ?: (lay?.layoutHeight?.toFloat() ?: ((lastLine + 1) * editor.rowHeight.toFloat()))
+
+                    val deltaY = ScribeScrollPolicy.calculateLastLineFollowDelta(
+                        lastLineDocBottom = lastLineDocBottom,
+                        headerHeight = headerHeight,
+                        scrollD = scrollD,
+                        offsetY = editor.offsetY,
+                        viewportHeight = h,
+                        density = density,
+                        isAtLastLine = true
+                    )
+
+                    if (deltaY < -1f) {
+                        post {
+                            smoothScrollCanvasBy(
+                                dy = deltaY,
+                                durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS,
+                                interpolator = FastOutSlowInInterpolator
+                            )
+                        }
+                    }
+                }
             }
         }
     }

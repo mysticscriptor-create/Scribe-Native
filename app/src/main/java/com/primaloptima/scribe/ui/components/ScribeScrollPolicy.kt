@@ -194,6 +194,50 @@ object ScribeScrollPolicy {
     }
 
     /**
+     * Calculates the downward canvas adjustment when the viewport expands (e.g. accessory drawer collapses,
+     * emoji keyboard closes, or bottom obstruction shrinks).
+     *
+     * If the cursor is positioned on the last line of the document, the last line smoothly follows
+     * the shortcut bar downward maintaining the breathing gap (24dp).
+     * If the user is editing in the middle or upper parts of the document, no downward adjustment is made (returns 0f).
+     *
+     * @param lastLineDocBottom The measured bottom coordinate of the last line in document coordinates
+     * @param headerHeight Measured height of the document header view
+     * @param scrollD Current header displacement
+     * @param offsetY Current editor scroll offset
+     * @param viewportHeight The new, expanded usable viewport height
+     * @param density Screen display metrics density
+     * @param isAtLastLine Whether the cursor is currently on the final line of the document
+     * @return Negative deltaY to smoothly pull the canvas down, or 0f if no adjustment needed
+     */
+    fun calculateLastLineFollowDelta(
+        lastLineDocBottom: Float,
+        headerHeight: Int,
+        scrollD: Int,
+        offsetY: Int,
+        viewportHeight: Int,
+        density: Float,
+        isAtLastLine: Boolean
+    ): Float {
+        if (!isAtLastLine || viewportHeight <= 0) return 0f
+        val totalScroll = scrollD + offsetY
+        if (totalScroll <= 0) return 0f
+
+        val marginPx = (CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
+        val deadbandPx = (CURSOR_DEADBAND_DP * density).roundToInt()
+        val targetLineBottom = (viewportHeight - marginPx).toFloat()
+
+        val screenBottom = (headerHeight - scrollD) + lastLineDocBottom - offsetY
+        // If the last line is sitting above the target breathing line:
+        if (screenBottom < (targetLineBottom - deadbandPx)) {
+            val deltaDown = screenBottom - targetLineBottom
+            // Cannot scroll past top of document (totalScroll reaches 0)
+            return maxOf(deltaDown, -totalScroll.toFloat())
+        }
+        return 0f
+    }
+
+    /**
      * Calculates the safe maximum vertical scroll for the editor layout, accounting for
      * persistent bottom space (keyboard + shortcut bar).
      *

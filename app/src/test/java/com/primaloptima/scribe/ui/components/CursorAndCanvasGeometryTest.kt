@@ -528,4 +528,61 @@ class CursorAndCanvasGeometryTest {
             assertEquals("Step $i: Must scroll exactly rowHeight", rowHeight, resolution.deltaY)
         }
     }
+
+    @Test
+    fun testDrawerCollapseSmoothlyPullsLastLineDownToBreathingMargin() {
+        val density = 2.5f
+        val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).toInt() // 60px
+        val headerHeight = 200
+        val lastLineDocBottom = 1500f
+
+        // When drawer was in FULL expanded state, usable viewport was small (e.g. 500px).
+        // Total scroll had pushed document up so last line was resting at 500 - 60 = 440px.
+        // screenBottom = (headerHeight - scrollD) + lastLineDocBottom - offsetY
+        // With scrollD = 200, offsetY = 1060: screenBottom = 0 + 1500 - 1060 = 440px.
+        val scrollD = 200
+        val offsetY = 1060
+
+        // Now drawer collapses to COMPACT / keyboard: usable viewport expands to 1200px!
+        val newExpandedViewport = 1200
+        val targetLineBottom = newExpandedViewport - marginPx // 1140px
+
+        val deltaDown = ScribeScrollPolicy.calculateLastLineFollowDelta(
+            lastLineDocBottom = lastLineDocBottom,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            offsetY = offsetY,
+            viewportHeight = newExpandedViewport,
+            density = density,
+            isAtLastLine = true
+        )
+
+        // The last line was at 440px, but target is 1140px.
+        // Delta must be 440 - 1140 = -700px (downward pull).
+        assertEquals("Must calculate exact downward pull to follow shortcut bar to 24dp breathing margin", -700f, deltaDown)
+    }
+
+    @Test
+    fun testDrawerCollapseDoesNotMoveMidDocumentEditingPosition() {
+        val density = 2.5f
+        val headerHeight = 200
+        val lastLineDocBottom = 5000f // Large document
+        val scrollD = 200
+        val offsetY = 1200
+        val newExpandedViewport = 1200
+
+        // When editing in the middle of document (isAtLastLine = false):
+        val delta = ScribeScrollPolicy.calculateLastLineFollowDelta(
+            lastLineDocBottom = lastLineDocBottom,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            offsetY = offsetY,
+            viewportHeight = newExpandedViewport,
+            density = density,
+            isAtLastLine = false
+        )
+
+        // Mid-document text must stay 100% rock-solid stationary!
+        assertEquals("Mid-document text must never be pulled down on drawer collapse", 0f, delta)
+    }
 }
