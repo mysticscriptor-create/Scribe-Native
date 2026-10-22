@@ -475,4 +475,57 @@ class CursorAndCanvasGeometryTest {
         // 1500 + 860 - 2000 = 360: identical to openMaxScroll!
         assertEquals("Max scroll remains identical upon dismissal, keeping text rock-solid stationary", openMaxScroll, dismissedMaxScroll)
     }
+
+    @Test
+    fun testNewlineCursorCalculatesAccurateUpwardScrollDelta() {
+        val density = 2.5f
+        val visibleHeight = 1200 // Usable height above shortcut bar
+        val rowHeight = 75f // 30dp
+        val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).toInt() // 60px
+        val targetLineBottom = visibleHeight - marginPx // 1140px
+
+        // When previous line rested at targetLineBottom (1140px), inserting a newline
+        // moves the active cursor position to 1140 + 75 = 1215px.
+        val screenBottom = targetLineBottom + rowHeight
+        val screenTop = screenBottom - rowHeight
+
+        val resolution = ScribeScrollPolicy.resolveCursorScrollDelta(
+            screenBottom = screenBottom,
+            screenTop = screenTop,
+            visibleHeight = visibleHeight,
+            density = density,
+            isLastLine = true,
+            isDeletionActive = false,
+            hasScrollOffset = true
+        )
+
+        assertEquals("Should trigger upward scroll on newline at bottom", true, resolution.shouldScroll)
+        assertEquals("Scroll delta must exactly equal new line height to keep cursor at breathing margin", rowHeight, resolution.deltaY)
+    }
+
+    @Test
+    fun testRapidEnterCalculatesConsistentBreathingMarginOnEachLine() {
+        val density = 2.5f
+        val visibleHeight = 1200
+        val rowHeight = 60f
+        val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).toInt()
+        val targetLineBottom = visibleHeight - marginPx
+
+        // Simulate 5 successive newlines starting from targetLineBottom:
+        for (i in 1..5) {
+            val screenBottom = targetLineBottom + rowHeight
+            val screenTop = screenBottom - rowHeight
+            val resolution = ScribeScrollPolicy.resolveCursorScrollDelta(
+                screenBottom = screenBottom,
+                screenTop = screenTop,
+                visibleHeight = visibleHeight,
+                density = density,
+                isLastLine = true,
+                isDeletionActive = false,
+                hasScrollOffset = true
+            )
+            assertEquals("Step $i: Must scroll up", true, resolution.shouldScroll)
+            assertEquals("Step $i: Must scroll exactly rowHeight", rowHeight, resolution.deltaY)
+        }
+    }
 }

@@ -1140,6 +1140,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
                         val maxScroll = pCanvas.maxCanvasScroll
                         if (totalScroll > maxScroll || text.isEmpty()) {
                             pCanvas.clampCanvasScrollToMax(smooth = true)
+                        } else if (isFocused) {
+                            pCanvas.ensureCursorVisibleAboveKeyboard(smooth = true, force = true)
                         }
                     }
                 }
@@ -1398,7 +1400,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (!isFocused) return
         val parentCanvas = parent as? UnifiedCanvasLayout
         if (parentCanvas != null) {
-            parentCanvas.ensureCursorVisibleAboveKeyboard()
+            parentCanvas.ensureCursorVisibleAboveKeyboard(smooth = true, force = true)
             return
         }
         super.ensureSelectionVisible()
@@ -1440,29 +1442,30 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (isInteractingWithImage) return
         val scroller = scroller ?: return
         val layout = layout ?: return
-        val layoutOffset = try { layout.getCharLayoutOffset(line, column) } catch (_: Throwable) { null } ?: return
-        val xOffset = layoutOffset[1] + measureTextRegionOffset()
-        val yOffset = layoutOffset[0] // Bottom of current row in doc coordinates
+        val layoutOffset = try { layout.getCharLayoutOffset(line, column) } catch (_: Throwable) { null }
 
         // 1. Horizontal cursor visibility:
-        val currFinalX = if (scroller.isFinished) offsetX.toFloat() else scroller.finalX.toFloat()
-        var targetX = currFinalX
-        val charWidth = if (column == 0) 0f else textPaint.measureText("a")
-        if (xOffset < currFinalX + (if (isLineNumberPinned) measureTextRegionOffset() else 0f)) {
-            val backupX = targetX
-            val scrollSlopX = width / 2f
-            targetX = xOffset + (if (isLineNumberPinned) -measureTextRegionOffset() else 0f) - charWidth
-            if (abs(targetX - backupX) < scrollSlopX) {
-                targetX = maxOf(1f, backupX - scrollSlopX)
+        if (layoutOffset != null) {
+            val xOffset = layoutOffset[1] + measureTextRegionOffset()
+            val currFinalX = if (scroller.isFinished) offsetX.toFloat() else scroller.finalX.toFloat()
+            var targetX = currFinalX
+            val charWidth = if (column == 0) 0f else textPaint.measureText("a")
+            if (xOffset < currFinalX + (if (isLineNumberPinned) measureTextRegionOffset() else 0f)) {
+                val backupX = targetX
+                val scrollSlopX = width / 2f
+                targetX = xOffset + (if (isLineNumberPinned) -measureTextRegionOffset() else 0f) - charWidth
+                if (abs(targetX - backupX) < scrollSlopX) {
+                    targetX = maxOf(1f, backupX - scrollSlopX)
+                }
             }
-        }
-        if (xOffset + charWidth > currFinalX + width) {
-            targetX = xOffset + charWidth * 0.8f - width
-        }
-        targetX = targetX.coerceIn(0f, scrollMaxX.toFloat())
-        if (abs(targetX - offsetX.toFloat()) >= 1f) {
-            scroller.startScroll(offsetX, offsetY, (targetX - offsetX).toInt(), 0, 0)
-            scroller.abortAnimation()
+            if (xOffset + charWidth > currFinalX + width) {
+                targetX = xOffset + charWidth * 0.8f - width
+            }
+            targetX = targetX.coerceIn(0f, scrollMaxX.toFloat())
+            if (abs(targetX - offsetX.toFloat()) >= 1f) {
+                scroller.startScroll(offsetX, offsetY, (targetX - offsetX).toInt(), 0, 0)
+                scroller.abortAnimation()
+            }
         }
 
         // 2. Vertical cursor visibility through UnifiedCanvasLayout:
@@ -1475,12 +1478,13 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 }
                 return
             }
-            parentCanvas.ensureCursorVisibleAboveKeyboard(smooth = !noAnimation)
+            parentCanvas.ensureCursorVisibleAboveKeyboard(smooth = !noAnimation, force = true)
             invalidate()
             return
         }
 
         // Fallback when not hosted in UnifiedCanvasLayout:
+        val yOffset = layoutOffset?.get(0) ?: ((line + 1) * rowHeight.toFloat())
         val currFinalY = if (scroller.isFinished) offsetY.toFloat() else scroller.finalY.toFloat()
         var targetY = currFinalY
         val effectiveHeight = height.coerceAtLeast(rowHeight)
