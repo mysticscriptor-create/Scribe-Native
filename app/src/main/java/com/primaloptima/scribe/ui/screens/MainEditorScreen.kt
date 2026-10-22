@@ -1087,7 +1087,7 @@ fun MainEditorScreen(
     }
 
     LaunchedEffect(savedKeyboardHeightFloat) {
-        if (savedKeyboardHeightFloat in 220f..600f) {
+        if (savedKeyboardHeightFloat in 220f..330f) {
             lastKeyboardHeightDp = savedKeyboardHeightFloat.dp
         }
     }
@@ -1145,17 +1145,20 @@ fun MainEditorScreen(
         }
     }
 
-    // Capture steady-state keyboard height once settled, saving to DataStore only on confirmed rest
+    // Capture steady-state standard keyboard height once settled, saving to DataStore only on confirmed rest.
+    // Filter out transient oversized keyboard pickers (emojis, stickers, GIFs, clipboard) which exceed 330dp,
+    // ensuring compact drawers and transition latches reflect the baseline standard keyboard.
+    val maxStandardKbBaselineDp = minOf(330.dp, (configuration.screenHeightDp.dp * 0.45f).coerceAtLeast(300.dp))
     LaunchedEffect(imeBottomDp, isKeyboardVisible, docBottomNavInset) {
         if (isKeyboardVisible && activeAccessoryDrawer == null && !isAwaitingKeyboardOpen && imeBottomDp > 150.dp) {
             val aboveNav = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
-            if (aboveNav >= 200.dp) {
+            if (aboveNav in 200.dp..maxStandardKbBaselineDp) {
                 // Debounce 350ms to ensure the keyboard has finished 100% of its entrance animation and settled
                 kotlinx.coroutines.delay(350)
                 val settledAboveNav = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
                 if (isKeyboardVisible && activeAccessoryDrawer == null && !isAwaitingKeyboardOpen &&
-                    settledAboveNav >= 200.dp && kotlin.math.abs(settledAboveNav.value - aboveNav.value) < 1f) {
-                    if (settledAboveNav > lastKeyboardHeightDp || kotlin.math.abs(settledAboveNav.value - lastKeyboardHeightDp.value) > 2f) {
+                    settledAboveNav in 200.dp..maxStandardKbBaselineDp && kotlin.math.abs(settledAboveNav.value - aboveNav.value) < 1f) {
+                    if (kotlin.math.abs(settledAboveNav.value - lastKeyboardHeightDp.value) > 2f) {
                         lastKeyboardHeightDp = settledAboveNav
                         if (kotlin.math.abs(settledAboveNav.value - savedKeyboardHeightFloat) >= 1f) {
                             dataStore.setLastKeyboardHeight(settledAboveNav.value)
@@ -1202,7 +1205,7 @@ fun MainEditorScreen(
                 settled = result != null
             } finally {
                 // 3. Calibrate compactHeightDp to the exact settled height so future toggles match 1:1
-                if (settled && imeAboveNavDp >= 140.dp) {
+                if (settled && imeAboveNavDp in 200.dp..maxStandardKbBaselineDp) {
                     lastKeyboardHeightDp = imeAboveNavDp
                 }
                 isAwaitingKeyboardOpen = false
@@ -1351,8 +1354,7 @@ fun MainEditorScreen(
                             }
                         }
                         isAwaitingKeyboardOpen || isBarTransitionLatched -> maxOf(compactHeightDp, imeAboveNavDp)
-                        isKeyboardVisible -> maxOf(compactHeightDp, imeAboveNavDp)
-                        imeAboveNavDp > 10.dp -> imeAboveNavDp
+                        isKeyboardVisible || imeAboveNavDp > 10.dp -> imeAboveNavDp
                         else -> 0.dp
                     }
                     val docBottomPadding = if (!isBarVisible) {

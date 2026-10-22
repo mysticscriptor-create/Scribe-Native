@@ -229,6 +229,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var isLastLineDeletionActive: Boolean = false
         private set
     private var resetDeletionActiveRunnable: Runnable? = null
+    private var pendingFollowRunnable: Runnable? = null
 
     fun notifyLastLineDeletionStarted() {
         isLastLineDeletionActive = true
@@ -746,6 +747,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     // Phase 2: Elimination of Post-Appearance Double-Jumps
                     // If an active predictive glide is underway OR cursor is already in safe zone,
                     // suppress the secondary post { ensureCursorVisibleAboveKeyboard() }.
+                    pendingFollowRunnable?.let {
+                        removeCallbacks(it)
+                        pendingFollowRunnable = null
+                    }
                     if (!isPredictiveGlideRunning && !isCursorInSafeZone) {
                         post {
                             if (!isPredictiveGlideRunning) {
@@ -770,6 +775,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 // the document MUST remain completely stationary at the saved margin
                 // (keyboard height + shortcut bar + breathing margin). Never pull down to the bottom of the screen.
                 if (!isBottomActive) {
+                    pendingFollowRunnable?.let {
+                        removeCallbacks(it)
+                        pendingFollowRunnable = null
+                    }
                     return
                 }
 
@@ -784,32 +793,51 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 } catch (_: Throwable) { false }
 
                 if (isAtLastLine && (scrollD > 0 || editor.offsetY > 0)) {
-                    val lastLine = (lineCount - 1).coerceAtLeast(0)
-                    val lastCol = try { editor.text.getColumnCount(lastLine) } catch (_: Throwable) { 0 }
-                    val lay = editor.layout
-                    val off = try { lay?.getCharLayoutOffset(lastLine, lastCol) } catch (_: Throwable) { null }
-                    val lastLineDocBottom = off?.get(0)
-                        ?: (lay?.layoutHeight?.toFloat() ?: ((lastLine + 1) * editor.rowHeight.toFloat()))
+                    pendingFollowRunnable?.let { removeCallbacks(it) }
+                    val followRunnable = Runnable {
+                        pendingFollowRunnable = null
+                        val curDensity = resources.displayMetrics.density
+                        val curRootH = rootView?.height ?: resources.displayMetrics.heightPixels
+                        val curHasObstruction = (curRootH - height) >= (140 * curDensity).roundToInt()
+                        val stillBottomActive = isBottomSurfaceActive || isKeyboardVisible || curHasObstruction
+                        if (!stillBottomActive) return@Runnable
 
-                    val deltaY = ScribeScrollPolicy.calculateLastLineFollowDelta(
-                        lastLineDocBottom = lastLineDocBottom,
-                        headerHeight = headerHeight,
-                        scrollD = scrollD,
-                        offsetY = editor.offsetY,
-                        viewportHeight = h,
-                        density = density,
-                        isAtLastLine = true
-                    )
+                        val c = try { editor.cursor } catch (_: Throwable) { null }
+                        val lc = try { editor.text.lineCount } catch (_: Throwable) { 1 }
+                        val atLast = try {
+                            (c != null && c.leftLine >= (lc - 1)) || (lc <= 1)
+                        } catch (_: Throwable) { false }
 
-                    if (deltaY < -1f) {
-                        post {
-                            smoothScrollCanvasBy(
-                                dy = deltaY,
-                                durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS,
-                                interpolator = FastOutSlowInInterpolator
+                        if (atLast && (scrollD > 0 || editor.offsetY > 0)) {
+                            val lastL = (lc - 1).coerceAtLeast(0)
+                            val lastC = try { editor.text.getColumnCount(lastL) } catch (_: Throwable) { 0 }
+                            val lay = editor.layout
+                            val off = try { lay?.getCharLayoutOffset(lastL, lastC) } catch (_: Throwable) { null }
+                            val lastLineBottom = off?.get(0)
+                                ?: (lay?.layoutHeight?.toFloat() ?: ((lastL + 1) * editor.rowHeight.toFloat()))
+
+                            val dy = ScribeScrollPolicy.calculateLastLineFollowDelta(
+                                lastLineDocBottom = lastLineBottom,
+                                headerHeight = headerHeight,
+                                scrollD = scrollD,
+                                offsetY = editor.offsetY,
+                                viewportHeight = height,
+                                density = curDensity,
+                                isAtLastLine = true
                             )
+
+                            if (dy < -1f) {
+                                cancelCanvasAnimation()
+                                smoothScrollCanvasBy(
+                                    dy = dy,
+                                    durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS,
+                                    interpolator = FastOutSlowInInterpolator
+                                )
+                            }
                         }
                     }
+                    pendingFollowRunnable = followRunnable
+                    post(followRunnable)
                 }
             }
         }
@@ -1210,5 +1238,14 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             }
             postInvalidateOnAnimation()
         }
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        cancelCanvasAnimation()
+        pendingFollowRunnable?.let { removeCallbacks(it) }
+        pendingFollowRunnable = null
+        resetDeletionActiveRunnable?.let { removeCallbacks(it) }
+        resetDeletionActiveRunnable = null
     }
 }
