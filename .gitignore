@@ -30,4 +30,6 @@ PORTING_PLAN.md
 /tsconfig.json
 /vite.config.ts
 /server.js
+/public/
 
+fix-duplicate-declaration.patch

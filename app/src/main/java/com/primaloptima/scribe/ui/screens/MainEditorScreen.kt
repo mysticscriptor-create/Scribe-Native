@@ -2200,8 +2200,6 @@ fun MainEditorScreen(
                                             }
                                             // ── Dedicated Insert Image Tool Button ──
                                             val imageBtnColor = Color(0xFF06B6D4)
-                                            // ── Dedicated Insert Image Tool Button ──
-                                            val imageBtnColor = Color(0xFF06B6D4)
                                             Box(
                                                 contentAlignment = Alignment.Center,
                                                 modifier = Modifier
