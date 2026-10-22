@@ -97,18 +97,16 @@ class CursorAndCanvasGeometryTest {
 
     @Test
     fun testDeleteLastParagraphCalculatesAccurateDownwardAnchorDelta() {
-        // When deleting the last paragraph, the text bottom drifts above the shortcut bar.
-        // calculateDeletionAnchorDelta must detect the exact gap and return the downward delta.
+        // When deleting the last paragraph shrinks the document past current scroll position,
+        // calculateDeletionAnchorDelta cleanly clamps the physical excess scroll (1000 - 500 = 500px).
         val headerHeight = 200
         val scrollD = 200
         val layoutHeight = 1400
         val offsetY = 800
         val viewportHeight = 1200
-        val density = 2.5f // margin = 60px, targetLineBottom = 1140px
+        val density = 2.5f
 
-        // textBottom = (200 - 200) + 1400 - 800 = 600px.
-        // Gap to 1140: 1140 - 600 = 540px.
-        // totalScroll = 200 + 800 = 1000px.
+        // totalScroll = 200 + 800 = 1000px. maxCanvasScroll = 500px. Excess = 500px.
         val delta = ScribeScrollPolicy.calculateDeletionAnchorDelta(
             headerHeight = headerHeight,
             scrollD = scrollD,
@@ -118,12 +116,14 @@ class CursorAndCanvasGeometryTest {
             density = density,
             maxCanvasScroll = 500
         )
-        assertEquals(-540f, delta, 0.001f)
+        assertEquals(-500f, delta, 0.001f)
     }
 
     @Test
     fun testDeleteSecondToLastParagraphCalculatesAccurateDownwardAnchorDelta() {
-        // When deleting in the second-to-last paragraph, the end of document drifts up by 80px.
+        // When deleting in the second-to-last paragraph causes total scroll to exceed maxCanvasScroll,
+        // calculateDeletionAnchorDelta clamps the physical excess (1000 - 800 = 200px) without
+        // shoving the remaining text behind the shortcut bar or keyboard.
         val headerHeight = 200
         val scrollD = 200
         val layoutHeight = 1860
@@ -131,8 +131,7 @@ class CursorAndCanvasGeometryTest {
         val viewportHeight = 1200
         val density = 2.5f
 
-        // textBottom = 0 + 1860 - 800 = 1060px.
-        // Gap to 1140: 1140 - 1060 = 80px.
+        // totalScroll = 1000px. maxCanvasScroll = 800px. Excess = 200px.
         val delta = ScribeScrollPolicy.calculateDeletionAnchorDelta(
             headerHeight = headerHeight,
             scrollD = scrollD,
@@ -142,7 +141,7 @@ class CursorAndCanvasGeometryTest {
             density = density,
             maxCanvasScroll = 800
         )
-        assertEquals(-80f, delta, 0.001f)
+        assertEquals(-200f, delta, 0.001f)
     }
 
     @Test

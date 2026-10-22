@@ -182,30 +182,14 @@ object ScribeScrollPolicy {
             return -totalScroll.toFloat()
         }
 
-        val headerRemaining = headerHeight - scrollD
-        val textBottomScreenY = (headerRemaining + layoutHeight - offsetY).toFloat()
-
-        val marginPx = (CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
-        val deadbandPx = (CURSOR_DEADBAND_DP * density).roundToInt()
-        val targetLineBottom = viewportHeight - marginPx
-
-        // 2. Text bottom detection: If the bottom of all text is floating above targetLineBottom
-        if (textBottomScreenY < (targetLineBottom - deadbandPx)) {
-            val gap = targetLineBottom - textBottomScreenY
-            val scrollDownBy = minOf(gap, totalScroll.toFloat())
-            if (scrollDownBy >= 1f) {
-                return -scrollDownBy
-            }
-        }
-
-        // 3. Physical bounds check: If total scroll exceeds maxCanvasScroll
+        // 2. Physical bounds clamp: If total scroll exceeds maxCanvasScroll,
+        // smoothly clamp excess scroll so content naturally settles at maxCanvasScroll.
         if (totalScroll > maxCanvasScroll) {
             val excess = (totalScroll - maxCanvasScroll).toFloat()
             if (excess >= 1f) {
                 return -excess
             }
         }
-
         return 0f
     }
 
