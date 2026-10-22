@@ -593,13 +593,18 @@ class CursorAndCanvasGeometryTest {
         val lastLineDocBottom = 1500f
         val scrollD = 200
         val offsetY = 1060
-        // When keyboard dismisses, viewport expands to 2200px:
-        val newExpandedViewport = 2200
 
-        // In UnifiedCanvasLayout, when keyboard is dismissed (!isKeyboardVisible || isImeClosing),
-        // the downward pull is suppressed, keeping the document rock-solid stationary at saved margin.
+        // When keyboard dismisses, viewport expands to 2200px (virtually full screen height):
+        val newExpandedViewport = 2200
+        val rootHeight = 2300
+        val hasBottomObstruction = (rootHeight - newExpandedViewport) >= (140 * density).toInt()
+        val isBottomSurfaceActive = false
         val isKeyboardVisible = false
-        val delta = if (!isKeyboardVisible) 0f else ScribeScrollPolicy.calculateLastLineFollowDelta(
+        val isBottomActive = isBottomSurfaceActive || isKeyboardVisible || hasBottomObstruction
+
+        // In UnifiedCanvasLayout, when keyboard is dismissed (isBottomActive is false),
+        // the downward pull is suppressed, keeping the document rock-solid stationary at saved margin.
+        val delta = if (!isBottomActive) 0f else ScribeScrollPolicy.calculateLastLineFollowDelta(
             lastLineDocBottom = lastLineDocBottom,
             headerHeight = headerHeight,
             scrollD = scrollD,

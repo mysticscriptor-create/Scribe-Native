@@ -1113,6 +1113,8 @@ fun MainEditorScreen(
                 drawerState = AccessoryDrawerState.COMPACT
                 isAwaitingKeyboardOpen = true
                 isBarTransitionLatched = true
+                unifiedCanvasRef?.isBottomSurfaceActive = true
+                unifiedCanvasRef?.isKeyboardVisible = true
                 isWritingBarSearchActive = false
                 drawerSearchQuery = ""
                 previewItem = null
@@ -1389,19 +1391,22 @@ fun MainEditorScreen(
 
                             val bottomHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight else compactHeightDp
                             val curEstimatedKbPx = (bottomHeightDp.value + 44f) * density
-                            val curIsKeyboardVisible = isKeyboardVisible || isAwaitingKeyboardOpen || isBarTransitionLatched
+                            val curIsBottomSurfaceActive = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched) && shortcuts.isNotEmpty()
 
                             UnifiedCanvasLayout(ctx).apply {
                                 horizontalPaddingDp = initialPadH
                                 setBackgroundColor(bgArgb)
                                 estimatedKeyboardHeightPx = curEstimatedKbPx
-                                this.isKeyboardVisible = curIsKeyboardVisible
+                                this.isKeyboardVisible = curIsBottomSurfaceActive
+                                this.isBottomSurfaceActive = curIsBottomSurfaceActive
                                 onUserTouchDown = {
                                     if (activeAccessoryDrawer != null) {
                                         activeAccessoryDrawer = null
                                         drawerState = AccessoryDrawerState.COMPACT
                                         isAwaitingKeyboardOpen = true
                                         isBarTransitionLatched = true
+                                        unifiedCanvasRef?.isBottomSurfaceActive = true
+                                        unifiedCanvasRef?.isKeyboardVisible = true
                                         isWritingBarSearchActive = false
                                         drawerSearchQuery = ""
                                         previewItem = null
@@ -1608,6 +1613,8 @@ fun MainEditorScreen(
                                     drawerState = AccessoryDrawerState.COMPACT
                                     isAwaitingKeyboardOpen = true
                                     isBarTransitionLatched = true
+                                    unifiedCanvasRef?.isBottomSurfaceActive = true
+                                    unifiedCanvasRef?.isKeyboardVisible = true
                                     isWritingBarSearchActive = false
                                     drawerSearchQuery = ""
                                     previewItem = null
@@ -1620,7 +1627,9 @@ fun MainEditorScreen(
                             val density = layout.context.resources.displayMetrics.density
                             val bottomHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight else compactHeightDp
                             layout.estimatedKeyboardHeightPx = (bottomHeightDp.value + 44f) * density
-                            layout.isKeyboardVisible = isKeyboardVisible || isAwaitingKeyboardOpen || isBarTransitionLatched
+                            val curIsBottomSurfaceActive = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched) && shortcuts.isNotEmpty()
+                            layout.isKeyboardVisible = curIsBottomSurfaceActive
+                            layout.isBottomSurfaceActive = curIsBottomSurfaceActive
                             val editor = layout.editor
                             val scribeEditor = editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor
                             scribeEditor?.activeShortcuts = shortcuts
@@ -2430,7 +2439,11 @@ fun MainEditorScreen(
                                             currentHeightDp = effectiveBottomSurfaceHeight,
                                             activePreviewItemId = activeCardPreview?.item?.id,
                                             drawerState = drawerState,
-                                            onDrawerStateChange = { drawerState = it },
+                                            onDrawerStateChange = {
+                                                drawerState = it
+                                                unifiedCanvasRef?.isBottomSurfaceActive = true
+                                                unifiedCanvasRef?.isKeyboardVisible = true
+                                            },
                                             onDragStart = {
                                                 isDrawerDragging = true
                                                 dragLiveHeightDp = drawerHeightDpAnim.value

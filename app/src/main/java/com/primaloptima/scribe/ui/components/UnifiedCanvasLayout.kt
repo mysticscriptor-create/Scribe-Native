@@ -97,9 +97,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             // When keyboard is visible, viewport is already padded by Compose.
             // Therefore, bottomSpace is ONLY breathingMargin (24dp) so last line sits
             // comfortably above shortcut bar without double-counting keyboard height or scrolling empty space.
-            val bottomSpace = if (isKeyboardVisible) {
+            val bottomSpace = if (isKeyboardVisible || isBottomSurfaceActive) {
                 breathingMargin
-            } else if (editor.isFocused || editor.offsetY > 0) {
+            } else if (editor.isFocused || editor.offsetY > 0 || scrollD > 0) {
                 persistentBottomSpacePx.roundToInt()
             } else {
                 0
@@ -127,6 +127,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             field = value
             editor.isKeyboardVisible = value
         }
+
+    var isBottomSurfaceActive: Boolean = false
 
     init {
         addView(headerView)
@@ -754,27 +756,35 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 }
             } else if (dh < 0) {
                 // Viewport expanding (accessory drawer contracting, emoji keyboard closing, or bottom surface lowering)
+                val density = resources.displayMetrics.density
+                val rootH = rootView?.height ?: resources.displayMetrics.heightPixels
+                // When keyboard is dismissed, the viewport expands to virtually full screen height
+                // (rootH - h is only the status bar + navigation bar, < 120dp).
+                // When an accessory drawer collapses or an emoji keyboard closes to a standard keyboard,
+                // the bottom surface (keyboard/bar) is still present (rootH - h >= 140dp).
+                val hasBottomObstruction = (rootH - h) >= (140 * density).roundToInt()
+                val isBottomActive = isBottomSurfaceActive || isKeyboardVisible || hasBottomObstruction
+
                 // Pure Writer Invariant:
-                // When keyboard is dismissed or closing, the document MUST remain completely stationary at the saved margin
+                // When keyboard is dismissed (no bottom bar or keyboard surface active),
+                // the document MUST remain completely stationary at the saved margin
                 // (keyboard height + shortcut bar + breathing margin). Never pull down to the bottom of the screen.
-                if (!isKeyboardVisible || isImeClosing) {
+                if (!isBottomActive) {
                     return
                 }
 
                 // Downward Following Invariant:
-                // Only when keyboard remains active (e.g. accessory drawer collapsed to keyboard,
+                // Only when bottom surface remains active (e.g. accessory drawer collapsed to keyboard,
                 // or taller emoji keyboard returned to standard keyboard), smoothly follow the
                 // shortcut bar downward maintaining the exact 24dp breathing margin.
+                val cur = try { editor.cursor } catch (_: Throwable) { null }
+                val lineCount = try { editor.text.lineCount } catch (_: Throwable) { 1 }
                 val isAtLastLine = try {
-                    val cur = editor.cursor
-                    (cur != null && cur.leftLine >= (editor.text.lineCount - 1)) || (editor.text.lineCount <= 1)
-                } catch (_: Throwable) {
-                    false
-                }
+                    (cur != null && cur.leftLine >= (lineCount - 1)) || (lineCount <= 1)
+                } catch (_: Throwable) { false }
 
                 if (isAtLastLine && (scrollD > 0 || editor.offsetY > 0)) {
-                    val density = resources.displayMetrics.density
-                    val lastLine = (editor.text.lineCount - 1).coerceAtLeast(0)
+                    val lastLine = (lineCount - 1).coerceAtLeast(0)
                     val lastCol = try { editor.text.getColumnCount(lastLine) } catch (_: Throwable) { 0 }
                     val lay = editor.layout
                     val off = try { lay?.getCharLayoutOffset(lastLine, lastCol) } catch (_: Throwable) { null }
