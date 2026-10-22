@@ -106,6 +106,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -1308,7 +1309,7 @@ fun MainEditorScreen(
 
                     // ── Unified Continuous Document Canvas ─────────────────────────
                     val docTopInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-                    val shortcutBarHeight = 44.dp
+                    val shortcutBarHeight = 36.dp
 
                     LaunchedEffect(drawerState, compactHeightDp, expandedHeightDp, fullHeightDp, activeAccessoryDrawer) {
                         if (activeAccessoryDrawer != null && !isDrawerDragging) {
@@ -1389,7 +1390,7 @@ fun MainEditorScreen(
                             lastAppliedThemeId = activeTheme?.id
 
                             val bottomHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight else compactHeightDp
-                            val curEstimatedKbPx = (bottomHeightDp.value + 44f) * density
+                            val curEstimatedKbPx = (bottomHeightDp.value + 36f) * density
                             val curIsBottomSurfaceActive = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched) && shortcuts.isNotEmpty()
 
                             UnifiedCanvasLayout(ctx).apply {
@@ -1625,7 +1626,7 @@ fun MainEditorScreen(
                             }
                             val density = layout.context.resources.displayMetrics.density
                             val bottomHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight else compactHeightDp
-                            layout.estimatedKeyboardHeightPx = (bottomHeightDp.value + 44f) * density
+                            layout.estimatedKeyboardHeightPx = (bottomHeightDp.value + 36f) * density
                             val curIsBottomSurfaceActive = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched) && shortcuts.isNotEmpty()
                             layout.isKeyboardVisible = curIsBottomSurfaceActive
                             layout.isBottomSurfaceActive = curIsBottomSurfaceActive
@@ -1938,15 +1939,14 @@ fun MainEditorScreen(
                                 Surface(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 6.dp)
+                                        .height(shortcutBarHeight)
                                         .onGloballyPositioned { coords ->
                                             registerBounds("shortcut_bar", coords.boundsInRoot())
                                         },
-                                    shape = if (activeAccessoryDrawer != null) RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
-                                            else RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp, bottomStart = 0.dp, bottomEnd = 0.dp),
-                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
-                                    tonalElevation = 4.dp,
-                                    shadowElevation = 3.dp,
+                                    shape = RectangleShape,
+                                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                                    tonalElevation = 2.dp,
+                                    shadowElevation = 0.dp,
                                     border = androidx.compose.foundation.BorderStroke(
                                         width = 0.6.dp,
                                         color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
@@ -1969,10 +1969,11 @@ fun MainEditorScreen(
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
+                                                .height(shortcutBarHeight)
                                                 .graphicsLayer { alpha = chipRowAlpha }
                                                 .horizontalScroll(rememberScrollState(), enabled = !isWritingBarSearchActive)
-                                                .padding(horizontal = 10.dp, vertical = 7.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                .padding(horizontal = 4.dp, vertical = 2.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                                             verticalAlignment     = Alignment.CenterVertically
                                         ) {
                                             // ── Undo / Redo Actions (Sora Editor Native Engine) ──────
@@ -1980,56 +1981,42 @@ fun MainEditorScreen(
                                             val canRedo = soraEditorRef?.canRedo() == true
                                             val accentColor = ScribeTheme.colors.interaction.primary
 
-                                            Surface(
-                                                shape = CircleShape,
-                                                color = if (canUndo) accentColor.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                                                contentColor = if (canUndo) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                                border = androidx.compose.foundation.BorderStroke(
-                                                    0.5.dp,
-                                                    if (canUndo) accentColor.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-                                                ),
+                                            Box(
+                                                contentAlignment = Alignment.Center,
                                                 modifier = Modifier
-                                                    .height(ScribeTheme.metrics.chipHeight)
+                                                    .height(30.dp)
+                                                    .defaultMinSize(minWidth = 30.dp)
+                                                    .clip(RoundedCornerShape(4.dp))
                                                     .clickable(enabled = canUndo) {
                                                         soraEditorRef?.undo()
                                                     }
+                                                    .padding(horizontal = 6.dp)
                                             ) {
-                                                Box(
-                                                    contentAlignment = Alignment.Center,
-                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = ScribeTheme.spacing.micro)
-                                                ) {
-                                                    Icon(
-                                                        Icons.AutoMirrored.Filled.Undo,
-                                                        contentDescription = "Undo",
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                }
+                                                Icon(
+                                                    Icons.AutoMirrored.Filled.Undo,
+                                                    contentDescription = "Undo",
+                                                    modifier = Modifier.size(17.dp),
+                                                    tint = if (canUndo) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                                                )
                                             }
 
-                                            Surface(
-                                                shape = CircleShape,
-                                                color = if (canRedo) accentColor.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                                                contentColor = if (canRedo) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                                border = androidx.compose.foundation.BorderStroke(
-                                                    0.5.dp,
-                                                    if (canRedo) accentColor.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
-                                                ),
+                                            Box(
+                                                contentAlignment = Alignment.Center,
                                                 modifier = Modifier
-                                                    .height(ScribeTheme.metrics.chipHeight)
+                                                    .height(30.dp)
+                                                    .defaultMinSize(minWidth = 30.dp)
+                                                    .clip(RoundedCornerShape(4.dp))
                                                     .clickable(enabled = canRedo) {
                                                         soraEditorRef?.redo()
                                                     }
+                                                    .padding(horizontal = 6.dp)
                                             ) {
-                                                Box(
-                                                    contentAlignment = Alignment.Center,
-                                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = ScribeTheme.spacing.micro)
-                                                ) {
-                                                    Icon(
-                                                        Icons.AutoMirrored.Filled.Redo,
-                                                        contentDescription = "Redo",
-                                                        modifier = Modifier.size(16.dp)
-                                                    )
-                                                }
+                                                Icon(
+                                                    Icons.AutoMirrored.Filled.Redo,
+                                                    contentDescription = "Redo",
+                                                    modifier = Modifier.size(17.dp),
+                                                    tint = if (canRedo) accentColor else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                                                )
                                             }
 
                                             Box(
@@ -2042,35 +2029,33 @@ fun MainEditorScreen(
                                             // ── Dedicated Switcher Buttons for Snippets & Templates ──
                                             val isSnippetsOpen = activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS
                                             val snippetBtnColor = Color(0xFF8B5CF6)
-                                            Surface(
-                                                shape = RoundedCornerShape(8.dp),
-                                                color = if (isSnippetsOpen) snippetBtnColor.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                                                contentColor = if (isSnippetsOpen) snippetBtnColor else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                border = androidx.compose.foundation.BorderStroke(
-                                                    0.5.dp,
-                                                    if (isSnippetsOpen) snippetBtnColor.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-                                                ),
+                                            Box(
+                                                contentAlignment = Alignment.Center,
                                                 modifier = Modifier
-                                                    .height(ScribeTheme.metrics.chipHeight)
+                                                    .height(30.dp)
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(if (isSnippetsOpen) snippetBtnColor.copy(alpha = 0.18f) else Color.Transparent)
                                                     .clickable {
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                         toggleAccessoryDrawer(AccessoryDrawerMode.SNIPPETS)
                                                     }
+                                                    .padding(horizontal = 6.dp)
                                             ) {
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = ScribeTheme.spacing.micro)
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                                 ) {
                                                     Icon(
                                                         Icons.Filled.Bookmarks,
                                                         contentDescription = "Snippets Drawer",
-                                                        modifier = Modifier.size(13.dp)
+                                                        modifier = Modifier.size(13.dp),
+                                                        tint = if (isSnippetsOpen) snippetBtnColor else MaterialTheme.colorScheme.onSurfaceVariant
                                                     )
                                                     Text(
                                                         text = "Snip",
                                                         fontSize = 12.sp,
-                                                        fontWeight = FontWeight.SemiBold
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = if (isSnippetsOpen) snippetBtnColor else MaterialTheme.colorScheme.onSurfaceVariant
                                                     )
                                                 }
                                             }
@@ -2080,35 +2065,33 @@ fun MainEditorScreen(
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Surface(
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    color = if (isTemplatesOpen) templateBtnColor.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                                                    contentColor = if (isTemplatesOpen) templateBtnColor else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    border = androidx.compose.foundation.BorderStroke(
-                                                        0.5.dp,
-                                                        if (isTemplatesOpen) templateBtnColor.copy(alpha = 0.6f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-                                                    ),
+                                                Box(
+                                                    contentAlignment = Alignment.Center,
                                                     modifier = Modifier
-                                                        .height(ScribeTheme.metrics.chipHeight)
+                                                        .height(30.dp)
+                                                        .clip(RoundedCornerShape(4.dp))
+                                                        .background(if (isTemplatesOpen) templateBtnColor.copy(alpha = 0.18f) else Color.Transparent)
                                                         .clickable {
                                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                             toggleAccessoryDrawer(AccessoryDrawerMode.TEMPLATES)
                                                         }
+                                                        .padding(horizontal = 6.dp)
                                                 ) {
                                                     Row(
                                                         verticalAlignment = Alignment.CenterVertically,
-                                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = ScribeTheme.spacing.micro)
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                                                     ) {
                                                         Icon(
                                                             Icons.Filled.Article,
                                                             contentDescription = "Templates Drawer",
-                                                            modifier = Modifier.size(13.dp)
+                                                            modifier = Modifier.size(13.dp),
+                                                            tint = if (isTemplatesOpen) templateBtnColor else MaterialTheme.colorScheme.onSurfaceVariant
                                                         )
                                                         Text(
                                                             text = "Tmpl",
                                                             fontSize = 12.sp,
-                                                            fontWeight = FontWeight.SemiBold
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            color = if (isTemplatesOpen) templateBtnColor else MaterialTheme.colorScheme.onSurfaceVariant
                                                         )
                                                     }
                                                 }
@@ -2168,62 +2151,48 @@ fun MainEditorScreen(
                                                                 .width(1.dp)
                                                                 .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
                                                         )
-                                                        // Search Pill (🔍)
-                                                        Surface(
-                                                            shape = RoundedCornerShape(8.dp),
-                                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                            border = androidx.compose.foundation.BorderStroke(
-                                                                0.5.dp,
-                                                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-                                                            ),
+                                                        // Search Button (🔍)
+                                                        Box(
+                                                            contentAlignment = Alignment.Center,
                                                             modifier = Modifier
-                                                                .height(ScribeTheme.metrics.chipHeight)
+                                                                .height(30.dp)
+                                                                .defaultMinSize(minWidth = 30.dp)
+                                                                .clip(RoundedCornerShape(4.dp))
                                                                 .clickable { isWritingBarSearchActive = true }
+                                                                .padding(horizontal = 6.dp)
                                                         ) {
-                                                            Box(
-                                                                contentAlignment = Alignment.Center,
-                                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = ScribeTheme.spacing.micro)
-                                                            ) {
-                                                                Icon(
-                                                                    Icons.Filled.Search,
-                                                                    contentDescription = "Search in drawer",
-                                                                    modifier = Modifier.size(14.dp)
-                                                                )
-                                                            }
+                                                            Icon(
+                                                                Icons.Filled.Search,
+                                                                contentDescription = "Search in drawer",
+                                                                modifier = Modifier.size(15.dp),
+                                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
                                                         }
-                                                        // Manage Pill (⚙ / Tune)
-                                                        Surface(
-                                                            shape = RoundedCornerShape(8.dp),
-                                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                            border = androidx.compose.foundation.BorderStroke(
-                                                                0.5.dp,
-                                                                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-                                                            ),
+                                                        // Manage Button (⚙ / Tune)
+                                                        Box(
+                                                            contentAlignment = Alignment.Center,
                                                             modifier = Modifier
-                                                                .height(ScribeTheme.metrics.chipHeight)
+                                                                .height(30.dp)
+                                                                .defaultMinSize(minWidth = 30.dp)
+                                                                .clip(RoundedCornerShape(4.dp))
                                                                 .clickable {
                                                                     shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
                                                                     activeAccessoryDrawer = null
                                                                     isAwaitingKeyboardOpen = false
                                                                     isBarTransitionLatched = false
-                                                                                                                                        drawerSearchQuery = ""
+                                                                    drawerSearchQuery = ""
                                                                     isWritingBarSearchActive = false
                                                                     previewItem = null
                                                                     onOpenShortcuts()
                                                                 }
+                                                                .padding(horizontal = 6.dp)
                                                         ) {
-                                                            Box(
-                                                                contentAlignment = Alignment.Center,
-                                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = ScribeTheme.spacing.micro)
-                                                            ) {
-                                                                Icon(
-                                                                    Icons.Filled.Tune,
-                                                                    contentDescription = "Shortcuts Studio",
-                                                                    modifier = Modifier.size(14.dp)
-                                                                )
-                                                            }
+                                                            Icon(
+                                                                Icons.Filled.Tune,
+                                                                contentDescription = "Shortcuts Studio",
+                                                                modifier = Modifier.size(15.dp),
+                                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
                                                         }
 
                                                     }
@@ -2231,35 +2200,34 @@ fun MainEditorScreen(
                                             }
                                             // ── Dedicated Insert Image Tool Button ──
                                             val imageBtnColor = Color(0xFF06B6D4)
-                                            Surface(
-                                                shape = RoundedCornerShape(8.dp),
-                                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                                                contentColor = imageBtnColor,
-                                                border = androidx.compose.foundation.BorderStroke(
-                                                    0.5.dp,
-                                                    imageBtnColor.copy(alpha = 0.35f)
-                                                ),
+                                            // ── Dedicated Insert Image Tool Button ──
+                                            val imageBtnColor = Color(0xFF06B6D4)
+                                            Box(
+                                                contentAlignment = Alignment.Center,
                                                 modifier = Modifier
-                                                    .height(ScribeTheme.metrics.chipHeight)
+                                                    .height(30.dp)
+                                                    .clip(RoundedCornerShape(4.dp))
                                                     .clickable {
                                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                         showInsertImageDialog = true
                                                     }
+                                                    .padding(horizontal = 6.dp)
                                             ) {
                                                 Row(
                                                     verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = ScribeTheme.spacing.micro)
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                                 ) {
                                                     Icon(
                                                         Icons.Filled.AddPhotoAlternate,
                                                         contentDescription = "Insert Image",
-                                                        modifier = Modifier.size(13.dp)
+                                                        modifier = Modifier.size(13.dp),
+                                                        tint = imageBtnColor
                                                     )
                                                     Text(
                                                         text = "Img",
                                                         fontSize = 12.sp,
-                                                        fontWeight = FontWeight.SemiBold
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = imageBtnColor
                                                     )
                                                 }
                                             }
@@ -2348,7 +2316,7 @@ fun MainEditorScreen(
                                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                                         ) {
                                             Surface(
-                                                shape = RoundedCornerShape(20.dp),
+                                                shape = RoundedCornerShape(4.dp),
                                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
                                                 border = androidx.compose.foundation.BorderStroke(
                                                     0.8.dp,
@@ -2356,7 +2324,7 @@ fun MainEditorScreen(
                                                 ),
                                                 modifier = Modifier
                                                     .fillMaxWidth()
-                                                    .height(ScribeTheme.metrics.chipHeight)
+                                                    .height(30.dp)
                                             ) {
                                                 Row(
                                                     modifier = Modifier
@@ -4247,70 +4215,46 @@ private fun ShortcutBarChip(
     val isTemplate = shortcut.itemType == "template"
     val isDialogueOrSymbol = shortcut.category == "dialogue" || shortcut.category == "symbols" || shortcut.category == "brackets" || shortcut.category == "scene_breaks"
 
-    val (chipBg, contentColor, borderColor) = when {
-        isSnippet -> {
-            val snippetColor = Color(0xFF8B5CF6)
-            Triple(
-                snippetColor.copy(alpha = 0.16f),
-                snippetColor,
-                snippetColor.copy(alpha = 0.35f)
-            )
-        }
-        isTemplate -> {
-            val templateColor = Color(0xFFF59E0B)
-            Triple(
-                templateColor.copy(alpha = 0.16f),
-                templateColor,
-                templateColor.copy(alpha = 0.35f)
-            )
-        }
-        isDialogueOrSymbol -> {
-            Triple(
-                accentColor.copy(alpha = 0.12f),
-                accentColor,
-                accentColor.copy(alpha = 0.3f)
-            )
-        }
-        else -> {
-            Triple(
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f),
-                MaterialTheme.colorScheme.onSurfaceVariant,
-                MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.25f)
-            )
-        }
+    val chipBg = when {
+        isSnippet -> Color(0xFF8B5CF6).copy(alpha = 0.14f)
+        isTemplate -> Color(0xFFF59E0B).copy(alpha = 0.14f)
+        else -> Color.Transparent
+    }
+    val contentColor = when {
+        isSnippet -> Color(0xFF8B5CF6)
+        isTemplate -> Color(0xFFF59E0B)
+        isDialogueOrSymbol -> accentColor
+        else -> MaterialTheme.colorScheme.onSurface
     }
 
-    Surface(
-        shape = if (isSnippet || isTemplate) RoundedCornerShape(8.dp) else CircleShape,
-        color = chipBg,
-        contentColor = contentColor,
-        border = androidx.compose.foundation.BorderStroke(0.5.dp, borderColor),
+    Box(
+        contentAlignment = Alignment.Center,
         modifier = Modifier
-            .height(ScribeTheme.metrics.chipHeight)
+            .height(30.dp)
+            .defaultMinSize(minWidth = 30.dp)
+            .clip(RoundedCornerShape(4.dp))
+            .background(chipBg)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick
             )
+            .padding(
+                horizontal = if (isSnippet || isTemplate) 6.dp else 7.dp,
+                vertical = 2.dp
+            )
     ) {
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.padding(
-                horizontal = if (isSnippet || isTemplate) 8.dp else ScribeTheme.spacing.medium,
-                vertical = ScribeTheme.spacing.micro
-            )
-        ) {
-            val displayText = when {
-                isSnippet && !shortcut.useCustomIcon -> "[ Snip ]"
-                isTemplate && !shortcut.useCustomIcon -> "[ Tmpl ]"
-                else -> shortcut.resolvedIcon()
-            }
-            Text(
-                text = displayText,
-                fontSize = if (displayText.startsWith("[")) 11.sp else 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1
-            )
+        val displayText = when {
+            isSnippet && !shortcut.useCustomIcon -> "[ Snip ]"
+            isTemplate && !shortcut.useCustomIcon -> "[ Tmpl ]"
+            else -> shortcut.resolvedIcon()
         }
+        Text(
+            text = displayText,
+            color = contentColor,
+            fontSize = if (displayText.startsWith("[")) 11.sp else 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
     }
 }
 
@@ -4376,12 +4320,11 @@ private fun AccessoryDrawer(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(currentHeightDp)
-            .padding(horizontal = 6.dp),
-        shape = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp),
+            .height(currentHeightDp),
+        shape = RectangleShape,
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
-        tonalElevation = 6.dp,
-        shadowElevation = 6.dp,
+        tonalElevation = 4.dp,
+        shadowElevation = 4.dp,
         border = androidx.compose.foundation.BorderStroke(
             width = 0.6.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)

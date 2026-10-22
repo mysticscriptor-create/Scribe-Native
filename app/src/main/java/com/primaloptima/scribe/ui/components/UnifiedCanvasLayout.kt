@@ -84,7 +84,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     /**
      * Pure Writer persistent bottom space architecture:
      * Equal to where our smooth scroll is gliding, according to the shortcut bar height.
-     * estimatedKeyboardHeightPx = (compactHeightDp + 44f) * density.
+     * estimatedKeyboardHeightPx = (compactHeightDp + 36f) * density.
      * Plus breathing margin (24dp) so that the line rests comfortably above the shortcut bar.
      */
     val persistentBottomSpacePx: Float
@@ -116,7 +116,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     val maxHeaderScrollD: Int
         get() = ScribeScrollPolicy.calculateMaxHeaderScroll(headerHeight, maxCanvasScroll)
 
-    var estimatedKeyboardHeightPx: Float = (280f + 44f) * context.resources.displayMetrics.density
+    var estimatedKeyboardHeightPx: Float = (280f + 36f) * context.resources.displayMetrics.density
         set(value) {
             field = value
             editor.persistentBottomSpacePx = persistentBottomSpacePx.roundToInt()
