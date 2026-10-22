@@ -1350,8 +1350,7 @@ fun MainEditorScreen(
                             }
                         }
                         isAwaitingKeyboardOpen || isBarTransitionLatched -> maxOf(compactHeightDp, imeAboveNavDp)
-                        isKeyboardVisible -> maxOf(compactHeightDp, imeAboveNavDp)
-                        imeAboveNavDp > 10.dp -> imeAboveNavDp
+                        isKeyboardVisible || imeAboveNavDp > 10.dp -> imeAboveNavDp
                         else -> 0.dp
                     }
                     val docBottomPadding = if (!isBarVisible) {
