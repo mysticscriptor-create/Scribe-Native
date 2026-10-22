@@ -761,6 +761,19 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 }
             } else if (dh < 0) {
                 // Viewport expanding (accessory drawer contracting, emoji keyboard closing, or bottom surface lowering)
+                pendingFollowRunnable?.let {
+                    removeCallbacks(it)
+                    pendingFollowRunnable = null
+                }
+
+                // Pure Writer Invariant:
+                // When keyboard is dismissed or closing, the document MUST remain
+                // completely stationary at the saved margin (keyboard height + shortcut bar + breathing margin).
+                // Never pull down to the bottom of the screen.
+                if (isImeClosing) {
+                    return
+                }
+
                 val density = resources.displayMetrics.density
                 val rootH = rootView?.height ?: resources.displayMetrics.heightPixels
                 // When keyboard is dismissed, the viewport expands to virtually full screen height
@@ -770,15 +783,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val hasBottomObstruction = (rootH - h) >= (140 * density).roundToInt()
                 val isBottomActive = isBottomSurfaceActive || isKeyboardVisible || hasBottomObstruction
 
-                // Pure Writer Invariant:
-                // When keyboard is dismissed (no bottom bar or keyboard surface active),
-                // the document MUST remain completely stationary at the saved margin
-                // (keyboard height + shortcut bar + breathing margin). Never pull down to the bottom of the screen.
                 if (!isBottomActive) {
-                    pendingFollowRunnable?.let {
-                        removeCallbacks(it)
-                        pendingFollowRunnable = null
-                    }
                     return
                 }
 
@@ -796,6 +801,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     pendingFollowRunnable?.let { removeCallbacks(it) }
                     val followRunnable = Runnable {
                         pendingFollowRunnable = null
+                        if (isImeClosing) return@Runnable
                         val curDensity = resources.displayMetrics.density
                         val curRootH = rootView?.height ?: resources.displayMetrics.heightPixels
                         val curHasObstruction = (curRootH - height) >= (140 * curDensity).roundToInt()

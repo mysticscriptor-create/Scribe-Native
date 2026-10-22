@@ -1394,13 +1394,15 @@ fun MainEditorScreen(
 
                             val bottomHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight else compactHeightDp
                             val curEstimatedKbPx = (bottomHeightDp.value + 36f) * density
-                            val curIsBottomSurfaceActive = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched) && shortcuts.isNotEmpty()
+                            val isDrawerOrTransitionActive = activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched
+                            val curIsKeyboardVisible = isKeyboardVisible || isDrawerOrTransitionActive
+                            val curIsBottomSurfaceActive = (isKeyboardVisible || isDrawerOrTransitionActive) && shortcuts.isNotEmpty()
 
                             UnifiedCanvasLayout(ctx).apply {
                                 horizontalPaddingDp = initialPadH
                                 setBackgroundColor(bgArgb)
                                 estimatedKeyboardHeightPx = curEstimatedKbPx
-                                this.isKeyboardVisible = curIsBottomSurfaceActive
+                                this.isKeyboardVisible = curIsKeyboardVisible
                                 this.isBottomSurfaceActive = curIsBottomSurfaceActive
                                 onUserTouchDown = {
                                     if (activeAccessoryDrawer != null) {
@@ -1630,8 +1632,10 @@ fun MainEditorScreen(
                             val density = layout.context.resources.displayMetrics.density
                             val bottomHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight else compactHeightDp
                             layout.estimatedKeyboardHeightPx = (bottomHeightDp.value + 36f) * density
-                            val curIsBottomSurfaceActive = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched) && shortcuts.isNotEmpty()
-                            layout.isKeyboardVisible = curIsBottomSurfaceActive
+                            val isDrawerOrTransitionActive = activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched
+                            val curIsKeyboardVisible = isKeyboardVisible || isDrawerOrTransitionActive
+                            val curIsBottomSurfaceActive = (isKeyboardVisible || isDrawerOrTransitionActive) && shortcuts.isNotEmpty()
+                            layout.isKeyboardVisible = curIsKeyboardVisible
                             layout.isBottomSurfaceActive = curIsBottomSurfaceActive
                             val editor = layout.editor
                             val scribeEditor = editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor

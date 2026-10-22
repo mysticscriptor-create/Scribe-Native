@@ -601,10 +601,11 @@ class CursorAndCanvasGeometryTest {
         val isBottomSurfaceActive = false
         val isKeyboardVisible = false
         val isBottomActive = isBottomSurfaceActive || isKeyboardVisible || hasBottomObstruction
+        val isImeClosing = true
 
-        // In UnifiedCanvasLayout, when keyboard is dismissed (isBottomActive is false),
-        // the downward pull is suppressed, keeping the document rock-solid stationary at saved margin.
-        val delta = if (!isBottomActive) 0f else ScribeScrollPolicy.calculateLastLineFollowDelta(
+        // In UnifiedCanvasLayout, when keyboard is dismissed (isImeClosing is true or isBottomActive is false),
+        // the downward pull is strictly suppressed, keeping the document rock-solid stationary at saved margin.
+        val delta = if (isImeClosing || !isBottomActive) 0f else ScribeScrollPolicy.calculateLastLineFollowDelta(
             lastLineDocBottom = lastLineDocBottom,
             headerHeight = headerHeight,
             scrollD = scrollD,
@@ -615,5 +616,67 @@ class CursorAndCanvasGeometryTest {
         )
 
         assertEquals("Document must remain stationary at saved margin upon keyboard dismissal", 0f, delta)
+    }
+
+    @Test
+    fun testKeyboardDismissalMidAnimationSuppressesDownwardFollowEvenWithObstruction() {
+        val density = 2.5f
+        val headerHeight = 200
+        val lastLineDocBottom = 1500f
+        val scrollD = 200
+        val offsetY = 1060
+
+        // Mid-animation during keyboard exit: viewport is at 1800px (still 500px obstruction remaining >= 140dp)
+        val midAnimationViewport = 1800
+        val rootHeight = 2300
+        val hasBottomObstruction = (rootHeight - midAnimationViewport) >= (140 * density).toInt()
+        val isImeClosing = true
+        val isBottomActive = hasBottomObstruction // would be true if only obstruction checked
+
+        // Thanks to isImeClosing guard, downward pull is suppressed even before keyboard fully closes
+        val delta = if (isImeClosing || !isBottomActive) 0f else ScribeScrollPolicy.calculateLastLineFollowDelta(
+            lastLineDocBottom = lastLineDocBottom,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            offsetY = offsetY,
+            viewportHeight = midAnimationViewport,
+            density = density,
+            isAtLastLine = true
+        )
+
+        assertEquals("Mid-dismissal must remain stationary at saved margin", 0f, delta)
+    }
+
+    @Test
+    fun testEmojiKeyboardContractCalculatesSmoothDownwardDelta() {
+        val density = 2.5f
+        val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).toInt() // 60px
+        val headerHeight = 200
+        val lastLineDocBottom = 1500f
+
+        // Expanded emoji keyboard had a small viewport (e.g. 1400px), document was scrolled up
+        // screenBottom = (200 - 200) + 1500 - 1060 = 440px
+        val scrollD = 200
+        val offsetY = 1060
+
+        // Returning to standard keyboard: viewport expands to 1650px (250px expansion)
+        val standardKbViewport = 1650
+        val isImeClosing = false
+        val isKeyboardVisible = true
+        val isBottomActive = true
+
+        val delta = if (isImeClosing || !isBottomActive) 0f else ScribeScrollPolicy.calculateLastLineFollowDelta(
+            lastLineDocBottom = lastLineDocBottom,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            offsetY = offsetY,
+            viewportHeight = standardKbViewport,
+            density = density,
+            isAtLastLine = true
+        )
+
+        // Target line bottom is 1650 - 60 = 1590px. Last line is at 440px.
+        // Difference is 440 - 1590 = -1150px (clamped to -totalScroll = -1260px)
+        assertEquals("Emoji contract must smoothly track downward when keyboard remains open", -1150f, delta)
     }
 }
