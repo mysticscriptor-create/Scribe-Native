@@ -578,13 +578,26 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val layout = try { editor.layout } catch (_: Throwable) { null } ?: return
         val rowHeight = editor.rowHeight
         val layoutOffset = try { layout.getCharLayoutOffset(line, col) } catch (_: Throwable) { null }
-        val prevOffset = if (line > 0) try { layout.getCharLayoutOffset(line - 1, 0) } catch (_: Throwable) { null } else null
-        val yOffset = if (layoutOffset != null && (prevOffset == null || layoutOffset[0] > prevOffset[0])) {
+        val yOffset = if (layoutOffset != null) {
             layoutOffset[0]
-        } else if (prevOffset != null) {
-            prevOffset[0] + rowHeight
         } else {
-            (line + 1) * rowHeight.toFloat()
+            // Find closest preceding line with a valid layout offset to accurately project coordinates
+            var anchorY = -1f
+            var lineGap = 1
+            for (k in (line - 1) downTo 0) {
+                val colK = try { editor.text.getColumnCount(k) } catch (_: Throwable) { 0 }
+                val offK = try { layout.getCharLayoutOffset(k, colK) } catch (_: Throwable) { null }
+                if (offK != null) {
+                    anchorY = offK[0]
+                    lineGap = line - k
+                    break
+                }
+            }
+            if (anchorY >= 0f) {
+                anchorY + (lineGap * rowHeight)
+            } else {
+                (line + 1) * rowHeight.toFloat()
+            }
         }
         val headerRemaining = headerHeight - scrollD
         val screenBottom = (headerRemaining + yOffset - editor.offsetY).toFloat()

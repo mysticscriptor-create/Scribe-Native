@@ -1444,11 +1444,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val layout = layout ?: return
         val layoutOffset = try { layout.getCharLayoutOffset(line, column) } catch (_: Throwable) { null }
 
+        val currFinalX = if (scroller.isFinished) offsetX.toFloat() else scroller.finalX.toFloat()
+        var targetX = currFinalX
+
         // 1. Horizontal cursor visibility:
         if (layoutOffset != null) {
             val xOffset = layoutOffset[1] + measureTextRegionOffset()
-            val currFinalX = if (scroller.isFinished) offsetX.toFloat() else scroller.finalX.toFloat()
-            var targetX = currFinalX
             val charWidth = if (column == 0) 0f else textPaint.measureText("a")
             if (xOffset < currFinalX + (if (isLineNumberPinned) measureTextRegionOffset() else 0f)) {
                 val backupX = targetX
