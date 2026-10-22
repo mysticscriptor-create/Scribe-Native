@@ -232,9 +232,9 @@ object ScribeScrollPolicy {
     ): Int {
         if (isTextEmpty || layoutHeight <= 0 || viewportHeight <= 0) return 0
 
-        val space = if (isKeyboardVisible) {
-            maxOf(breathingMarginPx, (viewportHeight * 0.45f).toInt())
-        } else if (persistentBottomSpacePx > 0) {
+        // True Pure Writer: persistentBottomSpacePx (keyboard + shortcut bar + breathing margin)
+        // is the persistent physical cushion underlaying the full canvas.
+        val space = if (persistentBottomSpacePx > 0) {
             persistentBottomSpacePx
         } else {
             (viewportHeight * 0.45f).toInt()

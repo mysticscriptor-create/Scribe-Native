@@ -1387,7 +1387,8 @@ fun MainEditorScreen(
                             lastAppliedBgArgb = bgArgb
                             lastAppliedThemeId = activeTheme?.id
 
-                            val curEstimatedKbPx = (compactHeightDp.value + 44f) * density
+                            val bottomHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight else compactHeightDp
+                            val curEstimatedKbPx = (bottomHeightDp.value + 44f) * density
                             val curIsKeyboardVisible = isKeyboardVisible
 
                             UnifiedCanvasLayout(ctx).apply {
@@ -1617,7 +1618,8 @@ fun MainEditorScreen(
                                 }
                             }
                             val density = layout.context.resources.displayMetrics.density
-                            layout.estimatedKeyboardHeightPx = (compactHeightDp.value + 44f) * density
+                            val bottomHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight else compactHeightDp
+                            layout.estimatedKeyboardHeightPx = (bottomHeightDp.value + 44f) * density
                             layout.isKeyboardVisible = isKeyboardVisible
                             val editor = layout.editor
                             val scribeEditor = editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor
@@ -1892,7 +1894,7 @@ fun MainEditorScreen(
                         },
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(top = docTopInset, bottom = docBottomPadding)
+                            .padding(top = docTopInset, bottom = docBottomNavInset)
                             .clipToBounds()
                     )
 

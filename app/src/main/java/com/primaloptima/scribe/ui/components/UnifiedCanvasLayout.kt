@@ -93,10 +93,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     val maxCanvasScroll: Int
         get() {
             val layoutH = editor.layout?.layoutHeight ?: 0
-            val breathingMargin = breathingMarginPx.roundToInt()
-            val bottomSpace = if (isKeyboardVisible) {
-                maxOf(breathingMargin, (height * 0.45f).roundToInt())
-            } else if (editor.isFocused || editor.offsetY > 0) {
+            // True Pure Writer: bottomSpace is persistentBottomSpacePx underlaying full canvas,
+            // so last line rests exactly at breathingMarginPx above shortcut bar and never scrolls higher.
+            val bottomSpace = if (editor.isFocused || isKeyboardVisible || editor.offsetY > 0) {
                 persistentBottomSpacePx.roundToInt()
             } else {
                 0
@@ -302,12 +301,14 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * 2. The title and header are restored to the top if the remaining document fits in view.
      */
     fun anchorCanvasAfterDeletion(smooth: Boolean = true) {
+        val bottomObstruction = if (isKeyboardVisible) estimatedKeyboardHeightPx else 0f
+        val visibleHeight = (height - bottomObstruction).roundToInt()
         val deltaY = ScribeScrollPolicy.calculateDeletionAnchorDelta(
             headerHeight = headerHeight,
             scrollD = scrollD,
             layoutHeight = editor.layout?.layoutHeight ?: 0,
             offsetY = editor.offsetY,
-            viewportHeight = height,
+            viewportHeight = visibleHeight,
             density = resources.displayMetrics.density,
             maxCanvasScroll = maxCanvasScroll
         )
@@ -781,8 +782,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (child === editor) {
             val screenTop = (headerHeight - scrollD) + rectangle.top
             val screenBottom = (headerHeight - scrollD) + rectangle.bottom
-            val visibleHeight = height
             val density = resources.displayMetrics.density
+            val bottomObstruction = if (isKeyboardVisible) estimatedKeyboardHeightPx else (44f * density)
+            val visibleHeight = (height - bottomObstruction).roundToInt()
             val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
             val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
             val targetLineBottom = visibleHeight - marginPx
