@@ -281,8 +281,8 @@ class CursorAndCanvasGeometryTest {
             isFocused = true,
             baseSoraMaxY = 0
         )
-        // True Pure Writer: 1500 + 800 - 1100 = 1200
-        assertEquals(1200, maxBefore)
+        // 1500 + 60 - 1100 = 460
+        assertEquals(460, maxBefore)
 
         val maxAfter = ScribeScrollPolicy.calculateSafeScrollMaxY(
             layoutHeight = layoutHeightAfter,
@@ -290,12 +290,12 @@ class CursorAndCanvasGeometryTest {
             persistentBottomSpacePx = persistentBottomSpacePx,
             breathingMarginPx = breathingMarginPx,
             isKeyboardVisible = true,
-            currentOffsetY = currentOffsetY,
+            currentOffsetY = 0,
             isFocused = true,
             baseSoraMaxY = 0
         )
-        // 1200 + 800 - 1100 = 900: shrinks cleanly by exact 300px!
-        assertEquals("Safe scroll must shrink to 900 on deletion, allowing 300px clamp", 900, maxAfter)
+        // 1200 + 60 - 1100 = 160: shrinks cleanly by exact 300px!
+        assertEquals("Safe scroll must shrink to 160 on deletion, allowing 300px clamp", 160, maxAfter)
         assertEquals("Delta must match the exact 300px deleted", 300, maxBefore - maxAfter)
     }
 
@@ -419,13 +419,14 @@ class CursorAndCanvasGeometryTest {
     fun testKeyboardOpenEliminatesDoublePaddingAboveKeyboard() {
         val layoutHeight = 1000
         val fullScreenHeight = 2000
-        val persistentBottomSpacePx = 860 // 800 keyboard + 60 breathing margin
+        val keyboardHeight = 800
+        val viewportHeightWithKeyboard = fullScreenHeight - keyboardHeight // 1200px (Compose padding applied)
+        val persistentBottomSpacePx = 800
         val breathingMarginPx = 60 // 24dp at 2.5 density
 
-        // In True Pure Writer full-canvas underlay, viewport is full-canvas height (2000px)
         val fixedMaxScroll = ScribeScrollPolicy.calculateSafeScrollMaxY(
             layoutHeight = layoutHeight,
-            viewportHeight = fullScreenHeight,
+            viewportHeight = viewportHeightWithKeyboard,
             persistentBottomSpacePx = persistentBottomSpacePx,
             breathingMarginPx = breathingMarginPx,
             isKeyboardVisible = true,
@@ -434,7 +435,7 @@ class CursorAndCanvasGeometryTest {
             isFocused = true
         )
 
-        // 1000 + 860 - 2000 = -140 <= 0: fits completely, 0 extra padding above keyboard!
+        // 1000 + 60 - 1200 = -140 <= 0: fits completely, 0 extra padding above keyboard!
         assertEquals("When keyboard is visible, no double padding allows scrolling above keyboard", 0, fixedMaxScroll)
     }
 
@@ -442,21 +443,22 @@ class CursorAndCanvasGeometryTest {
     fun testKeyboardDismissalRetainsStationaryDocumentPosition() {
         val layoutHeight = 1500
         val fullScreenHeight = 2000
+        val keyboardHeight = 800
+        val viewportHeightWithKeyboard = fullScreenHeight - keyboardHeight // 1200px
         val persistentBottomSpacePx = 860 // 800 keyboard + 60 breathing margin
         val breathingMarginPx = 60
 
-        // In True Pure Writer full-canvas underlay, viewport height is constant across keyboard open/dismissal
         val openMaxScroll = ScribeScrollPolicy.calculateSafeScrollMaxY(
             layoutHeight = layoutHeight,
-            viewportHeight = fullScreenHeight,
+            viewportHeight = viewportHeightWithKeyboard,
             persistentBottomSpacePx = persistentBottomSpacePx,
             breathingMarginPx = breathingMarginPx,
             isKeyboardVisible = true,
             isTextEmpty = false,
-            currentOffsetY = 360,
+            currentOffsetY = 0,
             isFocused = true
         )
-        // 1500 + 860 - 2000 = 360: exactly 360
+        // 1500 + 60 - 1200 = 360: exactly 360
         assertEquals(360, openMaxScroll)
 
         val dismissedMaxScroll = ScribeScrollPolicy.calculateSafeScrollMaxY(

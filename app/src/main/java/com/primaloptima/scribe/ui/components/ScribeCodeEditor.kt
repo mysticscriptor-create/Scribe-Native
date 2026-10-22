@@ -296,8 +296,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 if (event.action == io.github.rosemoe.sora.event.ContentChangeEvent.ACTION_DELETE) {
                     if (text.isEmpty()) {
                         (parent as? UnifiedCanvasLayout)?.resetDocumentToTop(smooth = true)
+                    } else {
+                        post {
+                            (parent as? UnifiedCanvasLayout)?.anchorCanvasAfterDeletion(smooth = true)
+                        }
                     }
-                    // Clamping is handled authoritatively by LayoutStateChangeEvent once WordwrapLayout finishes
                 }
             }
         } catch (_: Throwable) { }
@@ -609,8 +612,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
             super.deleteText()
             if (wasAllSelected || text.isEmpty()) {
                 parentCanvas?.resetDocumentToTop(smooth = true)
+            } else {
+                post {
+                    parentCanvas?.anchorCanvasAfterDeletion(smooth = true)
+                }
             }
-            // Clamping is handled authoritatively by LayoutStateChangeEvent once WordwrapLayout finishes
             return
         }
         val line = cur.leftLine

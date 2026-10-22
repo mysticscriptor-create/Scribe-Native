@@ -1894,7 +1894,7 @@ fun MainEditorScreen(
                         },
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(top = docTopInset, bottom = docBottomNavInset)
+                            .padding(top = docTopInset, bottom = docBottomPadding)
                             .clipToBounds()
                     )
 

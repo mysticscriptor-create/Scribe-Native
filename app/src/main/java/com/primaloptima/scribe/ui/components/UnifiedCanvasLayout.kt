@@ -93,9 +93,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     val maxCanvasScroll: Int
         get() {
             val layoutH = editor.layout?.layoutHeight ?: 0
-            // True Pure Writer: bottomSpace is persistentBottomSpacePx underlaying full canvas,
-            // so last line rests exactly at breathingMarginPx above shortcut bar and never scrolls higher.
-            val bottomSpace = if (editor.isFocused || isKeyboardVisible || editor.offsetY > 0) {
+            val breathingMargin = breathingMarginPx.roundToInt()
+            // When keyboard is visible, viewport is already padded by Compose.
+            // Therefore, bottomSpace is ONLY breathingMargin (24dp) so last line sits
+            // comfortably above shortcut bar without double-counting keyboard height or scrolling empty space.
+            val bottomSpace = if (isKeyboardVisible) {
+                breathingMargin
+            } else if (editor.isFocused || editor.offsetY > 0) {
                 persistentBottomSpacePx.roundToInt()
             } else {
                 0
@@ -301,14 +305,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * 2. The title and header are restored to the top if the remaining document fits in view.
      */
     fun anchorCanvasAfterDeletion(smooth: Boolean = true) {
-        val bottomObstruction = if (isKeyboardVisible) estimatedKeyboardHeightPx else 0f
-        val visibleHeight = (height - bottomObstruction).roundToInt()
         val deltaY = ScribeScrollPolicy.calculateDeletionAnchorDelta(
             headerHeight = headerHeight,
             scrollD = scrollD,
             layoutHeight = editor.layout?.layoutHeight ?: 0,
             offsetY = editor.offsetY,
-            viewportHeight = visibleHeight,
+            viewportHeight = height,
             density = resources.displayMetrics.density,
             maxCanvasScroll = maxCanvasScroll
         )
@@ -914,8 +916,14 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val scroller = editor.scroller ?: return
             val currY = editor.offsetY
             val currX = editor.offsetX
-            val targetY = (currY + dy).roundToInt().coerceIn(0, editor.safeScrollMaxY)
-            if (targetY != currY) {
+            val targetY = (currY + dy).roundToInt()
+            val maxAllowedY = if (isKeyboardVisible && editor.isFocused) {
+                maxOf(editor.safeScrollMaxY, targetY)
+            } else {
+                editor.safeScrollMaxY
+            }
+            val clampedTargetY = targetY.coerceIn(0, maxAllowedY)
+            if (clampedTargetY != currY) {
                 scroller.forceFinished(true)
                 scroller.startScroll(currX, currY, 0, targetY - currY, 0)
                 scroller.abortAnimation()
