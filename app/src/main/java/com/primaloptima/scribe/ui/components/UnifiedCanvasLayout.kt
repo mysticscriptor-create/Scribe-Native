@@ -767,10 +767,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val isBottomActive = isBottomSurfaceActive || isKeyboardVisible || hasBottomObstruction
 
                 // Pure Writer Invariant:
-                // When keyboard is dismissed or closing (no bottom accessory drawer active),
-                // the document MUST remain completely stationary at the saved margin
+                // Downward following is ONLY permitted when an Accessory Drawer is actively open
+                // and collapsing. When dismissing the keyboard or when no accessory drawer is active,
+                // the document MUST remain 100% stationary at the saved margin
                 // (keyboard height + shortcut bar + breathing margin). Never pull down to the bottom of the screen.
-                if (isImeClosing || (!isAccessoryDrawerOpen && !isKeyboardVisible) || !isBottomActive) {
+                if (!isAccessoryDrawerOpen || isImeClosing || !isBottomActive) {
                     return
                 }
 

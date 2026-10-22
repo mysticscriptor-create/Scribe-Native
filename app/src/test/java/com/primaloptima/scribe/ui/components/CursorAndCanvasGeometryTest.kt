@@ -598,13 +598,14 @@ class CursorAndCanvasGeometryTest {
         val newExpandedViewport = 2200
         val rootHeight = 2300
         val hasBottomObstruction = (rootHeight - newExpandedViewport) >= (140 * density).toInt()
+        val isAccessoryDrawerOpen = false
         val isBottomSurfaceActive = false
         val isKeyboardVisible = false
         val isBottomActive = isBottomSurfaceActive || isKeyboardVisible || hasBottomObstruction
 
-        // In UnifiedCanvasLayout, when keyboard is dismissed (isBottomActive is false),
-        // the downward pull is suppressed, keeping the document rock-solid stationary at saved margin.
-        val delta = if (!isBottomActive) 0f else ScribeScrollPolicy.calculateLastLineFollowDelta(
+        // In UnifiedCanvasLayout, when keyboard is dismissed (!isAccessoryDrawerOpen || !isBottomActive),
+        // the downward pull is strictly suppressed, keeping the document rock-solid stationary at saved margin.
+        val delta = if (!isAccessoryDrawerOpen || !isBottomActive) 0f else ScribeScrollPolicy.calculateLastLineFollowDelta(
             lastLineDocBottom = lastLineDocBottom,
             headerHeight = headerHeight,
             scrollD = scrollD,

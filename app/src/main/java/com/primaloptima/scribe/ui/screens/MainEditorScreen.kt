@@ -1354,7 +1354,8 @@ fun MainEditorScreen(
                             }
                         }
                         isAwaitingKeyboardOpen || isBarTransitionLatched -> maxOf(compactHeightDp, imeAboveNavDp)
-                        isKeyboardVisible || imeAboveNavDp > 10.dp -> imeAboveNavDp
+                        isKeyboardVisible -> maxOf(compactHeightDp, imeAboveNavDp)
+                        imeAboveNavDp > 10.dp -> imeAboveNavDp
                         else -> 0.dp
                     }
                     val docBottomPadding = if (!isBarVisible) {
@@ -1394,7 +1395,7 @@ fun MainEditorScreen(
 
                             val bottomHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight else compactHeightDp
                             val curEstimatedKbPx = (bottomHeightDp.value + 36f) * density
-                            val curIsKeyboardVisible = isKeyboardVisible
+                            val curIsKeyboardVisible = isKeyboardVisible || isAwaitingKeyboardOpen || isBarTransitionLatched
                             val curIsBottomSurfaceActive = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched) && shortcuts.isNotEmpty()
 
                             UnifiedCanvasLayout(ctx).apply {
@@ -1634,7 +1635,7 @@ fun MainEditorScreen(
                             val density = layout.context.resources.displayMetrics.density
                             val bottomHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight else compactHeightDp
                             layout.estimatedKeyboardHeightPx = (bottomHeightDp.value + 36f) * density
-                            val curIsKeyboardVisible = isKeyboardVisible
+                            val curIsKeyboardVisible = isKeyboardVisible || isAwaitingKeyboardOpen || isBarTransitionLatched
                             val curIsBottomSurfaceActive = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched) && shortcuts.isNotEmpty()
                             layout.isKeyboardVisible = curIsKeyboardVisible
                             layout.isBottomSurfaceActive = curIsBottomSurfaceActive
