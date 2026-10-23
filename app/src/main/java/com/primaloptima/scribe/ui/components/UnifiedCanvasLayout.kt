@@ -65,7 +65,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     var isKeyboardDismissing: Boolean = false
-        private set
 
     var horizontalPaddingDp: Float = 28f
         set(value) {
