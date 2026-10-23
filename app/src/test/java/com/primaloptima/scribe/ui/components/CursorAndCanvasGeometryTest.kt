@@ -840,4 +840,168 @@ class CursorAndCanvasGeometryTest {
         )
         assertEquals("Mid-document editing must never pull down", false, midDocDecision)
     }
+
+    // ── Select All Scroll Behavior Tests ────────────────────────────────────────
+
+    @Test
+    fun testSelectAllDetection() {
+        val lineCount = 50
+        val lastLineColCount = 35
+
+        // Case 1: Entire document selected from (0, 0) to end of document
+        assertTrue(
+            "Full document selection must be recognized as Select All",
+            ScribeScrollPolicy.isSelectAll(
+                isSelected = true,
+                leftLine = 0,
+                leftCol = 0,
+                rightLine = 49,
+                rightCol = 35,
+                lineCount = lineCount,
+                lastLineColCount = lastLineColCount
+            )
+        )
+
+        // Case 2: Selection starts after (0, 0)
+        assertFalse(
+            "Selection starting at line 1 is not Select All",
+            ScribeScrollPolicy.isSelectAll(
+                isSelected = true,
+                leftLine = 1,
+                leftCol = 0,
+                rightLine = 49,
+                rightCol = 35,
+                lineCount = lineCount,
+                lastLineColCount = lastLineColCount
+            )
+        )
+
+        // Case 3: Selection ends before last line
+        assertFalse(
+            "Selection ending before last line is not Select All",
+            ScribeScrollPolicy.isSelectAll(
+                isSelected = true,
+                leftLine = 0,
+                leftCol = 0,
+                rightLine = 40,
+                rightCol = 10,
+                lineCount = lineCount,
+                lastLineColCount = lastLineColCount
+            )
+        )
+
+        // Case 4: No active selection
+        assertFalse(
+            "Caret without selection must not be recognized as Select All",
+            ScribeScrollPolicy.isSelectAll(
+                isSelected = false,
+                leftLine = 0,
+                leftCol = 0,
+                rightLine = 49,
+                rightCol = 35,
+                lineCount = lineCount,
+                lastLineColCount = lastLineColCount
+            )
+        )
+    }
+
+    @Test
+    fun testResolveTargetCoordinates_KeepCurrentPosition_SuppressesScroll() {
+        val result = ScribeScrollPolicy.resolveTargetCoordinates(
+            isSelected = true,
+            leftLine = 0,
+            leftCol = 0,
+            rightLine = 120,
+            rightCol = 45,
+            lineCount = 121,
+            lastLineColCount = 45,
+            mode = ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION
+        )
+
+        // Must return null to completely suppress automatic scrolling
+        assertEquals("Keep Current Position mode must return null to suppress scrolling", null, result)
+    }
+
+    @Test
+    fun testResolveTargetCoordinates_ScrollToSelectionEnd_TargetsBottomHandle() {
+        val result = ScribeScrollPolicy.resolveTargetCoordinates(
+            isSelected = true,
+            leftLine = 0,
+            leftCol = 0,
+            rightLine = 120,
+            rightCol = 45,
+            lineCount = 121,
+            lastLineColCount = 45,
+            mode = ScribeScrollPolicy.SelectAllScrollMode.SCROLL_TO_SELECTION_END
+        )
+
+        assertTrue("Scroll to Selection End mode must return a target", result != null)
+        assertEquals("Must target bottom line", 120, result?.line)
+        assertEquals("Must target bottom column", 45, result?.column)
+        assertEquals("Must request scrolling", true, result?.shouldScroll)
+    }
+
+    @Test
+    fun testResolveTargetCoordinates_PreservesExplicitCoordinates() {
+        // When explicit coordinates are passed (e.g. outline jump, search result navigation),
+        // they must be strictly honored and not replaced with selection endpoints
+        val result = ScribeScrollPolicy.resolveTargetCoordinates(
+            isSelected = false,
+            leftLine = 5,
+            leftCol = 10,
+            rightLine = 5,
+            rightCol = 10,
+            lineCount = 100,
+            lastLineColCount = 20,
+            mode = ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION,
+            explicitLine = 75,
+            explicitCol = 12
+        )
+
+        assertTrue(result != null)
+        assertEquals("Explicit line must be preserved", 75, result?.line)
+        assertEquals("Explicit column must be preserved", 12, result?.column)
+        assertEquals(true, result?.shouldScroll)
+    }
+
+    @Test
+    fun testResolveTargetCoordinates_NormalTypingTargetsLeftCursor() {
+        // Ordinary typing (!isSelected) must target leftLine and leftCol
+        val result = ScribeScrollPolicy.resolveTargetCoordinates(
+            isSelected = false,
+            leftLine = 18,
+            leftCol = 9,
+            rightLine = 18,
+            rightCol = 9,
+            lineCount = 50,
+            lastLineColCount = 30,
+            mode = ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION
+        )
+
+        assertTrue(result != null)
+        assertEquals(18, result?.line)
+        assertEquals(9, result?.column)
+        assertEquals(true, result?.shouldScroll)
+    }
+
+    @Test
+    fun testSelectAllScrollMode_Parsing() {
+        assertEquals(
+            ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION,
+            ScribeScrollPolicy.SelectAllScrollMode.fromString(null)
+        )
+        assertEquals(
+            ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION,
+            ScribeScrollPolicy.SelectAllScrollMode.fromString("UNKNOWN")
+        )
+        assertEquals(
+            ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION,
+            ScribeScrollPolicy.SelectAllScrollMode.fromString("KEEP_CURRENT_POSITION")
+        )
+        assertEquals(
+            ScribeScrollPolicy.SelectAllScrollMode.SCROLL_TO_SELECTION_END,
+            ScribeScrollPolicy.SelectAllScrollMode.fromString("SCROLL_TO_SELECTION_END")
+        )
+    }
 }
+

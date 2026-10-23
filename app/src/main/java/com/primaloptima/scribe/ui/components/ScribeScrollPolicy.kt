@@ -300,4 +300,106 @@ object ScribeScrollPolicy {
         // Visual offset is always authoritative ground truth for subsequent gestures
         return visualOffset
     }
+
+    // ── Select All Scroll Behavior ─────────────────────────────────────────────
+
+    enum class SelectAllScrollMode {
+        KEEP_CURRENT_POSITION,
+        SCROLL_TO_SELECTION_END;
+
+        companion object {
+            fun fromString(value: String?): SelectAllScrollMode {
+                return when (value) {
+                    SCROLL_TO_SELECTION_END.name -> SCROLL_TO_SELECTION_END
+                    else -> KEEP_CURRENT_POSITION
+                }
+            }
+        }
+    }
+
+    /**
+     * Checks whether an active selection spans all text in the document.
+     */
+    fun isSelectAll(
+        isSelected: Boolean,
+        leftLine: Int,
+        leftCol: Int,
+        rightLine: Int,
+        rightCol: Int,
+        lineCount: Int,
+        lastLineColCount: Int
+    ): Boolean {
+        if (!isSelected || lineCount <= 0) return false
+        return leftLine == 0 && leftCol == 0 &&
+                (rightLine > lineCount - 1 || (rightLine == lineCount - 1 && rightCol >= lastLineColCount))
+    }
+
+    data class CursorTargetResolution(
+        val line: Int,
+        val column: Int,
+        val shouldScroll: Boolean
+    )
+
+    /**
+     * Resolves the coordinate target for cursor visibility positioning.
+     *
+     * Invariants:
+     * 1. If Select All is active:
+     *    - KEEP_CURRENT_POSITION mode returns null (stationary: completely suppresses scrolling).
+     *    - SCROLL_TO_SELECTION_END mode targets the true active bottom handle (rightLine, rightCol).
+     * 2. If explicit coordinates are passed for non-select-all operations (e.g. outline jumps, search),
+     *    they are strictly preserved.
+     * 3. For normal cursor typing (!isSelected), targets leftLine and leftCol.
+     * 4. For non-select-all selection, targets rightLine and rightCol (active selection endpoint).
+     */
+    fun resolveTargetCoordinates(
+        isSelected: Boolean,
+        leftLine: Int,
+        leftCol: Int,
+        rightLine: Int,
+        rightCol: Int,
+        lineCount: Int,
+        lastLineColCount: Int,
+        mode: SelectAllScrollMode,
+        explicitLine: Int? = null,
+        explicitCol: Int? = null
+    ): CursorTargetResolution? {
+        val isAllSelected = isSelectAll(
+            isSelected = isSelected,
+            leftLine = leftLine,
+            leftCol = leftCol,
+            rightLine = rightLine,
+            rightCol = rightCol,
+            lineCount = lineCount,
+            lastLineColCount = lastLineColCount
+        )
+
+        if (isAllSelected) {
+            return when (mode) {
+                SelectAllScrollMode.KEEP_CURRENT_POSITION -> null
+                SelectAllScrollMode.SCROLL_TO_SELECTION_END -> CursorTargetResolution(
+                    line = rightLine,
+                    column = rightCol,
+                    shouldScroll = true
+                )
+            }
+        }
+
+        if (explicitLine != null && explicitCol != null) {
+            return CursorTargetResolution(
+                line = explicitLine,
+                column = explicitCol,
+                shouldScroll = true
+            )
+        }
+
+        val targetLine = if (isSelected) rightLine else leftLine
+        val targetCol = if (isSelected) rightCol else leftCol
+        return CursorTargetResolution(
+            line = targetLine,
+            column = targetCol,
+            shouldScroll = true
+        )
+    }
 }
+

@@ -531,6 +531,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     private var lastEnsureCursorTime = 0L
 
     fun ensureCursorVisibleAboveKeyboard(
+        targetLine: Int? = null,
+        targetCol: Int? = null,
         smooth: Boolean = true,
         customDurationMs: Long = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS,
         force: Boolean = false
@@ -539,8 +541,22 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val now = System.currentTimeMillis()
         if (!force && now - lastEnsureCursorTime < 60L) return
         val cursor = try { editor.cursor } catch (_: Throwable) { null } ?: return
-        val line = cursor.leftLine
-        val col = cursor.leftColumn
+
+        val resolutionTarget = ScribeScrollPolicy.resolveTargetCoordinates(
+            isSelected = cursor.isSelected,
+            leftLine = cursor.leftLine,
+            leftCol = cursor.leftColumn,
+            rightLine = cursor.rightLine,
+            rightCol = cursor.rightColumn,
+            lineCount = editor.text.lineCount,
+            lastLineColCount = try { editor.text.getColumnCount(editor.text.lineCount - 1) } catch (_: Throwable) { 0 },
+            mode = editor.selectAllScrollMode,
+            explicitLine = targetLine,
+            explicitCol = targetCol
+        ) ?: return // null means stationary mode: suppress scroll completely!
+
+        val line = resolutionTarget.line
+        val col = resolutionTarget.column
 
         val layout = try { editor.layout } catch (_: Throwable) { null } ?: return
         val rowHeight = editor.rowHeight
@@ -600,7 +616,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
     }
 
-    private fun applyTranslations() {
+    internal fun applyTranslations() {
         // Enforce the 1-DOF invariant:
         // If the header is partially or fully visible (scrollD < headerHeight),
         // the editor MUST NOT have any positive offsetY. Clamping to 0 guarantees
@@ -699,10 +715,25 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                         val cur = editor.cursor
                         val lay = editor.layout
                         if (cur != null && lay != null) {
-                            val off = lay.getCharLayoutOffset(cur.leftLine, cur.leftColumn)
-                            val headerRemaining = headerHeight - scrollD
-                            val screenBottom = headerRemaining + off[0] - editor.offsetY
-                            screenBottom <= (h - marginPx + deadbandPx)
+                            val isAllSelected = ScribeScrollPolicy.isSelectAll(
+                                isSelected = cur.isSelected,
+                                leftLine = cur.leftLine,
+                                leftCol = cur.leftColumn,
+                                rightLine = cur.rightLine,
+                                rightCol = cur.rightColumn,
+                                lineCount = editor.text.lineCount,
+                                lastLineColCount = try { editor.text.getColumnCount(editor.text.lineCount - 1) } catch (_: Throwable) { 0 }
+                            )
+                            if (isAllSelected && editor.selectAllScrollMode == ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION) {
+                                true
+                            } else {
+                                val targetLine = if (isAllSelected) cur.rightLine else cur.leftLine
+                                val targetCol = if (isAllSelected) cur.rightColumn else cur.leftColumn
+                                val off = lay.getCharLayoutOffset(targetLine, targetCol)
+                                val headerRemaining = headerHeight - scrollD
+                                val screenBottom = headerRemaining + off[0] - editor.offsetY
+                                screenBottom <= (h - marginPx + deadbandPx)
+                            }
                         } else false
                     } catch (_: Throwable) {
                         false

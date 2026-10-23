@@ -49,6 +49,7 @@ fun SettingsScreen(
     val showWordCount by vm.showWordCount.collectAsStateWithLifecycle()
     val typewriterMode by vm.typewriterMode.collectAsStateWithLifecycle()
     val restoreCursorOnOpen by vm.restoreCursorOnOpen.collectAsStateWithLifecycle()
+    val selectAllScrollMode by vm.selectAllScrollMode.collectAsStateWithLifecycle()
     val lineSpacing by vm.lineSpacing.collectAsStateWithLifecycle()
     val fontSize by vm.editorFontSize.collectAsStateWithLifecycle()
     val dailyGoal by vm.dailyGoal.collectAsStateWithLifecycle()
@@ -214,6 +215,63 @@ fun SettingsScreen(
                             )
                         )
                     }
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = ScribeTheme.colors.surface.border.copy(alpha = 0.5f))
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Text Selection", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = ScribeTheme.colors.content.primary)
+                        Text(
+                            "Choose document scroll behavior when using Select All",
+                            fontSize = 12.sp,
+                            color = subtleText
+                        )
+
+                        // Keep Current Position (Default)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    vm.setSelectAllScrollMode("KEEP_CURRENT_POSITION")
+                                }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = selectAllScrollMode == "KEEP_CURRENT_POSITION",
+                                onClick = { vm.setSelectAllScrollMode("KEEP_CURRENT_POSITION") },
+                                colors = RadioButtonDefaults.colors(selectedColor = accentColor)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Keep Current Position (Default)", fontWeight = FontWeight.Medium)
+                                Text("Select all text without automatically changing the document scroll position", fontSize = 12.sp, color = subtleText)
+                            }
+                        }
+
+                        // Scroll to Selection End
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    vm.setSelectAllScrollMode("SCROLL_TO_SELECTION_END")
+                                }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = selectAllScrollMode == "SCROLL_TO_SELECTION_END",
+                                onClick = { vm.setSelectAllScrollMode("SCROLL_TO_SELECTION_END") },
+                                colors = RadioButtonDefaults.colors(selectedColor = accentColor)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Scroll to Selection End", fontWeight = FontWeight.Medium)
+                                Text("Bring the bottom/active selection handle into view", fontSize = 12.sp, color = subtleText)
+                            }
+                        }
+                    }
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = ScribeTheme.colors.surface.border.copy(alpha = 0.5f))
                     Column {
                         Text("Editor Font Size: $fontSize sp", fontWeight = FontWeight.Medium)
                         Slider(

@@ -590,6 +590,10 @@ class EditorViewModel(
     val restoreCursorOnOpen: StateFlow<Boolean> = dataStore.restoreCursorOnOpenFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
+    // Select all scroll policy: KEEP_CURRENT_POSITION vs SCROLL_TO_SELECTION_END
+    val selectAllScrollMode: StateFlow<String> = dataStore.selectAllScrollModeFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "KEEP_CURRENT_POSITION")
+
     suspend fun isRestoreCursorEnabled(): Boolean {
         return dataStore.restoreCursorOnOpenFlow.first()
     }

@@ -40,6 +40,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val editorFontSize: StateFlow<Int> = dataStore.editorFontSizeFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 16)
 
+    val selectAllScrollMode: StateFlow<String> = dataStore.selectAllScrollModeFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "KEEP_CURRENT_POSITION")
+
     // ── Home / navigation ─────────────────────────────────────────────────────
 
     val homeStartPage: StateFlow<String> = dataStore.homeStartPageFlow
@@ -97,6 +100,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setRestoreCursorOnOpen(v: Boolean)    { viewModelScope.launch { dataStore.setRestoreCursorOnOpen(v) } }
     fun setLineSpacing(v: String)             { viewModelScope.launch { dataStore.setLineSpacing(v) } }
     fun setEditorFontSize(size: Int)          { viewModelScope.launch { dataStore.setEditorFontSize(size) } }
+    fun setSelectAllScrollMode(mode: String)  { viewModelScope.launch { dataStore.setSelectAllScrollMode(mode) } }
     fun setHomeStartPage(page: String)        { viewModelScope.launch { dataStore.setHomeStartPage(page) } }
     fun setDailyGoal(goal: Int)              { viewModelScope.launch { dataStore.setDailyGoal(goal) } }
     fun setAutoHistoryEnabled(v: Boolean)     { viewModelScope.launch { dataStore.setAutoHistoryEnabled(v) } }

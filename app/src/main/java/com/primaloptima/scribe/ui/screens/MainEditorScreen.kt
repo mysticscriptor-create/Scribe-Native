@@ -349,6 +349,7 @@ fun MainEditorScreen(
     val companionTabBarBottom   by editorVm.companionTabBarBottom.collectAsStateWithLifecycle()
     val companionSplitHorizontal by editorVm.companionSplitHorizontal.collectAsStateWithLifecycle()
     val restoreCursorOnOpen by editorVm.restoreCursorOnOpen.collectAsStateWithLifecycle()
+    val selectAllScrollModeStr by editorVm.selectAllScrollMode.collectAsStateWithLifecycle()
     val primaryFocusRequester = remember { FocusRequester() }
     val secondaryFocusRequester = remember { FocusRequester() }
     var lastActiveTarget by remember(activeNote?.id) { mutableStateOf(EditingTarget.NONE) }
@@ -704,6 +705,11 @@ fun MainEditorScreen(
         val noteId = activeNote?.id ?: return@LaunchedEffect
         delay(600)
         editorVm.saveCursorState(noteId, state)
+    }
+
+    LaunchedEffect(selectAllScrollModeStr) {
+        (soraEditorRef as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.selectAllScrollMode =
+            com.primaloptima.scribe.ui.components.ScribeScrollPolicy.SelectAllScrollMode.fromString(selectAllScrollModeStr)
     }
 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -1529,6 +1535,8 @@ fun MainEditorScreen(
                                         activeHintScrollAnchor = (unifiedCanvasRef?.scrollD ?: 0) + (soraEditorRef?.offsetY ?: 0)
                                     }
                                     setEditorLanguage(ScribeProseLanguage(activeTheme?.documentFontWeight ?: 500))
+                                    (this as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.selectAllScrollMode =
+                                        com.primaloptima.scribe.ui.components.ScribeScrollPolicy.SelectAllScrollMode.fromString(selectAllScrollModeStr)
                                     isNestedScrollingEnabled = true
                                     try {
                                         getComponent(

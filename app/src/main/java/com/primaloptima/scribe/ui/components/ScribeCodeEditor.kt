@@ -85,6 +85,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
      */
     var persistentBottomSpacePx: Int = 0
     var isKeyboardVisible: Boolean = false
+    var selectAllScrollMode: ScribeScrollPolicy.SelectAllScrollMode = ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION
+    private var isExplicitSelectAllInProgress = false
 
     override fun getScrollMaxY(): Int {
         return try {
@@ -1395,11 +1397,72 @@ class ScribeCodeEditor @JvmOverloads constructor(
         clearKeyMetaStates()
     }
 
+    override fun selectAll() {
+        val parentCanvas = parent as? UnifiedCanvasLayout
+        val initialScrollD = parentCanvas?.scrollD ?: 0
+        val initialOffsetY = offsetY
+        isExplicitSelectAllInProgress = true
+        try {
+            super.selectAll()
+        } finally {
+            isExplicitSelectAllInProgress = false
+        }
+
+        if (selectAllScrollMode == ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION) {
+            parentCanvas?.let { canvas ->
+                if (canvas.scrollD != initialScrollD) {
+                    canvas.scrollD = initialScrollD
+                    canvas.scrollDFloat = initialScrollD.toFloat()
+                    canvas.applyTranslations()
+                }
+            }
+            if (offsetY != initialOffsetY) {
+                jumpScrollTo(offsetX, initialOffsetY)
+            }
+            clampContextToolbarToViewport()
+        } else {
+            val cur = cursor
+            parentCanvas?.ensureCursorVisibleAboveKeyboard(
+                targetLine = cur.rightLine,
+                targetCol = cur.rightColumn,
+                smooth = true,
+                force = true
+            )
+        }
+    }
+
     override fun ensureSelectionVisible() {
         // Only scroll to selection if this editor actually has keyboard focus
         if (!isFocused) return
         val parentCanvas = parent as? UnifiedCanvasLayout
         if (parentCanvas != null) {
+            val cur = cursor
+            val isAllSelected = cur != null && ScribeScrollPolicy.isSelectAll(
+                isSelected = cur.isSelected,
+                leftLine = cur.leftLine,
+                leftCol = cur.leftColumn,
+                rightLine = cur.rightLine,
+                rightCol = cur.rightColumn,
+                lineCount = text.lineCount,
+                lastLineColCount = try { text.getColumnCount(text.lineCount - 1) } catch (_: Throwable) { 0 }
+            )
+            if (isAllSelected) {
+                when (selectAllScrollMode) {
+                    ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION -> {
+                        clampContextToolbarToViewport()
+                        return
+                    }
+                    ScribeScrollPolicy.SelectAllScrollMode.SCROLL_TO_SELECTION_END -> {
+                        parentCanvas.ensureCursorVisibleAboveKeyboard(
+                            targetLine = cur.rightLine,
+                            targetCol = cur.rightColumn,
+                            smooth = true,
+                            force = true
+                        )
+                        return
+                    }
+                }
+            }
             parentCanvas.ensureCursorVisibleAboveKeyboard(smooth = true, force = true)
             return
         }
@@ -1479,10 +1542,68 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 }
                 return
             }
-            parentCanvas.ensureCursorVisibleAboveKeyboard(smooth = !noAnimation, force = true)
+            parentCanvas.ensureCursorVisibleAboveKeyboard(
+                targetLine = line,
+                targetCol = column,
+                smooth = !noAnimation,
+                force = true
+            )
             invalidate()
             return
         }
+    }
+
+    /**
+     * Clamps the floating popup toolbar (Cut/Copy/Select All) within the visible canvas viewport
+     * so it never renders offscreen during stationary Select All.
+     */
+    fun clampContextToolbarToViewport() {
+        try {
+            val aw = getComponent(
+                io.github.rosemoe.sora.widget.component.EditorTextActionWindow::class.java
+            ) ?: return
+            post {
+                try {
+                    var popup: android.widget.PopupWindow? = null
+                    var cls: Class<*>? = aw.javaClass
+                    outer@ while (cls != null && cls != Any::class.java) {
+                        for (f in cls.declaredFields) {
+                            if (android.widget.PopupWindow::class.java.isAssignableFrom(f.type)) {
+                                f.isAccessible = true
+                                popup = f.get(aw) as? android.widget.PopupWindow
+                                break@outer
+                            }
+                        }
+                        cls = cls.superclass
+                    }
+                    val p = popup ?: return@post
+                    val contentView = p.contentView ?: return@post
+                    if (!p.isShowing) return@post
+
+                    val loc = IntArray(2)
+                    contentView.getLocationOnScreen(loc)
+                    val currentY = loc[1]
+                    val parentCanvas = parent as? UnifiedCanvasLayout
+                    val canvasLoc = IntArray(2)
+                    if (parentCanvas != null) {
+                        parentCanvas.getLocationOnScreen(canvasLoc)
+                        val canvasTop = canvasLoc[1]
+                        val canvasBottom = canvasTop + parentCanvas.height
+                        val density = resources.displayMetrics.density
+                        val marginPx = (48 * density).toInt()
+
+                        if (currentY < canvasTop + marginPx || currentY > canvasBottom - marginPx) {
+                            val clampedY = (canvasTop + marginPx).coerceAtMost(canvasBottom - marginPx)
+                            val screenWidth = resources.displayMetrics.widthPixels
+                            val popupW = contentView.measuredWidth.takeIf { it > 0 } ?: (screenWidth * 0.8f).toInt()
+                            val clampedX = ((screenWidth - popupW) / 2).coerceAtLeast(0)
+                            p.update(clampedX, clampedY, -1, -1)
+                        }
+                    }
+                } catch (_: Throwable) {}
+            }
+        } catch (_: Throwable) {}
+    }
 
         // Fallback when not hosted in UnifiedCanvasLayout:
         val yOffset = layoutOffset?.get(0) ?: ((line + 1) * rowHeight.toFloat())
