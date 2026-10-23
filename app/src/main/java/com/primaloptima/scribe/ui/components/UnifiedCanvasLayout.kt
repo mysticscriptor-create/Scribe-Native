@@ -64,7 +64,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         id = View.generateViewId()
     }
 
-    var isImeClosing: Boolean = false
+    var isKeyboardDismissing: Boolean = false
         private set
 
     var horizontalPaddingDp: Float = 28f
@@ -141,40 +141,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         editor.persistentBottomSpacePx = persistentBottomSpacePx.roundToInt()
         editor.isKeyboardVisible = isKeyboardVisible
 
-        ViewCompat.setWindowInsetsAnimationCallback(
-            this,
-            object : WindowInsetsAnimationCompat.Callback(DISPATCH_MODE_STOP) {
-                override fun onPrepare(animation: WindowInsetsAnimationCompat) {
-                    if ((animation.typeMask and WindowInsetsCompat.Type.ime()) != 0) {
-                        val rootInsets = ViewCompat.getRootWindowInsets(this@UnifiedCanvasLayout)
-                        val wasVisible = rootInsets?.isVisible(WindowInsetsCompat.Type.ime()) ?: false
-                        if (wasVisible) {
-                            isImeClosing = true
-                        }
-                    }
-                }
-
-                override fun onProgress(
-                    insets: WindowInsetsCompat,
-                    runningAnimations: MutableList<WindowInsetsAnimationCompat>
-                ): WindowInsetsCompat {
-                    val hasImeAnim = runningAnimations.any {
-                        (it.typeMask and WindowInsetsCompat.Type.ime()) != 0
-                    }
-                    if (hasImeAnim) {
-                        val isImeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
-                        isImeClosing = !isImeVisible
-                    }
-                    return insets
-                }
-
-                override fun onEnd(animation: WindowInsetsAnimationCompat) {
-                    if ((animation.typeMask and WindowInsetsCompat.Type.ime()) != 0) {
-                        isImeClosing = false
-                    }
-                }
-            }
-        )
     }
 
     var headerHeight: Int = 0
@@ -229,7 +195,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var isLastLineDeletionActive: Boolean = false
         private set
     private var resetDeletionActiveRunnable: Runnable? = null
-    private var pendingFollowRunnable: Runnable? = null
 
     fun notifyLastLineDeletionStarted() {
         isLastLineDeletionActive = true
@@ -512,7 +477,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * a smooth parallel glide running concurrently with the keyboard entrance animation.
      */
     fun predictivelyGlideCursorAboveKeyboard(targetLine: Int? = null, targetCol: Int? = null) {
-        if (isImeClosing) return
+        if (isKeyboardDismissing) return
         val density = resources.displayMetrics.density
         val cursor = try { editor.cursor } catch (_: Throwable) { null }
         val line = targetLine ?: cursor?.leftLine ?: return
@@ -571,7 +536,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         customDurationMs: Long = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS,
         force: Boolean = false
     ) {
-        if (!editor.isFocused || isImeClosing || isPredictiveGlideRunning) return
+        if (!editor.isFocused || isKeyboardDismissing || isPredictiveGlideRunning) return
         val now = System.currentTimeMillis()
         if (!force && now - lastEnsureCursorTime < 60L) return
         val cursor = try { editor.cursor } catch (_: Throwable) { null } ?: return
@@ -747,10 +712,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     // Phase 2: Elimination of Post-Appearance Double-Jumps
                     // If an active predictive glide is underway OR cursor is already in safe zone,
                     // suppress the secondary post { ensureCursorVisibleAboveKeyboard() }.
-                    pendingFollowRunnable?.let {
-                        removeCallbacks(it)
-                        pendingFollowRunnable = null
-                    }
                     if (!isPredictiveGlideRunning && !isCursorInSafeZone) {
                         post {
                             if (!isPredictiveGlideRunning) {
@@ -761,29 +722,31 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 }
             } else if (dh < 0) {
                 // Viewport expanding (accessory drawer contracting, emoji keyboard closing, or bottom surface lowering)
-                pendingFollowRunnable?.let {
-                    removeCallbacks(it)
-                    pendingFollowRunnable = null
-                }
+                val density = resources.displayMetrics.density
+                val rootH = rootView?.height ?: resources.displayMetrics.heightPixels
+                val hasBottomObstruction = (rootH - h) >= (140 * density).roundToInt()
+
+                val cur = try { editor.cursor } catch (_: Throwable) { null }
+                val lineCount = try { editor.text.lineCount } catch (_: Throwable) { 1 }
+                val isAtLastLine = try {
+                    (cur != null && cur.leftLine >= (lineCount - 1)) || (lineCount <= 1)
+                } catch (_: Throwable) { false }
+                val hasActiveScroll = scrollD > 0 || editor.offsetY > 0
+
+                val shouldFollow = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+                    isKeyboardDismissing = isKeyboardDismissing,
+                    isBottomSurfaceActive = isBottomSurfaceActive,
+                    isKeyboardVisible = isKeyboardVisible,
+                    hasPhysicalBottomObstruction = hasBottomObstruction,
+                    isAtLastLine = isAtLastLine,
+                    hasActiveScroll = hasActiveScroll
+                )
 
                 // Pure Writer Invariant:
                 // When keyboard is dismissed or closing, the document MUST remain
                 // completely stationary at the saved margin (keyboard height + shortcut bar + breathing margin).
                 // Never pull down to the bottom of the screen.
-                if (isImeClosing) {
-                    return
-                }
-
-                val density = resources.displayMetrics.density
-                val rootH = rootView?.height ?: resources.displayMetrics.heightPixels
-                // When keyboard is dismissed, the viewport expands to virtually full screen height
-                // (rootH - h is only the status bar + navigation bar, < 120dp).
-                // When an accessory drawer collapses or an emoji keyboard closes to a standard keyboard,
-                // the bottom surface (keyboard/bar) is still present (rootH - h >= 140dp).
-                val hasBottomObstruction = (rootH - h) >= (140 * density).roundToInt()
-                val isBottomActive = isBottomSurfaceActive || isKeyboardVisible || hasBottomObstruction
-
-                if (!isBottomActive) {
+                if (!shouldFollow) {
                     return
                 }
 
@@ -791,59 +754,31 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 // Only when bottom surface remains active (e.g. accessory drawer collapsed to keyboard,
                 // or taller emoji keyboard returned to standard keyboard), smoothly follow the
                 // shortcut bar downward maintaining the exact 24dp breathing margin.
-                val cur = try { editor.cursor } catch (_: Throwable) { null }
-                val lineCount = try { editor.text.lineCount } catch (_: Throwable) { 1 }
-                val isAtLastLine = try {
-                    (cur != null && cur.leftLine >= (lineCount - 1)) || (lineCount <= 1)
-                } catch (_: Throwable) { false }
+                val lastLine = (lineCount - 1).coerceAtLeast(0)
+                val lastCol = try { editor.text.getColumnCount(lastLine) } catch (_: Throwable) { 0 }
+                val lay = editor.layout
+                val off = try { lay?.getCharLayoutOffset(lastLine, lastCol) } catch (_: Throwable) { null }
+                val lastLineDocBottom = off?.get(0)
+                    ?: (lay?.layoutHeight?.toFloat() ?: ((lastLine + 1) * editor.rowHeight.toFloat()))
 
-                if (isAtLastLine && (scrollD > 0 || editor.offsetY > 0)) {
-                    pendingFollowRunnable?.let { removeCallbacks(it) }
-                    val followRunnable = Runnable {
-                        pendingFollowRunnable = null
-                        if (isImeClosing) return@Runnable
-                        val curDensity = resources.displayMetrics.density
-                        val curRootH = rootView?.height ?: resources.displayMetrics.heightPixels
-                        val curHasObstruction = (curRootH - height) >= (140 * curDensity).roundToInt()
-                        val stillBottomActive = isBottomSurfaceActive || isKeyboardVisible || curHasObstruction
-                        if (!stillBottomActive) return@Runnable
+                val deltaY = ScribeScrollPolicy.calculateLastLineFollowDelta(
+                    lastLineDocBottom = lastLineDocBottom,
+                    headerHeight = headerHeight,
+                    scrollD = scrollD,
+                    offsetY = editor.offsetY,
+                    viewportHeight = h,
+                    density = density,
+                    isAtLastLine = true
+                )
 
-                        val c = try { editor.cursor } catch (_: Throwable) { null }
-                        val lc = try { editor.text.lineCount } catch (_: Throwable) { 1 }
-                        val atLast = try {
-                            (c != null && c.leftLine >= (lc - 1)) || (lc <= 1)
-                        } catch (_: Throwable) { false }
-
-                        if (atLast && (scrollD > 0 || editor.offsetY > 0)) {
-                            val lastL = (lc - 1).coerceAtLeast(0)
-                            val lastC = try { editor.text.getColumnCount(lastL) } catch (_: Throwable) { 0 }
-                            val lay = editor.layout
-                            val off = try { lay?.getCharLayoutOffset(lastL, lastC) } catch (_: Throwable) { null }
-                            val lastLineBottom = off?.get(0)
-                                ?: (lay?.layoutHeight?.toFloat() ?: ((lastL + 1) * editor.rowHeight.toFloat()))
-
-                            val dy = ScribeScrollPolicy.calculateLastLineFollowDelta(
-                                lastLineDocBottom = lastLineBottom,
-                                headerHeight = headerHeight,
-                                scrollD = scrollD,
-                                offsetY = editor.offsetY,
-                                viewportHeight = height,
-                                density = curDensity,
-                                isAtLastLine = true
-                            )
-
-                            if (dy < -1f) {
-                                cancelCanvasAnimation()
-                                smoothScrollCanvasBy(
-                                    dy = dy,
-                                    durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS,
-                                    interpolator = FastOutSlowInInterpolator
-                                )
-                            }
-                        }
+                if (deltaY < -1f) {
+                    post {
+                        smoothScrollCanvasBy(
+                            dy = deltaY,
+                            durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS,
+                            interpolator = FastOutSlowInInterpolator
+                        )
                     }
-                    pendingFollowRunnable = followRunnable
-                    post(followRunnable)
                 }
             }
         }
@@ -867,7 +802,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * so that the typing cursor is strictly kept above the keyboard and shortcut bar.
      */
     override fun requestChildRectangleOnScreen(child: View, rectangle: Rect, immediate: Boolean): Boolean {
-        if (isImeClosing) {
+        if (isKeyboardDismissing) {
             return true
         }
         if (child !== editor) {
@@ -1249,8 +1184,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         cancelCanvasAnimation()
-        pendingFollowRunnable?.let { removeCallbacks(it) }
-        pendingFollowRunnable = null
         resetDeletionActiveRunnable?.let { removeCallbacks(it) }
         resetDeletionActiveRunnable = null
     }

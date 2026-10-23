@@ -219,6 +219,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import com.primaloptima.scribe.ui.components.UnifiedCanvasLayout
 import com.primaloptima.scribe.ui.components.ScribeCodeEditor
+import com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator
 import kotlinx.coroutines.suspendCancellableCoroutine
 import io.github.rosemoe.sora.widget.CodeEditor
 import io.github.rosemoe.sora.widget.EditorSearcher
@@ -1087,7 +1088,7 @@ fun MainEditorScreen(
     }
 
     LaunchedEffect(savedKeyboardHeightFloat) {
-        if (savedKeyboardHeightFloat in 220f..330f) {
+        if (ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(savedKeyboardHeightFloat, configuration.screenHeightDp.toFloat())) {
             lastKeyboardHeightDp = savedKeyboardHeightFloat.dp
         }
     }
@@ -1148,21 +1149,20 @@ fun MainEditorScreen(
     // Capture steady-state standard keyboard height once settled, saving to DataStore only on confirmed rest.
     // Filter out transient oversized keyboard pickers (emojis, stickers, GIFs, clipboard) which exceed 330dp,
     // ensuring compact drawers and transition latches reflect the baseline standard keyboard.
-    val maxStandardKbBaselineDp = minOf(330.dp, (configuration.screenHeightDp.dp * 0.45f).coerceAtLeast(300.dp))
+    val maxStandardKbBaselineDp = ScribeBottomSurfaceCoordinator.calculateMaxStandardBaselineDp(configuration.screenHeightDp.toFloat()).dp
     LaunchedEffect(imeBottomDp, isKeyboardVisible, docBottomNavInset) {
         if (isKeyboardVisible && activeAccessoryDrawer == null && !isAwaitingKeyboardOpen && imeBottomDp > 150.dp) {
             val aboveNav = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
-            if (aboveNav in 200.dp..maxStandardKbBaselineDp) {
+            if (ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(aboveNav.value, configuration.screenHeightDp.toFloat())) {
                 // Debounce 350ms to ensure the keyboard has finished 100% of its entrance animation and settled
                 kotlinx.coroutines.delay(350)
                 val settledAboveNav = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
                 if (isKeyboardVisible && activeAccessoryDrawer == null && !isAwaitingKeyboardOpen &&
-                    settledAboveNav in 200.dp..maxStandardKbBaselineDp && kotlin.math.abs(settledAboveNav.value - aboveNav.value) < 1f) {
-                    if (kotlin.math.abs(settledAboveNav.value - lastKeyboardHeightDp.value) > 2f) {
-                        lastKeyboardHeightDp = settledAboveNav
-                        if (kotlin.math.abs(settledAboveNav.value - savedKeyboardHeightFloat) >= 1f) {
-                            dataStore.setLastKeyboardHeight(settledAboveNav.value)
-                        }
+                    ScribeBottomSurfaceCoordinator.shouldUpdateSavedBaseline(settledAboveNav.value, lastKeyboardHeightDp.value, configuration.screenHeightDp.toFloat()) &&
+                    kotlin.math.abs(settledAboveNav.value - aboveNav.value) < 1f) {
+                    lastKeyboardHeightDp = settledAboveNav
+                    if (kotlin.math.abs(settledAboveNav.value - savedKeyboardHeightFloat) >= 1f) {
+                        dataStore.setLastKeyboardHeight(settledAboveNav.value)
                     }
                 }
             }
@@ -1205,7 +1205,7 @@ fun MainEditorScreen(
                 settled = result != null
             } finally {
                 // 3. Calibrate compactHeightDp to the exact settled height so future toggles match 1:1
-                if (settled && imeAboveNavDp in 200.dp..maxStandardKbBaselineDp) {
+                if (settled && ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(imeAboveNavDp.value, configuration.screenHeightDp.toFloat())) {
                     lastKeyboardHeightDp = imeAboveNavDp
                 }
                 isAwaitingKeyboardOpen = false
@@ -1344,19 +1344,29 @@ fun MainEditorScreen(
                         }
                     }
 
-                    val isBarVisible = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched) && shortcuts.isNotEmpty()
-                    val effectiveBottomSurfaceHeight = when {
-                        activeAccessoryDrawer != null -> {
-                            when {
-                                isDrawerDragging -> dragLiveHeightDp.dp.coerceIn(compactHeightDp, fullHeightDp)
-                                drawerState == AccessoryDrawerState.COMPACT -> compactHeightDp
-                                else -> drawerHeightDpAnim.value.dp.coerceIn(compactHeightDp, fullHeightDp)
-                            }
-                        }
-                        isAwaitingKeyboardOpen || isBarTransitionLatched -> maxOf(compactHeightDp, imeAboveNavDp)
-                        isKeyboardVisible || imeAboveNavDp > 10.dp -> imeAboveNavDp
-                        else -> 0.dp
+                    val isDrawerActive = activeAccessoryDrawer != null
+                    val drawerHeightDpVal = when {
+                        isDrawerDragging -> dragLiveHeightDp.dp.coerceIn(compactHeightDp, fullHeightDp).value
+                        drawerState == AccessoryDrawerState.COMPACT -> compactHeightDp.value
+                        else -> drawerHeightDpAnim.value.dp.coerceIn(compactHeightDp, fullHeightDp).value
                     }
+                    val effectiveBottomSurfaceHeight = ScribeBottomSurfaceCoordinator.resolveEffectiveBottomSurfaceHeight(
+                        isAccessoryDrawerActive = isDrawerActive,
+                        drawerHeightDp = drawerHeightDpVal,
+                        isAwaitingKeyboardOpen = isAwaitingKeyboardOpen,
+                        isBarTransitionLatched = isBarTransitionLatched,
+                        isKeyboardVisible = isKeyboardVisible,
+                        compactHeightDp = compactHeightDp.value,
+                        imeAboveNavDp = imeAboveNavDp.value
+                    ).dp
+                    val isKeyboardDismissing = ScribeBottomSurfaceCoordinator.isKeyboardDismissing(
+                        isKeyboardVisible = isKeyboardVisible,
+                        isAccessoryDrawerActive = isDrawerActive,
+                        isAwaitingKeyboardOpen = isAwaitingKeyboardOpen,
+                        isBarTransitionLatched = isBarTransitionLatched,
+                        imeAboveNavDp = imeAboveNavDp.value
+                    )
+                    val isBarVisible = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched) && shortcuts.isNotEmpty()
                     val docBottomPadding = if (!isBarVisible) {
                         docBottomNavInset
                     } else {
@@ -1404,6 +1414,7 @@ fun MainEditorScreen(
                                 estimatedKeyboardHeightPx = curEstimatedKbPx
                                 this.isKeyboardVisible = curIsKeyboardVisible
                                 this.isBottomSurfaceActive = curIsBottomSurfaceActive
+                                this.isKeyboardDismissing = isKeyboardDismissing
                                 onUserTouchDown = {
                                     if (activeAccessoryDrawer != null) {
                                         activeAccessoryDrawer = null
@@ -1637,6 +1648,7 @@ fun MainEditorScreen(
                             val curIsBottomSurfaceActive = (isKeyboardVisible || isDrawerOrTransitionActive) && shortcuts.isNotEmpty()
                             layout.isKeyboardVisible = curIsKeyboardVisible
                             layout.isBottomSurfaceActive = curIsBottomSurfaceActive
+                            layout.isKeyboardDismissing = isKeyboardDismissing
                             val editor = layout.editor
                             val scribeEditor = editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor
                             scribeEditor?.activeShortcuts = shortcuts

@@ -679,4 +679,165 @@ class CursorAndCanvasGeometryTest {
         // Difference is 440 - 1590 = -1150px (clamped to -totalScroll = -1260px)
         assertEquals("Emoji contract must smoothly track downward when keyboard remains open", -1150f, delta)
     }
+
+    @Test
+    fun testBottomSurfaceCoordinatorStandardKeyboardBaselineBounds() {
+        val screenHeightDp = 800f
+        val maxBaseline = ScribeBottomSurfaceCoordinator.calculateMaxStandardBaselineDp(screenHeightDp)
+        assertEquals(330f, maxBaseline)
+
+        // Valid standard keyboard heights in range [200, 330]
+        assertEquals(true, ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(270f, screenHeightDp))
+        assertEquals(true, ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(220f, screenHeightDp))
+        assertEquals(true, ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(330f, screenHeightDp))
+
+        // Oversized pickers (emojis/stickers/clipboard) > 330dp must be rejected
+        assertEquals(false, ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(380f, screenHeightDp))
+        assertEquals(false, ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(420f, screenHeightDp))
+
+        // Too small / closing heights must be rejected
+        assertEquals(false, ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(100f, screenHeightDp))
+        assertEquals(false, ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(0f, screenHeightDp))
+    }
+
+    @Test
+    fun testBottomSurfaceCoordinatorEffectiveBottomSurfaceHeight() {
+        // Standard keyboard typing: locks at compactHeightDp (270dp) to prevent 60fps layout thrashing
+        val standardHeight = ScribeBottomSurfaceCoordinator.resolveEffectiveBottomSurfaceHeight(
+            isAccessoryDrawerActive = false,
+            drawerHeightDp = 0f,
+            isAwaitingKeyboardOpen = false,
+            isBarTransitionLatched = false,
+            isKeyboardVisible = true,
+            compactHeightDp = 270f,
+            imeAboveNavDp = 270f
+        )
+        assertEquals(270f, standardHeight)
+
+        // Emoji keyboard: expands smoothly to imeAboveNavDp (380dp)
+        val emojiHeight = ScribeBottomSurfaceCoordinator.resolveEffectiveBottomSurfaceHeight(
+            isAccessoryDrawerActive = false,
+            drawerHeightDp = 0f,
+            isAwaitingKeyboardOpen = false,
+            isBarTransitionLatched = false,
+            isKeyboardVisible = true,
+            compactHeightDp = 270f,
+            imeAboveNavDp = 380f
+        )
+        assertEquals(380f, emojiHeight)
+
+        // Return from emoji keyboard: drops immediately back to 270f with ZERO floating delay!
+        val returnHeight = ScribeBottomSurfaceCoordinator.resolveEffectiveBottomSurfaceHeight(
+            isAccessoryDrawerActive = false,
+            drawerHeightDp = 0f,
+            isAwaitingKeyboardOpen = false,
+            isBarTransitionLatched = false,
+            isKeyboardVisible = true,
+            compactHeightDp = 270f,
+            imeAboveNavDp = 270f
+        )
+        assertEquals(270f, returnHeight)
+
+        // Drawer active: reflects drawer height directly
+        val drawerHeight = ScribeBottomSurfaceCoordinator.resolveEffectiveBottomSurfaceHeight(
+            isAccessoryDrawerActive = true,
+            drawerHeightDp = 450f,
+            isAwaitingKeyboardOpen = false,
+            isBarTransitionLatched = false,
+            isKeyboardVisible = false,
+            compactHeightDp = 270f,
+            imeAboveNavDp = 0f
+        )
+        assertEquals(450f, drawerHeight)
+    }
+
+    @Test
+    fun testBottomSurfaceCoordinatorKeyboardDismissingState() {
+        // Dismissing: keyboard not visible, no drawer, no transition latch, ime > 0
+        val isDismissing = ScribeBottomSurfaceCoordinator.isKeyboardDismissing(
+            isKeyboardVisible = false,
+            isAccessoryDrawerActive = false,
+            isAwaitingKeyboardOpen = false,
+            isBarTransitionLatched = false,
+            imeAboveNavDp = 150f
+        )
+        assertEquals(true, isDismissing)
+
+        // Normal typing: keyboard visible -> NOT dismissing
+        val isTyping = ScribeBottomSurfaceCoordinator.isKeyboardDismissing(
+            isKeyboardVisible = true,
+            isAccessoryDrawerActive = false,
+            isAwaitingKeyboardOpen = false,
+            isBarTransitionLatched = false,
+            imeAboveNavDp = 270f
+        )
+        assertEquals(false, isTyping)
+
+        // Transition from drawer to keyboard -> NOT dismissing
+        val isTransition = ScribeBottomSurfaceCoordinator.isKeyboardDismissing(
+            isKeyboardVisible = false,
+            isAccessoryDrawerActive = false,
+            isAwaitingKeyboardOpen = true,
+            isBarTransitionLatched = true,
+            imeAboveNavDp = 100f
+        )
+        assertEquals(false, isTransition)
+
+        // Completely dismissed: ime == 0 -> NOT dismissing (settled)
+        val isSettled = ScribeBottomSurfaceCoordinator.isKeyboardDismissing(
+            isKeyboardVisible = false,
+            isAccessoryDrawerActive = false,
+            isAwaitingKeyboardOpen = false,
+            isBarTransitionLatched = false,
+            imeAboveNavDp = 0f
+        )
+        assertEquals(false, isSettled)
+    }
+
+    @Test
+    fun testBottomSurfaceCoordinatorShouldFollowDownwardDecisions() {
+        // Keyboard dismissing: NEVER follow downward! (Pure Writer stationary saved margin)
+        val dismissDecision = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = true,
+            isBottomSurfaceActive = false,
+            isKeyboardVisible = false,
+            hasPhysicalBottomObstruction = true, // remaining obstruction from closing keyboard
+            isAtLastLine = true,
+            hasActiveScroll = true
+        )
+        assertEquals("Dismissal must never pull document down", false, dismissDecision)
+
+        // Emoji keyboard contracting to standard keyboard: SHOULD follow downward!
+        val emojiContractDecision = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true,
+            isKeyboardVisible = true,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = true,
+            hasActiveScroll = true
+        )
+        assertEquals("Emoji contract must smoothly track downward", true, emojiContractDecision)
+
+        // Drawer collapsing: SHOULD follow downward!
+        val drawerCollapseDecision = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true,
+            isKeyboardVisible = false,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = true,
+            hasActiveScroll = true
+        )
+        assertEquals("Drawer collapse must smoothly track downward", true, drawerCollapseDecision)
+
+        // Mid-document editing (isAtLastLine = false): NEVER follow downward!
+        val midDocDecision = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true,
+            isKeyboardVisible = true,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = false,
+            hasActiveScroll = true
+        )
+        assertEquals("Mid-document editing must never pull down", false, midDocDecision)
+    }
 }
