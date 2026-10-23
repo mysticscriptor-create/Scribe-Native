@@ -215,7 +215,7 @@ fun SettingsScreen(
                             )
                         )
                     }
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = ScribeTheme.colors.surface.border.copy(alpha = 0.5f))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -271,7 +271,7 @@ fun SettingsScreen(
                             }
                         }
                     }
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = ScribeTheme.colors.surface.border.copy(alpha = 0.5f))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     Column {
                         Text("Editor Font Size: $fontSize sp", fontWeight = FontWeight.Medium)
                         Slider(

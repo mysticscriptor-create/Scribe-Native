@@ -1411,9 +1411,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (selectAllScrollMode == ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION) {
             parentCanvas?.let { canvas ->
                 if (canvas.scrollD != initialScrollD) {
-                    canvas.scrollD = initialScrollD
-                    canvas.scrollDFloat = initialScrollD.toFloat()
-                    canvas.applyTranslations()
+                    canvas.setCanvasScrollD(initialScrollD)
                 }
             }
             if (offsetY != initialOffsetY) {
@@ -1551,6 +1549,40 @@ class ScribeCodeEditor @JvmOverloads constructor(
             invalidate()
             return
         }
+
+        // Fallback when not hosted in UnifiedCanvasLayout:
+        val yOffset = layoutOffset?.get(0) ?: ((line + 1) * rowHeight.toFloat())
+        val currFinalY = if (scroller.isFinished) offsetY.toFloat() else scroller.finalY.toFloat()
+        var targetY = currFinalY
+        val effectiveHeight = height.coerceAtLeast(rowHeight)
+        val topLines = if (props.stickyScroll) props.stickyScrollMaxLines else 2
+        if (yOffset - rowHeight * topLines < currFinalY) {
+            targetY = yOffset - rowHeight * topLines
+        }
+        val bottomMargin = 4f * dpUnit
+        if (yOffset > effectiveHeight + currFinalY - bottomMargin) {
+            targetY = yOffset - effectiveHeight + bottomMargin
+        }
+        targetY = targetY.coerceIn(0f, scrollMaxY.toFloat())
+        if (abs(targetX - offsetX.toFloat()) < 1f && abs(targetY - offsetY.toFloat()) < 1f) {
+            invalidate()
+            return
+        }
+        val now = System.currentTimeMillis()
+        val animation = now - lastMakeVisibleTime >= 100
+        lastMakeVisibleTime = now
+        if (animation && !noAnimation) {
+            scroller.forceFinished(true)
+            scroller.startScroll(offsetX, offsetY, (targetX - offsetX).toInt(), (targetY - offsetY).toInt())
+            if (props.awareScrollbarWhenAdjust && abs(offsetY - targetY) > dpUnit * 100) {
+                eventHandler.notifyScrolled()
+            }
+        } else {
+            scroller.startScroll(offsetX, offsetY, (targetX - offsetX).toInt(), (targetY - offsetY).toInt(), 0)
+            scroller.abortAnimation()
+        }
+        dispatchEvent(ScrollEvent(this, offsetX, offsetY, targetX.toInt(), targetY.toInt(), ScrollEvent.CAUSE_MAKE_POSITION_VISIBLE))
+        invalidate()
     }
 
     /**
@@ -1603,41 +1635,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 } catch (_: Throwable) {}
             }
         } catch (_: Throwable) {}
-    }
-
-        // Fallback when not hosted in UnifiedCanvasLayout:
-        val yOffset = layoutOffset?.get(0) ?: ((line + 1) * rowHeight.toFloat())
-        val currFinalY = if (scroller.isFinished) offsetY.toFloat() else scroller.finalY.toFloat()
-        var targetY = currFinalY
-        val effectiveHeight = height.coerceAtLeast(rowHeight)
-        val topLines = if (props.stickyScroll) props.stickyScrollMaxLines else 2
-        if (yOffset - rowHeight * topLines < currFinalY) {
-            targetY = yOffset - rowHeight * topLines
-        }
-        val bottomMargin = 4f * dpUnit
-        if (yOffset > effectiveHeight + currFinalY - bottomMargin) {
-            targetY = yOffset - effectiveHeight + bottomMargin
-        }
-        targetY = targetY.coerceIn(0f, scrollMaxY.toFloat())
-        if (abs(targetX - offsetX.toFloat()) < 1f && abs(targetY - offsetY.toFloat()) < 1f) {
-            invalidate()
-            return
-        }
-        val now = System.currentTimeMillis()
-        val animation = now - lastMakeVisibleTime >= 100
-        lastMakeVisibleTime = now
-        if (animation && !noAnimation) {
-            scroller.forceFinished(true)
-            scroller.startScroll(offsetX, offsetY, (targetX - offsetX).toInt(), (targetY - offsetY).toInt())
-            if (props.awareScrollbarWhenAdjust && abs(offsetY - targetY) > dpUnit * 100) {
-                eventHandler.notifyScrolled()
-            }
-        } else {
-            scroller.startScroll(offsetX, offsetY, (targetX - offsetX).toInt(), (targetY - offsetY).toInt(), 0)
-            scroller.abortAnimation()
-        }
-        dispatchEvent(ScrollEvent(this, offsetX, offsetY, targetX.toInt(), targetY.toInt(), ScrollEvent.CAUSE_MAKE_POSITION_VISIBLE))
-        invalidate()
     }
 
     fun updateImageDescription(imageUri: String, newDescription: String) {
