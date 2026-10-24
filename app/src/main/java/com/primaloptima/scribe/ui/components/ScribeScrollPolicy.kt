@@ -717,7 +717,7 @@ object ScribeScrollPolicy {
         val retainedOffset = if (currentOffsetY > 0 && isFocused) currentOffsetY else 0
         val glideTarget = if (activeGlideTargetY > 0) activeGlideTargetY else 0
 
-        return maxOf(baseSoraMaxY.coerceAtLeast(0), maxScrollWithBottomSpace, retainedOffset, glideTarget)
+        return maxOf(maxOf(baseSoraMaxY.coerceAtLeast(0), maxScrollWithBottomSpace), maxOf(retainedOffset, glideTarget))
     }
 
     /**

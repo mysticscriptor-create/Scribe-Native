@@ -1554,7 +1554,8 @@ class CursorAndCanvasGeometryTest {
                     isBottomSurfaceActive = true
                 )
             )
-            assertTrue("Diagnostic log must be called", loggedMessage != null && loggedMessage.contains("Applied"))
+            val msg = loggedMessage
+            assertTrue("Diagnostic log must be called", msg != null && msg.contains("Applied"))
         } finally {
             ScribeScrollPolicy.isDebugDiagnosticsEnabled = false
             ScribeScrollPolicy.onScrollDiagnosticLog = null
@@ -1906,4 +1907,165 @@ class CursorAndCanvasGeometryTest {
         assertEquals("Zero unconsumed delta across boundary", 0f, alloc.unconsumedDelta, 0.001f)
     }
 
+    @Test
+    fun testContraction_KeyboardExpansion_FollowedByNormalHeightRestoration() {
+        // Standard keyboard (viewport 1100) expands to emoji keyboard (viewport 800).
+        // Document scrolls up by 150px to keep line 20 visible.
+        val controller = ScribeScrollPolicy.ContractionSimulationController(
+            totalScroll = 500f,
+            temporaryDisplacement = 0f,
+            caretLine = 20,
+            caretCol = 4,
+            isSelected = false,
+            caretDocBottom = 800f,
+            headerHeight = 200,
+            density = 2.5f
+        )
+
+        // Expansion phase: upward scroll records 150px displacement
+        controller.totalScroll = 650f
+        controller.temporaryDisplacement = 150f
+
+        // Keyboard contracts back to standard height (viewport 1100)
+        val result = controller.onViewportHeightChanged(
+            newViewportHeight = 1100,
+            isAtLastLine = false,
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true
+        )
+
+        assertTrue("Contraction to standard height must trigger downward restoration", result.shouldScroll)
+        assertEquals(-150f, result.deltaY, 0.001f)
+        assertEquals(500f, controller.targetTotalScroll, 0.001f)
+
+        // Animate to completion
+        controller.applyAnimationStep(1.0f)
+        assertEquals("Total scroll restored to exact pre-expansion position", 500f, controller.totalScroll, 0.001f)
+        assertEquals("Temporary displacement cleared", 0f, controller.temporaryDisplacement, 0.001f)
+
+        // Caret screen bottom = 200 + 800 - 500 = 500px, which has 540px clearance above safe line (1040px)
+        val finalCaretBottom = 200f + 800f - controller.totalScroll
+        assertTrue("Caret must settle comfortably above breathing line", finalCaretBottom <= 1040f)
+    }
+
+    @Test
+    fun testContraction_AccessoryDrawerExpansion_FollowedByNormalHeightRestoration() {
+        // Compact accessory (viewport 950) expands to full drawer (viewport 650).
+        // Upward scroll of 220px is recorded.
+        val controller = ScribeScrollPolicy.ContractionSimulationController(
+            totalScroll = 400f,
+            temporaryDisplacement = 0f,
+            caretLine = 18,
+            caretCol = 0,
+            isSelected = false,
+            caretDocBottom = 750f,
+            headerHeight = 200,
+            density = 2.5f
+        )
+
+        // Expansion phase:
+        controller.totalScroll = 620f
+        controller.temporaryDisplacement = 220f
+
+        // Drawer collapses back to compact accessory (viewport 950)
+        val result = controller.onViewportHeightChanged(
+            newViewportHeight = 950,
+            isAtLastLine = false,
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true
+        )
+
+        assertTrue(result.shouldScroll)
+        assertEquals(-220f, result.deltaY, 0.001f)
+        assertEquals(400f, controller.targetTotalScroll, 0.001f)
+
+        controller.applyAnimationStep(1.0f)
+        assertEquals(400f, controller.totalScroll, 0.001f)
+        assertEquals(0f, controller.temporaryDisplacement, 0.001f)
+    }
+
+    @Test
+    fun testContraction_SelectionChangeDuringTransition_InvalidatesStaleCompensation() {
+        val controller = ScribeScrollPolicy.ContractionSimulationController(
+            totalScroll = 700f,
+            temporaryDisplacement = 180f,
+            caretLine = 22,
+            caretCol = 5,
+            isSelected = false,
+            caretDocBottom = 1100f,
+            headerHeight = 200,
+            density = 2.5f
+        )
+
+        // User extends selection while in expanded state
+        controller.onCaretMoved(newLine = 22, newCol = 15, newSelected = true)
+
+        assertEquals("Displacement must be invalidated on selection change", 0f, controller.temporaryDisplacement, 0.001f)
+        assertFalse(controller.isRestorationActive)
+
+        // Viewport collapses later: must NOT restore obsolete displacement
+        val result = controller.onViewportHeightChanged(
+            newViewportHeight = 1100,
+            isAtLastLine = false,
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true
+        )
+        assertFalse("Must remain stationary when compensation was invalidated", result.shouldScroll)
+        assertEquals(0f, result.deltaY, 0.001f)
+    }
+
+    @Test
+    fun testContraction_ManualScrollDuringExpansion_InvalidatesCompensation() {
+        val controller = ScribeScrollPolicy.ContractionSimulationController(
+            totalScroll = 600f,
+            temporaryDisplacement = 120f,
+            caretLine = 15,
+            caretCol = 0,
+            isSelected = false,
+            caretDocBottom = 950f,
+            headerHeight = 200,
+            density = 2.5f
+        )
+
+        controller.onViewportHeightChanged(1000, isAtLastLine = false, isKeyboardDismissing = false, isBottomSurfaceActive = true)
+        assertTrue(controller.isRestorationActive)
+
+        // User touches / drags the canvas
+        controller.onUserTouch()
+        assertFalse("Restoration must be cancelled immediately", controller.isRestorationActive)
+        assertEquals("Displacement must be 0f", 0f, controller.temporaryDisplacement, 0.001f)
+    }
+
+    @Test
+    fun testContraction_PartialRestoration_RetainsOnlySafelyAppliableCompensation() {
+        // Document has caret close to bottom. Total scroll = 400.
+        // Caret doc bottom = 1200. Header = 200.
+        // Viewport = 1100, density = 2.5 -> targetLineBottom = 1040.
+        // Current caret bottom = 200 + 1200 - 400 = 1000px.
+        // Available slack to 1040 is 40px!
+        // Suppose temporaryDisplacement was 150px.
+        val req = ScribeScrollPolicy.ContractionRestorationRequest(
+            caretScreenBottom = 1000f,
+            caretScreenTop = 960f,
+            viewportHeight = 1100,
+            density = 2.5f,
+            totalScroll = 400f,
+            temporaryDisplacement = 150f,
+            isAtLastLine = false,
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true
+        )
+        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
+        assertTrue(result.shouldScroll)
+        assertEquals("Downward movement clamped to available slack (-40px)", -40f, result.deltaY, 0.001f)
+        assertEquals("Remaining compensation is 110px", 110f, result.remainingCompensation, 0.001f)
+
+        // Validate final target safety
+        val target = 400f + result.deltaY // 360f
+        val validation = ScribeScrollPolicy.validateFinalTarget(target, 1200f, 200, 1100, 2.5f)
+        assertTrue("Settled target at breathing margin is safe", validation.isSafe)
+        assertEquals(1040f, validation.finalCaretScreenBottom, 0.001f)
+    }
+
 }
+
