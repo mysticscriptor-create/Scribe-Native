@@ -2215,5 +2215,416 @@ class CursorAndCanvasGeometryTest {
         assertEquals(-1, coordinator.caretLine)
     }
 
+    /**
+     * Test animation driver simulating Android's ValueAnimator lifecycle
+     * where cancel() synchronously triggers onAnimationCancel followed by onAnimationEnd.
+     */
+    private class TestAnimationDriver : ScribeScrollPolicy.AnimationDriver {
+        var isStarted = false
+        var fromVal = 0f
+        var toVal = 0f
+        var updateCb: ((Float) -> Unit)? = null
+        var cancelCb: (() -> Unit)? = null
+        var endCb: (() -> Unit)? = null
+        override var isRunning = false
+
+        override fun start(
+            from: Float,
+            to: Float,
+            durationMs: Long,
+            onUpdate: (Float) -> Unit,
+            onCancel: () -> Unit,
+            onEnd: () -> Unit
+        ) {
+            isStarted = true
+            isRunning = true
+            fromVal = from
+            toVal = to
+            updateCb = onUpdate
+            cancelCb = onCancel
+            endCb = onEnd
+        }
+
+        override fun cancel() {
+            if (isRunning) {
+                isRunning = false
+                // Android ValueAnimator lifecycle: onAnimationCancel then onAnimationEnd
+                cancelCb?.invoke()
+                endCb?.invoke()
+            }
+        }
+
+        fun step(value: Float) {
+            if (isRunning) {
+                updateCb?.invoke(value)
+            }
+        }
+
+        fun complete() {
+            if (isRunning) {
+                isRunning = false
+                endCb?.invoke()
+            }
+        }
+    }
+
+    // --- Production Scroll Architecture Regression Tests (Point 9) ---
+
+    @Test
+    fun testProductionCoordinator_CancellationAndReplacement_PreventsStaleCallbacks() {
+        // Point 9.1: Cancel an ongoing animation with a new target. Verify the old animator's
+        // cancel and completion callbacks cannot clear the new target or trigger obsolete restoration,
+        // and verify the coordinator continues driving to the new destination.
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 100f)
+        val drivers = mutableListOf<TestAnimationDriver>()
+        val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
+            scrollCoordinator = coordinator,
+            animationDriverFactory = {
+                val d = TestAnimationDriver()
+                drivers.add(d)
+                d
+            }
+        )
+
+        // Start operation 1: from 100f to 300f
+        productionCoordinator.startAuthoritativeAnimation(
+            targetTotalScroll = 300f,
+            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+        )
+        assertEquals(1, drivers.size)
+        val driver1 = drivers[0]
+        assertTrue("Driver 1 must be running", driver1.isRunning)
+
+        // Step driver 1 to 150f
+        driver1.step(150f)
+        assertEquals(150f, coordinator.totalScroll, 0.001f)
+
+        // Start operation 2: replace with target 500f
+        // This cancels driver 1. In Android, cancel() invokes cancelCb followed by endCb synchronously.
+        productionCoordinator.startAuthoritativeAnimation(
+            targetTotalScroll = 500f,
+            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+        )
+
+        // Verify driver 1 was cancelled
+        assertFalse("Driver 1 must no longer be running", driver1.isRunning)
+        assertEquals(2, drivers.size)
+        val driver2 = drivers[1]
+        assertTrue("Driver 2 must be running", driver2.isRunning)
+
+        // Crucial invariant: Driver 1's synchronous cancel & end callbacks MUST NOT have cleared
+        // the active animation state or erased driver 2's new target!
+        assertTrue("Coordinator must remain active with operation 2", coordinator.isAnimationActive)
+        assertEquals("Target must be 500f, not erased by old driver", 500f, coordinator.activeTargetTotalScroll ?: 0f, 0.001f)
+        assertEquals(2L, productionCoordinator.activeOperationId)
+        assertEquals(2L, coordinator.activeOperationId)
+
+        // Step driver 2 to completion
+        driver2.step(300f)
+        assertEquals(300f, coordinator.totalScroll, 0.001f)
+        driver2.step(500f)
+        assertEquals(500f, coordinator.totalScroll, 0.001f)
+        driver2.complete()
+
+        // After driver 2 completes, animation is cleanly finished at target 500f
+        assertFalse("Coordinator should be finished after active driver ends", coordinator.isAnimationActive)
+        assertEquals(500f, coordinator.totalScroll, 0.001f)
+    }
+
+    @Test
+    fun testProductionCoordinator_InFlightRetargeting_SmoothlyUpdatesWithoutHitchOrRelativeError() {
+        // Point 9.2: Retarget while moving, verify the animator smoothly updates to the final destination
+        // without accumulating relative errors, and verify sub-deadband changes do not restart or hitch.
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 100f)
+        val drivers = mutableListOf<TestAnimationDriver>()
+        val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
+            scrollCoordinator = coordinator,
+            animationDriverFactory = {
+                val d = TestAnimationDriver()
+                drivers.add(d)
+                d
+            }
+        )
+
+        // Initial target 300f
+        productionCoordinator.startAuthoritativeAnimation(
+            targetTotalScroll = 300f,
+            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+        )
+        val driver1 = drivers[0]
+        driver1.step(200f)
+        assertEquals(200f, coordinator.totalScroll, 0.001f)
+
+        // Sub-deadband target change (e.g. 201f vs current target 300f -> wait, let's test sub-deadband
+        // against activeTarget: if target was 300f and new request is 301f, delta is 1f <= 2f)
+        val ignoredRetarget = coordinator.requestTarget(
+            targetScroll = 301f,
+            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+        )
+        assertFalse("Sub-deadband target change (<= 2f) must not restart animation or hitch", ignoredRetarget)
+        assertEquals("Target remains 300f", 300f, coordinator.activeTargetTotalScroll ?: 0f, 0.001f)
+
+        // Material target change: 450f
+        productionCoordinator.startAuthoritativeAnimation(
+            targetTotalScroll = 450f,
+            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+        )
+        assertEquals(2, drivers.size)
+        val driver2 = drivers[1]
+
+        // Driver 2 must start from current scroll (200f) to new target (450f)
+        assertEquals(200f, driver2.fromVal, 0.001f)
+        assertEquals(450f, driver2.toVal, 0.001f)
+
+        // Step and complete
+        driver2.step(450f)
+        driver2.complete()
+        assertEquals(450f, coordinator.totalScroll, 0.001f)
+    }
+
+    @Test
+    fun testProductionCoordinator_ClampBoundaryBehavior_StopsAtBoundaryWithoutFakingTrajectory() {
+        // Point 9.3: Hit a clamped maximum while animating, verify the animator stops at the boundary
+        // without faking an unreachable trajectory, and verify the coordinator reflects the true final position.
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 300f)
+        val maxCanvasScroll = 500
+
+        // Simulate physical scroll clamping at 450 (e.g. content restricts scroll before maxCanvasScroll)
+        coordinator.onScrollBy = { stepDelta ->
+            val newProposed = coordinator.totalScroll + stepDelta
+            if (newProposed > 450f) {
+                val allowed = (450f - coordinator.totalScroll).coerceAtLeast(0f)
+                val unconsumed = stepDelta - allowed
+                unconsumed
+            } else {
+                0f
+            }
+        }
+
+        val drivers = mutableListOf<TestAnimationDriver>()
+        val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
+            scrollCoordinator = coordinator,
+            animationDriverFactory = {
+                val d = TestAnimationDriver()
+                drivers.add(d)
+                d
+            }
+        )
+
+        // Request target 600f (exceeding maxCanvasScroll 500)
+        productionCoordinator.startAuthoritativeAnimation(
+            targetTotalScroll = 600f,
+            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        val driver = drivers[0]
+        // Target was clamped to maxCanvasScroll (500f)
+        assertEquals(500f, coordinator.activeTargetTotalScroll ?: 0f, 0.001f)
+
+        // Step 1: step to 400f (consumed)
+        driver.step(400f)
+        assertEquals(400f, coordinator.totalScroll, 0.001f)
+        assertTrue(coordinator.isAnimationActive)
+
+        // Step 2: step to 450f (reaches physical boundary)
+        driver.step(450f)
+        assertEquals(450f, coordinator.totalScroll, 0.001f)
+
+        // Step 3: step to 500f (blocked at 450f -> unconsumed > 0, consumed == 0)
+        driver.step(500f)
+        // Coordinator detects boundary collision and finishes early without faking trajectory!
+        assertFalse("Coordinator must finish when hitting boundary", coordinator.isAnimationActive)
+        assertEquals("Total scroll must reflect true physical boundary 450f", 450f, coordinator.totalScroll, 0.001f)
+    }
+
+    @Test
+    fun testPredictiveGlide_FollowedByExpansionCompletion_RestoresSafeClearance() {
+        // Point 9.4: Predictive glide starts, viewport shrinks further or differs from the predictive estimate,
+        // coordinator detects the unsafe position, and retargets or launches a correction to restore safe clearance.
+        val density = 2.5f
+        val marginPx = ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density // 60px
+        val headerHeight = 200
+        val caretDocBottom = 1200f
+
+        // Phase 1: Predictive glide estimates keyboard = 600px -> viewport = 1400px (full height = 2000px)
+        val estimatedViewport = 1400
+        val targetLineBottomEst = estimatedViewport - marginPx // 1340px
+        // Caret screen bottom before scroll (totalScroll = 0) = 200 + 1200 - 0 = 1400px
+        // Delta to reach target line bottom = 1400 - 1340 = 60px
+        val predictiveTarget = 60f
+
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
+            totalScroll = 0f,
+            headerHeight = headerHeight,
+            density = density
+        )
+        coordinator.isExpansionTransitionActive = true
+        coordinator.requestTarget(predictiveTarget, ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE)
+        coordinator.applyStep(predictiveTarget)
+        assertEquals(60f, coordinator.totalScroll, 0.001f)
+        assertEquals(60f, coordinator.temporaryDisplacement, 0.001f)
+
+        // Phase 2: Final expansion completes, but the user opened an accessory drawer / tall IME
+        // Actual viewport height shrinks to 1100px (not 1400px!)
+        val actualViewport = 1100
+        val targetLineBottomActual = actualViewport - marginPx // 1040px
+
+        // Caret screen bottom is currently 200 + 1200 - 60 = 1340px
+        // In the new 1100px viewport, caret is 300px below the breathing line!
+        val validation = ScribeScrollPolicy.validateFinalTarget(
+            targetTotalScroll = coordinator.totalScroll,
+            caretDocBottom = caretDocBottom,
+            headerHeight = headerHeight,
+            viewportHeight = actualViewport,
+            density = density
+        )
+        assertFalse("Caret must be detected as unsafe after unexpected viewport contraction", validation.isSafe)
+        assertEquals("Corrective delta must be 300px", 300f, validation.correctiveDeltaY, 0.001f)
+
+        // Phase 3: Launch authoritative correction to restore safety
+        val correctedTarget = coordinator.totalScroll + validation.correctiveDeltaY // 360f
+        coordinator.requestTarget(
+            targetScroll = correctedTarget,
+            reason = ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION,
+            forceRetarget = true
+        )
+        coordinator.applyStep(correctedTarget)
+
+        // Final position check
+        assertEquals(360f, coordinator.totalScroll, 0.001f)
+        val finalValidation = ScribeScrollPolicy.validateFinalTarget(
+            targetTotalScroll = coordinator.totalScroll,
+            caretDocBottom = caretDocBottom,
+            headerHeight = headerHeight,
+            viewportHeight = actualViewport,
+            density = density
+        )
+        assertTrue("Caret must now be safely positioned above the breathing boundary", finalValidation.isSafe)
+        assertEquals(0f, finalValidation.correctiveDeltaY, 0.001f)
+        assertEquals(targetLineBottomActual, finalValidation.finalCaretScreenBottom, 0.001f)
+    }
+
+    @Test
+    fun testCorrectionOrdering_SafetyCorrectionSettlesBeforeCompensationRebase() {
+        // Point 9.5: A safe boundary correction is required, the corrective animation starts,
+        // and compensation is rebased only after the correction finishes.
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
+            totalScroll = 200f,
+            temporaryDisplacement = 150f,
+            caretLine = 20,
+            caretCol = 5
+        )
+        coordinator.isExpansionTransitionActive = true
+
+        // During a corrective animation, temporary displacement is NOT prematurely rebased
+        coordinator.requestTarget(
+            targetScroll = 250f,
+            reason = ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION
+        )
+        assertTrue(coordinator.isAnimationActive)
+        assertEquals("Displacement must not be wiped out or rebased before correction settles", 150f, coordinator.temporaryDisplacement, 0.001f)
+
+        // Apply step to completion
+        coordinator.applyStep(250f)
+        coordinator.finishAnimation()
+
+        // After completion, rebaseRemainingCompensation is called with the settled slack
+        coordinator.rebaseRemainingCompensation(remainingSlack = 120f)
+        assertEquals("Displacement rebased to safe slack", 120f, coordinator.temporaryDisplacement, 0.001f)
+        assertEquals(20, coordinator.caretLine)
+
+        // If user touches screen during active state, compensation is immediately invalidated
+        coordinator.invalidateCompensation("User touch")
+        assertEquals(0f, coordinator.temporaryDisplacement, 0.001f)
+        assertEquals(-1, coordinator.caretLine)
+    }
+
+    @Test
+    fun testMultiLineSelectionAndLastLineExpansion_GeometryCalculatesCorrectBottom() {
+        // Point 9.6: Expanding the keyboard with a multi-line selection or a cursor on the penultimate/last line
+        // calculates the correct bottom bounding box, moves upward to clear the shortcut bar,
+        // respects the 24dp breathing margin, and restores correctly when contracted if no user intervention occurred.
+        val density = 2.5f
+        val marginPx = ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density // 60px
+        val headerHeight = 200
+        val rowHeight = 40f
+
+        // Multi-line selection spanning line 98 to line 100
+        val startLine = 98
+        val endLine = 100
+        // Bottom bounding box must encompass the bottom of line 100
+        val selectionBottomDocY = (endLine + 1) * rowHeight // 101 * 40 = 4040px
+        val startScroll = 3000f
+
+        val initialViewportHeight = 2000
+        val expandedViewportHeight = 1100 // keyboard expanded
+
+        // In expanded viewport (1100px), targetLineBottom = 1100 - 60 = 1040px
+        val targetLineBottom = expandedViewportHeight - marginPx // 1040px
+
+        // Caret bottom on screen at startScroll:
+        // screenBottom = headerHeight (200) + selectionBottomDocY (4040) - startScroll (3000) = 1240px
+        // 1240px > 1040px -> obscured by 200px
+        val requiredTotalScroll = headerHeight + selectionBottomDocY - targetLineBottom // 200 + 4040 - 1040 = 3200px
+        val upwardDelta = requiredTotalScroll - startScroll // 200px
+
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
+            totalScroll = startScroll,
+            caretLine = endLine,
+            caretCol = 10,
+            isSelected = true
+        )
+        coordinator.isExpansionTransitionActive = true
+
+        // Move upward to clear shortcut bar
+        coordinator.requestTarget(requiredTotalScroll, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        coordinator.applyStep(requiredTotalScroll)
+        coordinator.finishAnimation()
+
+        assertEquals(3200f, coordinator.totalScroll, 0.001f)
+        assertEquals("Upward delta recorded into temporary displacement", upwardDelta, coordinator.temporaryDisplacement, 0.001f)
+
+        // Caret settled at target line bottom
+        val screenBottomSettled = headerHeight + selectionBottomDocY - coordinator.totalScroll
+        assertEquals(targetLineBottom, screenBottomSettled, 0.001f)
+
+        // Now contract back: viewport expands from 1100 to 2000px
+        coordinator.isExpansionTransitionActive = false
+        val contractedTargetLineBottom = initialViewportHeight - marginPx // 1940px
+        val slack = contractedTargetLineBottom - screenBottomSettled // 1940 - 1040 = 900px
+
+        // Available slack (900px) exceeds temporary displacement (200px)
+        val restorationResult = ScribeScrollPolicy.resolveContractionRestorationDelta(
+            ScribeScrollPolicy.ContractionRestorationRequest(
+                caretScreenBottom = screenBottomSettled,
+                caretScreenTop = screenBottomSettled - rowHeight,
+                viewportHeight = initialViewportHeight,
+                density = density,
+                totalScroll = coordinator.totalScroll,
+                temporaryDisplacement = coordinator.temporaryDisplacement,
+                isAtLastLine = true,
+                isKeyboardDismissing = false,
+                isBottomSurfaceActive = true
+            )
+        )
+        assertTrue(restorationResult.shouldScroll)
+        assertEquals("Must restore full 200px downward", -200f, restorationResult.deltaY, 0.001f)
+        assertEquals("Remaining compensation is 0f", 0f, restorationResult.remainingCompensation, 0.001f)
+
+        // Apply contraction restoration
+        val restorationTarget = coordinator.totalScroll + restorationResult.deltaY // 3000f
+        coordinator.requestTarget(
+            targetScroll = restorationTarget,
+            reason = ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION
+        )
+        coordinator.applyStep(restorationTarget)
+        coordinator.finishAnimation()
+
+        assertEquals(3000f, coordinator.totalScroll, 0.001f)
+        assertEquals("Displacement returned to 0f", 0f, coordinator.temporaryDisplacement, 0.001f)
+        assertEquals("Selection tracking reset", -1, coordinator.caretLine)
+    }
+
 }
 

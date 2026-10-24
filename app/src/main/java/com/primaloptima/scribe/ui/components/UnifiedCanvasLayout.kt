@@ -237,8 +237,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     private var resetExpansionTransitionRunnable: Runnable? = null
 
     /**
-     * Authoritative single active animation tracking.
+     * Authoritative single active animation tracking with monotonic operation IDs
+     * to eliminate cancellation/retargeting races.
      */
+    private var activeAnimationOperationId: Long = 0L
     private var activeCanvasAnimator: android.animation.ValueAnimator? = null
     val isRestorationActive: Boolean
         get() = scrollCoordinator.isAnimationActive && scrollCoordinator.activeReason == ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION
@@ -274,9 +276,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         pendingRestorationRunnable?.let { removeCallbacks(it) }
         pendingRestorationRunnable = null
         if (isRestorationActive) {
-            activeCanvasAnimator?.cancel()
+            activeAnimationOperationId++
+            val oldAnimator = activeCanvasAnimator
             activeCanvasAnimator = null
-            scrollCoordinator.cancelAnimation("Restoration cancelled")
+            oldAnimator?.cancel()
+            scrollCoordinator.cancelAnimation("Restoration cancelled", activeAnimationOperationId)
         }
     }
 
@@ -305,22 +309,32 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     ) {
         val currentScroll = (scrollD + editor.offsetY).toFloat()
         scrollCoordinator.totalScroll = currentScroll
-        val shouldStart = scrollCoordinator.requestTarget(targetTotalScroll, reason, forceRetarget)
+        val maxBound = maxCanvasScroll
+        val clampedTarget = targetTotalScroll.coerceIn(0f, maxBound.toFloat())
+
+        // Step 1: Advance operation ID before cancelling old animator to prevent callback race
+        val newOpId = ++activeAnimationOperationId
+
+        // Step 2: Cancel previous running animator.
+        // Because newOpId has already advanced, any callbacks (onAnimationCancel, onAnimationEnd)
+        // from the old animator will see their operationId != activeAnimationOperationId and NO-OP!
+        val oldAnimator = activeCanvasAnimator
+        activeCanvasAnimator = null
+        oldAnimator?.cancel()
+
+        val shouldStart = scrollCoordinator.requestTarget(clampedTarget, reason, forceRetarget, maxBound)
         if (!shouldStart) {
             onEnd?.invoke()
             return
         }
 
-        val target = scrollCoordinator.activeTargetTotalScroll ?: targetTotalScroll
+        val target = scrollCoordinator.activeTargetTotalScroll ?: clampedTarget
         val distance = kotlin.math.abs(target - currentScroll)
         if (distance < 1f) {
-            scrollCoordinator.finishAnimation()
+            scrollCoordinator.finishAnimation(newOpId)
             onEnd?.invoke()
             return
         }
-
-        activeCanvasAnimator?.cancel()
-        activeCanvasAnimator = null
 
         val scaledDuration = (distance * 1.2f).toLong().coerceIn(120L, durationMs)
 
@@ -328,30 +342,38 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             duration = scaledDuration
             this.interpolator = interpolator
             addUpdateListener { anim ->
+                if (newOpId != activeAnimationOperationId) return@addUpdateListener
                 val curr = anim.animatedValue as Float
-                scrollCoordinator.applyStep(curr)
+                scrollCoordinator.applyStep(curr, newOpId)
             }
             addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
+                private var isCancelled = false
+
+                override fun onAnimationCancel(animation: android.animation.Animator) {
+                    isCancelled = true
+                    if (newOpId != activeAnimationOperationId) return
                     activeCanvasAnimator = null
-                    scrollCoordinator.finishAnimation()
+                    scrollCoordinator.cancelAnimation("Animator cancelled", newOpId)
+                    if (reason == ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE) {
+                        isPredictiveGlideRunning = false
+                        targetPredictedScrollTotal = -1f
+                    }
+                }
+
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    if (isCancelled || newOpId != activeAnimationOperationId) return
+                    activeCanvasAnimator = null
+                    scrollCoordinator.finishAnimation(newOpId)
                     if (reason == ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION) {
                         revalidateFinalTargetSafety()
+                    } else if (reason == ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION) {
+                        rebaseCompensationAfterSafeCorrection()
                     }
                     if (reason == ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE) {
                         isPredictiveGlideRunning = false
                         targetPredictedScrollTotal = -1f
                     }
                     onEnd?.invoke()
-                }
-
-                override fun onAnimationCancel(animation: android.animation.Animator) {
-                    activeCanvasAnimator = null
-                    scrollCoordinator.cancelAnimation("Animator cancelled")
-                    if (reason == ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE) {
-                        isPredictiveGlideRunning = false
-                        targetPredictedScrollTotal = -1f
-                    }
                 }
             })
             start()
@@ -360,6 +382,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     fun smoothScrollCanvasBy(
         dy: Float,
+        reason: ScribeScrollPolicy.ScrollAnimationReason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
         durationMs: Long = 280L,
         interpolator: android.view.animation.Interpolator = FastOutSlowInInterpolator,
         onEnd: (() -> Unit)? = null
@@ -372,7 +395,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val target = currentScroll + dy
         startAuthoritativeScrollAnimation(
             targetTotalScroll = target,
-            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+            reason = reason,
             durationMs = durationMs,
             interpolator = interpolator,
             onEnd = onEnd
@@ -499,9 +522,23 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 reason = ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION,
                 durationMs = 120L
             )
+            // DO NOT rebase compensation yet! The corrective animation has not finished moving.
+            // It will be rebased in rebaseCompensationAfterSafeCorrection() once the correction completes.
+        } else {
+            // Settled position is safe: rebase remaining compensation against actual available slack now.
+            val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
+            val targetLineBottom = (height - marginPx).toFloat()
+            val finalCaretBottom = (headerHeight + geom.bottomDocY - currentScroll)
+            val remainingSlack = targetLineBottom - finalCaretBottom
+            scrollCoordinator.rebaseRemainingCompensation(remainingSlack)
         }
+    }
 
-        // Rebase remaining displacement so it can only retain what is safely appliable at current viewport
+    private fun rebaseCompensationAfterSafeCorrection() {
+        val cur = try { editor.cursor } catch (_: Throwable) { null }
+        val lay = editor.layout ?: return
+        val geom = getSelectionGeometry(cur, lay) ?: return
+        val density = resources.displayMetrics.density
         val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
         val targetLineBottom = (height - marginPx).toFloat()
         val finalCaretBottom = (headerHeight + geom.bottomDocY - (scrollD + editor.offsetY))
@@ -511,9 +548,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     fun cancelCanvasAnimation() {
         cancelRestoration()
-        activeCanvasAnimator?.cancel()
+        activeAnimationOperationId++
+        val oldAnimator = activeCanvasAnimator
         activeCanvasAnimator = null
-        scrollCoordinator.cancelAnimation("cancelCanvasAnimation")
+        oldAnimator?.cancel()
+        scrollCoordinator.cancelAnimation("cancelCanvasAnimation", activeAnimationOperationId)
         isPredictiveGlideRunning = false
         targetPredictedScrollTotal = -1f
         if (!scroller.isFinished) {
@@ -543,6 +582,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             if (smooth) {
                 smoothScrollCanvasBy(
                     dy = deltaY,
+                    reason = ScribeScrollPolicy.ScrollAnimationReason.DELETION_ANCHOR,
                     durationMs = ScribeScrollPolicy.DURATION_DELETION_ANCHOR_MS,
                     interpolator = FastOutSlowInInterpolator
                 )
@@ -578,7 +618,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val totalScroll = scrollD + editor.offsetY
         if (totalScroll > 0) {
             if (smooth) {
-                smoothScrollCanvasBy(-totalScroll.toFloat(), durationMs = ScribeScrollPolicy.DURATION_RESET_TOP_MS, interpolator = FastOutSlowInInterpolator)
+                smoothScrollCanvasBy(
+                    dy = -totalScroll.toFloat(),
+                    reason = ScribeScrollPolicy.ScrollAnimationReason.RESET_TOP,
+                    durationMs = ScribeScrollPolicy.DURATION_RESET_TOP_MS,
+                    interpolator = FastOutSlowInInterpolator
+                )
             } else {
                 scrollCanvasBy(-totalScroll.toFloat())
             }
@@ -628,8 +673,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      */
     fun centerCursorInViewport(line: Int, column: Int) {
         doOnCanvasReady {
-            val ed = editor as? ScribeCodeEditor
-            ed?.doOnLayoutReady {
+            editor.doOnLayoutReady {
                 val edLayout = editor.layout ?: return@doOnLayoutReady
                 val geom = getCharGeometry(edLayout, line, column, editor.rowHeight.toFloat())
                 val lineDocY = geom.topDocY
@@ -663,26 +707,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 try {
                     val maxY = editor.safeScrollMaxY
                     val clampedY = if (clampedD < headerHeight) 0 else targetScrollY.coerceIn(0, maxY)
-                    val scribeEditor = editor as? ScribeCodeEditor
-                    if (scribeEditor != null) {
-                        scribeEditor.jumpScrollTo(editor.offsetX, clampedY)
-                    } else {
-                        val scroller = editor.scroller
-                        if (scroller != null) {
-                            scroller.forceFinished(true)
-                            val currY = scroller.currY
-                            val currX = scroller.currX
-                            val dy = clampedY - currY
-                            if (dy != 0) {
-                                scroller.startScroll(currX, currY, 0, dy, 0)
-                                scroller.abortAnimation()
-                            }
-                            try {
-                                editor.renderContext.invalidateRenderNodes()
-                            } catch (_: Throwable) {}
-                            editor.invalidate()
-                        }
-                    }
+                    editor.jumpScrollTo(editor.offsetX, clampedY)
                 } catch (_: Throwable) {}
             }
             applyTranslations()
@@ -745,7 +770,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val yOffset = geom.bottomDocY
 
         val headerRemaining = headerHeight - scrollD
-        val screenBottom = (headerRemaining + yOffset - editor.offsetY).toFloat()
+        val screenBottom = headerRemaining + yOffset - editor.offsetY
 
         val isKeyboardOrDrawerActive = isKeyboardVisible || (height <= resources.displayMetrics.heightPixels * 0.65f)
         val futureViewportHeight = if (isKeyboardOrDrawerActive) {
@@ -776,6 +801,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 targetPredictedScrollTotal = currentScroll + deltaY
                 smoothScrollCanvasBy(
                     dy = deltaY,
+                    reason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE,
                     durationMs = ScribeScrollPolicy.DURATION_PREDICTIVE_GLIDE_MS,
                     interpolator = FastOutSlowInInterpolator
                 ) {
@@ -795,9 +821,30 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         customDurationMs: Long = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS,
         force: Boolean = false
     ) {
-        if (!editor.isFocused || isKeyboardDismissing || isPredictiveGlideRunning) return
+        if (!editor.isFocused || isKeyboardDismissing) return
         val now = System.currentTimeMillis()
         if (!force && now - lastEnsureCursorTime < 60L) return
+
+        // If a predictive glide is currently in flight, check if its predicted target will already
+        // place the active caret safely above the target breathing line for the current measured viewport.
+        // If it will already be safe and force is false, allow it to continue without restarting.
+        // If it will NOT be safe, or force is true, proceed to calculate the authoritative upward movement.
+        if (!force && isPredictiveGlideRunning && targetPredictedScrollTotal > 0f) {
+            val density = resources.displayMetrics.density
+            val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
+            val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
+            val targetLineBottom = (height - marginPx).toFloat()
+            val cur = try { editor.cursor } catch (_: Throwable) { null }
+            val lay = try { editor.layout } catch (_: Throwable) { null }
+            if (cur != null && lay != null) {
+                val geom = getCharGeometry(lay, targetLine ?: cur.leftLine, targetCol ?: cur.leftColumn, editor.rowHeight.toFloat())
+                val finalScreenBottom = (headerHeight + geom.bottomDocY - targetPredictedScrollTotal)
+                if (finalScreenBottom <= targetLineBottom + deadbandPx) {
+                    return
+                }
+            }
+        }
+
         val cursor = try { editor.cursor } catch (_: Throwable) { null } ?: return
 
         val resolutionTarget = ScribeScrollPolicy.resolveTargetCoordinates(
@@ -841,7 +888,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             }
         }
         val headerRemaining = headerHeight - scrollD
-        val screenBottom = (headerRemaining + yOffset - editor.offsetY).toFloat()
+        val screenBottom = headerRemaining + yOffset - editor.offsetY
         val screenTop = screenBottom - rowHeight
 
         val visibleHeight = height
@@ -869,8 +916,16 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             if (resolution.deltaY > 0f && isExpansionTransitionActive) {
                 recordExpansionDisplacement(resolution.deltaY, line, col, cursor.isSelected)
             }
+            // Authoritative positioning supersedes predictive glide state
+            isPredictiveGlideRunning = false
+            targetPredictedScrollTotal = -1f
             if (smooth) {
-                smoothScrollCanvasBy(resolution.deltaY, durationMs = duration, interpolator = FastOutSlowInInterpolator)
+                smoothScrollCanvasBy(
+                    dy = resolution.deltaY,
+                    reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+                    durationMs = duration,
+                    interpolator = FastOutSlowInInterpolator
+                )
             } else {
                 val beforeScroll = (scrollD + editor.offsetY).toFloat()
                 scrollCanvasBy(resolution.deltaY)
@@ -941,8 +996,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         editor.layout(0, headerHeight, width, headerHeight + viewportHeight)
 
         // Only enforce viewport height invariant when layout & wordwrap are fully ready
-        val scribeEditor = editor as? ScribeCodeEditor
-        val isReady = scribeEditor?.isWordwrapReady() ?: true
+        val isReady = editor.isWordwrapReady()
         val layoutH = editor.layout?.layoutHeight ?: 0
         if (editor.text.isEmpty()) {
             if (editor.offsetY > 0) {
@@ -984,6 +1038,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             if (dh > 0) {
                 // Viewport shrinking (keyboard appearing or accessory drawer opening)
                 isExpansionTransitionActive = true
+                isKeyboardDismissing = false // Opening/expanding: clear any stale dismissal flag
                 resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
                 val rReset = Runnable { isExpansionTransitionActive = false }
                 resetExpansionTransitionRunnable = rReset
@@ -999,41 +1054,46 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
                     val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
 
-                    val isCursorInSafeZone = try {
-                        val cur = editor.cursor
-                        val lay = editor.layout
-                        if (cur != null && lay != null) {
-                            val isAllSelected = ScribeScrollPolicy.isSelectAll(
-                                isSelected = cur.isSelected,
-                                leftLine = cur.leftLine,
-                                leftCol = cur.leftColumn,
-                                rightLine = cur.rightLine,
-                                rightCol = cur.rightColumn,
-                                lineCount = editor.text.lineCount,
-                                lastLineColCount = try { editor.text.getColumnCount(editor.text.lineCount - 1) } catch (_: Throwable) { 0 }
-                            )
-                            if (isAllSelected && editor.selectAllScrollMode == ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION) {
-                                true
-                            } else {
-                                val targetLine = if (isAllSelected) cur.rightLine else cur.leftLine
-                                val targetCol = if (isAllSelected) cur.rightColumn else cur.leftColumn
-                                val geom = getCharGeometry(lay, targetLine, targetCol, editor.rowHeight.toFloat())
-                                val headerRemaining = headerHeight - scrollD
-                                val screenBottom = headerRemaining + geom.bottomDocY - editor.offsetY
-                                screenBottom <= (h - marginPx + deadbandPx)
-                            }
-                        } else false
-                    } catch (_: Throwable) {
-                        false
-                    }
+                    val cur = try { editor.cursor } catch (_: Throwable) { null }
+                    val lay = try { editor.layout } catch (_: Throwable) { null }
+                    if (cur != null && lay != null) {
+                        val isAllSelected = ScribeScrollPolicy.isSelectAll(
+                            isSelected = cur.isSelected,
+                            leftLine = cur.leftLine,
+                            leftCol = cur.leftColumn,
+                            rightLine = cur.rightLine,
+                            rightCol = cur.rightColumn,
+                            lineCount = editor.text.lineCount,
+                            lastLineColCount = try { editor.text.getColumnCount(editor.text.lineCount - 1) } catch (_: Throwable) { 0 }
+                        )
+                        if (!(isAllSelected && editor.selectAllScrollMode == ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION)) {
+                            val targetLine = if (isAllSelected) cur.rightLine else cur.leftLine
+                            val targetCol = if (isAllSelected) cur.rightColumn else cur.leftColumn
+                            val geom = getCharGeometry(lay, targetLine, targetCol, editor.rowHeight.toFloat())
+                            val headerRemaining = headerHeight - scrollD
+                            val screenBottom = headerRemaining + geom.bottomDocY - editor.offsetY
+                            val targetLineBottom = (h - marginPx).toFloat()
 
-                    // Phase 2: Elimination of Post-Appearance Double-Jumps
-                    // If an active predictive glide is underway OR cursor is already in safe zone,
-                    // suppress the secondary post { ensureCursorVisibleAboveKeyboard() }.
-                    if (!isPredictiveGlideRunning && !isCursorInSafeZone) {
-                        post {
-                            if (!isPredictiveGlideRunning) {
-                                ensureCursorVisibleAboveKeyboard(smooth = true, customDurationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS)
+                            val isCurrentlySafe = screenBottom <= (targetLineBottom + deadbandPx)
+                            val isPredictedTargetSafe = if (isPredictiveGlideRunning && targetPredictedScrollTotal > 0f) {
+                                val finalScreenBottom = (headerHeight + geom.bottomDocY - targetPredictedScrollTotal)
+                                finalScreenBottom <= (targetLineBottom + deadbandPx)
+                            } else {
+                                false
+                            }
+
+                            // If neither current position nor running predictive glide target will be safe in the new viewport,
+                            // immediately trigger an authoritative caret visibility correction.
+                            if (!isCurrentlySafe && !isPredictedTargetSafe) {
+                                post {
+                                    ensureCursorVisibleAboveKeyboard(
+                                        targetLine = targetLine,
+                                        targetCol = targetCol,
+                                        smooth = true,
+                                        customDurationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS,
+                                        force = true
+                                    )
+                                }
                             }
                         }
                     }

@@ -578,6 +578,13 @@ object ScribeScrollPolicy {
             private set
         var isExpansionTransitionActive: Boolean = false
 
+        /**
+         * Monotonically increasing operation ID. Prevents obsolete animation callbacks
+         * from clearing or finishing newer operations.
+         */
+        var activeOperationId: Long = 0L
+            private set
+
         // Callbacks for production integration
         var onScrollBy: ((deltaY: Float) -> Float)? = null
         var onAnimationFinished: (() -> Unit)? = null
@@ -589,9 +596,11 @@ object ScribeScrollPolicy {
         fun requestTarget(
             targetScroll: Float,
             reason: ScrollAnimationReason,
-            forceRetarget: Boolean = false
+            forceRetarget: Boolean = false,
+            maxCanvasScroll: Int? = null
         ): Boolean {
-            val clampedTarget = targetScroll.coerceAtLeast(0f)
+            val maxBound = maxCanvasScroll?.toFloat()?.coerceAtLeast(0f)
+            val clampedTarget = if (maxBound != null) targetScroll.coerceIn(0f, maxBound) else targetScroll.coerceAtLeast(0f)
             val currentScroll = totalScroll
             val distance = clampedTarget - currentScroll
 
@@ -607,6 +616,7 @@ object ScribeScrollPolicy {
                 }
             }
 
+            activeOperationId++
             activeTargetTotalScroll = clampedTarget
             lastAnimatedScroll = currentScroll
             activeReason = reason
@@ -618,7 +628,8 @@ object ScribeScrollPolicy {
          * Applies a tick of animation with the new absolute animated scroll value.
          * Returns actual displacement moved.
          */
-        fun applyStep(newAnimatedScroll: Float): Float {
+        fun applyStep(newAnimatedScroll: Float, operationId: Long? = null): Float {
+            if (operationId != null && operationId != activeOperationId) return 0f
             if (!isAnimationActive) return 0f
             val stepDelta = newAnimatedScroll - lastAnimatedScroll
             lastAnimatedScroll = newAnimatedScroll
@@ -631,7 +642,7 @@ object ScribeScrollPolicy {
             totalScroll = before + consumed
             val actualMoved = consumed
 
-            // Causal compensation accounting
+            // Causal compensation accounting: only movement actually applied is recorded
             if (activeReason == ScrollAnimationReason.CONTRACTION_RESTORATION && actualMoved < 0f) {
                 val appliedDown = -actualMoved
                 temporaryDisplacement = (temporaryDisplacement - appliedDown).coerceAtLeast(0f)
@@ -645,14 +656,21 @@ object ScribeScrollPolicy {
                 temporaryDisplacement += actualMoved
             }
 
+            // Boundary collision / unreachable target detection:
+            // If movement is completely blocked by bounds (consumed == 0 while stepDelta is non-zero),
+            // do not continue applying steps as if the ideal trajectory was followed.
+            val hitBoundary = (stepDelta > 0.05f && unconsumed > 0.05f && kotlin.math.abs(consumed) < 0.05f) ||
+                    (stepDelta < -0.05f && unconsumed < -0.05f && kotlin.math.abs(consumed) < 0.05f)
+
             val target = activeTargetTotalScroll
-            if (target != null && kotlin.math.abs(totalScroll - target) < 0.5f) {
-                finishAnimation()
+            if (hitBoundary || (target != null && kotlin.math.abs(totalScroll - target) < 0.5f)) {
+                finishAnimation(activeOperationId)
             }
             return actualMoved
         }
 
-        fun finishAnimation() {
+        fun finishAnimation(operationId: Long? = null) {
+            if (operationId != null && operationId != activeOperationId) return
             isAnimationActive = false
             activeReason = null
             activeTargetTotalScroll = null
@@ -660,18 +678,19 @@ object ScribeScrollPolicy {
             onAnimationFinished?.invoke()
         }
 
-        fun cancelAnimation(reason: String? = null) {
+        fun cancelAnimation(reason: String? = null, operationId: Long? = null) {
+            if (operationId != null && operationId != activeOperationId) return
             isAnimationActive = false
             activeReason = null
             activeTargetTotalScroll = null
             lastAnimatedScroll = totalScroll
             if (reason != null && isDebugDiagnosticsEnabled) {
-                logDiagnostic("ScrollCoordinator", "Cancelled: $reason")
+                logDiagnostic("ScrollCoordinator", "Cancelled op $operationId: $reason")
             }
         }
 
         fun invalidateCompensation(reason: String? = null) {
-            cancelAnimation("Compensation invalidated: $reason")
+            cancelAnimation("Compensation invalidated: $reason", activeOperationId)
             temporaryDisplacement = 0f
             caretLine = -1
             caretCol = 0
@@ -695,6 +714,116 @@ object ScribeScrollPolicy {
                 caretCol = 0
                 isSelected = false
             }
+        }
+    }
+
+    /**
+     * Testable animation driver abstraction for production ValueAnimator and JUnit test drivers.
+     */
+    interface AnimationDriver {
+        fun start(
+            from: Float,
+            to: Float,
+            durationMs: Long,
+            onUpdate: (Float) -> Unit,
+            onCancel: () -> Unit,
+            onEnd: () -> Unit
+        )
+        fun cancel()
+        val isRunning: Boolean
+    }
+
+    /**
+     * Production-grade animation controller coordinating AuthoritativeScrollCoordinator
+     * with an AnimationDriver. Enforces monotonic operation ID tracking and race-free
+     * cancellation / retargeting without stale callback interference.
+     */
+    class ProductionScrollAnimationCoordinator(
+        val scrollCoordinator: AuthoritativeScrollCoordinator,
+        var animationDriverFactory: (() -> AnimationDriver)? = null
+    ) {
+        var activeOperationId: Long = 0L
+            private set
+        var activeDriver: AnimationDriver? = null
+            private set
+
+        fun startAuthoritativeAnimation(
+            targetTotalScroll: Float,
+            reason: ScrollAnimationReason,
+            durationMs: Long = 280L,
+            forceRetarget: Boolean = false,
+            maxCanvasScroll: Int? = null,
+            onEnd: (() -> Unit)? = null
+        ): Boolean {
+            val currentScroll = scrollCoordinator.totalScroll
+            val maxBound = maxCanvasScroll?.toFloat()?.coerceAtLeast(0f)
+            val clampedTarget = if (maxBound != null) targetTotalScroll.coerceIn(0f, maxBound) else targetTotalScroll.coerceAtLeast(0f)
+
+            // Step 1: Advance operation ID before cancelling old driver to prevent callback race
+            val newOpId = ++activeOperationId
+
+            // Step 2: Safely cancel previous driver
+            val oldDriver = activeDriver
+            activeDriver = null
+            oldDriver?.cancel()
+
+            // Step 3: Request target in coordinator
+            val shouldStart = scrollCoordinator.requestTarget(clampedTarget, reason, forceRetarget, maxCanvasScroll)
+            if (!shouldStart) {
+                onEnd?.invoke()
+                return false
+            }
+
+            val target = scrollCoordinator.activeTargetTotalScroll ?: clampedTarget
+            val distance = kotlin.math.abs(target - currentScroll)
+            if (distance < 1f) {
+                scrollCoordinator.finishAnimation(newOpId)
+                onEnd?.invoke()
+                return false
+            }
+
+            val scaledDuration = (distance * 1.2f).toLong().coerceIn(120L, durationMs)
+            val driver = animationDriverFactory?.invoke()
+            if (driver == null) {
+                scrollCoordinator.applyStep(target, newOpId)
+                scrollCoordinator.finishAnimation(newOpId)
+                onEnd?.invoke()
+                return true
+            }
+
+            activeDriver = driver
+            driver.start(
+                from = currentScroll,
+                to = target,
+                durationMs = scaledDuration,
+                onUpdate = { curr ->
+                    if (newOpId == activeOperationId) {
+                        scrollCoordinator.applyStep(curr, newOpId)
+                    }
+                },
+                onCancel = {
+                    if (newOpId == activeOperationId) {
+                        activeDriver = null
+                        scrollCoordinator.cancelAnimation("Driver cancelled", newOpId)
+                    }
+                },
+                onEnd = {
+                    if (newOpId == activeOperationId) {
+                        activeDriver = null
+                        scrollCoordinator.finishAnimation(newOpId)
+                        onEnd?.invoke()
+                    }
+                }
+            )
+            return true
+        }
+
+        fun cancelActiveAnimation(reason: String? = null) {
+            val oldOpId = ++activeOperationId
+            val oldDriver = activeDriver
+            activeDriver = null
+            oldDriver?.cancel()
+            scrollCoordinator.cancelAnimation(reason, oldOpId)
         }
     }
 
