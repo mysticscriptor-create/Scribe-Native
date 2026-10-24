@@ -407,13 +407,14 @@ object ScribeScrollPolicy {
         val targetLineBottom = (request.viewportHeight - marginPx).toFloat()
 
         // Slack between target line bottom and caret bottom.
+        // Slack between target line bottom and caret bottom.
         // Positive slack means caret is currently sitting above targetLineBottom.
         // Negative slack means caret is currently sitting below targetLineBottom (UNSAFE!).
         val slack = targetLineBottom - request.caretScreenBottom
 
-        // Safety Invariant: If caret is currently behind safe boundary (slack < -deadbandPx),
+        // Safety Invariant: If caret is currently below safe boundary (slack < 0f),
         // we must not do nothing! Calculate corrective upward delta.
-        if (slack < -deadbandPx) {
+        if (slack < 0f) {
             val correctiveUp = -slack // positive upward delta
             logDiagnostic("ContractionRestoration", "Corrective upward applied: slack=$slack, correctiveUp=$correctiveUp")
             return ContractionRestorationResult(
@@ -424,7 +425,7 @@ object ScribeScrollPolicy {
             )
         }
 
-        // Caret is sitting right at the safe boundary (within deadband)
+        // Caret is sitting right at the safe boundary (within deadband above targetLineBottom)
         if (slack <= deadbandPx) {
             logDiagnostic("ContractionRestoration", "Zero delta: caret already at safe boundary (slack=$slack)")
             return ContractionRestorationResult(0f, false, request.temporaryDisplacement, "Caret already at safe boundary")
@@ -510,8 +511,8 @@ object ScribeScrollPolicy {
 
     /**
      * Validates whether a proposed total scroll position places the caret safely at or above
-     * the breathing margin line. If the final position would violate the boundary, calculates
-     * the necessary corrective upward delta.
+     * the breathing margin line. If the final position would violate the boundary (slack < 0f),
+     * calculates the necessary corrective upward delta so the caret settles with at least 24dp of clearance.
      */
     fun validateFinalTarget(
         targetTotalScroll: Float,
@@ -521,12 +522,11 @@ object ScribeScrollPolicy {
         density: Float
     ): SafeTargetValidationResult {
         val marginPx = (CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
-        val deadbandPx = (CURSOR_DEADBAND_DP * density).roundToInt()
         val targetLineBottom = (viewportHeight - marginPx).toFloat()
         val finalCaretBottom = (headerHeight + caretDocBottom - targetTotalScroll)
         val slack = targetLineBottom - finalCaretBottom
 
-        return if (slack < -deadbandPx) {
+        return if (slack < 0f) {
             SafeTargetValidationResult(
                 isSafe = false,
                 finalCaretScreenBottom = finalCaretBottom,
@@ -540,6 +540,161 @@ object ScribeScrollPolicy {
                 targetLineBottom = targetLineBottom,
                 correctiveDeltaY = 0f
             )
+        }
+    }
+
+    enum class ScrollAnimationReason {
+        CARET_VISIBILITY,
+        CONTRACTION_RESTORATION,
+        PREDICTIVE_GLIDE,
+        DELETION_ANCHOR,
+        RESET_TOP,
+        SAFE_BOUNDARY_CORRECTION,
+        PROGRAMMATIC
+    }
+
+    /**
+     * Authoritative animation coordinator for all programmatic and automatic canvas positioning.
+     * Manages a single active animation target, smooth retargeting without velocity/progress resets,
+     * causal compensation bookkeeping, and safe-boundary enforcement.
+     */
+    class AuthoritativeScrollCoordinator(
+        var totalScroll: Float = 0f,
+        var temporaryDisplacement: Float = 0f,
+        var caretLine: Int = -1,
+        var caretCol: Int = 0,
+        var isSelected: Boolean = false,
+        var caretDocBottom: Float = 0f,
+        var headerHeight: Int = 0,
+        var density: Float = 1f
+    ) {
+        var isAnimationActive: Boolean = false
+            private set
+        var activeReason: ScrollAnimationReason? = null
+            private set
+        var activeTargetTotalScroll: Float? = null
+            private set
+        var lastAnimatedScroll: Float = totalScroll
+            private set
+        var isExpansionTransitionActive: Boolean = false
+
+        // Callbacks for production integration
+        var onScrollBy: ((deltaY: Float) -> Float)? = null
+        var onAnimationFinished: (() -> Unit)? = null
+
+        /**
+         * Initiates or retargets an automatic positioning operation.
+         * Returns true if a new animation or retargeting should occur, or false if already on target.
+         */
+        fun requestTarget(
+            targetScroll: Float,
+            reason: ScrollAnimationReason,
+            forceRetarget: Boolean = false
+        ): Boolean {
+            val clampedTarget = targetScroll.coerceAtLeast(0f)
+            val currentScroll = totalScroll
+            val distance = clampedTarget - currentScroll
+
+            if (kotlin.math.abs(distance) < 1f && !isAnimationActive) {
+                activeTargetTotalScroll = clampedTarget
+                return false
+            }
+
+            if (isAnimationActive && activeReason == reason) {
+                val currTarget = activeTargetTotalScroll
+                if (!forceRetarget && currTarget != null && kotlin.math.abs(currTarget - clampedTarget) <= 2f) {
+                    return false
+                }
+            }
+
+            activeTargetTotalScroll = clampedTarget
+            lastAnimatedScroll = currentScroll
+            activeReason = reason
+            isAnimationActive = true
+            return true
+        }
+
+        /**
+         * Applies a tick of animation with the new absolute animated scroll value.
+         * Returns actual displacement moved.
+         */
+        fun applyStep(newAnimatedScroll: Float): Float {
+            if (!isAnimationActive) return 0f
+            val stepDelta = newAnimatedScroll - lastAnimatedScroll
+            lastAnimatedScroll = newAnimatedScroll
+
+            if (kotlin.math.abs(stepDelta) < 0.05f) return 0f
+
+            val before = totalScroll
+            val unconsumed = onScrollBy?.invoke(stepDelta) ?: 0f
+            val consumed = stepDelta - unconsumed
+            totalScroll = before + consumed
+            val actualMoved = consumed
+
+            // Causal compensation accounting
+            if (activeReason == ScrollAnimationReason.CONTRACTION_RESTORATION && actualMoved < 0f) {
+                val appliedDown = -actualMoved
+                temporaryDisplacement = (temporaryDisplacement - appliedDown).coerceAtLeast(0f)
+                if (temporaryDisplacement <= 0f) {
+                    caretLine = -1
+                    caretCol = 0
+                    isSelected = false
+                }
+            } else if (isExpansionTransitionActive && actualMoved > 0f &&
+                (activeReason == ScrollAnimationReason.CARET_VISIBILITY || activeReason == ScrollAnimationReason.PREDICTIVE_GLIDE)) {
+                temporaryDisplacement += actualMoved
+            }
+
+            val target = activeTargetTotalScroll
+            if (target != null && kotlin.math.abs(totalScroll - target) < 0.5f) {
+                finishAnimation()
+            }
+            return actualMoved
+        }
+
+        fun finishAnimation() {
+            isAnimationActive = false
+            activeReason = null
+            activeTargetTotalScroll = null
+            lastAnimatedScroll = totalScroll
+            onAnimationFinished?.invoke()
+        }
+
+        fun cancelAnimation(reason: String? = null) {
+            isAnimationActive = false
+            activeReason = null
+            activeTargetTotalScroll = null
+            lastAnimatedScroll = totalScroll
+            if (reason != null && isDebugDiagnosticsEnabled) {
+                logDiagnostic("ScrollCoordinator", "Cancelled: $reason")
+            }
+        }
+
+        fun invalidateCompensation(reason: String? = null) {
+            cancelAnimation("Compensation invalidated: $reason")
+            temporaryDisplacement = 0f
+            caretLine = -1
+            caretCol = 0
+            isSelected = false
+        }
+
+        fun invalidateIfCaretChanged(newLine: Int, newCol: Int, newSelected: Boolean) {
+            if (caretLine != -1 && (caretLine != newLine || caretCol != newCol || isSelected != newSelected)) {
+                invalidateCompensation("Caret changed to $newLine:$newCol")
+            }
+        }
+
+        fun rebaseRemainingCompensation(remainingSlack: Float) {
+            val safeSlack = maxOf(0f, remainingSlack)
+            if (temporaryDisplacement > safeSlack) {
+                temporaryDisplacement = safeSlack
+            }
+            if (temporaryDisplacement <= 0.5f) {
+                temporaryDisplacement = 0f
+                caretLine = -1
+                caretCol = 0
+                isSelected = false
+            }
         }
     }
 
@@ -557,12 +712,30 @@ object ScribeScrollPolicy {
         var headerHeight: Int = 200,
         var density: Float = 2.5f
     ) {
-        var isRestorationActive: Boolean = false
-            private set
-        var targetTotalScroll: Float = totalScroll
-            private set
+        val coordinator = AuthoritativeScrollCoordinator(
+            totalScroll = totalScroll,
+            temporaryDisplacement = temporaryDisplacement,
+            caretLine = caretLine,
+            caretCol = caretCol,
+            isSelected = isSelected,
+            caretDocBottom = caretDocBottom,
+            headerHeight = headerHeight,
+            density = density
+        )
+
+        val isRestorationActive: Boolean
+            get() = coordinator.isAnimationActive
+        val targetTotalScroll: Float
+            get() = coordinator.activeTargetTotalScroll ?: totalScroll
         var lastAppliedStep: Float = 0f
             private set
+
+        init {
+            coordinator.onScrollBy = { delta ->
+                totalScroll += delta
+                0f
+            }
+        }
 
         fun onViewportHeightChanged(
             newViewportHeight: Int,
@@ -570,8 +743,17 @@ object ScribeScrollPolicy {
             isKeyboardDismissing: Boolean,
             isBottomSurfaceActive: Boolean
         ): ContractionRestorationResult {
+            coordinator.totalScroll = totalScroll
+            coordinator.temporaryDisplacement = temporaryDisplacement
+            coordinator.caretLine = caretLine
+            coordinator.caretCol = caretCol
+            coordinator.isSelected = isSelected
+            coordinator.caretDocBottom = caretDocBottom
+            coordinator.headerHeight = headerHeight
+            coordinator.density = density
+
             if (isKeyboardDismissing || !isBottomSurfaceActive) {
-                cancelRestoration()
+                coordinator.invalidateCompensation("Dismissed")
                 temporaryDisplacement = 0f
                 caretLine = -1
                 return ContractionRestorationResult(0f, false, 0f, "Dismissed")
@@ -593,8 +775,8 @@ object ScribeScrollPolicy {
             if (result.shouldScroll) {
                 val candidateTarget = (totalScroll + result.deltaY).coerceAtLeast(0f)
                 val validation = validateFinalTarget(candidateTarget, caretDocBottom, headerHeight, newViewportHeight, density)
-                targetTotalScroll = if (!validation.isSafe) candidateTarget + validation.correctiveDeltaY else candidateTarget
-                isRestorationActive = true
+                val safeTarget = if (!validation.isSafe) candidateTarget + validation.correctiveDeltaY else candidateTarget
+                coordinator.requestTarget(safeTarget, ScrollAnimationReason.CONTRACTION_RESTORATION)
             }
             return result
         }
@@ -602,42 +784,31 @@ object ScribeScrollPolicy {
         fun applyAnimationStep(fraction: Float) {
             if (!isRestorationActive) return
             val stepTarget = totalScroll + (targetTotalScroll - totalScroll) * fraction
-            val delta = stepTarget - totalScroll
-            totalScroll = stepTarget
-            lastAppliedStep = delta
-            if (delta < 0f) {
-                val appliedDown = -delta
-                temporaryDisplacement = (temporaryDisplacement - appliedDown).coerceAtLeast(0f)
-                if (temporaryDisplacement <= 0f) {
-                    caretLine = -1
-                }
-            }
-            if (kotlin.math.abs(totalScroll - targetTotalScroll) < 0.5f) {
-                totalScroll = targetTotalScroll
-                isRestorationActive = false
-            }
+            val moved = coordinator.applyStep(stepTarget)
+            lastAppliedStep = moved
+            totalScroll = coordinator.totalScroll
+            temporaryDisplacement = coordinator.temporaryDisplacement
+            caretLine = coordinator.caretLine
         }
 
         fun cancelRestoration() {
-            isRestorationActive = false
+            coordinator.cancelAnimation()
         }
 
         fun onUserTouch() {
-            cancelRestoration()
+            coordinator.invalidateCompensation("User touch")
             temporaryDisplacement = 0f
             caretLine = -1
         }
 
         fun onCaretMoved(newLine: Int, newCol: Int, newSelected: Boolean) {
-            if (caretLine != -1 && (caretLine != newLine || caretCol != newCol || isSelected != newSelected)) {
-                cancelRestoration()
-                temporaryDisplacement = 0f
-                caretLine = -1
-            }
+            coordinator.invalidateIfCaretChanged(newLine, newCol, newSelected)
+            temporaryDisplacement = coordinator.temporaryDisplacement
+            caretLine = coordinator.caretLine
         }
 
         fun onContentEdited() {
-            cancelRestoration()
+            coordinator.invalidateCompensation("Content edited")
             temporaryDisplacement = 0f
             caretLine = -1
         }

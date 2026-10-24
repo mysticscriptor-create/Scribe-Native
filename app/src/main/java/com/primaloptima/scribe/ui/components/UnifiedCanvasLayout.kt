@@ -196,36 +196,54 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     private var resetDeletionActiveRunnable: Runnable? = null
 
     /**
+     * Authoritative single-owner scroll and animation coordinator.
+     */
+    internal val scrollCoordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator().apply {
+        onScrollBy = { delta ->
+            val before = (scrollD + editor.offsetY).toFloat()
+            val unconsumed = scrollCanvasBy(delta)
+            val after = (scrollD + editor.offsetY).toFloat()
+            val moved = after - before
+            delta - moved
+        }
+    }
+
+    /**
      * Transition-aware compensation tracking:
      * Records upward canvas displacement caused by an expanded bottom surface (e.g. emoji keyboard,
      * accessory drawer) so that it can be safely and smoothly restored when the surface contracts.
      */
-    var temporaryExpansionDisplacement: Float = 0f
-        internal set
-    var expansionCaretLine: Int = -1
-        internal set
-    var expansionCaretCol: Int = -1
-        internal set
-    var expansionHadSelection: Boolean = false
-        internal set
+    var temporaryExpansionDisplacement: Float
+        get() = scrollCoordinator.temporaryDisplacement
+        internal set(value) { scrollCoordinator.temporaryDisplacement = value }
+    var expansionCaretLine: Int
+        get() = scrollCoordinator.caretLine
+        internal set(value) { scrollCoordinator.caretLine = value }
+    var expansionCaretCol: Int
+        get() = scrollCoordinator.caretCol
+        internal set(value) { scrollCoordinator.caretCol = value }
+    var expansionHadSelection: Boolean
+        get() = scrollCoordinator.isSelected
+        internal set(value) { scrollCoordinator.isSelected = value }
 
     /**
      * Flag indicating that an expansion transition is actively in progress (e.g. keyboard entrance
      * or accessory drawer opening). Upward scroll movement during this window is recorded as
      * expansion displacement. Normal typing / cursor movement outside of this transition is NOT recorded.
      */
-    var isExpansionTransitionActive: Boolean = false
-        internal set
+    var isExpansionTransitionActive: Boolean
+        get() = scrollCoordinator.isExpansionTransitionActive
+        internal set(value) { scrollCoordinator.isExpansionTransitionActive = value }
     private var resetExpansionTransitionRunnable: Runnable? = null
 
     /**
-     * Authoritative active restoration tracking.
+     * Authoritative single active animation tracking.
      */
-    private var activeRestorationAnimator: android.animation.ValueAnimator? = null
-    var isRestorationActive: Boolean = false
-        private set
-    var activeRestorationTargetScroll: Float? = null
-        private set
+    private var activeCanvasAnimator: android.animation.ValueAnimator? = null
+    val isRestorationActive: Boolean
+        get() = scrollCoordinator.isAnimationActive && scrollCoordinator.activeReason == ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION
+    val activeRestorationTargetScroll: Float?
+        get() = if (isRestorationActive) scrollCoordinator.activeTargetTotalScroll else null
     private var pendingRestorationRunnable: Runnable? = null
 
     fun recordExpansionDisplacement(dy: Float, line: Int, col: Int = 0, isSelected: Boolean = false) {
@@ -238,21 +256,14 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     fun invalidateCompensation(reason: String? = null) {
         cancelRestoration()
-        temporaryExpansionDisplacement = 0f
-        expansionCaretLine = -1
-        expansionCaretCol = -1
-        expansionHadSelection = false
+        scrollCoordinator.invalidateCompensation(reason)
         if (reason != null && ScribeScrollPolicy.isDebugDiagnosticsEnabled) {
             ScribeScrollPolicy.logDiagnostic("Compensation", "Invalidated: $reason")
         }
     }
 
     fun invalidateCompensationIfCaretChanged(newLine: Int, newCol: Int, isSelected: Boolean) {
-        if (expansionCaretLine != -1) {
-            if (expansionCaretLine != newLine || expansionCaretCol != newCol || expansionHadSelection != isSelected) {
-                invalidateCompensation("Caret moved ($newLine:$newCol vs $expansionCaretLine:$expansionCaretCol)")
-            }
-        }
+        scrollCoordinator.invalidateIfCaretChanged(newLine, newCol, isSelected)
     }
 
     fun invalidateCompensationIfLineChanged(newLine: Int) {
@@ -262,12 +273,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     fun cancelRestoration() {
         pendingRestorationRunnable?.let { removeCallbacks(it) }
         pendingRestorationRunnable = null
-        if (activeRestorationAnimator != null) {
-            activeRestorationAnimator?.cancel()
-            activeRestorationAnimator = null
+        if (isRestorationActive) {
+            activeCanvasAnimator?.cancel()
+            activeCanvasAnimator = null
+            scrollCoordinator.cancelAnimation("Restoration cancelled")
         }
-        isRestorationActive = false
-        activeRestorationTargetScroll = null
     }
 
     fun notifyLastLineDeletionStarted() {
@@ -285,7 +295,68 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             PathInterpolator(0.4f, 0f, 0.2f, 1f)
     }
 
-    private var canvasScrollAnimator: android.animation.ValueAnimator? = null
+    fun startAuthoritativeScrollAnimation(
+        targetTotalScroll: Float,
+        reason: ScribeScrollPolicy.ScrollAnimationReason,
+        durationMs: Long = 280L,
+        interpolator: android.view.animation.Interpolator = FastOutSlowInInterpolator,
+        forceRetarget: Boolean = false,
+        onEnd: (() -> Unit)? = null
+    ) {
+        val currentScroll = (scrollD + editor.offsetY).toFloat()
+        scrollCoordinator.totalScroll = currentScroll
+        val shouldStart = scrollCoordinator.requestTarget(targetTotalScroll, reason, forceRetarget)
+        if (!shouldStart) {
+            onEnd?.invoke()
+            return
+        }
+
+        val target = scrollCoordinator.activeTargetTotalScroll ?: targetTotalScroll
+        val distance = kotlin.math.abs(target - currentScroll)
+        if (distance < 1f) {
+            scrollCoordinator.finishAnimation()
+            onEnd?.invoke()
+            return
+        }
+
+        activeCanvasAnimator?.cancel()
+        activeCanvasAnimator = null
+
+        val scaledDuration = (distance * 1.2f).toLong().coerceIn(120L, durationMs)
+
+        activeCanvasAnimator = android.animation.ValueAnimator.ofFloat(currentScroll, target).apply {
+            duration = scaledDuration
+            this.interpolator = interpolator
+            addUpdateListener { anim ->
+                val curr = anim.animatedValue as Float
+                scrollCoordinator.applyStep(curr)
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    activeCanvasAnimator = null
+                    scrollCoordinator.finishAnimation()
+                    if (reason == ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION) {
+                        revalidateFinalTargetSafety()
+                    }
+                    if (reason == ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE) {
+                        isPredictiveGlideRunning = false
+                        targetPredictedScrollTotal = -1f
+                    }
+                    onEnd?.invoke()
+                }
+
+                override fun onAnimationCancel(animation: android.animation.Animator) {
+                    activeCanvasAnimator = null
+                    scrollCoordinator.cancelAnimation("Animator cancelled")
+                    if (reason == ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE) {
+                        isPredictiveGlideRunning = false
+                        targetPredictedScrollTotal = -1f
+                    }
+                }
+            })
+            start()
+        }
+    }
 
     fun smoothScrollCanvasBy(
         dy: Float,
@@ -297,40 +368,15 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             onEnd?.invoke()
             return
         }
-        canvasScrollAnimator?.cancel()
-        var lastAnimatedValue = 0f
-        canvasScrollAnimator = android.animation.ValueAnimator.ofFloat(0f, dy).apply {
-            duration = durationMs
-            this.interpolator = interpolator
-            addUpdateListener { anim ->
-                val curr = anim.animatedValue as Float
-                val delta = curr - lastAnimatedValue
-                lastAnimatedValue = curr
-                if (kotlin.math.abs(delta) >= 0.1f) {
-                    val beforeScroll = (scrollD + editor.offsetY).toFloat()
-                    scrollCanvasBy(delta)
-                    val afterScroll = (scrollD + editor.offsetY).toFloat()
-                    val actualMoved = afterScroll - beforeScroll
-                    if (isExpansionTransitionActive && actualMoved > 0f) {
-                        temporaryExpansionDisplacement += actualMoved
-                    }
-                }
-            }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    canvasScrollAnimator = null
-                    isPredictiveGlideRunning = false
-                    targetPredictedScrollTotal = -1f
-                    onEnd?.invoke()
-                }
-                override fun onAnimationCancel(animation: android.animation.Animator) {
-                    canvasScrollAnimator = null
-                    isPredictiveGlideRunning = false
-                    targetPredictedScrollTotal = -1f
-                }
-            })
-            start()
-        }
+        val currentScroll = (scrollD + editor.offsetY).toFloat()
+        val target = currentScroll + dy
+        startAuthoritativeScrollAnimation(
+            targetTotalScroll = target,
+            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+            durationMs = durationMs,
+            interpolator = interpolator,
+            onEnd = onEnd
+        )
     }
 
     /**
@@ -414,82 +460,19 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     /**
      * Authoritative contraction restoration:
      * Restores downward displacement as a single coordinated operation.
-     * If the viewport changes again while an animation is in flight (e.g. intermediate
-     * layout frames during drawer collapse), it retargets smoothly from the current
-     * position rather than spawning new independent animations or applying cumulative deltas.
+     * Retargets smoothly from the current position if geometry changes,
+     * maintaining one authoritative active animation.
      */
     private fun startOrRetargetContractionRestoration(
         targetTotalScroll: Float,
         durationMs: Long = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
     ) {
-        val currentScroll = (scrollD + editor.offsetY).toFloat()
-        val totalDeltaToApply = targetTotalScroll - currentScroll
-
-        if (kotlin.math.abs(totalDeltaToApply) < 1f) {
-            cancelRestoration()
-            return
-        }
-
-        // If an animator is already running toward essentially this target, let it finish smoothly
-        if (activeRestorationAnimator?.isRunning == true) {
-            val currentTarget = activeRestorationTargetScroll
-            if (currentTarget != null && kotlin.math.abs(currentTarget - targetTotalScroll) < 2f) {
-                return
-            }
-        }
-
-        // Cancel previous animator cleanly (note: actual applied displacement was already deducted tick-by-tick)
-        activeRestorationAnimator?.cancel()
-        activeRestorationAnimator = null
-
-        isRestorationActive = true
-        activeRestorationTargetScroll = targetTotalScroll
-
-        var lastAnimatedScroll = currentScroll
-        val distance = kotlin.math.abs(totalDeltaToApply)
-        val scaledDuration = (distance * 1.2f).toLong().coerceIn(120L, durationMs)
-
-        activeRestorationAnimator = android.animation.ValueAnimator.ofFloat(currentScroll, targetTotalScroll).apply {
-            duration = scaledDuration
+        startAuthoritativeScrollAnimation(
+            targetTotalScroll = targetTotalScroll,
+            reason = ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION,
+            durationMs = durationMs,
             interpolator = FastOutSlowInInterpolator
-            addUpdateListener { anim ->
-                val currVal = anim.animatedValue as Float
-                val stepDelta = currVal - lastAnimatedScroll
-                lastAnimatedScroll = currVal
-
-                if (kotlin.math.abs(stepDelta) >= 0.1f) {
-                    val beforeScroll = (scrollD + editor.offsetY).toFloat()
-                    scrollCanvasBy(stepDelta)
-                    val afterScroll = (scrollD + editor.offsetY).toFloat()
-                    val actualMoved = afterScroll - beforeScroll
-
-                    if (actualMoved < 0f) {
-                        val appliedDown = -actualMoved
-                        temporaryExpansionDisplacement = (temporaryExpansionDisplacement - appliedDown).coerceAtLeast(0f)
-                        if (temporaryExpansionDisplacement <= 0f) {
-                            expansionCaretLine = -1
-                            expansionCaretCol = -1
-                            expansionHadSelection = false
-                        }
-                    }
-                }
-            }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    activeRestorationAnimator = null
-                    isRestorationActive = false
-                    activeRestorationTargetScroll = null
-                    revalidateFinalTargetSafety()
-                }
-
-                override fun onAnimationCancel(animation: android.animation.Animator) {
-                    activeRestorationAnimator = null
-                    isRestorationActive = false
-                    activeRestorationTargetScroll = null
-                }
-            })
-            start()
-        }
+        )
     }
 
     /**
@@ -510,30 +493,27 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             viewportHeight = height,
             density = density
         )
-        if (!validation.isSafe && validation.correctiveDeltaY > 1f) {
-            scrollCanvasBy(validation.correctiveDeltaY)
+        if (!validation.isSafe && validation.correctiveDeltaY > 0.5f) {
+            startAuthoritativeScrollAnimation(
+                targetTotalScroll = currentScroll + validation.correctiveDeltaY,
+                reason = ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION,
+                durationMs = 120L
+            )
         }
 
         // Rebase remaining displacement so it can only retain what is safely appliable at current viewport
         val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
-        val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
         val targetLineBottom = (height - marginPx).toFloat()
         val finalCaretBottom = (headerHeight + geom.bottomDocY - (scrollD + editor.offsetY))
         val remainingSlack = targetLineBottom - finalCaretBottom
-        if (remainingSlack <= deadbandPx) {
-            temporaryExpansionDisplacement = 0f
-            expansionCaretLine = -1
-            expansionCaretCol = -1
-            expansionHadSelection = false
-        } else {
-            temporaryExpansionDisplacement = minOf(temporaryExpansionDisplacement, remainingSlack)
-        }
+        scrollCoordinator.rebaseRemainingCompensation(remainingSlack)
     }
 
     fun cancelCanvasAnimation() {
         cancelRestoration()
-        canvasScrollAnimator?.cancel()
-        canvasScrollAnimator = null
+        activeCanvasAnimator?.cancel()
+        activeCanvasAnimator = null
+        scrollCoordinator.cancelAnimation("cancelCanvasAnimation")
         isPredictiveGlideRunning = false
         targetPredictedScrollTotal = -1f
         if (!scroller.isFinished) {
@@ -1142,7 +1122,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     }
                 }
                 pendingRestorationRunnable = rRestoration
-                post(rRestoration)
+                postDelayed(rRestoration, 48L)
             }
         }
     }
@@ -1197,7 +1177,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val targetLineBottom = visibleHeight - marginPx
             if (screenBottom > (targetLineBottom + deadbandPx)) {
                 val delta = (screenBottom - targetLineBottom).toFloat()
+                val beforeScroll = (scrollD + editor.offsetY).toFloat()
                 scrollCanvasBy(delta)
+                val afterScroll = (scrollD + editor.offsetY).toFloat()
+                val actualMoved = afterScroll - beforeScroll
+                if (isExpansionTransitionActive && actualMoved > 0f) {
+                    temporaryExpansionDisplacement += actualMoved
+                }
                 return true
             } else if (screenTop < -deadbandPx && (scrollD > 0 || editor.offsetY > 0)) {
                 val delta = screenTop.toFloat()
