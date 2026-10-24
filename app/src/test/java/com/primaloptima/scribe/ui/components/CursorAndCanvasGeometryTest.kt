@@ -1003,5 +1003,345 @@ class CursorAndCanvasGeometryTest {
             ScribeScrollPolicy.SelectAllScrollMode.fromString("SCROLL_TO_SELECTION_END")
         )
     }
+
+    // ── 1 Degree of Freedom (1-DOF) Architecture Regression Tests ──────────────
+
+    @Test
+    fun test1DOF_HeaderPartiallyVisible_MovementAllocatedExclusivelyToOuterCanvas() {
+        // Invariant A: While any portion of the title header remains visible (scrollD < headerHeight),
+        // vertical scroll movement belongs EXCLUSIVELY to outer canvas. Editor offset must remain 0.
+        val headerHeight = 200
+        val scrollD = 50f
+        val editorOffsetY = 0
+        val maxCanvasScroll = 1000
+
+        val allocation = ScribeScrollPolicy.allocateScrollDelta(
+            deltaY = 30f,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            editorOffsetY = editorOffsetY,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        assertEquals("Outer canvas consumes all 30px", 30f, allocation.outerDelta, 0.001f)
+        assertEquals("Editor must not move while header is visible", 0f, allocation.innerDelta, 0.001f)
+        assertEquals("No unconsumed delta", 0f, allocation.unconsumedDelta, 0.001f)
+    }
+
+    @Test
+    fun test1DOF_ShortDocument_HeaderPartiallyVisible_EditorNeverScrolls() {
+        // When maxCanvasScroll < headerHeight, header cannot scroll completely out of view.
+        // Outer canvas stops at maxCanvasScroll. Crucially, leftover delta is NEVER passed to editor.
+        val headerHeight = 200
+        val scrollD = 0f
+        val editorOffsetY = 0
+        val maxCanvasScroll = 100
+
+        val allocation = ScribeScrollPolicy.allocateScrollDelta(
+            deltaY = 150f,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            editorOffsetY = editorOffsetY,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        assertEquals("Outer canvas consumes up to maxCanvasScroll (100px)", 100f, allocation.outerDelta, 0.001f)
+        assertEquals("Editor must NEVER scroll on short document while header is visible", 0f, allocation.innerDelta, 0.001f)
+        assertEquals("Remaining 50px is unconsumed (clamped at physical bounds)", 50f, allocation.unconsumedDelta, 0.001f)
+    }
+
+    @Test
+    fun test1DOF_EmptyDocument_NoMovementAllowed_EditorZero() {
+        val headerHeight = 200
+        val scrollD = 0f
+        val editorOffsetY = 0
+        val maxCanvasScroll = 0
+
+        val allocation = ScribeScrollPolicy.allocateScrollDelta(
+            deltaY = 50f,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            editorOffsetY = editorOffsetY,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        assertEquals(0f, allocation.outerDelta, 0.001f)
+        assertEquals(0f, allocation.innerDelta, 0.001f)
+        assertEquals(50f, allocation.unconsumedDelta, 0.001f)
+    }
+
+    @Test
+    fun test1DOF_DeltaSmallerThanRemainingHeader_MovesOnlyOuterCanvas() {
+        val headerHeight = 200
+        val scrollD = 100f
+        val editorOffsetY = 0
+        val maxCanvasScroll = 500
+
+        val allocation = ScribeScrollPolicy.allocateScrollDelta(
+            deltaY = 50f,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            editorOffsetY = editorOffsetY,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        assertEquals(50f, allocation.outerDelta, 0.001f)
+        assertEquals(0f, allocation.innerDelta, 0.001f)
+        assertEquals(0f, allocation.unconsumedDelta, 0.001f)
+    }
+
+    @Test
+    fun test1DOF_DeltaEqualToRemainingHeader_ReachesExactHandoffBoundary_EditorZero() {
+        val headerHeight = 200
+        val scrollD = 100f
+        val editorOffsetY = 0
+        val maxCanvasScroll = 500
+
+        val allocation = ScribeScrollPolicy.allocateScrollDelta(
+            deltaY = 100f,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            editorOffsetY = editorOffsetY,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        assertEquals("Outer canvas consumes exact remaining 100px to reach headerHeight", 100f, allocation.outerDelta, 0.001f)
+        assertEquals("Editor offset remains at 0 at the exact boundary", 0f, allocation.innerDelta, 0.001f)
+        assertEquals(0f, allocation.unconsumedDelta, 0.001f)
+    }
+
+    @Test
+    fun test1DOF_DeltaLargerThanRemainingHeader_SplitPreciselyAtBoundary() {
+        // Delta of 120px with 50px remaining to header boundary.
+        // 50px goes to outer canvas (hiding header completely); remaining 70px seamlessly scrolls editor.
+        val headerHeight = 200
+        val scrollD = 150f
+        val editorOffsetY = 0
+        val maxCanvasScroll = 800
+
+        val allocation = ScribeScrollPolicy.allocateScrollDelta(
+            deltaY = 120f,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            editorOffsetY = editorOffsetY,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        assertEquals("Outer canvas consumes remaining 50px to hide header", 50f, allocation.outerDelta, 0.001f)
+        assertEquals("Inner editor consumes remaining 70px after handoff", 70f, allocation.innerDelta, 0.001f)
+        assertEquals("Zero unconsumed, no lost movement", 0f, allocation.unconsumedDelta, 0.001f)
+    }
+
+    @Test
+    fun test1DOF_HeaderFullyHidden_SubsequentMovementAllocatedToEditor() {
+        val headerHeight = 200
+        val scrollD = 200f
+        val editorOffsetY = 50
+        val maxCanvasScroll = 800
+
+        val allocation = ScribeScrollPolicy.allocateScrollDelta(
+            deltaY = 40f,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            editorOffsetY = editorOffsetY,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        assertEquals("Outer canvas stays at headerHeight", 0f, allocation.outerDelta, 0.001f)
+        assertEquals("Inner editor consumes all 40px", 40f, allocation.innerDelta, 0.001f)
+        assertEquals(0f, allocation.unconsumedDelta, 0.001f)
+    }
+
+    @Test
+    fun test1DOF_EditorAtMaxBounds_MovementClamped() {
+        val headerHeight = 200
+        val scrollD = 200f
+        val editorOffsetY = 600
+        val maxCanvasScroll = 800 // Total scroll is 800
+
+        val allocation = ScribeScrollPolicy.allocateScrollDelta(
+            deltaY = 50f,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            editorOffsetY = editorOffsetY,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        assertEquals(0f, allocation.outerDelta, 0.001f)
+        assertEquals(0f, allocation.innerDelta, 0.001f)
+        assertEquals(50f, allocation.unconsumedDelta, 0.001f)
+    }
+
+    @Test
+    fun test1DOF_ReverseScroll_EditorOffsetNeutralizedBeforeHeaderReappears() {
+        // Scrolling back toward title: editor offset returns to 0 first.
+        val headerHeight = 200
+        val scrollD = 200f
+        val editorOffsetY = 50
+        val maxCanvasScroll = 800
+
+        val allocation = ScribeScrollPolicy.allocateScrollDelta(
+            deltaY = -30f,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            editorOffsetY = editorOffsetY,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        assertEquals("Outer canvas must not move while editor offset is positive", 0f, allocation.outerDelta, 0.001f)
+        assertEquals("Inner editor consumes -30px towards 0", -30f, allocation.innerDelta, 0.001f)
+        assertEquals(0f, allocation.unconsumedDelta, 0.001f)
+    }
+
+    @Test
+    fun test1DOF_ReverseScroll_DeltaLargerThanEditorOffset_DividedAtBoundary() {
+        // Delta of -80px with editorOffsetY = 50.
+        // Editor absorbs -50px down to 0; remaining -30px reveals header by 30px (scrollD 200 -> 170).
+        val headerHeight = 200
+        val scrollD = 200f
+        val editorOffsetY = 50
+        val maxCanvasScroll = 800
+
+        val allocation = ScribeScrollPolicy.allocateScrollDelta(
+            deltaY = -80f,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            editorOffsetY = editorOffsetY,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        assertEquals("Inner editor neutralizes by exactly -50px to reach 0", -50f, allocation.innerDelta, 0.001f)
+        assertEquals("Outer canvas reveals header by remaining -30px", -30f, allocation.outerDelta, 0.001f)
+        assertEquals("Zero unconsumed", 0f, allocation.unconsumedDelta, 0.001f)
+    }
+
+    @Test
+    fun test1DOF_ReverseScroll_EditorZero_HeaderMovesToTop() {
+        val headerHeight = 200
+        val scrollD = 170f
+        val editorOffsetY = 0
+        val maxCanvasScroll = 800
+
+        val allocation = ScribeScrollPolicy.allocateScrollDelta(
+            deltaY = -200f,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            editorOffsetY = editorOffsetY,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        assertEquals("Inner editor was already 0", 0f, allocation.innerDelta, 0.001f)
+        assertEquals("Outer canvas moves -170px to reach top (scrollD = 0)", -170f, allocation.outerDelta, 0.001f)
+        assertEquals("Remaining -30px is unconsumed (for overscroll stretch effect)", -30f, allocation.unconsumedDelta, 0.001f)
+    }
+
+    @Test
+    fun test1DOF_RapidDirectionReversals_MaintainsInvariantAndConsistency() {
+        val headerHeight = 200
+        val maxCanvasScroll = 1000
+        var scrollD = 0f
+        var editorOffsetY = 0
+
+        // Step 1: Scroll forward 150px (partially reveals document, header still visible)
+        var alloc = ScribeScrollPolicy.allocateScrollDelta(150f, headerHeight, scrollD, editorOffsetY, maxCanvasScroll)
+        scrollD += alloc.outerDelta
+        editorOffsetY += alloc.innerDelta.toInt()
+        assertEquals(150f, scrollD, 0.001f)
+        assertEquals(0, editorOffsetY)
+
+        // Step 2: Scroll forward 100px (crosses handoff boundary: 50px to header, 50px to editor)
+        alloc = ScribeScrollPolicy.allocateScrollDelta(100f, headerHeight, scrollD, editorOffsetY, maxCanvasScroll)
+        scrollD += alloc.outerDelta
+        editorOffsetY += alloc.innerDelta.toInt()
+        assertEquals(200f, scrollD, 0.001f)
+        assertEquals(50, editorOffsetY)
+
+        // Step 3: Rapid reversal -80px (50px to editor to neutralize, 30px to canvas to reveal header)
+        alloc = ScribeScrollPolicy.allocateScrollDelta(-80f, headerHeight, scrollD, editorOffsetY, maxCanvasScroll)
+        scrollD += alloc.outerDelta
+        editorOffsetY += alloc.innerDelta.toInt()
+        assertEquals(170f, scrollD, 0.001f)
+        assertEquals(0, editorOffsetY)
+
+        // Step 4: Rapid reversal +50px (30px to canvas to hide header, 20px to editor)
+        alloc = ScribeScrollPolicy.allocateScrollDelta(50f, headerHeight, scrollD, editorOffsetY, maxCanvasScroll)
+        scrollD += alloc.outerDelta
+        editorOffsetY += alloc.innerDelta.toInt()
+        assertEquals(200f, scrollD, 0.001f)
+        assertEquals(20, editorOffsetY)
+
+        // Step 5: Large reversal -250px (20px to editor to reach 0, 200px to canvas to reach 0, 30px unconsumed)
+        alloc = ScribeScrollPolicy.allocateScrollDelta(-250f, headerHeight, scrollD, editorOffsetY, maxCanvasScroll)
+        scrollD += alloc.outerDelta
+        editorOffsetY += alloc.innerDelta.toInt()
+        assertEquals(0f, scrollD, 0.001f)
+        assertEquals(0, editorOffsetY)
+        assertEquals(-30f, alloc.unconsumedDelta, 0.001f)
+    }
+
+    @Test
+    fun test1DOF_ReconcileScrollState_HeaderPartiallyVisible_ForcesEditorToZero() {
+        // If an invalid state somehow occurs (e.g. scrollD = 100 < headerHeight 200, but editorOffsetY = 50),
+        // totalScroll = 150 < 200. Reconcile strictly restores scrollD = 150, editorOffsetY = 0!
+        val reconciled = ScribeScrollPolicy.reconcileScrollState(
+            headerHeight = 200,
+            scrollD = 100,
+            editorOffsetY = 50,
+            maxCanvasScroll = 800
+        )
+        assertEquals("All displacement assigned to outer canvas", 150, reconciled.scrollD)
+        assertEquals("Editor offset strictly neutralized to 0", 0, reconciled.editorOffsetY)
+    }
+
+    @Test
+    fun test1DOF_ReconcileScrollState_HeaderFullyHidden_PreservesEditorOffset() {
+        val reconciled = ScribeScrollPolicy.reconcileScrollState(
+            headerHeight = 200,
+            scrollD = 200,
+            editorOffsetY = 120,
+            maxCanvasScroll = 800
+        )
+        assertEquals(200, reconciled.scrollD)
+        assertEquals(120, reconciled.editorOffsetY)
+    }
+
+    @Test
+    fun test1DOF_ReconcileScrollState_ClampsExcessTotalScrollToMaxCanvasScroll() {
+        // When document shrinks and total scroll (200 + 700 = 900) exceeds maxCanvasScroll (800):
+        val reconciled = ScribeScrollPolicy.reconcileScrollState(
+            headerHeight = 200,
+            scrollD = 200,
+            editorOffsetY = 700,
+            maxCanvasScroll = 800
+        )
+        assertEquals(200, reconciled.scrollD)
+        assertEquals("Excess scroll clamped so total scroll = 800", 600, reconciled.editorOffsetY)
+    }
+
+    @Test
+    fun test1DOF_SafeScrollMaxY_ReturnsZeroWhenHeaderIsVisible() {
+        // When header is visible (isHeaderFullyHidden = false), editor scroll max MUST be 0
+        val maxScroll = ScribeScrollPolicy.calculateSafeScrollMaxY(
+            layoutHeight = 1500,
+            viewportHeight = 1000,
+            persistentBottomSpacePx = 800,
+            isFocused = true,
+            isHeaderFullyHidden = false
+        )
+        assertEquals("Editor scroll max must be 0 while header is visible", 0, maxScroll)
+    }
+
+    @Test
+    fun test1DOF_SafeScrollMaxY_AllowsScrollWhenHeaderIsFullyHidden() {
+        val maxScroll = ScribeScrollPolicy.calculateSafeScrollMaxY(
+            layoutHeight = 1500,
+            viewportHeight = 1000,
+            persistentBottomSpacePx = 800,
+            isFocused = true,
+            isHeaderFullyHidden = true
+        )
+        // 1500 + 800 - 1000 = 1300
+        assertEquals(1300, maxScroll)
+    }
 }
 

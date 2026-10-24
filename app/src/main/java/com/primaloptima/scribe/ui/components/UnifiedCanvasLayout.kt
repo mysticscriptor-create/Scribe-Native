@@ -646,12 +646,15 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
         // Maintain continuous canvas invariant on resume/relayout:
-        if (editor.offsetY > 0) {
-            scrollD = headerHeight
-            scrollDFloat = headerHeight.toFloat()
-        } else if (scrollD > headerHeight) {
-            scrollD = headerHeight
-            scrollDFloat = headerHeight.toFloat()
+        if (headerHeight > 0) {
+            val reconciled = ScribeScrollPolicy.reconcileScrollState(
+                headerHeight = headerHeight,
+                scrollD = scrollD,
+                editorOffsetY = editor.offsetY,
+                maxCanvasScroll = maxCanvasScroll
+            )
+            scrollD = reconciled.scrollD
+            scrollDFloat = reconciled.scrollD.toFloat()
         }
 
         // Measure CodeEditor to fill the full viewport width and height
@@ -686,14 +689,21 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
             }
         } else {
-            val maxHeaderD = maxHeaderScrollD
-            if (scrollD > maxHeaderD) {
-                scrollD = maxHeaderD
-                scrollDFloat = maxHeaderD.toFloat()
+            val reconciled = ScribeScrollPolicy.reconcileScrollState(
+                headerHeight = headerHeight,
+                scrollD = scrollD,
+                editorOffsetY = editor.offsetY,
+                maxCanvasScroll = maxCanvasScroll
+            )
+            if (reconciled.scrollD != scrollD) {
+                scrollD = reconciled.scrollD
+                scrollDFloat = reconciled.scrollD.toFloat()
                 onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
-            } else if (editor.offsetY > 0) {
-                scrollD = headerHeight
-                scrollDFloat = headerHeight.toFloat()
+            }
+            if (reconciled.editorOffsetY != editor.offsetY) {
+                try {
+                    editor.jumpScrollTo(editor.offsetX, reconciled.editorOffsetY)
+                } catch (_: Throwable) {}
             }
         }
         applyTranslations()
@@ -910,72 +920,40 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     }
                 }
             }
+        }
 
-            // 2. Consume delta into scrollD until header reaches logical maximum displacement
-            val maxHeaderD = maxHeaderScrollD
-            if (scrollDFloat < maxHeaderD) {
-                val canConsume = maxHeaderD - scrollDFloat
-                val consume = minOf(dy, canConsume)
-                scrollDFloat += consume
-                scrollD = scrollDFloat.roundToInt().coerceIn(0, maxHeaderD)
-                applyTranslations()
-                onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
-                val unconsumed = dy - consume
-                if (unconsumed > 0f) {
-                    dispatchScrollToEditor(unconsumed)
-                }
-                return unconsumed
-            } else {
-                dispatchScrollToEditor(dy)
-                return dy
-            }
-        } else if (dy < 0f) {
-            // Scrolling up towards top of document (finger moving down)
-            val editorY = editor.offsetY
-            if (editorY > 0) {
-                val canConsumeEditor = -editorY.toFloat()
-                val consumeEditor = maxOf(dy, canConsumeEditor)
-                dispatchScrollToEditor(consumeEditor)
-                val unconsumed = dy - consumeEditor
-                if (unconsumed < 0f && scrollDFloat > 0f) {
-                    val canConsumeCanvas = -scrollDFloat
-                    val consumeCanvas = maxOf(unconsumed, canConsumeCanvas)
-                    scrollDFloat += consumeCanvas
-                    scrollD = scrollDFloat.roundToInt().coerceIn(0, headerHeight)
-                    applyTranslations()
-                    onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
-                    return unconsumed - consumeCanvas
-                }
-                return unconsumed
-            } else {
-                // Editor is at top, pull header down
-                if (scrollDFloat > 0f) {
-                    val canConsumeCanvas = -scrollDFloat
-                    val consumeCanvas = maxOf(dy, canConsumeCanvas)
-                    scrollDFloat += consumeCanvas
-                    scrollD = scrollDFloat.roundToInt().coerceIn(0, headerHeight)
-                    applyTranslations()
-                    onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
-                    val unconsumed = dy - consumeCanvas
-                    if (unconsumed < 0f && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null) {
-                        val deltaDistance = -unconsumed / height.coerceAtLeast(1)
-                        val displacement = (lastTouchX / width.coerceAtLeast(1)).coerceIn(0f, 1f)
-                        EdgeEffectCompat.onPullDistance(topEdgeEffect, deltaDistance, displacement)
-                        postInvalidateOnAnimation()
-                    }
-                    return unconsumed
-                } else {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null) {
-                        val deltaDistance = -dy / height.coerceAtLeast(1)
-                        val displacement = (lastTouchX / width.coerceAtLeast(1)).coerceIn(0f, 1f)
-                        EdgeEffectCompat.onPullDistance(topEdgeEffect, deltaDistance, displacement)
-                        postInvalidateOnAnimation()
-                    }
-                    return dy
-                }
+        // 2. Authoritative 1-DOF scroll allocation via ScribeScrollPolicy
+        val allocation = ScribeScrollPolicy.allocateScrollDelta(
+            deltaY = dy,
+            headerHeight = headerHeight,
+            scrollD = scrollDFloat,
+            editorOffsetY = editor.offsetY,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        if (allocation.outerDelta != 0f) {
+            scrollDFloat += allocation.outerDelta
+            val maxD = minOf(headerHeight, maxCanvasScroll)
+            scrollD = scrollDFloat.roundToInt().coerceIn(0, maxD)
+            applyTranslations()
+            onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
+        }
+
+        if (allocation.innerDelta != 0f) {
+            dispatchScrollToEditor(allocation.innerDelta)
+        }
+
+        // 3. Top edge stretch when overscrolling at the top
+        if (dy < 0f && allocation.unconsumedDelta < 0f && scrollD <= 0 && editor.offsetY <= 0) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null) {
+                val deltaDistance = -allocation.unconsumedDelta / height.coerceAtLeast(1)
+                val displacement = (lastTouchX / width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                EdgeEffectCompat.onPullDistance(topEdgeEffect, deltaDistance, displacement)
+                postInvalidateOnAnimation()
             }
         }
-        return 0f
+
+        return allocation.unconsumedDelta
     }
 
     /**
@@ -984,20 +962,18 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * ensuring lines render smoothly at 120Hz without blank screens during fast scrolling.
      */
     private fun dispatchScrollToEditor(dy: Float) {
+        // Invariant A: Editor MUST NOT scroll if header is visible
+        if (scrollD < headerHeight) return
         try {
             val scroller = editor.scroller ?: return
             val currY = editor.offsetY
             val currX = editor.offsetX
             val targetY = (currY + dy).roundToInt()
-            val maxAllowedY = if (isKeyboardVisible && editor.isFocused) {
-                maxOf(editor.safeScrollMaxY, targetY)
-            } else {
-                editor.safeScrollMaxY
-            }
+            val maxAllowedY = editor.safeScrollMaxY
             val clampedTargetY = targetY.coerceIn(0, maxAllowedY)
             if (clampedTargetY != currY) {
                 scroller.forceFinished(true)
-                scroller.startScroll(currX, currY, 0, targetY - currY, 0)
+                scroller.startScroll(currX, currY, 0, clampedTargetY - currY, 0)
                 scroller.abortAnimation()
                 try {
                     editor.renderContext.invalidateRenderNodes()
@@ -1099,24 +1075,18 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val totalDy = initialDownY - ev.y
 
                 if (abs(totalDy) > touchSlop && abs(totalDy) > abs(totalDx)) {
-                    val maxHeaderD = maxHeaderScrollD
-                    if (totalDy > 0f && maxCanvasScroll <= 0) {
-                        return false
-                    }
-                    if (scrollD < maxHeaderD && totalDy > 0f) {
+                    // Central touch interception invariant:
+                    // 1. If header is visible (scrollD < headerHeight), UnifiedCanvasLayout MUST intercept
+                    //    all vertical dragging because the outer canvas owns all movement before handoff.
+                    // 2. If editor is at top (editor.offsetY <= 0) and user drags down (totalDy < 0),
+                    //    UnifiedCanvasLayout MUST intercept to pull header back into view.
+                    // 3. If maxCanvasScroll <= 0, UnifiedCanvasLayout intercepts so editor cannot scroll short documents.
+                    if (scrollD < headerHeight || editor.offsetY <= 0 || maxCanvasScroll <= 0) {
                         isDraggingCanvas = true
                         lastTouchX = ev.x
                         lastTouchY = ev.y
                         parent?.requestDisallowInterceptTouchEvent(true)
                         return true
-                    } else if (editor.offsetY <= 0 && (totalDy < 0f || (lastTouchY - ev.y) < 0f)) {
-                        if (scrollD > 0) {
-                            isDraggingCanvas = true
-                            lastTouchX = ev.x
-                            lastTouchY = ev.y
-                            parent?.requestDisallowInterceptTouchEvent(true)
-                            return true
-                        }
                     }
                 }
             }

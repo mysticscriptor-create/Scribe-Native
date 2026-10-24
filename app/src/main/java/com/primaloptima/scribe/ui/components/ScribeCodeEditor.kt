@@ -90,14 +90,23 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     override fun getScrollMaxY(): Int {
         return try {
+            val pCanvas = parent as? UnifiedCanvasLayout
+            val isHeaderFullyHidden = if (pCanvas != null && pCanvas.headerHeight > 0) {
+                pCanvas.scrollD >= pCanvas.headerHeight
+            } else {
+                pCanvas == null
+            }
+            if (!isHeaderFullyHidden) {
+                return 0
+            }
+
             val layout = this.layout ?: return super.getScrollMaxY()
             val layoutH = layout.layoutHeight
             val baseSora = super.getScrollMaxY()
             val density = context.resources.displayMetrics.density
             val breathingMargin = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
-            val pCanvas = parent as? UnifiedCanvasLayout
-            val activeGlideTarget = if (pCanvas != null && pCanvas.targetPredictedScrollTotal > 0f) {
-                (pCanvas.targetPredictedScrollTotal - pCanvas.scrollD).toInt().coerceAtLeast(0)
+            val activeGlideTarget = if (pCanvas != null && pCanvas.targetPredictedScrollTotal > pCanvas.headerHeight) {
+                (pCanvas.targetPredictedScrollTotal - pCanvas.headerHeight).toInt().coerceAtLeast(0)
             } else {
                 0
             }
@@ -111,7 +120,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 isKeyboardVisible = isKeyboardVisible,
                 breathingMarginPx = breathingMargin,
                 isTextEmpty = text.isEmpty(),
-                activeGlideTargetY = activeGlideTarget
+                activeGlideTargetY = activeGlideTarget,
+                isHeaderFullyHidden = true
             )
         } catch (_: Throwable) {
             super.getScrollMaxY()
@@ -1250,9 +1260,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
             }
         }
         if (parentCanvas != null && parentCanvas.scrollD < parentCanvas.headerHeight && offsetY > 0) {
-            val strayY = offsetY
             jumpScrollTo(offsetX, 0)
-            parentCanvas.scrollCanvasBy(strayY.toFloat())
         }
         return result
     }
@@ -1470,9 +1478,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
     override fun computeScroll() {
         val parentCanvas = parent as? UnifiedCanvasLayout
         if (parentCanvas != null && parentCanvas.scrollD < parentCanvas.headerHeight && offsetY > 0) {
-            val strayY = offsetY
             jumpScrollTo(offsetX, 0)
-            parentCanvas.scrollCanvasBy(strayY.toFloat())
         }
         val scroller = scroller
         val wasFinished = scroller?.isFinished ?: true

@@ -134,6 +134,141 @@ object ScribeScrollPolicy {
         return (totalContentHeight - viewportHeight).coerceAtLeast(0)
     }
 
+    // ── 1-DOF Scroll Ownership & Coordination Model ────────────────────────────
+
+    data class ScrollAllocation(
+        val outerDelta: Float,
+        val innerDelta: Float,
+        val unconsumedDelta: Float
+    )
+
+    data class ReconciledScrollState(
+        val scrollD: Int,
+        val editorOffsetY: Int
+    )
+
+    /**
+     * Authoritative 1 Degree of Freedom (1-DOF) scroll allocation policy.
+     *
+     * Invariants:
+     * 1. While any portion of the title header is visible (scrollD < headerHeight),
+     *    vertical scroll movement belongs EXCLUSIVELY to the outer unified canvas.
+     *    The editor's internal scroll offset MUST remain at its neutral position (0).
+     *    Leftover delta is NEVER passed to the editor merely because maxCanvasScroll was reached.
+     * 2. Once the header is completely scrolled out of view (scrollD == headerHeight),
+     *    leftover delta and subsequent upward movement may scroll the editor internally.
+     * 3. Reverse movement (scrolling back towards title):
+     *    Movement is consumed against the editor's internal offset until it reaches 0.
+     *    Only after the editor offset reaches 0 may movement be consumed against the outer canvas
+     *    to reveal the header.
+     * 4. A single delta crossing the handoff boundary is split precisely at the boundary with zero
+     *    gap, jump, or double consumption.
+     *
+     * @param deltaY Vertical delta to allocate (> 0 moves deeper into document, < 0 moves towards title)
+     * @param headerHeight Measured height of the document header/title view
+     * @param scrollD Current header displacement of outer canvas
+     * @param editorOffsetY Current internal scroll offset of editor
+     * @param maxCanvasScroll Total allowable vertical scroll distance across canvas and editor
+     */
+    fun allocateScrollDelta(
+        deltaY: Float,
+        headerHeight: Int,
+        scrollD: Float,
+        editorOffsetY: Int,
+        maxCanvasScroll: Int
+    ): ScrollAllocation {
+        if (deltaY == 0f || headerHeight <= 0) {
+            return ScrollAllocation(0f, 0f, deltaY)
+        }
+
+        if (deltaY > 0f) {
+            // Forward scroll: content moves up, into the document
+            val currentTotal = scrollD + editorOffsetY
+            val maxTotal = maxCanvasScroll.toFloat().coerceAtLeast(0f)
+            val availableTotal = (maxTotal - currentTotal).coerceAtLeast(0f)
+            val allowedDelta = minOf(deltaY, availableTotal)
+
+            if (allowedDelta <= 0f) {
+                return ScrollAllocation(0f, 0f, deltaY)
+            }
+
+            // Phase 1: Outer canvas (scrollD) moves towards headerHeight
+            val maxScrollD = minOf(headerHeight.toFloat(), maxTotal)
+            val remainingToHeader = (maxScrollD - scrollD).coerceAtLeast(0f)
+            val outerDelta = minOf(allowedDelta, remainingToHeader)
+
+            // Phase 2: Inner editor (offsetY) moves ONLY if header is completely hidden
+            val remainingAfterOuter = allowedDelta - outerDelta
+            val newScrollD = scrollD + outerDelta
+
+            val innerDelta = if (newScrollD >= headerHeight.toFloat() - 0.001f) {
+                remainingAfterOuter
+            } else {
+                0f // STRICT INVARIANT: Editor CANNOT scroll while header is visible!
+            }
+
+            val unconsumed = deltaY - (outerDelta + innerDelta)
+            return ScrollAllocation(outerDelta, innerDelta, unconsumed)
+
+        } else {
+            // Reverse scroll (deltaY < 0): content moves down, back towards header / top
+            val currentTotal = scrollD + editorOffsetY
+            if (currentTotal <= 0f) {
+                return ScrollAllocation(0f, 0f, deltaY)
+            }
+
+            val allowedDelta = maxOf(deltaY, -currentTotal)
+
+            // Phase 1: Inner editor (offsetY) returns to 0 first
+            val canConsumeInner = -editorOffsetY.toFloat() // negative or 0
+            val innerDelta = maxOf(allowedDelta, canConsumeInner)
+
+            // Phase 2: Outer canvas (scrollD) moves towards 0 only after editor reaches 0
+            val remainingAfterInner = allowedDelta - innerDelta // negative or 0
+            val outerDelta = if (editorOffsetY + innerDelta <= 0.001f) {
+                val canConsumeOuter = -scrollD // negative or 0
+                maxOf(remainingAfterInner, canConsumeOuter)
+            } else {
+                0f // Editor must reach 0 before canvas moves
+            }
+
+            val unconsumed = deltaY - (innerDelta + outerDelta)
+            return ScrollAllocation(outerDelta, innerDelta, unconsumed)
+        }
+    }
+
+    /**
+     * Reconciles outer and inner scroll offsets against physical bounds and the 1-DOF invariant.
+     * Guarantees that if scrollD < headerHeight, editorOffsetY is strictly 0.
+     */
+    fun reconcileScrollState(
+        headerHeight: Int,
+        scrollD: Int,
+        editorOffsetY: Int,
+        maxCanvasScroll: Int
+    ): ReconciledScrollState {
+        if (headerHeight <= 0) {
+            return ReconciledScrollState(0, 0)
+        }
+        val safeMaxCanvas = maxCanvasScroll.coerceAtLeast(0)
+        val totalScroll = (scrollD + editorOffsetY).coerceIn(0, safeMaxCanvas)
+
+        return if (totalScroll < headerHeight) {
+            // Within header range: all displacement belongs to outer canvas; editor MUST be 0
+            ReconciledScrollState(
+                scrollD = totalScroll,
+                editorOffsetY = 0
+            )
+        } else {
+            // Beyond header range: header is completely offscreen (headerHeight),
+            // remainder belongs to editor
+            ReconciledScrollState(
+                scrollD = headerHeight,
+                editorOffsetY = totalScroll - headerHeight
+            )
+        }
+    }
+
     /**
      * Calculates the maximum displacement allowed for the header view (scrollD).
      * The header can only scroll as much as the total content overflows the viewport,
@@ -257,8 +392,11 @@ object ScribeScrollPolicy {
         isKeyboardVisible: Boolean = false,
         breathingMarginPx: Int = 0,
         isTextEmpty: Boolean = false,
-        activeGlideTargetY: Int = 0
+        activeGlideTargetY: Int = 0,
+        isHeaderFullyHidden: Boolean = true
     ): Int {
+        // Invariant A: Editor CANNOT have positive scroll bounds while title header is visible
+        if (!isHeaderFullyHidden) return 0
         if (isTextEmpty || layoutHeight <= 0 || viewportHeight <= 0) return 0
 
         // Dual-State Geometry:
