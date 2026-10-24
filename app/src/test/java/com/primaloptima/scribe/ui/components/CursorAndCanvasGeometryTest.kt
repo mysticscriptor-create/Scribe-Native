@@ -1343,5 +1343,222 @@ class CursorAndCanvasGeometryTest {
         // 1500 + 800 - 1000 = 1300
         assertEquals(1300, maxScroll)
     }
+
+    // ── Transition-Aware Contraction Restoration Tests ─────────────────────────
+
+    @Test
+    fun testContractionRestoration_MiddleOfDocument_RestoresTemporaryDisplacement() {
+        // Line 50 in a 100-line document:
+        // Prior expansion displaced canvas up by 200px.
+        // Viewport expands from 800 to 1100 (contracting keyboard/drawer).
+        val visibleHeight = 1100
+        val density = 2.5f
+        val marginPx = ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density // 60px
+        val targetLineBottom = visibleHeight - marginPx // 1040px
+        val caretScreenBottom = 600f
+        val totalScroll = 800f
+        val tempDisplacement = 200f
+
+        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(
+            ScribeScrollPolicy.ContractionRestorationRequest(
+                caretScreenBottom = caretScreenBottom,
+                caretScreenTop = caretScreenBottom - 50f,
+                viewportHeight = visibleHeight,
+                density = density,
+                totalScroll = totalScroll,
+                temporaryDisplacement = tempDisplacement,
+                isAtLastLine = false,
+                isKeyboardDismissing = false,
+                isBottomSurfaceActive = true
+            )
+        )
+
+        assertTrue("Should scroll downward to restore displacement", result.shouldScroll)
+        assertEquals("Delta must restore the exact 200px displacement", -200f, result.deltaY, 0.001f)
+        assertEquals("Remaining compensation should be 0", 0f, result.remainingCompensation, 0.001f)
+
+        // Verify settled caret position satisfies safe boundary
+        val settledCaretBottom = caretScreenBottom - result.deltaY // 600 - (-200) = 800px
+        assertTrue("Settled caret must rest above target line", settledCaretBottom <= targetLineBottom)
+    }
+
+    @Test
+    fun testContractionRestoration_EarlyLine_ClampsToTotalScroll() {
+        // Line 2 (early line): totalScroll = 80px, but temporaryDisplacement was 150px.
+        // Restoration cannot scroll past top of document (totalScroll reaches 0).
+        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(
+            ScribeScrollPolicy.ContractionRestorationRequest(
+                caretScreenBottom = 300f,
+                caretScreenTop = 260f,
+                viewportHeight = 1100,
+                density = 2.5f,
+                totalScroll = 80f,
+                temporaryDisplacement = 150f,
+                isAtLastLine = false,
+                isKeyboardDismissing = false,
+                isBottomSurfaceActive = true
+            )
+        )
+
+        assertTrue(result.shouldScroll)
+        assertEquals("Restoration must clamp to -totalScroll (-80px)", -80f, result.deltaY, 0.001f)
+        assertEquals("Remaining compensation must retain unapplied 70px", 70f, result.remainingCompensation, 0.001f)
+    }
+
+    @Test
+    fun testContractionRestoration_MiddleOfDocument_WithoutDisplacement_RemainsStationary() {
+        // Line 50 with no prior displacement recorded (user was typing mid-document).
+        // Must remain stationary (returns 0f).
+        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(
+            ScribeScrollPolicy.ContractionRestorationRequest(
+                caretScreenBottom = 600f,
+                caretScreenTop = 560f,
+                viewportHeight = 1100,
+                density = 2.5f,
+                totalScroll = 500f,
+                temporaryDisplacement = 0f,
+                isAtLastLine = false,
+                isKeyboardDismissing = false,
+                isBottomSurfaceActive = true
+            )
+        )
+
+        assertFalse("Mid-document editing without displacement must not scroll", result.shouldScroll)
+        assertEquals(0f, result.deltaY, 0.001f)
+    }
+
+    @Test
+    fun testContractionRestoration_FullKeyboardDismissal_StrictlyReturnsZeroDelta() {
+        // Keyboard is completely dismissing (Pure Writer stationary invariant):
+        // Even if temporary displacement exists and caret is on last line, delta must be 0f!
+        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(
+            ScribeScrollPolicy.ContractionRestorationRequest(
+                caretScreenBottom = 600f,
+                caretScreenTop = 560f,
+                viewportHeight = 1500,
+                density = 2.5f,
+                totalScroll = 500f,
+                temporaryDisplacement = 200f,
+                isAtLastLine = true,
+                isKeyboardDismissing = true,
+                isBottomSurfaceActive = false
+            )
+        )
+
+        assertFalse("Full keyboard dismissal must strictly suppress downward scroll", result.shouldScroll)
+        assertEquals(0f, result.deltaY, 0.001f)
+        assertEquals(0f, result.remainingCompensation, 0.001f)
+    }
+
+    @Test
+    fun testContractionRestoration_SafeBoundaryClamping_NeverSettlesBehindShortcutBar() {
+        // Caret is sitting at 1000px in a 1100px viewport. Breathing margin = 60px (targetLine = 1040px).
+        // Slack is only 40px (1040 - 1000 = 40px).
+        // If temporaryDisplacement = 120px, full restoration would push caret to 1120px (behind shortcut bar!).
+        // The policy MUST clamp downward movement to -40px.
+        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(
+            ScribeScrollPolicy.ContractionRestorationRequest(
+                caretScreenBottom = 1000f,
+                caretScreenTop = 960f,
+                viewportHeight = 1100,
+                density = 2.5f,
+                totalScroll = 500f,
+                temporaryDisplacement = 120f,
+                isAtLastLine = false,
+                isKeyboardDismissing = false,
+                isBottomSurfaceActive = true
+            )
+        )
+
+        assertTrue(result.shouldScroll)
+        assertEquals("Down movement must be clamped to safe slack (-40px)", -40f, result.deltaY, 0.001f)
+        assertEquals("Remaining compensation must track unapplied 80px", 80f, result.remainingCompensation, 0.001f)
+
+        // Assert settled caret bottom is exactly at targetLineBottom (1040px)
+        val settledCaretBottom = 1000f - result.deltaY
+        assertEquals(1040f, settledCaretBottom, 0.001f)
+    }
+
+    @Test
+    fun testContractionRestoration_LastLine_AnchorsToBreathingMarginWhenZeroDisplacement() {
+        // Caret on last line with 0 displacement: smoothly anchors document end to 24dp breathing margin
+        val visibleHeight = 1100
+        val density = 2.5f
+        val marginPx = ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density // 60px
+        val targetLineBottom = visibleHeight - marginPx // 1040px
+        val caretScreenBottom = 800f
+        val totalScroll = 600f
+
+        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(
+            ScribeScrollPolicy.ContractionRestorationRequest(
+                caretScreenBottom = caretScreenBottom,
+                caretScreenTop = caretScreenBottom - 40f,
+                viewportHeight = visibleHeight,
+                density = density,
+                totalScroll = totalScroll,
+                temporaryDisplacement = 0f,
+                isAtLastLine = true,
+                isKeyboardDismissing = false,
+                isBottomSurfaceActive = true
+            )
+        )
+
+        assertTrue(result.shouldScroll)
+        assertEquals(-240f, result.deltaY, 0.001f) // 800 - 1040 = -240
+    }
+
+    @Test
+    fun testBottomSurfaceCoordinator_AllowsDownwardFollow_WhenTemporaryDisplacementActive() {
+        // Line 50 (isAtLastLine = false) with temporaryDisplacement = 150px
+        val shouldFollow = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true,
+            isKeyboardVisible = true,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = false,
+            hasActiveScroll = true,
+            temporaryDisplacement = 150f
+        )
+        assertTrue("Coordinator must permit downward follow for non-last lines when displacement is active", shouldFollow)
+
+        // But when keyboard is dismissing, must strictly reject!
+        val shouldFollowDismissing = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = true,
+            isBottomSurfaceActive = false,
+            isKeyboardVisible = false,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = false,
+            hasActiveScroll = true,
+            temporaryDisplacement = 150f
+        )
+        assertFalse("Coordinator must reject downward follow on dismissal even with displacement active", shouldFollowDismissing)
+    }
+
+    @Test
+    fun testContractionRestoration_DiagnosticsLogging() {
+        var loggedMessage: String? = null
+        ScribeScrollPolicy.isDebugDiagnosticsEnabled = true
+        ScribeScrollPolicy.onScrollDiagnosticLog = { msg -> loggedMessage = msg }
+
+        try {
+            ScribeScrollPolicy.resolveContractionRestorationDelta(
+                ScribeScrollPolicy.ContractionRestorationRequest(
+                    caretScreenBottom = 600f,
+                    caretScreenTop = 560f,
+                    viewportHeight = 1100,
+                    density = 2.5f,
+                    totalScroll = 500f,
+                    temporaryDisplacement = 200f,
+                    isAtLastLine = false,
+                    isKeyboardDismissing = false,
+                    isBottomSurfaceActive = true
+                )
+            )
+            assertTrue("Diagnostic log must be called", loggedMessage != null && loggedMessage.contains("Applied"))
+        } finally {
+            ScribeScrollPolicy.isDebugDiagnosticsEnabled = false
+            ScribeScrollPolicy.onScrollDiagnosticLog = null
+        }
+    }
 }
 

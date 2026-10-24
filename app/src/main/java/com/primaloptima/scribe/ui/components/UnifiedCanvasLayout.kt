@@ -195,6 +195,34 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         private set
     private var resetDeletionActiveRunnable: Runnable? = null
 
+    /**
+     * Transition-aware compensation tracking:
+     * Records upward canvas displacement caused by an expanded bottom surface (e.g. emoji keyboard,
+     * accessory drawer) so that it can be safely and smoothly restored when the surface contracts.
+     */
+    var temporaryExpansionDisplacement: Float = 0f
+        private set
+    var expansionCaretLine: Int = -1
+        private set
+
+    fun recordExpansionDisplacement(dy: Float, line: Int) {
+        if (dy > 0f) {
+            temporaryExpansionDisplacement += dy
+            expansionCaretLine = line
+        }
+    }
+
+    fun invalidateCompensation() {
+        temporaryExpansionDisplacement = 0f
+        expansionCaretLine = -1
+    }
+
+    fun invalidateCompensationIfLineChanged(newLine: Int) {
+        if (expansionCaretLine != -1 && expansionCaretLine != newLine) {
+            invalidateCompensation()
+        }
+    }
+
     fun notifyLastLineDeletionStarted() {
         isLastLineDeletionActive = true
         resetDeletionActiveRunnable?.let { removeCallbacks(it) }
@@ -608,6 +636,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             } else {
                 customDurationMs
             }
+            if (resolution.deltaY > 0f) {
+                recordExpansionDisplacement(resolution.deltaY, line)
+            }
             if (smooth) {
                 smoothScrollCanvasBy(resolution.deltaY, durationMs = duration, interpolator = FastOutSlowInInterpolator)
             } else {
@@ -779,7 +810,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     isKeyboardVisible = isKeyboardVisible,
                     hasPhysicalBottomObstruction = hasBottomObstruction,
                     isAtLastLine = isAtLastLine,
-                    hasActiveScroll = hasActiveScroll
+                    hasActiveScroll = hasActiveScroll,
+                    temporaryDisplacement = temporaryExpansionDisplacement
                 )
 
                 // Pure Writer Invariant:
@@ -787,34 +819,53 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 // completely stationary at the saved margin (keyboard height + shortcut bar + breathing margin).
                 // Never pull down to the bottom of the screen.
                 if (!shouldFollow) {
+                    if (isKeyboardDismissing || !isBottomSurfaceActive) {
+                        invalidateCompensation()
+                    }
                     return
                 }
 
                 // Downward Following Invariant:
-                // Only when bottom surface remains active (e.g. accessory drawer collapsed to keyboard,
-                // or taller emoji keyboard returned to standard keyboard), smoothly follow the
-                // shortcut bar downward maintaining the exact 24dp breathing margin.
-                val lastLine = (lineCount - 1).coerceAtLeast(0)
-                val lastCol = try { editor.text.getColumnCount(lastLine) } catch (_: Throwable) { 0 }
+                // When bottom surface remains active (e.g. accessory drawer collapsed to keyboard,
+                // or taller emoji keyboard returned to standard keyboard), safely restore temporary
+                // displacement across ALL caret positions, while ensuring the caret settles above
+                // the shortcut bar maintaining the exact 24dp breathing margin.
                 val lay = editor.layout
-                val off = try { lay?.getCharLayoutOffset(lastLine, lastCol) } catch (_: Throwable) { null }
-                val lastLineDocBottom = off?.get(0)
-                    ?: (lay?.layoutHeight?.toFloat() ?: ((lastLine + 1) * editor.rowHeight.toFloat()))
+                val targetLine = cur?.leftLine ?: (lineCount - 1).coerceAtLeast(0)
+                val targetCol = cur?.leftColumn ?: 0
+                val off = try { lay?.getCharLayoutOffset(targetLine, targetCol) } catch (_: Throwable) { null }
+                val rowHeight = editor.rowHeight.toFloat()
+                val caretDocBottom = off?.get(0)
+                    ?: (lay?.layoutHeight?.toFloat() ?: ((targetLine + 1) * rowHeight))
+                val caretDocTop = caretDocBottom - rowHeight
 
-                val deltaY = ScribeScrollPolicy.calculateLastLineFollowDelta(
-                    lastLineDocBottom = lastLineDocBottom,
-                    headerHeight = headerHeight,
-                    scrollD = scrollD,
-                    offsetY = editor.offsetY,
-                    viewportHeight = h,
-                    density = density,
-                    isAtLastLine = true
+                val headerRemaining = (headerHeight - scrollD).toFloat()
+                val caretScreenBottom = headerRemaining + caretDocBottom - editor.offsetY
+                val caretScreenTop = headerRemaining + caretDocTop - editor.offsetY
+                val totalScroll = (scrollD + editor.offsetY).toFloat()
+
+                val result = ScribeScrollPolicy.resolveContractionRestorationDelta(
+                    ScribeScrollPolicy.ContractionRestorationRequest(
+                        caretScreenBottom = caretScreenBottom,
+                        caretScreenTop = caretScreenTop,
+                        viewportHeight = h,
+                        density = density,
+                        totalScroll = totalScroll,
+                        temporaryDisplacement = temporaryExpansionDisplacement,
+                        isAtLastLine = isAtLastLine,
+                        isKeyboardDismissing = isKeyboardDismissing,
+                        isBottomSurfaceActive = isBottomSurfaceActive
+                    )
                 )
 
-                if (deltaY < -1f) {
+                if (result.shouldScroll && result.deltaY < -1f) {
+                    temporaryExpansionDisplacement = result.remainingCompensation
+                    if (temporaryExpansionDisplacement <= 0f) {
+                        expansionCaretLine = -1
+                    }
                     post {
                         smoothScrollCanvasBy(
-                            dy = deltaY,
+                            dy = result.deltaY,
                             durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS,
                             interpolator = FastOutSlowInInterpolator
                         )
@@ -991,6 +1042,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 isUserTouching = true
                 onUserTouchDown?.invoke()
                 cancelCanvasAnimation()
+                invalidateCompensation()
                 editor.stopFling()
                 initialDownX = ev.x
                 initialDownY = ev.y

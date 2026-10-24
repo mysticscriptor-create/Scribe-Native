@@ -328,6 +328,130 @@ object ScribeScrollPolicy {
         return 0f
     }
 
+    // ── Transition-Aware Contraction Restoration Model ─────────────────────────
+
+    /**
+     * Request model for calculating automatic downward restoration when an expanded
+     * keyboard (e.g. emoji picker) or accessory drawer contracts back to normal height.
+     */
+    data class ContractionRestorationRequest(
+        val caretScreenBottom: Float,
+        val caretScreenTop: Float,
+        val viewportHeight: Int,
+        val density: Float,
+        val totalScroll: Float,
+        val temporaryDisplacement: Float = 0f,
+        val isAtLastLine: Boolean = false,
+        val isKeyboardDismissing: Boolean = false,
+        val isBottomSurfaceActive: Boolean = true
+    )
+
+    /**
+     * Authoritative result model for downward contraction restoration.
+     */
+    data class ContractionRestorationResult(
+        val deltaY: Float,
+        val shouldScroll: Boolean,
+        val remainingCompensation: Float,
+        val reason: String
+    )
+
+    /**
+     * Diagnostic logging toggle and callback for scroll & viewport coordination.
+     */
+    var isDebugDiagnosticsEnabled: Boolean = false
+    var onScrollDiagnosticLog: ((String) -> Unit)? = null
+
+    fun logDiagnostic(tag: String, message: String) {
+        if (isDebugDiagnosticsEnabled) {
+            onScrollDiagnosticLog?.invoke("[$tag] $message")
+        }
+    }
+
+    /**
+     * Authoritative calculation for downward canvas adjustment when an expanded keyboard
+     * or accessory drawer contracts back to normal height.
+     *
+     * Invariants:
+     * 1. Pure Writer Invariant: When the keyboard is dismissing to 0dp or no bottom surface
+     *    remains active, downward scroll is STRICTLY prohibited (returns 0f). Canvas stays stationary.
+     * 2. Safe Bottom Boundary: The active caret/selection row must NEVER settle behind the
+     *    shortcut bar or keyboard surface. It settles comfortably with CURSOR_BOTTOM_MARGIN_DP (24dp).
+     * 3. Transition-Aware Compensation: If temporaryDisplacement > 0f was recorded during expansion,
+     *    it is safely restored down across ALL caret positions (first line, middle line, second-to-last, etc.).
+     * 4. 1-DOF & Bounds Respect: Clamped against totalScroll (cannot scroll past top of document)
+     *    and available slack above the breathing target line.
+     * 5. Last Line Anchor: If isAtLastLine and no temporaryDisplacement is set, the document end
+     *    smoothly anchors to the breathing margin.
+     */
+    fun resolveContractionRestorationDelta(
+        request: ContractionRestorationRequest
+    ): ContractionRestorationResult {
+        if (request.viewportHeight <= 0) {
+            return ContractionRestorationResult(0f, false, request.temporaryDisplacement, "Invalid viewport height")
+        }
+        if (request.isKeyboardDismissing) {
+            logDiagnostic("ContractionRestoration", "Rejected: keyboard is dismissing (Pure Writer stationary invariant)")
+            return ContractionRestorationResult(0f, false, 0f, "Keyboard dismissing")
+        }
+        if (!request.isBottomSurfaceActive) {
+            logDiagnostic("ContractionRestoration", "Rejected: no bottom surface active")
+            return ContractionRestorationResult(0f, false, 0f, "Bottom surface inactive")
+        }
+        if (request.totalScroll <= 0f) {
+            return ContractionRestorationResult(0f, false, 0f, "Document already at top")
+        }
+
+        val marginPx = (CURSOR_BOTTOM_MARGIN_DP * request.density).roundToInt()
+        val deadbandPx = (CURSOR_DEADBAND_DP * request.density).roundToInt()
+        val targetLineBottom = (request.viewportHeight - marginPx).toFloat()
+
+        // Slack between target line bottom and caret bottom.
+        // Positive slack means caret is currently sitting above targetLineBottom.
+        val slack = targetLineBottom - request.caretScreenBottom
+        if (slack <= deadbandPx) {
+            // Caret is already at or below target line; moving canvas downward would push caret
+            // behind the shortcut bar or violate the breathing margin!
+            logDiagnostic("ContractionRestoration", "Zero delta: caret has no downward slack (slack=$slack)")
+            return ContractionRestorationResult(0f, false, request.temporaryDisplacement, "Caret already at safe boundary")
+        }
+
+        // Determine intended downward delta (negative deltaY moves canvas down)
+        val intendedDown = when {
+            request.temporaryDisplacement > 0f -> -request.temporaryDisplacement
+            request.isAtLastLine -> -slack
+            else -> 0f
+        }
+
+        if (intendedDown >= 0f) {
+            return ContractionRestorationResult(0f, false, request.temporaryDisplacement, "No intended downward movement")
+        }
+
+        // Safe clamping:
+        // 1. Must never move caret lower than targetLineBottom: maximum safe downward is -slack
+        val safeDown = maxOf(intendedDown, -slack)
+
+        // 2. Must never scroll past the document top: maximum downward is -totalScroll
+        val clampedDown = maxOf(safeDown, -request.totalScroll)
+
+        if (clampedDown < -deadbandPx) {
+            val restoredAmount = -clampedDown
+            val remaining = (request.temporaryDisplacement - restoredAmount).coerceAtLeast(0f)
+            logDiagnostic(
+                "ContractionRestoration",
+                "Applied: deltaY=$clampedDown, intended=$intendedDown, slack=$slack, remainingCompensation=$remaining"
+            )
+            return ContractionRestorationResult(
+                deltaY = clampedDown,
+                shouldScroll = true,
+                remainingCompensation = remaining,
+                reason = "Restoration applied"
+            )
+        }
+
+        return ContractionRestorationResult(0f, false, request.temporaryDisplacement, "Delta within deadband")
+    }
+
     /**
      * Calculates the downward canvas adjustment when the viewport expands (e.g. accessory drawer collapses,
      * emoji keyboard closes, or bottom obstruction shrinks).
@@ -355,21 +479,24 @@ object ScribeScrollPolicy {
         isAtLastLine: Boolean
     ): Float {
         if (!isAtLastLine || viewportHeight <= 0) return 0f
-        val totalScroll = scrollD + offsetY
-        if (totalScroll <= 0) return 0f
-
-        val marginPx = (CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
-        val deadbandPx = (CURSOR_DEADBAND_DP * density).roundToInt()
-        val targetLineBottom = (viewportHeight - marginPx).toFloat()
+        val totalScroll = (scrollD + offsetY).toFloat()
+        if (totalScroll <= 0f) return 0f
 
         val screenBottom = (headerHeight - scrollD) + lastLineDocBottom - offsetY
-        // If the last line is sitting above the target breathing line:
-        if (screenBottom < (targetLineBottom - deadbandPx)) {
-            val deltaDown = screenBottom - targetLineBottom
-            // Cannot scroll past top of document (totalScroll reaches 0)
-            return maxOf(deltaDown, -totalScroll.toFloat())
-        }
-        return 0f
+        val result = resolveContractionRestorationDelta(
+            ContractionRestorationRequest(
+                caretScreenBottom = screenBottom,
+                caretScreenTop = screenBottom - (20f * density),
+                viewportHeight = viewportHeight,
+                density = density,
+                totalScroll = totalScroll,
+                temporaryDisplacement = 0f,
+                isAtLastLine = isAtLastLine,
+                isKeyboardDismissing = false,
+                isBottomSurfaceActive = true
+            )
+        )
+        return result.deltaY
     }
 
     /**

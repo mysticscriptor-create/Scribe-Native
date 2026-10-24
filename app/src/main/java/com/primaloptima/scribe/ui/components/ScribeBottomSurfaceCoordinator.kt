@@ -110,6 +110,7 @@ object ScribeBottomSurfaceCoordinator {
      * @param hasPhysicalBottomObstruction Viewport has remaining obstruction >= 140dp.
      * @param isAtLastLine Cursor is on or near the last line of the document.
      * @param hasActiveScroll Document has scroll offset > 0.
+     * @param temporaryDisplacement Recorded upward displacement caused by prior surface expansion.
      */
     fun shouldFollowDownward(
         isKeyboardDismissing: Boolean,
@@ -117,7 +118,8 @@ object ScribeBottomSurfaceCoordinator {
         isKeyboardVisible: Boolean,
         hasPhysicalBottomObstruction: Boolean,
         isAtLastLine: Boolean,
-        hasActiveScroll: Boolean
+        hasActiveScroll: Boolean,
+        temporaryDisplacement: Float = 0f
     ): Boolean {
         // Pure Writer Invariant:
         // When keyboard is dismissed or actively closing, the document MUST remain
@@ -132,8 +134,13 @@ object ScribeBottomSurfaceCoordinator {
             return false
         }
 
-        // Downward follow is only permitted when editing at the end of the document
-        // and following an actively contracting bottom surface (emoji -> normal, or drawer -> compact).
-        return isAtLastLine && hasActiveScroll
+        if (!hasActiveScroll) {
+            return false
+        }
+
+        // Downward follow is permitted when:
+        // 1. A prior expansion displaced the canvas upward (temporaryDisplacement > 0f) across ANY caret position, OR
+        // 2. The cursor is at the last line of the document following an actively contracting bottom surface.
+        return (temporaryDisplacement > 0f) || isAtLastLine
     }
 }
