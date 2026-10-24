@@ -201,26 +201,70 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * accessory drawer) so that it can be safely and smoothly restored when the surface contracts.
      */
     var temporaryExpansionDisplacement: Float = 0f
-        private set
+        internal set
     var expansionCaretLine: Int = -1
+        internal set
+    var expansionCaretCol: Int = -1
+        internal set
+    var expansionHadSelection: Boolean = false
+        internal set
+
+    /**
+     * Flag indicating that an expansion transition is actively in progress (e.g. keyboard entrance
+     * or accessory drawer opening). Upward scroll movement during this window is recorded as
+     * expansion displacement. Normal typing / cursor movement outside of this transition is NOT recorded.
+     */
+    var isExpansionTransitionActive: Boolean = false
+        internal set
+    private var resetExpansionTransitionRunnable: Runnable? = null
+
+    /**
+     * Authoritative active restoration tracking.
+     */
+    private var activeRestorationAnimator: android.animation.ValueAnimator? = null
+    var isRestorationActive: Boolean = false
+        private set
+    var activeRestorationTargetScroll: Float? = null
         private set
 
-    fun recordExpansionDisplacement(dy: Float, line: Int) {
-        if (dy > 0f) {
-            temporaryExpansionDisplacement += dy
+    fun recordExpansionDisplacement(dy: Float, line: Int, col: Int = 0, isSelected: Boolean = false) {
+        if (dy > 0f && isExpansionTransitionActive) {
             expansionCaretLine = line
+            expansionCaretCol = col
+            expansionHadSelection = isSelected
         }
     }
 
-    fun invalidateCompensation() {
+    fun invalidateCompensation(reason: String? = null) {
+        cancelRestoration()
         temporaryExpansionDisplacement = 0f
         expansionCaretLine = -1
+        expansionCaretCol = -1
+        expansionHadSelection = false
+        if (reason != null && ScribeScrollPolicy.isDebugDiagnosticsEnabled) {
+            ScribeScrollPolicy.logDiagnostic("Compensation", "Invalidated: $reason")
+        }
+    }
+
+    fun invalidateCompensationIfCaretChanged(newLine: Int, newCol: Int, isSelected: Boolean) {
+        if (expansionCaretLine != -1) {
+            if (expansionCaretLine != newLine || expansionCaretCol != newCol || expansionHadSelection != isSelected) {
+                invalidateCompensation("Caret moved ($newLine:$newCol vs $expansionCaretLine:$expansionCaretCol)")
+            }
+        }
     }
 
     fun invalidateCompensationIfLineChanged(newLine: Int) {
-        if (expansionCaretLine != -1 && expansionCaretLine != newLine) {
-            invalidateCompensation()
+        invalidateCompensationIfCaretChanged(newLine, expansionCaretCol, expansionHadSelection)
+    }
+
+    fun cancelRestoration() {
+        if (activeRestorationAnimator != null) {
+            activeRestorationAnimator?.cancel()
+            activeRestorationAnimator = null
         }
+        isRestorationActive = false
+        activeRestorationTargetScroll = null
     }
 
     fun notifyLastLineDeletionStarted() {
@@ -260,6 +304,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val delta = curr - lastAnimatedValue
                 lastAnimatedValue = curr
                 scrollCanvasBy(delta)
+                if (isExpansionTransitionActive && delta > 0f) {
+                    temporaryExpansionDisplacement += delta
+                }
             }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
@@ -281,7 +328,156 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     /**
      * Cancels any in-progress smooth scroll animators and scroller flings.
      */
+    /**
+     * Extracts unified selection/caret bounds in document coordinates,
+     * correctly distinguishing vertical (Y: bottom/top) and horizontal (X: left/right),
+     * and accurately encompassing multi-line selections.
+     */
+    internal fun getSelectionGeometry(
+        cur: io.github.rosemoe.sora.text.Cursor?,
+        lay: io.github.rosemoe.sora.widget.layout.Layout?
+    ): ScribeScrollPolicy.SelectionGeometry? {
+        if (lay == null) return null
+        val rowHeight = editor.rowHeight.toFloat()
+        val lineCount = try { editor.text.lineCount } catch (_: Throwable) { 1 }
+
+        if (cur != null && cur.isSelected) {
+            val leftLine = cur.leftLine.coerceIn(0, (lineCount - 1).coerceAtLeast(0))
+            val leftCol = cur.leftColumn.coerceAtLeast(0)
+            val rightLine = cur.rightLine.coerceIn(0, (lineCount - 1).coerceAtLeast(0))
+            val rightCol = cur.rightColumn.coerceAtLeast(0)
+
+            val leftOff = try { lay.getCharLayoutOffset(leftLine, leftCol) } catch (_: Throwable) { null }
+            val rightOff = try { lay.getCharLayoutOffset(rightLine, rightCol) } catch (_: Throwable) { null }
+
+            // Sora layout offset: index 0 is character bottom Y in doc coordinates, index 1 is character left X
+            val leftBottomY = leftOff?.get(0) ?: ((leftLine + 1) * rowHeight)
+            val leftTopY = leftBottomY - rowHeight
+            val leftX = leftOff?.get(1) ?: 0f
+
+            val rightBottomY = rightOff?.get(0) ?: ((rightLine + 1) * rowHeight)
+            val rightTopY = rightBottomY - rowHeight
+            val rightX = rightOff?.get(1) ?: 0f
+
+            return ScribeScrollPolicy.SelectionGeometry(
+                topDocY = minOf(leftTopY, rightTopY),
+                bottomDocY = maxOf(leftBottomY, rightBottomY),
+                leftDocX = leftX,
+                rightDocX = rightX,
+                isSelected = true,
+                anchorLine = leftLine,
+                focusLine = rightLine
+            )
+        }
+
+        val line = (cur?.leftLine ?: (lineCount - 1)).coerceIn(0, (lineCount - 1).coerceAtLeast(0))
+        val col = (cur?.leftColumn ?: 0).coerceAtLeast(0)
+        val off = try { lay.getCharLayoutOffset(line, col) } catch (_: Throwable) { null }
+
+        // Sora layout offset: index 0 is character bottom Y in doc coordinates, index 1 is character left X
+        val bottomY = off?.get(0) ?: ((line + 1) * rowHeight)
+        val topY = bottomY - rowHeight
+        val leftX = off?.get(1) ?: 0f
+
+        return ScribeScrollPolicy.SelectionGeometry(
+            topDocY = topY,
+            bottomDocY = bottomY,
+            leftDocX = leftX,
+            rightDocX = leftX,
+            isSelected = false,
+            anchorLine = line,
+            focusLine = line
+        )
+    }
+
+    /**
+     * Authoritative contraction restoration:
+     * Restores downward displacement as a single coordinated operation.
+     * If the viewport changes again while an animation is in flight (e.g. intermediate
+     * layout frames during drawer collapse), it retargets smoothly from the current
+     * position rather than spawning new independent animations or applying cumulative deltas.
+     */
+    private fun startOrRetargetContractionRestoration(
+        targetTotalScroll: Float,
+        durationMs: Long = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
+    ) {
+        val currentScroll = (scrollD + editor.offsetY).toFloat()
+        val totalDeltaToApply = targetTotalScroll - currentScroll
+
+        if (kotlin.math.abs(totalDeltaToApply) < 1f) {
+            cancelRestoration()
+            return
+        }
+
+        // Retarget active restoration smoothly from current scroll
+        if (activeRestorationAnimator != null && activeRestorationAnimator?.isRunning == true) {
+            activeRestorationTargetScroll = targetTotalScroll
+            activeRestorationAnimator?.setFloatValues(currentScroll, targetTotalScroll)
+            return
+        }
+
+        activeRestorationAnimator?.cancel()
+        isRestorationActive = true
+        activeRestorationTargetScroll = targetTotalScroll
+
+        var lastAnimatedScroll = currentScroll
+        activeRestorationAnimator = android.animation.ValueAnimator.ofFloat(currentScroll, targetTotalScroll).apply {
+            duration = durationMs
+            interpolator = FastOutSlowInInterpolator
+            addUpdateListener { anim ->
+                val currVal = anim.animatedValue as Float
+                val stepDelta = currVal - lastAnimatedScroll
+                lastAnimatedScroll = currVal
+
+                if (kotlin.math.abs(stepDelta) >= 0.25f) {
+                    scrollCanvasBy(stepDelta)
+                    if (stepDelta < 0f) {
+                        val appliedDown = -stepDelta
+                        temporaryExpansionDisplacement = (temporaryExpansionDisplacement - appliedDown).coerceAtLeast(0f)
+                        if (temporaryExpansionDisplacement <= 0f) {
+                            expansionCaretLine = -1
+                            expansionCaretCol = -1
+                            expansionHadSelection = false
+                        }
+                    }
+                }
+            }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    activeRestorationAnimator = null
+                    isRestorationActive = false
+                    activeRestorationTargetScroll = null
+
+                    // Final target safety revalidation after restoration completes
+                    val finalCur = try { editor.cursor } catch (_: Throwable) { null }
+                    val finalGeom = getSelectionGeometry(finalCur, editor.layout)
+                    if (finalGeom != null) {
+                        val finalScroll = (scrollD + editor.offsetY).toFloat()
+                        val validation = ScribeScrollPolicy.validateFinalTarget(
+                            targetTotalScroll = finalScroll,
+                            caretDocBottom = finalGeom.bottomDocY,
+                            headerHeight = headerHeight,
+                            viewportHeight = height,
+                            density = resources.displayMetrics.density
+                        )
+                        if (!validation.isSafe && validation.correctiveDeltaY > 1f) {
+                            scrollCanvasBy(validation.correctiveDeltaY)
+                        }
+                    }
+                }
+
+                override fun onAnimationCancel(animation: android.animation.Animator) {
+                    activeRestorationAnimator = null
+                    isRestorationActive = false
+                    activeRestorationTargetScroll = null
+                }
+            })
+            start()
+        }
+    }
+
     fun cancelCanvasAnimation() {
+        cancelRestoration()
         canvasScrollAnimator?.cancel()
         canvasScrollAnimator = null
         isPredictiveGlideRunning = false
@@ -636,13 +832,16 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             } else {
                 customDurationMs
             }
-            if (resolution.deltaY > 0f) {
-                recordExpansionDisplacement(resolution.deltaY, line)
+            if (resolution.deltaY > 0f && isExpansionTransitionActive) {
+                recordExpansionDisplacement(resolution.deltaY, line, col, cursor.isSelected)
             }
             if (smooth) {
                 smoothScrollCanvasBy(resolution.deltaY, durationMs = duration, interpolator = FastOutSlowInInterpolator)
             } else {
                 scrollCanvasBy(resolution.deltaY)
+                if (isExpansionTransitionActive && resolution.deltaY > 0f) {
+                    temporaryExpansionDisplacement += resolution.deltaY
+                }
             }
         }
     }
@@ -746,7 +945,18 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (oldh > 0 && kotlin.math.abs(h - oldh) > 2) {
             val dh = oldh - h
             if (dh > 0) {
-                // Viewport shrinking (keyboard appearing)
+                // Viewport shrinking (keyboard appearing or accessory drawer opening)
+                isExpansionTransitionActive = true
+                resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
+                val rReset = Runnable { isExpansionTransitionActive = false }
+                resetExpansionTransitionRunnable = rReset
+                postDelayed(rReset, 600L)
+                val curC = try { editor.cursor } catch (_: Throwable) { null }
+                if (curC != null) {
+                    expansionCaretLine = curC.leftLine
+                    expansionCaretCol = curC.leftColumn
+                    expansionHadSelection = curC.isSelected
+                }
                 if (editor.isFocused) {
                     val density = resources.displayMetrics.density
                     val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
@@ -793,17 +1003,18 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 }
             } else if (dh < 0) {
                 // Viewport expanding (accessory drawer contracting, emoji keyboard closing, or bottom surface lowering)
+                isExpansionTransitionActive = false
+                resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
+
                 val density = resources.displayMetrics.density
                 val rootH = rootView?.height ?: resources.displayMetrics.heightPixels
                 val hasBottomObstruction = (rootH - h) >= (140 * density).roundToInt()
-
                 val cur = try { editor.cursor } catch (_: Throwable) { null }
                 val lineCount = try { editor.text.lineCount } catch (_: Throwable) { 1 }
                 val isAtLastLine = try {
                     (cur != null && cur.leftLine >= (lineCount - 1)) || (lineCount <= 1)
                 } catch (_: Throwable) { false }
                 val hasActiveScroll = scrollD > 0 || editor.offsetY > 0
-
                 val shouldFollow = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
                     isKeyboardDismissing = isKeyboardDismissing,
                     isBottomSurfaceActive = isBottomSurfaceActive,
@@ -820,7 +1031,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 // Never pull down to the bottom of the screen.
                 if (!shouldFollow) {
                     if (isKeyboardDismissing || !isBottomSurfaceActive) {
-                        invalidateCompensation()
+                        cancelRestoration()
+                        invalidateCompensation("Keyboard dismissing or bottom surface inactive")
                     }
                     return
                 }
@@ -831,13 +1043,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 // displacement across ALL caret positions, while ensuring the caret settles above
                 // the shortcut bar maintaining the exact 24dp breathing margin.
                 val lay = editor.layout
-                val targetLine = cur?.leftLine ?: (lineCount - 1).coerceAtLeast(0)
-                val targetCol = cur?.leftColumn ?: 0
-                val off = try { lay?.getCharLayoutOffset(targetLine, targetCol) } catch (_: Throwable) { null }
-                val rowHeight = editor.rowHeight.toFloat()
-                val caretDocBottom = off?.get(0)
-                    ?: (lay?.layoutHeight?.toFloat() ?: ((targetLine + 1) * rowHeight))
-                val caretDocTop = caretDocBottom - rowHeight
+                val geom = getSelectionGeometry(cur, lay) ?: return
+                val caretDocBottom = geom.bottomDocY
+                val caretDocTop = geom.topDocY
 
                 val headerRemaining = (headerHeight - scrollD).toFloat()
                 val caretScreenBottom = headerRemaining + caretDocBottom - editor.offsetY
@@ -858,18 +1066,22 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     )
                 )
 
-                if (result.shouldScroll && result.deltaY < -1f) {
-                    temporaryExpansionDisplacement = result.remainingCompensation
-                    if (temporaryExpansionDisplacement <= 0f) {
-                        expansionCaretLine = -1
-                    }
+                if (result.shouldScroll) {
+                    val candidateTarget = (totalScroll + result.deltaY).coerceAtLeast(0f)
+                    val validation = ScribeScrollPolicy.validateFinalTarget(
+                        targetTotalScroll = candidateTarget,
+                        caretDocBottom = caretDocBottom,
+                        headerHeight = headerHeight,
+                        viewportHeight = h,
+                        density = density
+                    )
+                    val safeTarget = if (!validation.isSafe) candidateTarget + validation.correctiveDeltaY else candidateTarget
+
                     post {
-                        smoothScrollCanvasBy(
-                            dy = result.deltaY,
-                            durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS,
-                            interpolator = FastOutSlowInInterpolator
-                        )
+                        startOrRetargetContractionRestoration(safeTarget)
                     }
+                } else if (isRestorationActive) {
+                    cancelRestoration()
                 }
             }
         }

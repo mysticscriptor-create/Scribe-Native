@@ -408,11 +408,25 @@ object ScribeScrollPolicy {
 
         // Slack between target line bottom and caret bottom.
         // Positive slack means caret is currently sitting above targetLineBottom.
+        // Negative slack means caret is currently sitting below targetLineBottom (UNSAFE!).
         val slack = targetLineBottom - request.caretScreenBottom
+
+        // Safety Invariant: If caret is currently behind safe boundary (slack < -deadbandPx),
+        // we must not do nothing! Calculate corrective upward delta.
+        if (slack < -deadbandPx) {
+            val correctiveUp = -slack // positive upward delta
+            logDiagnostic("ContractionRestoration", "Corrective upward applied: slack=$slack, correctiveUp=$correctiveUp")
+            return ContractionRestorationResult(
+                deltaY = correctiveUp,
+                shouldScroll = true,
+                remainingCompensation = request.temporaryDisplacement,
+                reason = "Corrective upward to safe boundary"
+            )
+        }
+
+        // Caret is sitting right at the safe boundary (within deadband)
         if (slack <= deadbandPx) {
-            // Caret is already at or below target line; moving canvas downward would push caret
-            // behind the shortcut bar or violate the breathing margin!
-            logDiagnostic("ContractionRestoration", "Zero delta: caret has no downward slack (slack=$slack)")
+            logDiagnostic("ContractionRestoration", "Zero delta: caret already at safe boundary (slack=$slack)")
             return ContractionRestorationResult(0f, false, request.temporaryDisplacement, "Caret already at safe boundary")
         }
 
@@ -469,6 +483,166 @@ object ScribeScrollPolicy {
      * @param isAtLastLine Whether the cursor is currently on the final line of the document
      * @return Negative deltaY to smoothly pull the canvas down, or 0f if no adjustment needed
      */
+
+    // ── Selection & Caret Coordinate Models ───────────────────────────────────
+
+    /**
+     * Unified geometry description for cursor or selection bounds in document coordinates.
+     * Accurately distinguishes vertical top/bottom from horizontal left/right,
+     * and accounts for multi-line selection endpoints.
+     */
+    data class SelectionGeometry(
+        val topDocY: Float,
+        val bottomDocY: Float,
+        val leftDocX: Float,
+        val rightDocX: Float,
+        val isSelected: Boolean,
+        val anchorLine: Int,
+        val focusLine: Int
+    )
+
+    data class SafeTargetValidationResult(
+        val isSafe: Boolean,
+        val finalCaretScreenBottom: Float,
+        val targetLineBottom: Float,
+        val correctiveDeltaY: Float
+    )
+
+    /**
+     * Validates whether a proposed total scroll position places the caret safely at or above
+     * the breathing margin line. If the final position would violate the boundary, calculates
+     * the necessary corrective upward delta.
+     */
+    fun validateFinalTarget(
+        targetTotalScroll: Float,
+        caretDocBottom: Float,
+        headerHeight: Int,
+        viewportHeight: Int,
+        density: Float
+    ): SafeTargetValidationResult {
+        val marginPx = (CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
+        val deadbandPx = (CURSOR_DEADBAND_DP * density).roundToInt()
+        val targetLineBottom = (viewportHeight - marginPx).toFloat()
+        val finalCaretBottom = (headerHeight + caretDocBottom - targetTotalScroll)
+        val slack = targetLineBottom - finalCaretBottom
+
+        return if (slack < -deadbandPx) {
+            SafeTargetValidationResult(
+                isSafe = false,
+                finalCaretScreenBottom = finalCaretBottom,
+                targetLineBottom = targetLineBottom,
+                correctiveDeltaY = -slack
+            )
+        } else {
+            SafeTargetValidationResult(
+                isSafe = true,
+                finalCaretScreenBottom = finalCaretBottom,
+                targetLineBottom = targetLineBottom,
+                correctiveDeltaY = 0f
+            )
+        }
+    }
+
+    /**
+     * Deterministic simulation controller for testing contraction restoration, retargeting,
+     * and tick-by-tick compensation reconciliation.
+     */
+    class ContractionSimulationController(
+        var totalScroll: Float,
+        var temporaryDisplacement: Float,
+        var caretLine: Int,
+        var caretCol: Int = 0,
+        var isSelected: Boolean = false,
+        var caretDocBottom: Float,
+        var headerHeight: Int = 200,
+        var density: Float = 2.5f
+    ) {
+        var isRestorationActive: Boolean = false
+            private set
+        var targetTotalScroll: Float = totalScroll
+            private set
+        var lastAppliedStep: Float = 0f
+            private set
+
+        fun onViewportHeightChanged(
+            newViewportHeight: Int,
+            isAtLastLine: Boolean,
+            isKeyboardDismissing: Boolean,
+            isBottomSurfaceActive: Boolean
+        ): ContractionRestorationResult {
+            if (isKeyboardDismissing || !isBottomSurfaceActive) {
+                cancelRestoration()
+                temporaryDisplacement = 0f
+                caretLine = -1
+                return ContractionRestorationResult(0f, false, 0f, "Dismissed")
+            }
+
+            val caretScreenBottom = (headerHeight + caretDocBottom - totalScroll)
+            val req = ContractionRestorationRequest(
+                caretScreenBottom = caretScreenBottom,
+                caretScreenTop = caretScreenBottom - 40f,
+                viewportHeight = newViewportHeight,
+                density = density,
+                totalScroll = totalScroll,
+                temporaryDisplacement = temporaryDisplacement,
+                isAtLastLine = isAtLastLine,
+                isKeyboardDismissing = false,
+                isBottomSurfaceActive = true
+            )
+            val result = resolveContractionRestorationDelta(req)
+            if (result.shouldScroll) {
+                val candidateTarget = (totalScroll + result.deltaY).coerceAtLeast(0f)
+                val validation = validateFinalTarget(candidateTarget, caretDocBottom, headerHeight, newViewportHeight, density)
+                targetTotalScroll = if (!validation.isSafe) candidateTarget + validation.correctiveDeltaY else candidateTarget
+                isRestorationActive = true
+            }
+            return result
+        }
+
+        fun applyAnimationStep(fraction: Float) {
+            if (!isRestorationActive) return
+            val stepTarget = totalScroll + (targetTotalScroll - totalScroll) * fraction
+            val delta = stepTarget - totalScroll
+            totalScroll = stepTarget
+            lastAppliedStep = delta
+            if (delta < 0f) {
+                val appliedDown = -delta
+                temporaryDisplacement = (temporaryDisplacement - appliedDown).coerceAtLeast(0f)
+                if (temporaryDisplacement <= 0f) {
+                    caretLine = -1
+                }
+            }
+            if (kotlin.math.abs(totalScroll - targetTotalScroll) < 0.5f) {
+                totalScroll = targetTotalScroll
+                isRestorationActive = false
+            }
+        }
+
+        fun cancelRestoration() {
+            isRestorationActive = false
+        }
+
+        fun onUserTouch() {
+            cancelRestoration()
+            temporaryDisplacement = 0f
+            caretLine = -1
+        }
+
+        fun onCaretMoved(newLine: Int, newCol: Int, newSelected: Boolean) {
+            if (caretLine != -1 && (caretLine != newLine || caretCol != newCol || isSelected != newSelected)) {
+                cancelRestoration()
+                temporaryDisplacement = 0f
+                caretLine = -1
+            }
+        }
+
+        fun onContentEdited() {
+            cancelRestoration()
+            temporaryDisplacement = 0f
+            caretLine = -1
+        }
+    }
+
     fun calculateLastLineFollowDelta(
         lastLineDocBottom: Float,
         headerHeight: Int,

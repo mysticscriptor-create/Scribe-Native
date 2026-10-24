@@ -202,7 +202,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         try {
             subscribeEvent(io.github.rosemoe.sora.event.SelectionChangeEvent::class.java) { _, _ ->
                 val cur = try { cursor } catch (_: Throwable) { null } ?: return@subscribeEvent
-                (parent as? UnifiedCanvasLayout)?.invalidateCompensationIfLineChanged(cur.leftLine)
+                (parent as? UnifiedCanvasLayout)?.invalidateCompensationIfCaretChanged(cur.leftLine, cur.leftColumn, cur.isSelected)
                 if (!cur.isSelected && cur.leftLine < text.lineCount) {
                     enforceAutoIndentFloor()
                     val line = cur.leftLine
@@ -310,7 +310,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         } catch (_: Throwable) { }
         try {
             subscribeEvent(io.github.rosemoe.sora.event.ContentChangeEvent::class.java) { event, _ ->
-                (parent as? UnifiedCanvasLayout)?.invalidateCompensation()
+                (parent as? UnifiedCanvasLayout)?.invalidateCompensation("Content edited")
                 if (!isBatchApplyingIndent) {
                     documentVersion++
                 }
