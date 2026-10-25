@@ -198,7 +198,7 @@ class DocumentLoadingLifecycleSafetyTest {
         try {
             throw java.io.FileNotFoundException("Storage volume unmounted")
         } catch (e: Exception) {
-            externalSyncStatus = ExternalSyncStatus.SyncFailed(note.externalUri, e.localizedMessage ?: "Failed")
+            externalSyncStatus = ExternalSyncStatus.SyncFailed(note.externalUri ?: "", e.localizedMessage ?: "Failed")
             safSuccess = false
         }
 
