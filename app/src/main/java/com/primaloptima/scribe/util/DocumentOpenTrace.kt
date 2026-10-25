@@ -24,7 +24,11 @@ object DocumentOpenTrace {
             val now = System.nanoTime()
             marks[stage] = now
             val elapsedMs = (now - startTimeNs) / 1_000_000.0
-            Log.d(TAG, "[$noteId] Stage: $stage at +${String.format(java.util.Locale.US, "%.2f", elapsedMs)}ms")
+            try {
+                Log.d(TAG, "[$noteId] Stage: $stage at +${String.format(java.util.Locale.US, "%.2f", elapsedMs)}ms")
+            } catch (_: Throwable) {
+                // Safe in unit tests where android.util.Log is not mocked
+            }
         }
 
         fun getElapsedMs(stage: String): Double? {
@@ -34,7 +38,11 @@ object DocumentOpenTrace {
 
         fun finish(summary: String = "") {
             val totalMs = (System.nanoTime() - startTimeNs) / 1_000_000.0
-            Log.i(TAG, "[$noteId] COMPLETED in ${String.format(java.util.Locale.US, "%.2f", totalMs)}ms. $summary")
+            try {
+                Log.i(TAG, "[$noteId] COMPLETED in ${String.format(java.util.Locale.US, "%.2f", totalMs)}ms. $summary")
+            } catch (_: Throwable) {
+                // Safe in unit tests where android.util.Log is not mocked
+            }
         }
     }
 
