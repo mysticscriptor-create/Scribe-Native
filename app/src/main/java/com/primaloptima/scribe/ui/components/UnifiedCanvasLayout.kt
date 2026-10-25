@@ -517,12 +517,19 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             density = density
         )
         if (!validation.isSafe && validation.correctiveDeltaY > 0.5f) {
-            startAuthoritativeScrollAnimation(
-                targetTotalScroll = currentScroll + validation.correctiveDeltaY,
-                reason = ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION,
-                durationMs = 120L
-            )
-            // DO NOT rebase compensation yet! The corrective animation has not finished moving.
+            val maxBound = maxCanvasScroll.toFloat()
+            val target = (currentScroll + validation.correctiveDeltaY).coerceIn(0f, maxBound)
+            if (target > currentScroll + 0.5f) {
+                startAuthoritativeScrollAnimation(
+                    targetTotalScroll = target,
+                    reason = ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION,
+                    durationMs = 120L
+                )
+            } else {
+                // Content is already physically clamped at max scroll; rebase with settled slack
+                rebaseCompensationAfterSafeCorrection()
+            }
+            // DO NOT rebase compensation prematurely while animation is actively moving.
             // It will be rebased in rebaseCompensationAfterSafeCorrection() once the correction completes.
         } else {
             // Settled position is safe: rebase remaining compensation against actual available slack now.
@@ -821,7 +828,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         customDurationMs: Long = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS,
         force: Boolean = false
     ) {
-        if (!editor.isFocused || isKeyboardDismissing) return
+        if ((!editor.isFocused && !isBottomSurfaceActive) || isKeyboardDismissing) return
         val now = System.currentTimeMillis()
         if (!force && now - lastEnsureCursorTime < 60L) return
 
@@ -837,8 +844,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val cur = try { editor.cursor } catch (_: Throwable) { null }
             val lay = try { editor.layout } catch (_: Throwable) { null }
             if (cur != null && lay != null) {
-                val geom = getCharGeometry(lay, targetLine ?: cur.leftLine, targetCol ?: cur.leftColumn, editor.rowHeight.toFloat())
-                val finalScreenBottom = (headerHeight + geom.bottomDocY - targetPredictedScrollTotal)
+                val selGeom = getSelectionGeometry(cur, lay)
+                val bottomY = selGeom?.bottomDocY ?: getCharGeometry(lay, targetLine ?: cur.leftLine, targetCol ?: cur.leftColumn, editor.rowHeight.toFloat()).bottomDocY
+                val finalScreenBottom = (headerHeight + bottomY - targetPredictedScrollTotal)
                 if (finalScreenBottom <= targetLineBottom + deadbandPx) {
                     return
                 }
@@ -866,7 +874,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val layout = try { editor.layout } catch (_: Throwable) { null } ?: return
         val rowHeight = editor.rowHeight
         val layoutOffset = try { layout.getCharLayoutOffset(line, col) } catch (_: Throwable) { null }
-        val yOffset = if (layoutOffset != null) {
+        val yOffset = if (cursor.isSelected && targetLine == null) {
+            getSelectionGeometry(cursor, layout)?.bottomDocY ?: (layoutOffset?.let { getCharGeometry(layout, line, col, rowHeight.toFloat()).bottomDocY } ?: ((line + 1) * rowHeight.toFloat()))
+        } else if (layoutOffset != null) {
             getCharGeometry(layout, line, col, rowHeight.toFloat()).bottomDocY
         } else {
             // Find closest preceding line with a valid layout offset to accurately project coordinates
@@ -1049,7 +1059,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     expansionCaretCol = curC.leftColumn
                     expansionHadSelection = curC.isSelected
                 }
-                if (editor.isFocused) {
+                if (editor.isFocused || isBottomSurfaceActive) {
                     val density = resources.displayMetrics.density
                     val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
                     val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
@@ -1067,16 +1077,19 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                             lastLineColCount = try { editor.text.getColumnCount(editor.text.lineCount - 1) } catch (_: Throwable) { 0 }
                         )
                         if (!(isAllSelected && editor.selectAllScrollMode == ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION)) {
-                            val targetLine = if (isAllSelected) cur.rightLine else cur.leftLine
-                            val targetCol = if (isAllSelected) cur.rightColumn else cur.leftColumn
-                            val geom = getCharGeometry(lay, targetLine, targetCol, editor.rowHeight.toFloat())
+                            val selGeom = getSelectionGeometry(cur, lay)
+                            val caretDocBottom = selGeom?.bottomDocY ?: run {
+                                val targetLine = if (isAllSelected) cur.rightLine else cur.leftLine
+                                val targetCol = if (isAllSelected) cur.rightColumn else cur.leftColumn
+                                getCharGeometry(lay, targetLine, targetCol, editor.rowHeight.toFloat()).bottomDocY
+                            }
                             val headerRemaining = headerHeight - scrollD
-                            val screenBottom = headerRemaining + geom.bottomDocY - editor.offsetY
+                            val screenBottom = headerRemaining + caretDocBottom - editor.offsetY
                             val targetLineBottom = (h - marginPx).toFloat()
 
                             val isCurrentlySafe = screenBottom <= (targetLineBottom + deadbandPx)
                             val isPredictedTargetSafe = if (isPredictiveGlideRunning && targetPredictedScrollTotal > 0f) {
-                                val finalScreenBottom = (headerHeight + geom.bottomDocY - targetPredictedScrollTotal)
+                                val finalScreenBottom = (headerHeight + caretDocBottom - targetPredictedScrollTotal)
                                 finalScreenBottom <= (targetLineBottom + deadbandPx)
                             } else {
                                 false
@@ -1087,8 +1100,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                             if (!isCurrentlySafe && !isPredictedTargetSafe) {
                                 post {
                                     ensureCursorVisibleAboveKeyboard(
-                                        targetLine = targetLine,
-                                        targetCol = targetCol,
                                         smooth = true,
                                         customDurationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS,
                                         force = true

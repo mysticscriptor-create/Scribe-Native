@@ -2626,5 +2626,188 @@ class CursorAndCanvasGeometryTest {
         assertEquals("Selection tracking reset", -1, coordinator.caretLine)
     }
 
+    @Test
+    fun testProductionCoordinator_Replacement_StartsMovingTowardNewTargetWithoutHitchingOrRelativeAccumulation() {
+        // Point 9.2: Replacing an animation immediately starts moving toward the new target
+        // without hitching or relative-delta accumulation.
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 200f)
+        val drivers = mutableListOf<TestAnimationDriver>()
+        val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
+            scrollCoordinator = coordinator,
+            animationDriverFactory = {
+                val d = TestAnimationDriver()
+                drivers.add(d)
+                d
+            }
+        )
+
+        // Op 1: target 400f
+        productionCoordinator.startAuthoritativeAnimation(
+            targetTotalScroll = 400f,
+            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+        )
+        val driver1 = drivers[0]
+        driver1.step(280f)
+        assertEquals(280f, coordinator.totalScroll, 0.001f)
+
+        // Replace mid-flight with Op 2: target 650f
+        productionCoordinator.startAuthoritativeAnimation(
+            targetTotalScroll = 650f,
+            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+        )
+        val driver2 = drivers[1]
+        // Driver 2 must start precisely from current combined scroll (280f), NOT restarting at 200f or adding relative deltas
+        assertEquals("New driver must start from current scroll position without hitch", 280f, driver2.fromVal, 0.001f)
+        assertEquals("New driver destination must match target", 650f, driver2.toVal, 0.001f)
+
+        driver2.step(500f)
+        assertEquals(500f, coordinator.totalScroll, 0.001f)
+        driver2.step(650f)
+        driver2.complete()
+
+        assertEquals("Total scroll must settle exactly at 650f", 650f, coordinator.totalScroll, 0.001f)
+        assertFalse(coordinator.isAnimationActive)
+    }
+
+    @Test
+    fun testProductionCoordinator_UserTouchDuringMovement_CancelsOperationAndDropsLateCallbacks() {
+        // Point 9.7: User touch during automatic movement immediately cancels the active operation
+        // and prevents late callbacks from running.
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
+            totalScroll = 300f,
+            temporaryDisplacement = 120f,
+            caretLine = 10,
+            caretCol = 4
+        )
+        val drivers = mutableListOf<TestAnimationDriver>()
+        val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
+            scrollCoordinator = coordinator,
+            animationDriverFactory = {
+                val d = TestAnimationDriver()
+                drivers.add(d)
+                d
+            }
+        )
+
+        productionCoordinator.startAuthoritativeAnimation(
+            targetTotalScroll = 500f,
+            reason = ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION
+        )
+        val driver = drivers[0]
+        driver.step(400f)
+        assertEquals(400f, coordinator.totalScroll, 0.001f)
+        assertTrue(coordinator.isAnimationActive)
+
+        // User touches screen (ACTION_DOWN): cancels animation and invalidates compensation
+        productionCoordinator.cancelActiveAnimation("User touch")
+        coordinator.invalidateCompensation("User touch")
+
+        assertFalse("Coordinator must be inactive immediately upon touch", coordinator.isAnimationActive)
+        assertEquals("Displacement must be zeroed immediately upon touch", 0f, coordinator.temporaryDisplacement, 0.001f)
+        assertEquals(-1, coordinator.caretLine)
+
+        // Late callbacks arrive from driver after cancel
+        driver.step(450f)
+        assertEquals("Late step callback must be ignored", 400f, coordinator.totalScroll, 0.001f)
+
+        driver.complete()
+        // Must not revive coordinator or trigger completion logic
+        assertFalse("Late complete callback must be ignored", coordinator.isAnimationActive)
+        assertEquals(400f, coordinator.totalScroll, 0.001f)
+    }
+
+    @Test
+    fun testProductionCoordinator_RapidTogglingBetweenExpandedAndCollapsed_NoDriftOrFighting() {
+        // Point 9.8: Rapid toggling between expanded and collapsed states does not accumulate drift or fight itself.
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 1000f)
+        val drivers = mutableListOf<TestAnimationDriver>()
+        val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
+            scrollCoordinator = coordinator,
+            animationDriverFactory = {
+                val d = TestAnimationDriver()
+                drivers.add(d)
+                d
+            }
+        )
+
+        // Rapid toggle 1: expand (target 1200f)
+        productionCoordinator.startAuthoritativeAnimation(1200f, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        drivers.last().step(1050f)
+
+        // Rapid toggle 2: collapse (target 1000f)
+        productionCoordinator.startAuthoritativeAnimation(1000f, ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION)
+        drivers.last().step(1020f)
+
+        // Rapid toggle 3: expand again (target 1200f)
+        productionCoordinator.startAuthoritativeAnimation(1200f, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        drivers.last().step(1100f)
+
+        // Rapid toggle 4: collapse again (target 1000f)
+        productionCoordinator.startAuthoritativeAnimation(1000f, ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION)
+        drivers.last().step(1040f)
+
+        // Rapid toggle 5: expand again (target 1200f) and let it settle
+        productionCoordinator.startAuthoritativeAnimation(1200f, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        drivers.last().step(1200f)
+        drivers.last().complete()
+
+        assertEquals("Coordinator must settle cleanly at 1200f with zero drift", 1200f, coordinator.totalScroll, 0.001f)
+        assertFalse(coordinator.isAnimationActive)
+        assertEquals("Operation ID must have advanced for each toggle without leaking animators", 5L, productionCoordinator.activeOperationId)
+    }
+
+    @Test
+    fun testProductionCoordinator_CaretMoveDuringExpansion_InvalidatesCompensationAndPreventsDownwardRestoration() {
+        // Point 9.9: Moving the caret during expansion invalidates compensation and prevents downward restoration on collapse.
+        val density = 2.5f
+        val marginPx = ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density // 60px
+        val headerHeight = 200
+        val rowHeight = 40f
+
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
+            totalScroll = 1000f,
+            temporaryDisplacement = 0f,
+            headerHeight = headerHeight,
+            density = density
+        )
+        coordinator.isExpansionTransitionActive = true
+
+        // Expansion pushes canvas upward by 180px
+        coordinator.requestTarget(1180f, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        coordinator.caretLine = 25
+        coordinator.caretCol = 10
+        coordinator.applyStep(1180f)
+        coordinator.finishAnimation()
+
+        assertEquals(1180f, coordinator.totalScroll, 0.001f)
+        assertEquals(180f, coordinator.temporaryDisplacement, 0.001f)
+
+        // User taps/moves caret to line 12 while expanded
+        coordinator.invalidateIfCaretChanged(newLine = 12, newCol = 0, newSelected = false)
+
+        assertEquals("Displacement must be wiped to 0f on caret movement", 0f, coordinator.temporaryDisplacement, 0.001f)
+        assertEquals(-1, coordinator.caretLine)
+
+        // Surface now collapses back
+        val caretDocBottom = (12 + 1) * rowHeight // line 12 bottom = 520px
+        val screenBottom = headerHeight + caretDocBottom - coordinator.totalScroll // 200 + 520 - 1180 = -460px
+        val req = ScribeScrollPolicy.ContractionRestorationRequest(
+            caretScreenBottom = screenBottom,
+            caretScreenTop = screenBottom - rowHeight,
+            viewportHeight = 2000,
+            density = density,
+            totalScroll = coordinator.totalScroll,
+            temporaryDisplacement = coordinator.temporaryDisplacement, // 0f
+            isAtLastLine = false,
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true
+        )
+        val restorationResult = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
+
+        assertFalse("Must NOT scroll downward when compensation was invalidated", restorationResult.shouldScroll)
+        assertEquals(0f, restorationResult.deltaY, 0.001f)
+    }
+
 }
+
 
