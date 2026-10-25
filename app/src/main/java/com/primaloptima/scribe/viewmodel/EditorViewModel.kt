@@ -880,13 +880,24 @@ class EditorViewModel(
     fun loadNote(
         noteId: String,
         preloadedMetadata: NoteMetadata? = null,
-        preloadedNote: Note? = null
+        preloadedNote: Note? = null,
+        outgoingText: String? = null
     ) {
+        val currentLoaded = (_loadState.value as? DocumentLoadState.Loaded)?.note
+        if (currentLoaded != null && currentLoaded.id == noteId && _activeNote.value?.id == noteId) {
+            return
+        }
+
         val requestId = loadGeneration.incrementAndGet()
         DocumentOpenTrace.start(noteId)
 
         // Capture outgoing note state
         val prevNote = _activeNote.value
+        if (outgoingText != null && prevNote != null && outgoingText != pendingContent) {
+            pendingContent = outgoingText
+            isDirty = true
+            currentContentRevision++
+        }
         val prevDirty = isDirty
         val prevPending = pendingContent
         val prevRev = currentContentRevision
@@ -915,9 +926,24 @@ class EditorViewModel(
         loadNoteJob = viewModelScope.launch {
             // Asynchronously wait for outgoing document local persistence to succeed before loading new document
             if (prevNote != null && prevNote.id != noteId && (prevDirty || prevPending != lastSavedContent)) {
-                withContext(Dispatchers.IO) {
+                val persisted = withContext(Dispatchers.IO) {
                     saveMutex.withLock {
                         saveContentInternal(prevNote, prevPending, prevRev)
+                    }
+                }
+                if (!persisted) {
+                    val recovered = withContext(Dispatchers.IO) {
+                        try {
+                            RecoveryManager.get(getApplication(), prevNote.id) == prevPending
+                        } catch (_: Exception) { false }
+                    }
+                    if (!recovered) {
+                        _loadState.value = DocumentLoadState.Error(
+                            noteId = noteId,
+                            message = "Failed to save previous document changes. Please try again.",
+                            recoverable = true
+                        )
+                        return@launch
                     }
                 }
             }
@@ -1115,17 +1141,42 @@ class EditorViewModel(
         val rev = currentContentRevision
         if (note != null && (dirty || content != lastSavedContent)) {
             viewModelScope.launch(Dispatchers.IO) {
-                saveMutex.withLock {
+                val success = saveMutex.withLock {
                     saveContentInternal(note, content, rev)
                 }
+                val verifiedInRecovery = if (!success) {
+                    try {
+                        RecoveryManager.get(getApplication(), note.id) == content
+                    } catch (_: Exception) { false }
+                } else false
+
                 withContext(Dispatchers.Main) {
-                    clearActiveNote()
-                    onSaved()
+                    if (success || verifiedInRecovery) {
+                        clearActiveNote()
+                        onSaved()
+                    } else {
+                        android.util.Log.e("EditorViewModel", "Cannot leave note: Room save and recovery verification both failed.")
+                    }
                 }
             }
         } else {
             clearActiveNote()
             onSaved()
+        }
+    }
+
+    fun retryExternalSync() {
+        val note = _activeNote.value ?: return
+        val extUri = note.externalUri ?: return
+        val content = pendingContent
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                SAFHelper.writeFile(getApplication(), Uri.parse(extUri), content)
+                _externalSyncStatus.value = ExternalSyncStatus.Synced
+            } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "SAF retry write failed", e)
+                _externalSyncStatus.value = ExternalSyncStatus.SyncFailed(extUri, e.localizedMessage ?: "Write failed")
+            }
         }
     }
 
@@ -1270,7 +1321,7 @@ class EditorViewModel(
     }
 
     private suspend fun saveContentInternal(note: Note, content: String, revision: Long): Boolean {
-        val newWords = MarkdownUtil.countWords(content)
+        val newWords = withContext(Dispatchers.Default) { MarkdownUtil.countWords(content) }
         val delta = newWords - lastWordCount
         lastWordCount = newWords
 
@@ -1475,32 +1526,36 @@ class EditorViewModel(
 
     fun restoreSnapshot(content: String) {
         val note = _activeNote.value ?: return
-        val restoredWc = MarkdownUtil.countWords(content)
-        // Fix (Bug 1): capture the baseline before mutating it so the corrective
-        // delta is calculated against the right value.
-        val previousWc = lastWordCount
-        viewModelScope.launch(Dispatchers.IO) {
-            val today = todayStr()
-            val delta = restoredWc - previousWc
-            // Atomically update notes and write_log so both reflect the restore.
-            db.writingLogDao().saveContentAndDelta(
-                noteDao    = db.noteDao(),
-                noteId     = note.id,
-                content    = content,
-                wordCount  = restoredWc,
-                updatedAt  = System.currentTimeMillis(),
-                date       = today,
-                bookId     = note.bookId,
-                folderPath = note.folderPath,
-                delta      = delta
-            )
+        viewModelScope.launch(Dispatchers.Default) {
+            val restoredWc = MarkdownUtil.countWords(content)
+            val previousWc = lastWordCount
+            withContext(Dispatchers.IO) {
+                val today = todayStr()
+                val delta = restoredWc - previousWc
+                // Atomically update notes and write_log so both reflect the restore.
+                db.writingLogDao().saveContentAndDelta(
+                    noteDao    = db.noteDao(),
+                    noteId     = note.id,
+                    content    = content,
+                    wordCount  = restoredWc,
+                    updatedAt  = System.currentTimeMillis(),
+                    date       = today,
+                    bookId     = note.bookId,
+                    folderPath = note.folderPath,
+                    delta      = delta
+                )
+                if (delta != 0) {
+                    updateGoalFromDb(today)
+                }
+            }
+            withContext(Dispatchers.Main) {
+                _activeNote.value = note.copy(content = content, updatedAt = System.currentTimeMillis())
+                lastSavedContent = content
+                lastWordCount = restoredWc
+                _wordCount.value = restoredWc
+                scheduleAsyncStatsAndAnalysis(note.id, content, loadGeneration.get())
+            }
         }
-        _activeNote.value = note.copy(content = content, updatedAt = System.currentTimeMillis())
-        lastSavedContent = content
-        // Fix (Bug 1): reset lastWordCount so the next autosave delta is
-        // calculated from the restored baseline, not the pre-restore value.
-        lastWordCount = restoredWc
-        updateStatsSync(content)
     }
 
     // ── SAF ───────────────────────────────────────────────────────────────────
@@ -1518,5 +1573,20 @@ class EditorViewModel(
     fun disconnectExternalFolder() {
         _externalRoot.value = null
         viewModelScope.launch { dataStore.setExternalRootJson(null) }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        val note = _activeNote.value
+        val dirty = isDirty
+        val content = pendingContent
+        val rev = currentContentRevision
+        if (note != null && (dirty || content != lastSavedContent)) {
+            kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+                saveMutex.withLock {
+                    saveContentInternal(note, content, rev)
+                }
+            }
+        }
     }
 }

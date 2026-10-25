@@ -65,5 +65,10 @@ object DocumentOpenTrace {
         }
     }
 
+    fun getElapsedMs(noteId: String, stage: String): Double? {
+        val current = activeTrace.get()
+        return if (current?.noteId == noteId) current.getElapsedMs(stage) else null
+    }
+
     fun current(): Trace? = activeTrace.get()
 }

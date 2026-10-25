@@ -294,6 +294,7 @@ fun MainEditorScreen(
     val loadedWorkbenchNotes by editorVm.loadedWorkbenchNotes.collectAsStateWithLifecycle()
     val loadState      by editorVm.loadState.collectAsStateWithLifecycle()
     val externalSyncStatus by editorVm.externalSyncStatus.collectAsStateWithLifecycle()
+    val recoveryAvailable  by editorVm.recoveryAvailable.collectAsStateWithLifecycle()
     val wordCount      by editorVm.wordCount.collectAsStateWithLifecycle()
     val charCount      by editorVm.charCount.collectAsStateWithLifecycle()
     val outline        by editorVm.outline.collectAsStateWithLifecycle()
@@ -808,17 +809,27 @@ fun MainEditorScreen(
     var skipNextAnalysisByIndent by remember { mutableStateOf(false) }
     var isProgrammaticLoading by remember { mutableStateOf(false) }
 
-    // FIX 3: Removed activeNote?.content from the LaunchedEffect key.
-    // The guard condition `editor.text.length == 0 && note.content.isNotEmpty()` already
-    // handles the edge case of an editor that exists but hasn't been filled yet.
-    // Keying only on id + soraEditorRef is sufficient and far cheaper.
-    LaunchedEffect(activeNote?.id, soraEditorRef) {
-        val note   = activeNote ?: return@LaunchedEffect
+    LaunchedEffect(loadState, soraEditorRef) {
+        if (loadState is DocumentLoadState.Loading) {
+            val loadingId = (loadState as DocumentLoadState.Loading).noteId
+            if (lastLoadedNoteId != loadingId) {
+                val ed = soraEditorRef
+                if (ed is ScribeCodeEditor) {
+                    ed.prepareForNewDocument(loadingId)
+                } else {
+                    ed?.alpha = 0f
+                }
+                ed?.isEditable = false
+            }
+            return@LaunchedEffect
+        }
+
+        val loaded = loadState as? DocumentLoadState.Loaded ?: return@LaunchedEffect
+        val note   = loaded.note
         val editor = soraEditorRef ?: return@LaunchedEffect
 
         if (lastLoadedEditorInstance !== editor || lastLoadedNoteId != note.id) {
             // Ensure editor is measured and has a valid layout width before triggering wordwrap calculations.
-            // Suspends until layout pass completes on the exact frame without any artificial delay.
             if (editor.width <= 0) {
                 suspendCancellableCoroutine<Unit> { cont ->
                     var listener: android.view.View.OnLayoutChangeListener? = null
@@ -835,25 +846,21 @@ fun MainEditorScreen(
                 }
             }
 
-            lastLoadedEditorInstance = editor
-            lastLoadedNoteId = note.id
-            loadedNoteId = note.id
-
             floatingPillsVisible = true
 
-            // 1. Compute Inlay Hints synchronously so paragraph indents & scene badges are
-            // already registered when text is set. Sora Editor measures character metrics
-            // with indents already present, completely eliminating post-load text reflow and shifting!
-            val hints = ProseInlayHintProvider.computeInlayHints(
-                note.content,
-                worldEntries,
-                activeTheme?.paragraphSpacing ?: 1
-            )
-            DocumentOpenTrace.mark("inlay_hints_computed")
+            // 1. Compute Inlay Hints asynchronously off main thread
+            val hints = withContext(Dispatchers.Default) {
+                ProseInlayHintProvider.computeInlayHints(
+                    note.content,
+                    worldEntries,
+                    activeTheme?.paragraphSpacing ?: 1
+                )
+            }
+            DocumentOpenTrace.mark(note.id, "inlay_hints_computed")
 
             // Prepare for new document: suppress raw rendering and await wordwrap calculation
             if (editor is ScribeCodeEditor) {
-                editor.prepareForNewDocument()
+                editor.prepareForNewDocument(note.id)
             } else {
                 editor.alpha = 0f
             }
@@ -862,7 +869,7 @@ fun MainEditorScreen(
             (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.firstLineIndentSpaces = initialIndent
 
             // Set text and inlay hints FIRST before layout and cursor restoration!
-            DocumentOpenTrace.mark("sora_set_text")
+            DocumentOpenTrace.mark(note.id, "sora_set_text_start")
             isProgrammaticLoading = true
             try {
                 if (note.content.isEmpty() && initialIndent > 0) {
@@ -877,13 +884,17 @@ fun MainEditorScreen(
             } finally {
                 isProgrammaticLoading = false
             }
+            DocumentOpenTrace.mark(note.id, "sora_set_text_completed")
 
-            if (note.content.isEmpty()) {
-                editor.alpha = 1f
-            } else if (editor is ScribeCodeEditor) {
+            lastLoadedEditorInstance = editor
+            lastLoadedNoteId = note.id
+            loadedNoteId = note.id
+            editor.isEditable = true
+
+            if (editor is ScribeCodeEditor) {
                 editor.notifyContentSet()
             } else {
-                editor.animate().alpha(1f).setDuration(180).start()
+                editor.alpha = 1f
             }
 
             // Await DataStore directly to eliminate startup race condition
@@ -1057,11 +1068,13 @@ fun MainEditorScreen(
         val editor = soraEditorRef ?: return@LaunchedEffect
         val curText = editor.text?.toString() ?: ""
         if (curText.isEmpty()) return@LaunchedEffect
-        val hints = ProseInlayHintProvider.computeInlayHints(
-            curText,
-            worldEntries,
-            activeTheme?.paragraphSpacing ?: 1
-        )
+        val hints = withContext(Dispatchers.Default) {
+            ProseInlayHintProvider.computeInlayHints(
+                curText,
+                worldEntries,
+                activeTheme?.paragraphSpacing ?: 1
+            )
+        }
         editor.setInlayHints(hints)
     }
 
@@ -2767,7 +2780,7 @@ fun MainEditorScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)),
+                                .background(MaterialTheme.colorScheme.surface),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(
@@ -2829,6 +2842,55 @@ fun MainEditorScreen(
                         }
                     }
 
+                    // ── Crash Recovery Banner ──
+                    if (recoveryAvailable) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .align(Alignment.TopCenter),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Restore,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.tertiary,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "Unsaved draft found from previous session.",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                TextButton(
+                                    onClick = {
+                                        scope.launch {
+                                            val recovered = editorVm.getRecoveryContent()
+                                            if (recovered != null) {
+                                                soraEditorRef?.setText(recovered)
+                                                editorVm.onContentChanged(recovered)
+                                            }
+                                            editorVm.dismissRecovery()
+                                        }
+                                    }
+                                ) {
+                                    Text("Restore", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                                TextButton(
+                                    onClick = { editorVm.dismissRecovery() }
+                                ) {
+                                    Text("Dismiss", fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+
                     // ── External Sync Warning Banner ──
                     if (externalSyncStatus is ExternalSyncStatus.SyncFailed) {
                         val syncFailed = externalSyncStatus as ExternalSyncStatus.SyncFailed
@@ -2856,6 +2918,13 @@ fun MainEditorScreen(
                                     color = MaterialTheme.colorScheme.onErrorContainer,
                                     modifier = Modifier.weight(1f)
                                 )
+                                Spacer(Modifier.width(8.dp))
+                                TextButton(
+                                    onClick = { editorVm.retryExternalSync() },
+                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                ) {
+                                    Text("Retry", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
                             }
                         }
                     }
@@ -2876,8 +2945,9 @@ fun MainEditorScreen(
                             editorVm.saveCursorState(note.id, captureCurrentCursorState(soraEditorRef))
                         }
                     }
+                    val curText = soraEditorRef?.text?.toString()
                     val targetMeta = currentBookNotes.firstOrNull { it.id == id } ?: allNotes.firstOrNull { it.id == id }
-                    editorVm.loadNote(id, preloadedMetadata = targetMeta)
+                    editorVm.loadNote(id, preloadedMetadata = targetMeta, outgoingText = curText)
                     onClose()
                 },
                 onAddNote        = { scope.launch { captureForDialog { showCreateNoteDialog = true } } },
@@ -2886,12 +2956,22 @@ fun MainEditorScreen(
             )
         }
 
+        val allPinnedWorkbenchIds = remember(workbenchState, floatingWindows) {
+            val fromPanes = workbenchState.panes.flatMap { it.pinnedNoteIds }
+            val fromFloating = floatingWindows.map { it.noteId }
+            (fromPanes + fromFloating).toSet()
+        }
+        LaunchedEffect(allPinnedWorkbenchIds) {
+            editorVm.ensureNotesLoaded(allPinnedWorkbenchIds)
+        }
+
         val renderRightPanel: @Composable (onClose: () -> Unit) -> Unit = { onClose ->
             EditorRightPanel(
                 rightPanelTab         = rightPanelTab,
                 onTabChange           = { rightPanelTab = it },
                 workbenchState        = workbenchState,
                 allNotes              = allNotes,
+                loadedNotes           = loadedWorkbenchNotes,
                 worldEntries          = worldEntries,
                 books                 = allBooks,
                 outline               = outline,
@@ -2908,19 +2988,15 @@ fun MainEditorScreen(
                 onDuplicatePane       = { id -> editorVm.duplicatePane(id) },
                 onMinimizePane        = { id, by -> editorVm.minimizePane(id, by) },
                 onRestorePane         = { id -> editorVm.restorePane(id) },
-                onPinNote             = { paneId, noteId -> editorVm.pinNoteToPane(paneId, noteId) },
+                onPinNote             = { paneId, noteId ->
+                    editorVm.pinNoteToPane(paneId, noteId)
+                    editorVm.loadNoteForWorkbench(noteId)
+                },
                 onUnpinNote           = { paneId, noteId -> editorVm.unpinNote(paneId, noteId) },
                 onReorderNote         = { paneId, from, to -> editorVm.reorderPinnedNote(paneId, from, to) },
                 onCreateNote          = { paneId, title, content -> editorVm.createNoteForPane(paneId, title, content, activeNote?.bookId ?: Note.DEFAULT_BOOK_ID) },
                 onSaveNoteContent     = { noteId, content -> editorVm.updateNoteContent(noteId, content) },
-                onLoadNote            = { id ->
-                    activeNote?.let { note ->
-                        if (editorVm.restoreCursorOnOpen.value) {
-                            editorVm.saveCursorState(note.id, captureCurrentCursorState(soraEditorRef))
-                        }
-                    }
-                    editorVm.loadNote(id)
-                },
+                onLoadNote            = { id -> editorVm.loadNoteForWorkbench(id) },
                 onClose               = onClose,
                 barBlurBitmap         = barBlurBitmap,
                 hazeState             = hazeState,
@@ -2952,20 +3028,17 @@ fun MainEditorScreen(
         }
 
         // ── Floating Windows Overlay ──────────────────────────────────────────
-        val mappedNotes = remember(currentBookNotes, worldEntries) {
-            buildList {
-                addAll(currentBookNotes)
-                worldEntries.forEach { w ->
-                    if (none { it.id == w.id }) add(
-                        Note(id = w.id, name = w.name,
-                             content = "${w.type.uppercase()}: ${w.summary}\n\n${w.fieldsJson}")
-                    )
-                }
+        val combinedFloatingNotes = remember(loadedWorkbenchNotes, worldEntries) {
+            val worldMap = worldEntries.associate { w ->
+                w.id to Note(id = w.id, name = w.name, content = "${w.type.uppercase()}: ${w.summary}\n\n${w.fieldsJson}")
             }
+            loadedWorkbenchNotes + worldMap
         }
         FloatingWindowOverlay(
             floatingWindows  = floatingWindows,
-            notes            = mappedNotes,
+            notes            = currentBookNotes,
+            loadedNotes      = combinedFloatingNotes,
+            onLoadNote       = { id -> editorVm.loadNoteForWorkbench(id) },
             activeTheme      = activeTheme,
             onCloseWindow    = { id -> editorVm.closeFloatingWindow(id) },
             onToggleCollapse = { id -> editorVm.toggleCollapseFloatingWindow(id) },
