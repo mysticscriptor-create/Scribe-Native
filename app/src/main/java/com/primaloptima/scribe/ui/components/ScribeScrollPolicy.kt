@@ -680,6 +680,7 @@ object ScribeScrollPolicy {
 
         fun cancelAnimation(reason: String? = null, operationId: Long? = null) {
             if (operationId != null && operationId != activeOperationId) return
+            activeOperationId++
             isAnimationActive = false
             activeReason = null
             activeTargetTotalScroll = null
@@ -742,8 +743,9 @@ object ScribeScrollPolicy {
         val scrollCoordinator: AuthoritativeScrollCoordinator,
         var animationDriverFactory: (() -> AnimationDriver)? = null
     ) {
-        var activeOperationId: Long = 0L
-            private set
+        val activeOperationId: Long
+            get() = scrollCoordinator.activeOperationId
+
         var activeDriver: AnimationDriver? = null
             private set
 
@@ -759,20 +761,19 @@ object ScribeScrollPolicy {
             val maxBound = maxCanvasScroll?.toFloat()?.coerceAtLeast(0f)
             val clampedTarget = if (maxBound != null) targetTotalScroll.coerceIn(0f, maxBound) else targetTotalScroll.coerceAtLeast(0f)
 
-            // Step 1: Advance operation ID before cancelling old driver to prevent callback race
-            val newOpId = ++activeOperationId
-
-            // Step 2: Safely cancel previous driver
-            val oldDriver = activeDriver
-            activeDriver = null
-            oldDriver?.cancel()
-
-            // Step 3: Request target in coordinator
+            // Step 1: Request target in coordinator (advances scrollCoordinator.activeOperationId)
             val shouldStart = scrollCoordinator.requestTarget(clampedTarget, reason, forceRetarget, maxCanvasScroll)
             if (!shouldStart) {
                 onEnd?.invoke()
                 return false
             }
+
+            val newOpId = scrollCoordinator.activeOperationId
+
+            // Step 2: Safely cancel previous driver (its cancel/end will see oldOpId != activeOperationId)
+            val oldDriver = activeDriver
+            activeDriver = null
+            oldDriver?.cancel()
 
             val target = scrollCoordinator.activeTargetTotalScroll ?: clampedTarget
             val distance = kotlin.math.abs(target - currentScroll)
@@ -797,18 +798,18 @@ object ScribeScrollPolicy {
                 to = target,
                 durationMs = scaledDuration,
                 onUpdate = { curr ->
-                    if (newOpId == activeOperationId) {
+                    if (newOpId == scrollCoordinator.activeOperationId) {
                         scrollCoordinator.applyStep(curr, newOpId)
                     }
                 },
                 onCancel = {
-                    if (newOpId == activeOperationId) {
+                    if (newOpId == scrollCoordinator.activeOperationId) {
                         activeDriver = null
                         scrollCoordinator.cancelAnimation("Driver cancelled", newOpId)
                     }
                 },
                 onEnd = {
-                    if (newOpId == activeOperationId) {
+                    if (newOpId == scrollCoordinator.activeOperationId) {
                         activeDriver = null
                         scrollCoordinator.finishAnimation(newOpId)
                         onEnd?.invoke()
@@ -819,11 +820,10 @@ object ScribeScrollPolicy {
         }
 
         fun cancelActiveAnimation(reason: String? = null) {
-            val oldOpId = ++activeOperationId
             val oldDriver = activeDriver
             activeDriver = null
             oldDriver?.cancel()
-            scrollCoordinator.cancelAnimation(reason, oldOpId)
+            scrollCoordinator.cancelAnimation(reason)
         }
     }
 

@@ -2808,6 +2808,55 @@ class CursorAndCanvasGeometryTest {
         assertEquals(0f, restorationResult.deltaY, 0.001f)
     }
 
+    @Test
+    fun testProductionCoordinator_AfterTouchCancel_NextAnimationAppliesStepsSuccessfully() {
+        // Verifies that after a user touches the screen (cancelling an in-flight animation),
+        // the subsequent automatic animation (e.g. typing or keyboard/drawer expansion)
+        // maintains matching operation IDs and applies update steps without being dropped.
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 100f)
+        coordinator.onScrollBy = { delta -> 0f } // all delta consumed
+        val drivers = mutableListOf<TestAnimationDriver>()
+        val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
+            scrollCoordinator = coordinator,
+            animationDriverFactory = {
+                val d = TestAnimationDriver()
+                drivers.add(d)
+                d
+            }
+        )
+
+        // 1. Initial animation runs partially
+        productionCoordinator.startAuthoritativeAnimation(
+            targetTotalScroll = 300f,
+            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+        )
+        drivers.last().step(180f)
+        assertEquals(180f, coordinator.totalScroll, 0.001f)
+
+        // 2. User touches screen: cancels animation
+        productionCoordinator.cancelActiveAnimation("User touch down")
+        assertFalse("Coordinator must be inactive after touch cancel", coordinator.isAnimationActive)
+
+        // 3. User types or accessory drawer expands: initiates new animation
+        val started = productionCoordinator.startAuthoritativeAnimation(
+            targetTotalScroll = 450f,
+            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+        )
+        assertTrue("New animation must start successfully", started)
+        assertTrue("Coordinator must be active", coordinator.isAnimationActive)
+        assertEquals(productionCoordinator.activeOperationId, coordinator.activeOperationId)
+
+        // 4. Critical verification: Step ticks must NOT be rejected by operation ID mismatch!
+        val activeDriver = drivers.last()
+        activeDriver.step(250f)
+        assertEquals("Step must be applied after touch cancel", 250f, coordinator.totalScroll, 0.001f)
+
+        activeDriver.step(450f)
+        assertEquals("Final step must reach target", 450f, coordinator.totalScroll, 0.001f)
+        activeDriver.complete()
+        assertFalse(coordinator.isAnimationActive)
+    }
+
 }
 
 

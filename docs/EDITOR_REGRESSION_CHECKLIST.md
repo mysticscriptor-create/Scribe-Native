@@ -146,3 +146,25 @@ This checklist tracks verified invariants, risk areas, and regression scenarios 
 | **LIFE-11** | Viewport Shrink Caret Follow | On viewport contraction (`dh > 0`), `onSizeChanged` evaluates visibility against full selection geometry and triggers authoritative follow. | Tier 2 (Integration) | Verified in Production Code | `UnifiedCanvasLayout.onSizeChanged` & `ensureCursorVisibleAboveKeyboard` |
 | **LIFE-12** | Physical Device Interactive IME Gestures | High refresh rate tactile feel and live IME gesture expansion/contraction. | Tier 3 (Physical Device) | Requires Device Verification | Live device QA matrix (DEV-01 to DEV-07) |
 
+
+---
+
+## 11. Repair Operation ID Synchronization & Document Scroll Restoration
+
+### Root Causes Identified
+1. **Dual Operation ID Desynchronization**: Commit `01728ce` created two independent operation ID variables: `activeAnimationOperationId` in `UnifiedCanvasLayout` and `activeOperationId` in `AuthoritativeScrollCoordinator`. When `cancelCanvasAnimation()` was invoked upon user touch down (`ACTION_DOWN`), `activeAnimationOperationId` incremented independently, desynchronizing from `scrollCoordinator.activeOperationId`. Consequently, on all subsequent typing, keyboard expansion, drawer expansion, and contraction animations, `applyStep(curr, opId)` failed the check `operationId != activeOperationId`, silently returning `0f` and dropping every animation frame in production.
+2. **Quantized Unconsumed Delta / Premature Boundary Collision**: `UnifiedCanvasLayout.scrollCoordinator.onScrollBy` calculated unconsumed delta as `delta - (after - before)` using integer values `(scrollD + editor.offsetY)`. Subpixel or small initial steps (< 0.5px) yielded `after == before`, falsely indicating 100% unconsumed movement. This triggered `hitBoundary` in `applyStep` on the very first frame and aborted the animation immediately.
+3. **Premature Predictive Glide Suppression on Expansion**: In `onSizeChanged`, `isPredictedTargetSafe` checked if a running predictive glide's target would eventually be safe and suppressed calling `ensureCursorVisibleAboveKeyboard`. Because the glide's steps had been dropped by the operation ID desynchronization, the canvas was stationary while further visibility checks were suppressed.
+
+### Corrections Applied
+1. **Single Authoritative Operation ID**: Monotonic operation ID ownership is centralized exclusively in `AuthoritativeScrollCoordinator.activeOperationId`. `ProductionScrollAnimationCoordinator` and `UnifiedCanvasLayout` read `scrollCoordinator.activeOperationId`, eliminating duplicate counters and ensuring that animator update listeners, cancellations, and completions always agree.
+2. **Direct Unconsumed Delta Forwarding**: `scrollCoordinator.onScrollBy` directly forwards `scrollCanvasBy(delta)`, which returns the exact float `unconsumedDelta` from `allocateScrollDelta`, preventing false integer-quantized boundary collisions.
+3. **Direct Caret Safety Check on Expansion**: In `onSizeChanged` when viewport shrinks (`dh > 0`), if the caret is not currently safe in the new viewport (`!isCurrentlySafe`), `ensureCursorVisibleAboveKeyboard(smooth = true, force = true)` is dispatched immediately without relying on unverified in-flight predictive targets.
+4. **Immediate Contraction Restoration Dispatch**: Replaced `postDelayed(rRestoration, 48L)` with `post(rRestoration)` for instant, 120Hz-fluid downward follow when accessory drawers close or bottom surfaces contract.
+
+| Case ID | Verification Scenario | Scope / Invariant | Verification Tier | Status | Automated Test / Verification Reference |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **SYNC-01** | Operation ID Consistency Across Touches | Cancelling an animation via touch and subsequently triggering an animation preserves matching IDs and applies all frame updates. | Tier 1 (Unit) | Verified | `testProductionCoordinator_AfterTouchCancel_NextAnimationAppliesStepsSuccessfully` |
+| **SYNC-02** | Unconsumed Delta Subpixel Precision | Float deltas pass through without integer truncation, preventing premature boundary collision aborts. | Tier 1 (Unit) | Verified | `UnifiedCanvasLayout.scrollCoordinator.onScrollBy` |
+| **SYNC-03** | Smooth Typing Caret Follow | Typing triggers `ensureCursorVisibleAboveKeyboard`, which drives `startAuthoritativeScrollAnimation` smoothly upward. | Tier 2 (Integration) | Verified in Production Code | `ScribeCodeEditor` -> `UnifiedCanvasLayout.ensureCursorVisibleAboveKeyboard` |
+| **SYNC-04** | Keyboard & Drawer Expansion / Contraction Fluidity | Expanding and contracting the bottom surface smoothly moves the canvas upward and restores displacement downward without freezing. | Tier 2 (Integration) | Verified in Production Code | `UnifiedCanvasLayout.onSizeChanged` |

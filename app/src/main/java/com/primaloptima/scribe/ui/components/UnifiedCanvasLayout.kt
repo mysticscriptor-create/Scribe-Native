@@ -200,11 +200,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      */
     internal val scrollCoordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator().apply {
         onScrollBy = { delta ->
-            val before = (scrollD + editor.offsetY).toFloat()
-            val unconsumed = scrollCanvasBy(delta)
-            val after = (scrollD + editor.offsetY).toFloat()
-            val moved = after - before
-            delta - moved
+            scrollCanvasBy(delta)
         }
     }
 
@@ -237,10 +233,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     private var resetExpansionTransitionRunnable: Runnable? = null
 
     /**
-     * Authoritative single active animation tracking with monotonic operation IDs
-     * to eliminate cancellation/retargeting races.
+     * Authoritative single active animation tracking. Monotonic operation IDs
+     * are owned by scrollCoordinator to eliminate cancellation/retargeting races.
      */
-    private var activeAnimationOperationId: Long = 0L
     private var activeCanvasAnimator: android.animation.ValueAnimator? = null
     val isRestorationActive: Boolean
         get() = scrollCoordinator.isAnimationActive && scrollCoordinator.activeReason == ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION
@@ -276,11 +271,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         pendingRestorationRunnable?.let { removeCallbacks(it) }
         pendingRestorationRunnable = null
         if (isRestorationActive) {
-            activeAnimationOperationId++
             val oldAnimator = activeCanvasAnimator
             activeCanvasAnimator = null
             oldAnimator?.cancel()
-            scrollCoordinator.cancelAnimation("Restoration cancelled", activeAnimationOperationId)
+            scrollCoordinator.cancelAnimation("Restoration cancelled")
         }
     }
 
@@ -307,20 +301,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         forceRetarget: Boolean = false,
         onEnd: (() -> Unit)? = null
     ) {
-        val currentScroll = (scrollD + editor.offsetY).toFloat()
+        val currentScroll = (scrollDFloat + editor.offsetY)
         scrollCoordinator.totalScroll = currentScroll
         val maxBound = maxCanvasScroll
         val clampedTarget = targetTotalScroll.coerceIn(0f, maxBound.toFloat())
-
-        // Step 1: Advance operation ID before cancelling old animator to prevent callback race
-        val newOpId = ++activeAnimationOperationId
-
-        // Step 2: Cancel previous running animator.
-        // Because newOpId has already advanced, any callbacks (onAnimationCancel, onAnimationEnd)
-        // from the old animator will see their operationId != activeAnimationOperationId and NO-OP!
-        val oldAnimator = activeCanvasAnimator
-        activeCanvasAnimator = null
-        oldAnimator?.cancel()
 
         val shouldStart = scrollCoordinator.requestTarget(clampedTarget, reason, forceRetarget, maxBound)
         if (!shouldStart) {
@@ -328,32 +312,40 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             return
         }
 
+        // Operation ID is authoritatively owned by scrollCoordinator!
+        val opId = scrollCoordinator.activeOperationId
+
+        // Cancel previous running animator. Its cancel/end listeners will see its captured
+        // oldOpId != scrollCoordinator.activeOperationId and safely NO-OP!
+        val oldAnimator = activeCanvasAnimator
+        activeCanvasAnimator = null
+        oldAnimator?.cancel()
+
         val target = scrollCoordinator.activeTargetTotalScroll ?: clampedTarget
         val distance = kotlin.math.abs(target - currentScroll)
         if (distance < 1f) {
-            scrollCoordinator.finishAnimation(newOpId)
+            scrollCoordinator.finishAnimation(opId)
             onEnd?.invoke()
             return
         }
 
         val scaledDuration = (distance * 1.2f).toLong().coerceIn(120L, durationMs)
-
         activeCanvasAnimator = android.animation.ValueAnimator.ofFloat(currentScroll, target).apply {
             duration = scaledDuration
             this.interpolator = interpolator
             addUpdateListener { anim ->
-                if (newOpId != activeAnimationOperationId) return@addUpdateListener
+                if (opId != scrollCoordinator.activeOperationId) return@addUpdateListener
                 val curr = anim.animatedValue as Float
-                scrollCoordinator.applyStep(curr, newOpId)
+                scrollCoordinator.applyStep(curr, opId)
             }
             addListener(object : android.animation.AnimatorListenerAdapter() {
                 private var isCancelled = false
 
                 override fun onAnimationCancel(animation: android.animation.Animator) {
                     isCancelled = true
-                    if (newOpId != activeAnimationOperationId) return
+                    if (opId != scrollCoordinator.activeOperationId) return
                     activeCanvasAnimator = null
-                    scrollCoordinator.cancelAnimation("Animator cancelled", newOpId)
+                    scrollCoordinator.cancelAnimation("Animator cancelled", opId)
                     if (reason == ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE) {
                         isPredictiveGlideRunning = false
                         targetPredictedScrollTotal = -1f
@@ -361,9 +353,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 }
 
                 override fun onAnimationEnd(animation: android.animation.Animator) {
-                    if (isCancelled || newOpId != activeAnimationOperationId) return
+                    if (isCancelled || opId != scrollCoordinator.activeOperationId) return
                     activeCanvasAnimator = null
-                    scrollCoordinator.finishAnimation(newOpId)
+                    scrollCoordinator.finishAnimation(opId)
                     if (reason == ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION) {
                         revalidateFinalTargetSafety()
                     } else if (reason == ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION) {
@@ -555,11 +547,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     fun cancelCanvasAnimation() {
         cancelRestoration()
-        activeAnimationOperationId++
         val oldAnimator = activeCanvasAnimator
         activeCanvasAnimator = null
         oldAnimator?.cancel()
-        scrollCoordinator.cancelAnimation("cancelCanvasAnimation", activeAnimationOperationId)
+        scrollCoordinator.cancelAnimation("cancelCanvasAnimation")
         isPredictiveGlideRunning = false
         targetPredictedScrollTotal = -1f
         if (!scroller.isFinished) {
@@ -1088,16 +1079,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                             val targetLineBottom = (h - marginPx).toFloat()
 
                             val isCurrentlySafe = screenBottom <= (targetLineBottom + deadbandPx)
-                            val isPredictedTargetSafe = if (isPredictiveGlideRunning && targetPredictedScrollTotal > 0f) {
-                                val finalScreenBottom = (headerHeight + caretDocBottom - targetPredictedScrollTotal)
-                                finalScreenBottom <= (targetLineBottom + deadbandPx)
-                            } else {
-                                false
-                            }
-
-                            // If neither current position nor running predictive glide target will be safe in the new viewport,
+                            // If current position is not safe in the newly measured viewport,
                             // immediately trigger an authoritative caret visibility correction.
-                            if (!isCurrentlySafe && !isPredictedTargetSafe) {
+                            if (!isCurrentlySafe) {
                                 post {
                                     ensureCursorVisibleAboveKeyboard(
                                         smooth = true,
@@ -1193,7 +1177,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     }
                 }
                 pendingRestorationRunnable = rRestoration
-                postDelayed(rRestoration, 48L)
+                post(rRestoration)
             }
         }
     }
