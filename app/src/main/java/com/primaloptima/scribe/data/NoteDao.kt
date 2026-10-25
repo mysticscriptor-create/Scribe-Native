@@ -84,11 +84,11 @@ interface NoteDao {
     @Update
     suspend fun update(note: Note)
 
-    @Query("UPDATE notes SET content = :content, updated_at = :updatedAt WHERE id = :id")
+    @Query("UPDATE notes SET content = :content, updated_at = :updatedAt, last_modified = :updatedAt WHERE id = :id")
     suspend fun updateContent(id: String, content: String, updatedAt: Long)
 
     // Phase 1-B: update content + word_count together — called from EditorViewModel.saveContent()
-    @Query("UPDATE notes SET content = :content, word_count = :wordCount, updated_at = :updatedAt WHERE id = :id")
+    @Query("UPDATE notes SET content = :content, word_count = :wordCount, updated_at = :updatedAt, last_modified = :updatedAt WHERE id = :id")
     suspend fun updateContentAndWordCount(id: String, content: String, wordCount: Int, updatedAt: Long)
 
     // Phase 1-B: backfill — only touches rows that still have word_count = 0
@@ -105,10 +105,10 @@ interface NoteDao {
     @Query("SELECT cursor_state_json FROM notes WHERE id = :id")
     suspend fun getCursorState(id: String): String?
 
-    @Query("UPDATE notes SET name = :name, updated_at = :updatedAt WHERE id = :id")
+    @Query("UPDATE notes SET name = :name, updated_at = :updatedAt, last_modified = :updatedAt WHERE id = :id")
     suspend fun updateName(id: String, name: String, updatedAt: Long)
 
-    @Query("UPDATE notes SET folder_path = :folderPath, updated_at = :updatedAt WHERE id = :id")
+    @Query("UPDATE notes SET folder_path = :folderPath, updated_at = :updatedAt, last_modified = :updatedAt WHERE id = :id")
     suspend fun moveNote(id: String, folderPath: String, updatedAt: Long)
 
     @Query("DELETE FROM notes WHERE id = :id")

@@ -79,10 +79,7 @@ class NoteListViewModel(application: Application) : AndroidViewModel(application
             Folder(path = "/Journal"),
             Folder(path = "/Drafts")
         ))
-        db.noteDao().insertAll(listOf(
-            Note(id = "welcome", name = "Welcome", bookId = bid, folderPath = "/", ext = "md",
-                 createdAt = now - 86400000L, updatedAt = now - 86400000L,
-                 content = """# Welcome to Scribe
+        val welcomeContent = """# Welcome to Scribe
 
 Your private, on-device writing space — distraction-free and fully offline.
 
@@ -99,10 +96,9 @@ Swipe in from the left edge inside the editor to see your book's files.
 
 ---
 
-Happy writing."""),
-            Note(id = "tips", name = "Tips", bookId = bid, folderPath = "/", ext = "md",
-                 createdAt = now - 43200000L, updatedAt = now - 43200000L,
-                 content = """# Tips
+Happy writing."""
+
+        val tipsContent = """# Tips
 
 ## Smart pairs
 
@@ -114,10 +110,9 @@ Open the menu and tap *Shortcuts* to add your own. Each shortcut can:
 
 - Insert plain text (em-dash, ellipsis, signature)
 - Wrap selection (markdown bold, italic, code)
-- Insert a paired character"""),
-            Note(id = "journal-jan", name = "January", bookId = bid, folderPath = "/Journal", ext = "md",
-                 createdAt = now - 21600000L, updatedAt = now - 21600000L,
-                 content = """# January
+- Insert a paired character"""
+
+        val journalContent = """# January
 
 A new year. The page is open.
 
@@ -128,14 +123,31 @@ What I want to write about this year:
 - Slow mornings
 - The light through the kitchen window
 - The neighbour's cat
-- Letters I never sent"""),
-            Note(id = "draft-essay", name = "On attention", bookId = bid, folderPath = "/Drafts", ext = "md",
-                 createdAt = now - 1800000L, updatedAt = now - 1800000L,
-                 content = """# On attention
+- Letters I never sent"""
+
+        val draftContent = """# On attention
 
 The first draft is mostly about getting the shape down. Don't fix the prose yet. Don't pick at the words. Pour it out and then walk away for an hour.
 
-When you come back, read it aloud. The sentences that make you stumble are the sentences that need work.""")
+When you come back, read it aloud. The sentences that make you stumble are the sentences that need work."""
+
+        db.noteDao().insertAll(listOf(
+            Note(id = "welcome", name = "Welcome", bookId = bid, folderPath = "/", ext = "md",
+                 content = welcomeContent,
+                 wordCount = com.primaloptima.scribe.util.MarkdownUtil.countWords(welcomeContent),
+                 createdAt = now - 86400000L, updatedAt = now - 86400000L, lastModified = now - 86400000L),
+            Note(id = "tips", name = "Tips", bookId = bid, folderPath = "/", ext = "md",
+                 content = tipsContent,
+                 wordCount = com.primaloptima.scribe.util.MarkdownUtil.countWords(tipsContent),
+                 createdAt = now - 43200000L, updatedAt = now - 43200000L, lastModified = now - 43200000L),
+            Note(id = "journal-jan", name = "January", bookId = bid, folderPath = "/Journal", ext = "md",
+                 content = journalContent,
+                 wordCount = com.primaloptima.scribe.util.MarkdownUtil.countWords(journalContent),
+                 createdAt = now - 21600000L, updatedAt = now - 21600000L, lastModified = now - 21600000L),
+            Note(id = "draft-essay", name = "On attention", bookId = bid, folderPath = "/Drafts", ext = "md",
+                 content = draftContent,
+                 wordCount = com.primaloptima.scribe.util.MarkdownUtil.countWords(draftContent),
+                 createdAt = now - 1800000L, updatedAt = now - 1800000L, lastModified = now - 1800000L)
         ))
     }
 
@@ -148,6 +160,7 @@ When you come back, read it aloud. The sentences that make you stumble are the s
         onCreated: (Note) -> Unit
     ) {
         viewModelScope.launch {
+            val now = System.currentTimeMillis()
             val exr = _externalRoot.value
             if (exr != null) {
                 val folder = folders.value.firstOrNull { it.path == folderPath }
@@ -157,8 +170,9 @@ When you come back, read it aloud. The sentences that make you stumble are the s
                     val note = Note(
                         id = "ext::${uri}", name = name,
                         bookId = bookId, folderPath = folderPath, ext = "md",
+                        content = "", wordCount = 0,
                         externalUri = uri.toString(), loaded = true,
-                        createdAt = System.currentTimeMillis(), updatedAt = System.currentTimeMillis()
+                        createdAt = now, updatedAt = now, lastModified = now
                     )
                     withContext(Dispatchers.IO) { db.noteDao().insert(note) }
                     withContext(Dispatchers.Main) { onCreated(note) }
@@ -168,7 +182,8 @@ When you come back, read it aloud. The sentences that make you stumble are the s
             val note = Note(
                 id = java.util.UUID.randomUUID().toString(),
                 name = name, bookId = bookId, folderPath = folderPath, ext = "md",
-                createdAt = System.currentTimeMillis(), updatedAt = System.currentTimeMillis()
+                content = "", wordCount = 0,
+                createdAt = now, updatedAt = now, lastModified = now
             )
             withContext(Dispatchers.IO) { db.noteDao().insert(note) }
             withContext(Dispatchers.Main) { onCreated(note) }
@@ -205,12 +220,18 @@ When you come back, read it aloud. The sentences that make you stumble are the s
     fun duplicateNote(noteId: String) {
         viewModelScope.launch {
             val original = withContext(Dispatchers.IO) { db.noteDao().getById(noteId) } ?: return@launch
-            val newNote  = original.copy(
-                id          = java.util.UUID.randomUUID().toString(),
-                name        = "${original.name} (copy)",
-                externalUri = null,
-                createdAt   = System.currentTimeMillis(),
-                updatedAt   = System.currentTimeMillis()
+            val now = System.currentTimeMillis()
+            val wc = com.primaloptima.scribe.util.MarkdownUtil.countWords(original.content)
+            val newNote = original.copy(
+                id              = java.util.UUID.randomUUID().toString(),
+                name            = "${original.name} (copy)",
+                externalUri     = null,
+                loaded          = true,
+                wordCount       = wc,
+                cursorStateJson = null,
+                createdAt       = now,
+                updatedAt       = now,
+                lastModified    = now
             )
             withContext(Dispatchers.IO) { db.noteDao().insert(newNote) }
         }

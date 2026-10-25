@@ -8,7 +8,7 @@ sealed interface Route : NavKey {
     // ── No-argument destinations ──────────────────────────────────────────
     @Serializable data object Home      : Route
     @Serializable data object Settings  : Route
-    @Serializable data object History   : Route
+    @Serializable data class History(val noteId: String) : Route
     @Serializable data object Guide     : Route
     @Serializable data object Shortcuts : Route
     @Serializable data object ThemeList : Route

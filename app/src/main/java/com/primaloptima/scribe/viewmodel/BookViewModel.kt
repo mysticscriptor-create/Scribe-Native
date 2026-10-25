@@ -131,8 +131,11 @@ class BookViewModel(application: Application) : AndroidViewModel(application) {
             val id = UUID.randomUUID().toString()
             val now = System.currentTimeMillis()
             db.noteDao().insert(
-                Note(id = id, name = name, bookId = bookId, folderPath = folderPath,
-                     createdAt = now, updatedAt = now)
+                Note(
+                    id = id, name = name, bookId = bookId, folderPath = folderPath,
+                    content = "", wordCount = 0,
+                    createdAt = now, updatedAt = now, lastModified = now
+                )
             )
             db.bookDao().touch(bookId, now)
             withContext(Dispatchers.Main) {
@@ -190,13 +193,18 @@ class BookViewModel(application: Application) : AndroidViewModel(application) {
             val original = db.noteDao().getById(noteId) ?: return@launch
             val newId = UUID.randomUUID().toString()
             val now   = System.currentTimeMillis()
+            val wc    = com.primaloptima.scribe.util.MarkdownUtil.countWords(original.content)
             db.noteDao().insert(
                 original.copy(
-                    id           = newId,
-                    name         = "${original.name} (copy)",
-                    externalUri  = null,   // copy stays in the DB vault only
-                    createdAt    = now,
-                    updatedAt    = now
+                    id              = newId,
+                    name            = "${original.name} (copy)",
+                    externalUri     = null,   // copy stays in the DB vault only
+                    loaded          = true,
+                    wordCount       = wc,
+                    cursorStateJson = null,
+                    createdAt       = now,
+                    updatedAt       = now,
+                    lastModified    = now
                 )
             )
             db.bookDao().touch(bookId, now)

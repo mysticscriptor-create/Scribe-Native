@@ -12,6 +12,12 @@ interface NoteVersionDao {
     @Query("SELECT * FROM note_versions WHERE note_id = :noteId ORDER BY timestamp DESC")
     fun observeVersions(noteId: String): Flow<List<NoteVersion>>
 
+    @Query("SELECT * FROM note_versions WHERE note_id = :noteId ORDER BY timestamp DESC")
+    suspend fun getVersionsForNote(noteId: String): List<NoteVersion>
+
+    @Query("SELECT * FROM note_versions WHERE id = :id LIMIT 1")
+    suspend fun getById(id: Long): NoteVersion?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(version: NoteVersion)
 

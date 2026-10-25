@@ -638,10 +638,29 @@ class EditorViewModel(
         get() = savedState[KEY_LAST_WORD_COUNT] ?: 0
         set(v) { savedState[KEY_LAST_WORD_COUNT] = v }
 
-    /** Word count at the time of the last auto-snapshot — used for the min-words gate. */
-    private var lastSnapshotWordCount: Int
-        get() = savedState[KEY_LAST_SNAPSHOT_WC] ?: 0
-        set(v) { savedState[KEY_LAST_SNAPSHOT_WC] = v }
+    /** Per-note baseline word counts for automatic snapshot delta threshold checks. */
+    private val snapshotWordCountBaselines = java.util.concurrent.ConcurrentHashMap<String, Int>()
+
+    fun getSnapshotBaseline(noteId: String): Int {
+        if (noteId.isBlank()) return 0
+        snapshotWordCountBaselines[noteId]?.let { return it }
+        val saved: Int? = savedState["snapshot_baseline_$noteId"]
+        if (saved != null) {
+            snapshotWordCountBaselines[noteId] = saved
+            return saved
+        }
+        val active = _activeNote.value
+        if (active != null && active.id == noteId) {
+            return active.wordCount
+        }
+        return 0
+    }
+
+    fun setSnapshotBaseline(noteId: String, wordCount: Int) {
+        if (noteId.isBlank()) return
+        snapshotWordCountBaselines[noteId] = wordCount
+        savedState["snapshot_baseline_$noteId"] = wordCount
+    }
 
     private val AUTOSAVE_DEBOUNCE_MS = 500L
     private val STATS_DEBOUNCE_MS    = 300L
@@ -872,7 +891,7 @@ class EditorViewModel(
         isDirty = false
         lastWordCount = note.wordCount
         _wordCount.value = note.wordCount
-        lastSnapshotWordCount = lastWordCount
+        setSnapshotBaseline(note.id, note.wordCount)
         scheduleAsyncStatsAndAnalysis(note.id, note.content, loadGeneration.get())
         viewModelScope.launch { dataStore.setActiveNoteId(note.id) }
     }
@@ -881,7 +900,8 @@ class EditorViewModel(
         noteId: String,
         preloadedMetadata: NoteMetadata? = null,
         preloadedNote: Note? = null,
-        outgoingText: String? = null
+        outgoingText: String? = null,
+        outgoingNoteId: String? = null
     ) {
         val currentLoaded = (_loadState.value as? DocumentLoadState.Loaded)?.note
         if (currentLoaded != null && currentLoaded.id == noteId && _activeNote.value?.id == noteId) {
@@ -893,14 +913,11 @@ class EditorViewModel(
 
         // Capture outgoing note state
         val prevNote = _activeNote.value
-        if (outgoingText != null && prevNote != null && outgoingText != pendingContent) {
-            pendingContent = outgoingText
-            isDirty = true
-            currentContentRevision++
-        }
+        val effectiveOutgoingId = outgoingNoteId ?: prevNote?.id
         val prevDirty = isDirty
         val prevPending = pendingContent
         val prevRev = currentContentRevision
+        val prevTextToSave = outgoingText ?: prevPending
 
         if (_activeNote.value?.id != noteId) {
             sessionScrollMap.remove(noteId)
@@ -916,6 +933,13 @@ class EditorViewModel(
         }
         _activeNote.value = null
 
+        // Clear in-memory active buffers so incoming note starts clean
+        pendingContent = ""
+        lastSavedContent = ""
+        isDirty = false
+        currentContentRevision = 0L
+        lastSavedRevision = 0L
+
         // Cancel obsolete background tasks
         loadNoteJob?.cancel()
         autosaveJob?.cancel()
@@ -925,27 +949,32 @@ class EditorViewModel(
 
         loadNoteJob = viewModelScope.launch {
             // Asynchronously wait for outgoing document local persistence to succeed before loading new document
-            if (prevNote != null && prevNote.id != noteId && (prevDirty || prevPending != lastSavedContent)) {
-                val persisted = withContext(Dispatchers.IO) {
-                    saveMutex.withLock {
-                        saveContentInternal(prevNote, prevPending, prevRev)
+            if (prevNote != null && prevNote.id != noteId) {
+                val needsSave = prevDirty || prevTextToSave != prevNote.content
+                if (needsSave) {
+                    val persisted = withContext(Dispatchers.IO) {
+                        saveMutex.withLock {
+                            saveContentInternal(prevNote, prevTextToSave, prevRev)
+                        }
+                    }
+                    if (!persisted) {
+                        val recovered = withContext(Dispatchers.IO) {
+                            try {
+                                RecoveryManager.get(getApplication(), prevNote.id) == prevTextToSave
+                            } catch (_: Exception) { false }
+                        }
+                        if (!recovered) {
+                            _loadState.value = DocumentLoadState.Error(
+                                noteId = noteId,
+                                message = "Failed to save previous document changes. Please try again.",
+                                recoverable = true
+                            )
+                            return@launch
+                        }
                     }
                 }
-                if (!persisted) {
-                    val recovered = withContext(Dispatchers.IO) {
-                        try {
-                            RecoveryManager.get(getApplication(), prevNote.id) == prevPending
-                        } catch (_: Exception) { false }
-                    }
-                    if (!recovered) {
-                        _loadState.value = DocumentLoadState.Error(
-                            noteId = noteId,
-                            message = "Failed to save previous document changes. Please try again.",
-                            recoverable = true
-                        )
-                        return@launch
-                    }
-                }
+                // Associating automatic snapshot with the outgoing document ID!
+                saveVersionSnapshotOnLeave(prevNote.id, prevTextToSave)
             }
 
             if (loadGeneration.get() != requestId || !coroutineContext.isActive) return@launch
@@ -1131,37 +1160,61 @@ class EditorViewModel(
     /**
      * Suspendable save-and-leave: guarantees local persistence finishes before callback.
      */
-    fun saveAndLeave(currentText: String? = null, onSaved: () -> Unit) {
-        if (currentText != null && currentText != pendingContent) {
-            onContentChanged(currentText)
-        }
-        val note = _activeNote.value
-        val dirty = isDirty
-        val content = pendingContent
-        val rev = currentContentRevision
-        if (note != null && (dirty || content != lastSavedContent)) {
-            viewModelScope.launch(Dispatchers.IO) {
-                val success = saveMutex.withLock {
-                    saveContentInternal(note, content, rev)
-                }
-                val verifiedInRecovery = if (!success) {
-                    try {
-                        RecoveryManager.get(getApplication(), note.id) == content
-                    } catch (_: Exception) { false }
-                } else false
-
-                withContext(Dispatchers.Main) {
-                    if (success || verifiedInRecovery) {
-                        clearActiveNote()
-                        onSaved()
-                    } else {
-                        android.util.Log.e("EditorViewModel", "Cannot leave note: Room save and recovery verification both failed.")
-                    }
-                }
-            }
-        } else {
+    fun saveAndLeave(targetNoteId: String? = null, currentText: String? = null, onSaved: () -> Unit) {
+        val active = _activeNote.value
+        val effectiveNoteId = targetNoteId ?: active?.id
+        if (effectiveNoteId == null) {
             clearActiveNote()
             onSaved()
+            return
+        }
+
+        if (active != null && active.id == effectiveNoteId) {
+            if (currentText != null && currentText != pendingContent) {
+                onContentChanged(currentText, effectiveNoteId)
+            }
+            val dirty = isDirty
+            val content = pendingContent
+            val rev = currentContentRevision
+            if (dirty || content != lastSavedContent) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    val success = saveMutex.withLock {
+                        saveContentInternal(active, content, rev)
+                    }
+                    val verifiedInRecovery = if (!success) {
+                        try {
+                            RecoveryManager.get(getApplication(), active.id) == content
+                        } catch (_: Exception) { false }
+                    } else false
+
+                    withContext(Dispatchers.Main) {
+                        if (success || verifiedInRecovery) {
+                            clearActiveNote()
+                            onSaved()
+                        } else {
+                            android.util.Log.e("EditorViewModel", "Cannot leave note: Room save and recovery verification both failed.")
+                        }
+                    }
+                }
+            } else {
+                clearActiveNote()
+                onSaved()
+            }
+        } else {
+            // Target note is not the currently active note (e.g. late disposal or already transitioned)
+            if (currentText != null) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    val noteToSave = db.noteDao().getById(effectiveNoteId)
+                    if (noteToSave != null && noteToSave.content != currentText) {
+                        saveContentInternal(noteToSave, currentText, 0L)
+                    }
+                    withContext(Dispatchers.Main) {
+                        onSaved()
+                    }
+                }
+            } else {
+                onSaved()
+            }
         }
     }
 

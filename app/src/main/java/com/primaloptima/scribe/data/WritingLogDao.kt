@@ -75,14 +75,14 @@ abstract class WritingLogDao {
     }
 
     /**
-     * Updates the folder_path on all historical writing_log rows for a note.
-     * Call this after moveNote() if you want writing_log to reflect the note's
-     * current location rather than its historical one.
+     * Historical Policy:
+     * writing_log folder values represent the folder at the time of the writing session
+     * (an immutable audit log of writing activity by location at that time).
+     * Standard note moves do NOT retroactively rewrite historical writing_log records,
+     * preserving historical integrity.
      *
-     * NOTE (Bug 4): The current getWordCountPerFolder() already reads from
-     * notes.folder_path (not writing_log.folder_path), so the Wordmap is immune
-     * to stale folder_path values here. This query is provided for future queries
-     * that may group writing_log by folder_path directly.
+     * This query is an explicit maintenance utility to update folder_path on all historical
+     * writing_log rows for a note when retroactive consolidation is specifically requested.
      */
     @Query("UPDATE writing_log SET folder_path = :newFolderPath WHERE note_id = :noteId")
     abstract suspend fun updateFolderPath(noteId: String, newFolderPath: String)
