@@ -552,33 +552,34 @@ fun MainEditorScreen(
         }
     }
 
-    val currentTitleNote = activeMetadata ?: activeNote
+    val currentTitleId = activeMetadata?.id ?: activeNote?.id
+    val currentTitleName = activeMetadata?.name ?: activeNote?.name ?: ""
     // Dual-title inline editing state & persistence
-    var primaryTitleValue by remember(currentTitleNote?.id) {
-        val raw = currentTitleNote?.name ?: ""
+    var primaryTitleValue by remember(currentTitleId) {
+        val raw = currentTitleName
         val p = raw.substringBefore('\n')
         mutableStateOf(TextFieldValue(p, TextRange(p.length)))
     }
-    var secondaryTitleValue by remember(currentTitleNote?.id) {
-        val raw = currentTitleNote?.name ?: ""
+    var secondaryTitleValue by remember(currentTitleId) {
+        val raw = currentTitleName
         val s = if (raw.contains('\n')) raw.substringAfter('\n') else ""
         mutableStateOf(TextFieldValue(s, TextRange(s.length)))
     }
-    var primaryTitleText by remember(currentTitleNote?.id) {
-        val raw = currentTitleNote?.name ?: ""
+    var primaryTitleText by remember(currentTitleId) {
+        val raw = currentTitleName
         mutableStateOf(raw.substringBefore('\n'))
     }
-    var secondaryTitleText by remember(currentTitleNote?.id) {
-        val raw = currentTitleNote?.name ?: ""
+    var secondaryTitleText by remember(currentTitleId) {
+        val raw = currentTitleName
         mutableStateOf(if (raw.contains('\n')) raw.substringAfter('\n') else "")
     }
-    var showSecondaryTitle by remember(currentTitleNote?.id) {
-        val raw = currentTitleNote?.name ?: ""
+    var showSecondaryTitle by remember(currentTitleId) {
+        val raw = currentTitleName
         mutableStateOf(raw.contains('\n'))
     }
 
-    LaunchedEffect(currentTitleNote?.id, currentTitleNote?.name) {
-        val raw = currentTitleNote?.name ?: ""
+    LaunchedEffect(currentTitleId, currentTitleName) {
+        val raw = currentTitleName
         val p = raw.substringBefore('\n')
         val s = if (raw.contains('\n')) raw.substringAfter('\n') else ""
         if (primaryTitleValue.text != p) {
