@@ -30,6 +30,31 @@ interface NoteDao {
     @Query("SELECT * FROM notes WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): Note?
 
+    // ── Metadata projections (fast, non-blocking list queries) ────────────────
+    @Query("SELECT id, name, book_id, folder_path, ext, word_count, created_at, updated_at, last_modified, external_uri, loaded, cursor_state_json, SUBSTR(content, 1, 300) AS snippet FROM notes ORDER BY updated_at DESC")
+    fun observeAllMetadata(): Flow<List<NoteMetadata>>
+
+    @Query("SELECT id, name, book_id, folder_path, ext, word_count, created_at, updated_at, last_modified, external_uri, loaded, cursor_state_json, SUBSTR(content, 1, 300) AS snippet FROM notes ORDER BY updated_at DESC")
+    suspend fun getAllMetadata(): List<NoteMetadata>
+
+    @Query("SELECT id, name, book_id, folder_path, ext, word_count, created_at, updated_at, last_modified, external_uri, loaded, cursor_state_json, SUBSTR(content, 1, 300) AS snippet FROM notes WHERE id = :id LIMIT 1")
+    suspend fun getMetadataById(id: String): NoteMetadata?
+
+    @Query("SELECT id, name, book_id, folder_path, ext, word_count, created_at, updated_at, last_modified, external_uri, loaded, cursor_state_json, SUBSTR(content, 1, 300) AS snippet FROM notes WHERE book_id = :bookId ORDER BY updated_at DESC")
+    fun observeMetadataByBook(bookId: String): Flow<List<NoteMetadata>>
+
+    @Query("SELECT id, name, book_id, folder_path, ext, word_count, created_at, updated_at, last_modified, external_uri, loaded, cursor_state_json, SUBSTR(content, 1, 300) AS snippet FROM notes WHERE book_id = :bookId ORDER BY updated_at DESC")
+    suspend fun getMetadataByBook(bookId: String): List<NoteMetadata>
+
+    @Query("SELECT id, name, book_id, folder_path, ext, word_count, created_at, updated_at, last_modified, external_uri, loaded, cursor_state_json, SUBSTR(content, 1, 300) AS snippet FROM notes WHERE book_id = :bookId AND folder_path = :folderPath ORDER BY updated_at DESC")
+    suspend fun getMetadataByBookFolder(bookId: String, folderPath: String): List<NoteMetadata>
+
+    @Query("SELECT id, name, book_id, folder_path, ext, word_count, created_at, updated_at, last_modified, external_uri, loaded, cursor_state_json, SUBSTR(content, 1, 300) AS snippet FROM notes WHERE (name LIKE '%' || :query || '%' OR content LIKE '%' || :query || '%') ORDER BY updated_at DESC LIMIT 200")
+    suspend fun searchMetadata(query: String): List<NoteMetadata>
+
+    @Query("SELECT id, name, book_id, folder_path, ext, word_count, created_at, updated_at, last_modified, external_uri, loaded, cursor_state_json, SUBSTR(content, 1, 300) AS snippet FROM notes WHERE book_id = :bookId AND (name LIKE '%' || :query || '%' OR content LIKE '%' || :query || '%') ORDER BY updated_at DESC LIMIT 200")
+    suspend fun searchMetadataInBook(bookId: String, query: String): List<NoteMetadata>
+
     // ── Notes (scoped to book) ───────────────────────────────────────────────
 
     @Query("SELECT * FROM notes WHERE book_id = :bookId ORDER BY updated_at DESC")

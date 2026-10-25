@@ -33,6 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Folder
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.data.NoteMetadata
 import com.primaloptima.scribe.ui.components.*
 import com.primaloptima.scribe.ui.theme.*
 import com.primaloptima.scribe.viewmodel.DashboardViewModel
@@ -58,7 +59,7 @@ fun MainStatisticsTabContent(
     dashboardVm: DashboardViewModel,
     statsVm: StatsViewModel,
     allBooks: List<Book>,
-    allNotes: List<Note>,
+    allNotes: List<NoteMetadata>,
     allFolders: List<Folder>,
     bookWordCounts: Map<String, Int>
 ) {
@@ -541,7 +542,7 @@ private fun CombinedBarTrendChart(entries: List<DailyWordEntry>, dailyGoal: Int 
 private fun DetailedWordmapTab(
     statsVm: StatsViewModel,
     allBooks: List<Book>,
-    allNotes: List<Note>,
+    allNotes: List<NoteMetadata>,
     allFolders: List<Folder>,
     bookWordCounts: Map<String, Int>
 ) {
@@ -741,7 +742,7 @@ data class WordmapItem(
 
 private fun computeWordmapItems(
     allBooks: List<Book>,
-    allNotes: List<Note>,
+    allNotes: List<NoteMetadata>,
     allFolders: List<Folder>,
     folderWordTotals: Map<String, Int>,
     bookWordTotals: Map<String, Int>,

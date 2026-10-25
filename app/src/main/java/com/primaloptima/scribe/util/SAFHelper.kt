@@ -131,9 +131,11 @@ object SAFHelper {
     // ── Read / Write ──────────────────────────────────────────────────────────
 
     suspend fun readFile(context: Context, uri: Uri): String = withContext(Dispatchers.IO) {
-        context.contentResolver.openInputStream(uri)?.use { stream ->
-            stream.bufferedReader().readText()
-        } ?: ""
+        val stream = context.contentResolver.openInputStream(uri)
+            ?: throw java.io.FileNotFoundException("Could not open input stream for $uri")
+        stream.use { s ->
+            s.bufferedReader().readText()
+        }
     }
 
     suspend fun writeFile(context: Context, uri: Uri, content: String): Unit = withContext(Dispatchers.IO) {

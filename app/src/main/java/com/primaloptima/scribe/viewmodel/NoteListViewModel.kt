@@ -9,6 +9,7 @@ import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Folder
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.data.NoteMetadata
 import com.primaloptima.scribe.util.SAFHelper
 import com.primaloptima.scribe.util.model.ExternalRoot
 import kotlinx.serialization.encodeToString
@@ -28,7 +29,7 @@ class NoteListViewModel(application: Application) : AndroidViewModel(application
     private val app = application as ScribeApp
     private val db = app.database
     private val dataStore = app.dataStore
-    val notes: StateFlow<List<Note>> = db.noteDao().observeAll()
+    val notes: StateFlow<List<NoteMetadata>> = db.noteDao().observeAllMetadata()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val folders: StateFlow<List<Folder>> = db.noteDao().observeFolders()
@@ -40,8 +41,8 @@ class NoteListViewModel(application: Application) : AndroidViewModel(application
     private val _externalLoading = MutableStateFlow(false)
     val externalLoading: StateFlow<Boolean> = _externalLoading.asStateFlow()
 
-    private val _searchResults = MutableStateFlow<List<Note>>(emptyList())
-    val searchResults: StateFlow<List<Note>> = _searchResults.asStateFlow()
+    private val _searchResults = MutableStateFlow<List<NoteMetadata>>(emptyList())
+    val searchResults: StateFlow<List<NoteMetadata>> = _searchResults.asStateFlow()
 
     init {
         loadExternalRoot()
@@ -321,12 +322,12 @@ When you come back, read it aloud. The sentences that make you stumble are the s
     fun search(query: String) {
         if (query.isBlank()) { _searchResults.value = emptyList(); return }
         viewModelScope.launch(Dispatchers.IO) {
-            val results = db.noteDao().search(query)
+            val results = db.noteDao().searchMetadata(query)
             withContext(Dispatchers.Main) { _searchResults.value = results }
         }
     }
 
-    fun notesInFolder(folderPath: String): List<Note> =
+    fun notesInFolder(folderPath: String): List<NoteMetadata> =
         notes.value.filter { it.folderPath == folderPath }
             .sortedByDescending { it.updatedAt }
 

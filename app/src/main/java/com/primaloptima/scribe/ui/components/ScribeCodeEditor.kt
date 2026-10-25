@@ -941,7 +941,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
     // ── Wordwrap Layout Ready & Flash-Suppression Engine ───────────────────────
     private var isLayoutBusyState: Boolean = false
     private var isAwaitingLayoutReady: Boolean = false
+    private var isFirstVisibleDelivered: Boolean = false
+    private var isLayoutReadyDelivered: Boolean = false
+    var onFirstVisibleListener: (() -> Unit)? = null
     var onLayoutReadyListener: (() -> Unit)? = null
+    var activeTraceNoteId: String? = null
 
     /**
      * Executes the action once the editor's text and wordwrap layout are fully computed.
@@ -997,13 +1001,17 @@ class ScribeCodeEditor @JvmOverloads constructor(
         return true
     }
 
-    private val safetyFadeInRunnable = Runnable {
-        if (isAwaitingLayoutReady) {
-            isAwaitingLayoutReady = false
-            alpha = 1f
-            val listener = onLayoutReadyListener
-            onLayoutReadyListener = null
-            listener?.invoke()
+    private var safetyCheckRetries = 0
+    private val safetyCheckRunnable = object : Runnable {
+        override fun run() {
+            if (!isAwaitingLayoutReady) return
+            if (isWordwrapReady()) {
+                checkAndTriggerReady()
+            } else if (safetyCheckRetries < 20) {
+                // Poll gently until wordwrap completes rather than falsely reporting ready
+                safetyCheckRetries++
+                postDelayed(this, 50)
+            }
         }
     }
 
@@ -1013,7 +1021,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
      */
     fun refreshRenderingOnResume() {
         clearKeyMetaStates()
-        removeCallbacks(safetyFadeInRunnable)
+        removeCallbacks(safetyCheckRunnable)
         isAwaitingLayoutReady = false
         alpha = 1f
         try {
@@ -1027,36 +1035,47 @@ class ScribeCodeEditor @JvmOverloads constructor(
      * Prepares the editor for a newly loaded document:
      * Fades the editor to invisible (alpha = 0f) and arms the ready-check listener.
      */
-    fun prepareForNewDocument() {
+    fun prepareForNewDocument(traceNoteId: String? = null) {
+        activeTraceNoteId = traceNoteId
         animate().cancel()
         alpha = 0f
         isAwaitingLayoutReady = true
-        removeCallbacks(safetyFadeInRunnable)
-        postDelayed(safetyFadeInRunnable, 600)
+        isFirstVisibleDelivered = false
+        isLayoutReadyDelivered = false
+        safetyCheckRetries = 0
+        removeCallbacks(safetyCheckRunnable)
+        postDelayed(safetyCheckRunnable, 50)
+    }
+
+    private fun deliverFirstVisible() {
+        if (isFirstVisibleDelivered) return
+        isFirstVisibleDelivered = true
+        activeTraceNoteId?.let { DocumentOpenTrace.mark(it, "first_correct_visible_content") }
+        alpha = 1f
+        val listener = onFirstVisibleListener
+        onFirstVisibleListener = null
+        listener?.invoke()
+    }
+
+    private fun deliverLayoutReady() {
+        if (isLayoutReadyDelivered) return
+        isLayoutReadyDelivered = true
+        isAwaitingLayoutReady = false
+        removeCallbacks(safetyCheckRunnable)
+        activeTraceNoteId?.let { DocumentOpenTrace.mark(it, "full_wordwrap_ready") }
+        val listener = onLayoutReadyListener
+        onLayoutReadyListener = null
+        listener?.invoke()
     }
 
     /**
      * Evaluates whether layout calculation is complete.
-     * When ready, smoothly fades in the text and triggers onLayoutReadyListener.
+     * When ready, reveals the document and triggers layout-ready listeners.
      */
     fun checkAndTriggerReady() {
-        if (isAwaitingLayoutReady && isWordwrapReady()) {
-            removeCallbacks(safetyFadeInRunnable)
-            isAwaitingLayoutReady = false
-            val listener = onLayoutReadyListener
-            onLayoutReadyListener = null
-            listener?.invoke()
-            animate()
-                .alpha(1f)
-                .setDuration(180)
-                .setInterpolator(DecelerateInterpolator())
-                .start()
-        } else if (!isAwaitingLayoutReady && isWordwrapReady()) {
-            val listener = onLayoutReadyListener
-            if (listener != null) {
-                onLayoutReadyListener = null
-                listener.invoke()
-            }
+        if (isWordwrapReady()) {
+            deliverFirstVisible()
+            deliverLayoutReady()
         }
     }
 
@@ -1066,16 +1085,18 @@ class ScribeCodeEditor @JvmOverloads constructor(
      */
     fun notifyContentSet() {
         if (text.length == 0 || !isWordwrap) {
-            removeCallbacks(safetyFadeInRunnable)
-            isAwaitingLayoutReady = false
-            alpha = 1f
-            val listener = onLayoutReadyListener
-            onLayoutReadyListener = null
-            listener?.invoke()
+            removeCallbacks(safetyCheckRunnable)
+            deliverFirstVisible()
+            deliverLayoutReady()
             return
         }
-        post {
-            checkAndTriggerReady()
+        if (isWordwrapReady()) {
+            deliverFirstVisible()
+            deliverLayoutReady()
+        } else {
+            post {
+                checkAndTriggerReady()
+            }
         }
     }
 

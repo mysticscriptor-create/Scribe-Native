@@ -30,6 +30,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.platform.LocalContext
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavKey
@@ -299,12 +301,14 @@ class ScribeActivity : ComponentActivity() {
                     val bookVm:     BookViewModel     = viewModel()
                     val noteListVm: NoteListViewModel = viewModel()
                     remember(key.bookId) { bookVm.init(key.bookId); true }
-                    // Preload note synchronously into editorVm so frame 0 has title and content immediately
+                    // Preload note metadata synchronously into editorVm so frame 0 has title immediately
                     remember(key.noteId) {
                         val cached = bookVm.notes.value.firstOrNull { it.id == key.noteId }
                             ?: noteListVm.notes.value.firstOrNull { it.id == key.noteId }
                         if (cached != null) {
-                            editorVm.loadNote(key.noteId, cached)
+                            editorVm.loadNote(key.noteId, preloadedMetadata = cached)
+                        } else {
+                            editorVm.loadNote(key.noteId)
                         }
                         true
                     }
@@ -320,8 +324,9 @@ class ScribeActivity : ComponentActivity() {
                             initialNoteId   = key.noteId,
                             isScreenActive  = (backStack.lastOrNull() is Route.Editor),
                             onBack          = {
-                                editorVm.clearActiveNote()
-                                backStack.removeLastOrNull()
+                                editorVm.saveAndLeave {
+                                    backStack.removeLastOrNull()
+                                }
                             },
                             onOpenHistory   = {
                                 // Flush pending autosave before navigating so no
@@ -568,15 +573,21 @@ class ScribeActivity : ComponentActivity() {
                 ) { key ->
                     val editorVm = activeEditorVm
                     val activeNote = editorVm?.activeNote?.value
-                    val note = activeNote ?: run {
-                        val bookVm: BookViewModel = viewModel()
-                        val noteListVm: NoteListViewModel = viewModel()
-                        bookVm.notes.value.firstOrNull { it.id == key.noteId }
-                            ?: noteListVm.notes.value.firstOrNull { it.id == key.noteId }
+                    val context = LocalContext.current
+                    val app = context.applicationContext as ScribeApp
+                    val fullNote by produceState<com.primaloptima.scribe.data.Note?>(
+                        initialValue = activeNote?.takeIf { it.id == key.noteId },
+                        key1 = key.noteId
+                    ) {
+                        if (value == null) {
+                            value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                app.database.noteDao().getById(key.noteId)
+                            }
+                        }
                     }
 
+                    val note = fullNote
                     if (note == null) {
-                        LaunchedEffect(Unit) { backStack.removeLastOrNull() }
                         return@entry
                     }
 

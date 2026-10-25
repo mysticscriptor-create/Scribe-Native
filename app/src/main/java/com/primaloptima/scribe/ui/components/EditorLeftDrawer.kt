@@ -21,6 +21,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.data.NoteMetadata
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
 import com.primaloptima.scribe.ui.theme.ScribeTheme
@@ -31,8 +32,8 @@ import com.primaloptima.scribe.ui.theme.frostedPanel
 fun EditorLeftDrawer(
     leftDrawerMode   : String,
     onModeChange     : (String) -> Unit,
-    currentBookNotes : List<Note>,
-    allNotes         : List<Note>,
+    currentBookNotes : List<NoteMetadata>,
+    allNotes         : List<NoteMetadata>,
     activeNoteId     : String?,
     onNoteClick      : (String) -> Unit,
     onAddNote        : () -> Unit,
@@ -44,7 +45,7 @@ fun EditorLeftDrawer(
 
     val displayNotes = if (leftDrawerMode == "Current") currentBookNotes else allNotes
     val folderGrouped = remember(displayNotes) {
-        buildMap<String, MutableList<Note>> {
+        buildMap<String, MutableList<NoteMetadata>> {
             displayNotes.forEach { n ->
                 getOrPut(n.folderPath.ifBlank { "/" }) { mutableListOf() }.add(n)
             }

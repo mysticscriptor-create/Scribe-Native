@@ -7,6 +7,7 @@ import com.primaloptima.scribe.ScribeApp
 import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Folder
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.data.NoteMetadata
 import com.primaloptima.scribe.data.WorldEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -33,8 +34,8 @@ class BookViewModel(application: Application) : AndroidViewModel(application) {
     private val _book = MutableStateFlow<Book?>(null)
     val book: StateFlow<Book?> = _book.asStateFlow()
 
-    private val _notes = MutableStateFlow<List<Note>>(emptyList())
-    val notes: StateFlow<List<Note>> = _notes.asStateFlow()
+    private val _notes = MutableStateFlow<List<NoteMetadata>>(emptyList())
+    val notes: StateFlow<List<NoteMetadata>> = _notes.asStateFlow()
 
     private val _folders = MutableStateFlow<List<Folder>>(emptyList())
     val folders: StateFlow<List<Folder>> = _folders.asStateFlow()
@@ -72,7 +73,7 @@ class BookViewModel(application: Application) : AndroidViewModel(application) {
     fun reload() {
         viewModelScope.launch(Dispatchers.IO) {
             val book = db.bookDao().getById(bookId)
-            val notes = db.noteDao().getByBook(bookId)
+            val notes = db.noteDao().getMetadataByBook(bookId)
             val folders = db.noteDao().getFoldersByBook(bookId)
             val world = try { db.worldEntryDao().getAllSync() } catch (_: Exception) { emptyList() }
             val sortedNotes = when (_sortMode.value) {
@@ -89,7 +90,7 @@ class BookViewModel(application: Application) : AndroidViewModel(application) {
 
     // ── Tree helpers ──────────────────────────────────────────────────────────
 
-    fun notesInFolder(folderPath: String): List<Note> =
+    fun notesInFolder(folderPath: String): List<NoteMetadata> =
         _notes.value.filter { it.folderPath == folderPath }
 
     fun childFolders(parentPath: String): List<Folder> {
@@ -105,7 +106,7 @@ class BookViewModel(application: Application) : AndroidViewModel(application) {
 
     sealed class TreeItem {
         data class FolderItem(val folder: Folder, val depth: Int, var expanded: Boolean = true) : TreeItem()
-        data class NoteItem(val note: Note, val depth: Int) : TreeItem()
+        data class NoteItem(val note: NoteMetadata, val depth: Int) : TreeItem()
     }
 
     /** Build a flat ordered list for tree view from the root. */

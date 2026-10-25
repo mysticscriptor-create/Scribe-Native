@@ -9,8 +9,11 @@ import com.primaloptima.scribe.ScribeApp
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.util.encodeAppThemes
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.data.NoteMetadata
+import com.primaloptima.scribe.data.toMetadata
 import com.primaloptima.scribe.data.NoteVersion
 import com.primaloptima.scribe.util.DefaultThemes
+import com.primaloptima.scribe.util.DocumentOpenTrace
 import com.primaloptima.scribe.util.MarkdownUtil
 import com.primaloptima.scribe.util.RecoveryManager
 import com.primaloptima.scribe.util.SAFHelper
@@ -49,6 +52,18 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+sealed class DocumentLoadState {
+    object Idle : DocumentLoadState()
+    data class Loading(val noteId: String, val metadata: NoteMetadata? = null) : DocumentLoadState()
+    data class Loaded(val note: Note) : DocumentLoadState()
+    data class Error(val noteId: String, val message: String, val recoverable: Boolean = true, val localNote: Note? = null) : DocumentLoadState()
+}
+
+sealed class ExternalSyncStatus {
+    object Synced : ExternalSyncStatus()
+    data class SyncFailed(val uri: String, val message: String) : ExternalSyncStatus()
+}
+
 class EditorViewModel(
     application: Application,
     private val savedState: SavedStateHandle
@@ -63,6 +78,17 @@ class EditorViewModel(
     private val db = app.database
     private val dataStore = app.dataStore
     private val themeManager = app.themeManager
+
+    // ── Generation counter & Load State ───────────────────────────────────────
+
+    private val loadGeneration = java.util.concurrent.atomic.AtomicLong(0)
+    val currentLoadGeneration: Long get() = loadGeneration.get()
+
+    private val _loadState = MutableStateFlow<DocumentLoadState>(DocumentLoadState.Idle)
+    val loadState: StateFlow<DocumentLoadState> = _loadState.asStateFlow()
+
+    private val _externalSyncStatus = MutableStateFlow<ExternalSyncStatus>(ExternalSyncStatus.Synced)
+    val externalSyncStatus: StateFlow<ExternalSyncStatus> = _externalSyncStatus.asStateFlow()
 
     // ── Date helpers ──────────────────────────────────────────────────────────
 
@@ -560,6 +586,25 @@ class EditorViewModel(
     // Document content is already durably persisted in Room database & flat recovery files.
     private var lastSavedContent: String = ""
     private var pendingContent: String = ""
+    private var isDirty: Boolean = false
+    private var currentContentRevision: Long = 0L
+    private var lastSavedRevision: Long = 0L
+
+    // In-memory CPU caches to prevent duplicate analysis on unchanged documents
+    private data class CachedStats(
+        val contentHash: Int,
+        val wordCount: Int,
+        val charCount: Int,
+        val readingTime: Int,
+        val outline: List<OutlineEntry>
+    )
+    private val statsCache = java.util.concurrent.ConcurrentHashMap<String, CachedStats>()
+
+    private data class CachedProse(
+        val contentHash: Int,
+        val result: ProseAnalysisResult
+    )
+    private val proseCache = java.util.concurrent.ConcurrentHashMap<String, CachedProse>()
 
     private var lastWordCount: Int
         get() = savedState[KEY_LAST_WORD_COUNT] ?: 0
@@ -769,74 +814,299 @@ class EditorViewModel(
 
     // ── Note loading ──────────────────────────────────────────────────────────
 
-    /** The currently in-flight loadNote Job; cancelled by clearActiveNote(). */
+    /** The currently in-flight loadNote Job; cancelled by clearActiveNote() or new load request. */
     private var loadNoteJob: Job? = null
 
     /**
-     * Seeds the active note synchronously into memory so that the first composition
-     * frame in MainEditorScreen has full title, header, and content without any blank frame.
+     * Preloads note metadata synchronously into memory so that the first composition
+     * frame in MainEditorScreen has title, header, and book/folder information immediately,
+     * while correctly identifying the state as Loading until the full body is loaded.
+     */
+    fun preloadNote(metadata: NoteMetadata) {
+        if (_activeNote.value?.id == metadata.id && _loadState.value !is DocumentLoadState.Idle) return
+        _loadState.value = DocumentLoadState.Loading(metadata.id, metadata)
+        _activeNote.value = Note(
+            id = metadata.id,
+            name = metadata.name,
+            bookId = metadata.bookId,
+            folderPath = metadata.folderPath,
+            ext = metadata.ext,
+            content = "",
+            wordCount = metadata.wordCount,
+            createdAt = metadata.createdAt,
+            updatedAt = metadata.updatedAt,
+            lastModified = metadata.lastModified,
+            externalUri = metadata.externalUri,
+            loaded = false,
+            cursorStateJson = metadata.cursorStateJson
+        )
+        lastWordCount = metadata.wordCount
+        _wordCount.value = metadata.wordCount
+        viewModelScope.launch { dataStore.setActiveNoteId(metadata.id) }
+    }
+
+    /**
+     * Preloads an already fully loaded Note entity into memory.
      */
     fun preloadNote(note: Note) {
-        if (_activeNote.value?.id == note.id) return
+        if (_activeNote.value?.id == note.id && _loadState.value is DocumentLoadState.Loaded) return
+        _loadState.value = DocumentLoadState.Loaded(note)
         _activeNote.value = note
         lastSavedContent = note.content
-        lastWordCount = MarkdownUtil.countWords(note.content)
+        pendingContent = note.content
+        isDirty = false
+        lastWordCount = note.wordCount
+        _wordCount.value = note.wordCount
         lastSnapshotWordCount = lastWordCount
-        updateStatsSync(note.content)
+        scheduleAsyncStatsAndAnalysis(note.id, note.content, loadGeneration.get())
         viewModelScope.launch { dataStore.setActiveNoteId(note.id) }
     }
 
-    fun loadNote(noteId: String, preloadedNote: Note? = null) {
-        if (_activeNote.value != null && _activeNote.value?.id != noteId) {
-            flushPendingContent()
+    fun loadNote(
+        noteId: String,
+        preloadedMetadata: NoteMetadata? = null,
+        preloadedNote: Note? = null
+    ) {
+        val requestId = loadGeneration.incrementAndGet()
+        DocumentOpenTrace.start(noteId)
+
+        // 1. Flush any pending changes from the outgoing note before switching
+        val prevNote = _activeNote.value
+        val prevDirty = isDirty
+        val prevPending = pendingContent
+        val prevRev = currentContentRevision
+        if (prevNote != null && prevNote.id != noteId && (prevDirty || prevPending != lastSavedContent)) {
+            val app = getApplication<android.app.Application>()
+            val extUri = prevNote.externalUri
+            val pId = prevNote.id
+            val bId = prevNote.bookId
+            val fPath = prevNote.folderPath
+            val today = todayStr()
+            val words = MarkdownUtil.countWords(prevPending)
+            val delta = words - lastWordCount
+            viewModelScope.launch(Dispatchers.IO) {
+                saveMutex.withLock {
+                    if (extUri != null) {
+                        try { SAFHelper.writeFile(app, Uri.parse(extUri), prevPending) } catch (_: Exception) {}
+                    }
+                    db.writingLogDao().saveContentAndDelta(
+                        noteDao    = db.noteDao(),
+                        noteId     = pId,
+                        content    = prevPending,
+                        wordCount  = words,
+                        updatedAt  = System.currentTimeMillis(),
+                        date       = today,
+                        bookId     = bId,
+                        folderPath = fPath,
+                        delta      = delta
+                    )
+                }
+            }
         }
+
         if (_activeNote.value?.id != noteId) {
             sessionScrollMap.remove(noteId)
         }
-        if (preloadedNote != null && preloadedNote.id == noteId) {
-            preloadNote(preloadedNote)
+
+        // 2. Set loading state immediately so UI does not show previous document's contents
+        val meta = preloadedMetadata ?: preloadedNote?.toMetadata()
+        if (meta != null && meta.id == noteId) {
+            preloadNote(meta)
+        } else {
+            _loadState.value = DocumentLoadState.Loading(noteId, null)
         }
-        if (loadNoteJob?.isActive == true) return
+
+        // 3. Cancel obsolete background tasks
+        loadNoteJob?.cancel()
+        autosaveJob?.cancel()
+        statsJob?.cancel()
+        proseJob?.cancel()
+        recoveryJob?.cancel()
+
         loadNoteJob = viewModelScope.launch {
+            DocumentOpenTrace.mark(noteId, "metadata_lookup")
             val noteFromDb = withContext(Dispatchers.IO) { db.noteDao().getById(noteId) }
-            val rawNote = noteFromDb ?: (if (preloadedNote != null && preloadedNote.id == noteId) preloadedNote else return@launch)
+            DocumentOpenTrace.mark(noteId, "full_content_db_retrieval")
+
+            if (loadGeneration.get() != requestId || !coroutineContext.isActive) return@launch
+
+            val rawNote = noteFromDb ?: (if (preloadedNote != null && preloadedNote.id == noteId) preloadedNote else null)
+            if (rawNote == null) {
+                _loadState.value = DocumentLoadState.Error(
+                    noteId = noteId,
+                    message = "Document could not be found",
+                    recoverable = false
+                )
+                return@launch
+            }
+
             val inMem = inMemoryCursorStates[noteId]
-            val note = if (inMem != null) {
+            val noteWithCursor = if (inMem != null) {
                 rawNote.copy(cursorStateJson = AppJson.encodeToString(inMem))
             } else rawNote
-            val loaded = if (note.externalUri != null && !note.loaded) {
-                try {
-                    val content = SAFHelper.readFile(getApplication(), Uri.parse(note.externalUri))
-                    val updated = note.copy(content = content, loaded = true)
-                    withContext(Dispatchers.IO) { db.noteDao().update(updated) }
-                    updated
-                } catch (_: Exception) { note.copy(loaded = true) }
-            } else note
 
-            _activeNote.value = loaded
-            lastSavedContent = loaded.content
-            lastWordCount = MarkdownUtil.countWords(loaded.content)
+            // 4. SAF external file retrieval with explicit error protection
+            val loadedNote = if (noteWithCursor.externalUri != null && !noteWithCursor.loaded) {
+                DocumentOpenTrace.mark(noteId, "external_file_retrieval")
+                try {
+                    val content = SAFHelper.readFile(getApplication(), Uri.parse(noteWithCursor.externalUri))
+                    val updated = noteWithCursor.copy(
+                        content = content,
+                        loaded = true,
+                        wordCount = MarkdownUtil.countWords(content),
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    withContext(Dispatchers.IO) { db.noteDao().update(updated) }
+                    _externalSyncStatus.value = ExternalSyncStatus.Synced
+                    updated
+                } catch (e: Exception) {
+                    android.util.Log.e("EditorViewModel", "External file read failed for $noteId", e)
+                    if (noteWithCursor.content.isEmpty()) {
+                        // Failed to read external file and no local content exists
+                        if (loadGeneration.get() == requestId && coroutineContext.isActive) {
+                            _loadState.value = DocumentLoadState.Error(
+                                noteId = noteId,
+                                message = "Cannot read external file: ${e.localizedMessage ?: "File inaccessible"}",
+                                recoverable = true,
+                                localNote = noteWithCursor
+                            )
+                        }
+                        return@launch
+                    } else {
+                        // A valid local copy already exists in the database
+                        _externalSyncStatus.value = ExternalSyncStatus.SyncFailed(
+                            noteWithCursor.externalUri,
+                            e.localizedMessage ?: "External file currently inaccessible; displaying local cached copy"
+                        )
+                        noteWithCursor
+                    }
+                }
+            } else noteWithCursor
+
+            if (loadGeneration.get() != requestId || !coroutineContext.isActive) return@launch
+
+            DocumentOpenTrace.mark(noteId, "content_preparation")
+            _activeNote.value = loadedNote
+            _loadState.value = DocumentLoadState.Loaded(loadedNote)
+            lastSavedContent = loadedNote.content
+            pendingContent = loadedNote.content
+            isDirty = false
+            currentContentRevision = 0L
+            lastSavedRevision = 0L
+            lastWordCount = loadedNote.wordCount
+            _wordCount.value = loadedNote.wordCount
             lastSnapshotWordCount = lastWordCount
-            updateStatsSync(loaded.content)
-            checkRecovery(loaded)
-            dataStore.setActiveNoteId(loaded.id)
+
+            checkRecovery(loadedNote)
+            dataStore.setActiveNoteId(loadedNote.id)
+
+            // 5. Asynchronous background calculations (off main thread, cached)
+            scheduleAsyncStatsAndAnalysis(loadedNote.id, loadedNote.content, requestId)
+        }
+    }
+
+    private fun scheduleAsyncStatsAndAnalysis(noteId: String, content: String, generation: Long) {
+        val contentHash = content.hashCode()
+
+        // Stats cache check
+        val cachedS = statsCache[noteId]
+        if (cachedS != null && cachedS.contentHash == contentHash) {
+            _wordCount.value = cachedS.wordCount
+            _charCount.value = cachedS.charCount
+            _readingTime.value = cachedS.readingTime
+            _outline.value = cachedS.outline
+        } else {
+            statsJob?.cancel()
+            statsJob = viewModelScope.launch(Dispatchers.Default) {
+                val wc = MarkdownUtil.countWords(content)
+                val cc = MarkdownUtil.countChars(content)
+                val rt = MarkdownUtil.readingTimeMinutes(content)
+                val outline = MarkdownUtil.extractOutline(content)
+                statsCache[noteId] = CachedStats(contentHash, wc, cc, rt, outline)
+                withContext(Dispatchers.Main) {
+                    if (loadGeneration.get() == generation && _activeNote.value?.id == noteId) {
+                        _wordCount.value = wc
+                        _charCount.value = cc
+                        _readingTime.value = rt
+                        _outline.value = outline
+                    }
+                }
+            }
+        }
+
+        // Prose cache check
+        val cachedP = proseCache[noteId]
+        if (cachedP != null && cachedP.contentHash == contentHash) {
+            _proseAnalysis.value = cachedP.result
+        } else {
+            proseJob?.cancel()
+            proseJob = viewModelScope.launch(Dispatchers.Default) {
+                val result = ProseAnalysisEngine.analyze(content)
+                proseCache[noteId] = CachedProse(contentHash, result)
+                withContext(Dispatchers.Main) {
+                    if (loadGeneration.get() == generation && _activeNote.value?.id == noteId) {
+                        _proseAnalysis.value = result
+                        DocumentOpenTrace.mark(noteId, "background_stats_and_prose")
+                        DocumentOpenTrace.finish(noteId, "words=${_wordCount.value}")
+                    }
+                }
+            }
         }
     }
 
     fun clearActiveNote() {
-        flushPendingContent()
+        val note = _activeNote.value
+        val dirty = isDirty
+        val contentToSave = pendingContent
+        val revToSave = currentContentRevision
+
+        // If dirty, persist asynchronously on IO
+        if (note != null && (dirty || contentToSave != lastSavedContent)) {
+            val app = getApplication<android.app.Application>()
+            val extUri = note.externalUri
+            val noteId = note.id
+            val bookId = note.bookId
+            val folderPath = note.folderPath
+            val today = todayStr()
+            val words = MarkdownUtil.countWords(contentToSave)
+            val delta = words - lastWordCount
+
+            viewModelScope.launch(Dispatchers.IO) {
+                saveMutex.withLock {
+                    if (extUri != null) {
+                        try {
+                            SAFHelper.writeFile(app, Uri.parse(extUri), contentToSave)
+                        } catch (_: Exception) {}
+                    }
+                    db.writingLogDao().saveContentAndDelta(
+                        noteDao    = db.noteDao(),
+                        noteId     = noteId,
+                        content    = contentToSave,
+                        wordCount  = words,
+                        updatedAt  = System.currentTimeMillis(),
+                        date       = today,
+                        bookId     = bookId,
+                        folderPath = folderPath,
+                        delta      = delta
+                    )
+                }
+            }
+        }
+
         _activeNote.value?.id?.let {
             sessionScrollMap.remove(it)
         }
+        loadGeneration.incrementAndGet() // invalidate any pending load
         loadNoteJob?.cancel()
         loadNoteJob = null
         autosaveJob?.cancel()
         autosaveJob = null
         statsJob?.cancel()
         statsJob = null
-        recoveryJob?.cancel()   // Bug 4: cancel debounced recovery write on note exit
+        recoveryJob?.cancel()
         recoveryJob = null
         _activeNote.value = null
+        _loadState.value = DocumentLoadState.Idle
         _outline.value = emptyList()
         _wordCount.value = 0
         _charCount.value = 0
@@ -845,9 +1115,37 @@ class EditorViewModel(
         _goalProgress.value = 0f
         _recoveryAvailable.value = false
         lastSavedContent = ""
+        pendingContent = ""
+        isDirty = false
+        currentContentRevision = 0L
+        lastSavedRevision = 0L
         lastWordCount = 0
         lastSnapshotWordCount = 0
         viewModelScope.launch { dataStore.setActiveNoteId(null) }
+    }
+
+    /**
+     * Suspendable save-and-leave: guarantees local persistence finishes before callback.
+     */
+    fun saveAndLeave(onSaved: () -> Unit) {
+        val note = _activeNote.value
+        val dirty = isDirty
+        val content = pendingContent
+        val rev = currentContentRevision
+        if (note != null && (dirty || content != lastSavedContent)) {
+            viewModelScope.launch(Dispatchers.IO) {
+                saveMutex.withLock {
+                    saveContentInternal(note, content, rev)
+                }
+                withContext(Dispatchers.Main) {
+                    clearActiveNote()
+                    onSaved()
+                }
+            }
+        } else {
+            clearActiveNote()
+            onSaved()
+        }
     }
 
 // ── Content change ────────────────────────────────────────────────────────
@@ -860,6 +1158,7 @@ class EditorViewModel(
     fun onIndentContentUpdated(content: String) {
         pendingContent = content
         lastSavedContent = content
+        isDirty = false
         val note = _activeNote.value ?: return
         _activeNote.value = note.copy(content = content)
         viewModelScope.launch(Dispatchers.IO) {
@@ -871,28 +1170,35 @@ class EditorViewModel(
         }
     }
 
-    fun onContentChanged(content: String) {
-        // Bug 1: track latest content so flushPendingContent() can flush without
-        // needing the caller to pass the text in separately.
+    fun onContentChanged(content: String, targetNoteId: String? = null) {
+        val note = _activeNote.value ?: return
+        if (targetNoteId != null && targetNoteId != note.id) return
+        if (content == lastSavedContent && !isDirty) return
+
         pendingContent = content
+        isDirty = true
+        currentContentRevision++
+        val rev = currentContentRevision
 
         // 1. Cancel and reschedule autosave (debounced at 500ms)
         autosaveJob?.cancel()
         autosaveJob = viewModelScope.launch {
             delay(AUTOSAVE_DEBOUNCE_MS)
-            saveContent(content)
+            saveContent(content, rev)
         }
 
         // 2. Stats update — debounced separately on Default dispatcher (CPU work off main thread)
         statsJob?.cancel()
         statsJob = viewModelScope.launch {
             delay(STATS_DEBOUNCE_MS)
-            withContext(Dispatchers.Default) {
-                val wc = MarkdownUtil.countWords(content)
-                val cc = MarkdownUtil.countChars(content)
-                val rt = MarkdownUtil.readingTimeMinutes(content)
-                val outline = MarkdownUtil.extractOutline(content)
-                withContext(Dispatchers.Main) {
+            val currentGen = loadGeneration.get()
+            val wc = withContext(Dispatchers.Default) { MarkdownUtil.countWords(content) }
+            val cc = withContext(Dispatchers.Default) { MarkdownUtil.countChars(content) }
+            val rt = withContext(Dispatchers.Default) { MarkdownUtil.readingTimeMinutes(content) }
+            val outline = withContext(Dispatchers.Default) { MarkdownUtil.extractOutline(content) }
+            statsCache[note.id] = CachedStats(content.hashCode(), wc, cc, rt, outline)
+            withContext(Dispatchers.Main) {
+                if (loadGeneration.get() == currentGen && _activeNote.value?.id == note.id) {
                     _wordCount.value = wc
                     _charCount.value = cc
                     _readingTime.value = rt
@@ -905,35 +1211,39 @@ class EditorViewModel(
         proseJob?.cancel()
         proseJob = viewModelScope.launch {
             delay(700)
+            val currentGen = loadGeneration.get()
             val result = withContext(Dispatchers.Default) {
                 ProseAnalysisEngine.analyze(content)
             }
-            _proseAnalysis.value = result
+            proseCache[note.id] = CachedProse(content.hashCode(), result)
+            withContext(Dispatchers.Main) {
+                if (loadGeneration.get() == currentGen && _activeNote.value?.id == note.id) {
+                    _proseAnalysis.value = result
+                }
+            }
         }
 
-        // 4. Recovery write — Bug 4: debounced at 2s (was firing on every keystroke,
-        // causing excessive SharedPreferences I/O on older devices).
-        val noteId = _activeNote.value?.id ?: return
+        // 4. Recovery write — debounced at 2s
         recoveryJob?.cancel()
         recoveryJob = viewModelScope.launch {
             delay(RECOVERY_DEBOUNCE_MS)
             withContext(Dispatchers.IO) {
-                RecoveryManager.set(getApplication(), noteId, content)
+                RecoveryManager.set(getApplication(), note.id, content)
             }
         }
     }
 
     /**
-     * Bug 1+5 fix: called before navigating to History (or any sub-screen) so
-     * keystrokes typed within the 500ms debounce window are not lost.
-     * Cancels the pending autosave job and immediately persists the latest content.
+     * Persists pending content immediately without waiting for debounce.
+     * Guaranteed to persist intentionally emptied content.
      */
     fun flushPendingContent(): kotlinx.coroutines.Job? {
         autosaveJob?.cancel()
         autosaveJob = null
         val note = _activeNote.value
         val content = pendingContent
-        if (note != null && content.isNotEmpty() && content != lastSavedContent) {
+        val rev = currentContentRevision
+        if (note != null && (isDirty || content != lastSavedContent)) {
             val words = MarkdownUtil.countWords(content)
             val delta = words - lastWordCount
             lastWordCount = words
@@ -948,8 +1258,13 @@ class EditorViewModel(
             return viewModelScope.launch(Dispatchers.IO) {
                 saveMutex.withLock {
                     if (extUri != null) {
-                        try { SAFHelper.writeFile(app, Uri.parse(extUri), content) }
-                        catch (_: Exception) {}
+                        try {
+                            SAFHelper.writeFile(app, Uri.parse(extUri), content)
+                            _externalSyncStatus.value = ExternalSyncStatus.Synced
+                        } catch (e: Exception) {
+                            android.util.Log.e("EditorViewModel", "SAF write failed in flushPendingContent", e)
+                            _externalSyncStatus.value = ExternalSyncStatus.SyncFailed(extUri, e.localizedMessage ?: "Write failed")
+                        }
                     }
                     db.writingLogDao().saveContentAndDelta(
                         noteDao    = db.noteDao(),
@@ -965,51 +1280,90 @@ class EditorViewModel(
                     if (delta != 0) {
                         updateGoalFromDb(today)
                     }
+                    if (rev >= currentContentRevision) {
+                        isDirty = false
+                    }
                 }
             }
         }
         return null
     }
 
-    private suspend fun saveContent(content: String) {
-        val note = _activeNote.value ?: return
-        if (content == lastSavedContent) return
+    /**
+     * Asynchronous suspendable flush ensuring persistence completes before proceeding.
+     */
+    suspend fun flushPendingContentSuspend(targetNoteId: String? = null): Boolean {
+        autosaveJob?.cancel()
+        autosaveJob = null
+        val note = _activeNote.value ?: return true
+        if (targetNoteId != null && targetNoteId != note.id) return true
+        val content = pendingContent
+        val rev = currentContentRevision
+        if (!isDirty && content == lastSavedContent) return true
 
+        return withContext(Dispatchers.IO) {
+            saveMutex.withLock {
+                saveContentInternal(note, content, rev)
+            }
+        }
+    }
+
+    private suspend fun saveContent(content: String, revision: Long) {
+        val note = _activeNote.value ?: return
+        if (content == lastSavedContent && !isDirty) return
+
+        withContext(Dispatchers.IO) {
+            saveMutex.withLock {
+                saveContentInternal(note, content, revision)
+            }
+        }
+    }
+
+    private suspend fun saveContentInternal(note: Note, content: String, revision: Long): Boolean {
         val newWords = MarkdownUtil.countWords(content)
         val delta = newWords - lastWordCount
         lastWordCount = newWords
 
-        withContext(Dispatchers.IO) {
-            saveMutex.withLock {
-                if (note.externalUri != null) {
-                    try { SAFHelper.writeFile(getApplication(), Uri.parse(note.externalUri), content) }
-                    catch (_: Exception) {}
-                }
-                // Fix (Bug 3): Both DB writes run inside a single @Transaction so they
-                // can never diverge if the process is killed between them.
-                val today = todayStr()
-                db.writingLogDao().saveContentAndDelta(
-                    noteDao    = db.noteDao(),
-                    noteId     = note.id,
-                    content    = content,
-                    wordCount  = newWords,
-                    updatedAt  = System.currentTimeMillis(),
-                    date       = today,
-                    bookId     = note.bookId,
-                    folderPath = note.folderPath,
-                    delta      = delta
-                )
-                if (delta != 0) {
-                    updateGoalFromDb(today)
-                }
+        var success = true
+        if (note.externalUri != null) {
+            try {
+                SAFHelper.writeFile(getApplication(), Uri.parse(note.externalUri), content)
+                _externalSyncStatus.value = ExternalSyncStatus.Synced
+            } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "SAF write failed in saveContentInternal", e)
+                _externalSyncStatus.value = ExternalSyncStatus.SyncFailed(note.externalUri, e.localizedMessage ?: "Write failed")
+                success = false
             }
         }
 
-        // Keep _activeNote in sync with the saved content so that when Nav3
-        // recreates the Editor composition (e.g. returning from History),
-        // activeNote.content is not stale and the editor is populated correctly.
+        try {
+            val today = todayStr()
+            db.writingLogDao().saveContentAndDelta(
+                noteDao    = db.noteDao(),
+                noteId     = note.id,
+                content    = content,
+                wordCount  = newWords,
+                updatedAt  = System.currentTimeMillis(),
+                date       = today,
+                bookId     = note.bookId,
+                folderPath = note.folderPath,
+                delta      = delta
+            )
+            if (delta != 0) {
+                updateGoalFromDb(today)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("EditorViewModel", "Room save failed", e)
+            success = false
+        }
+
         _activeNote.value = note.copy(content = content, updatedAt = System.currentTimeMillis())
         lastSavedContent = content
+        if (revision >= currentContentRevision) {
+            isDirty = false
+        }
+        lastSavedRevision = revision
+        return success
     }
 
     // ── Goal (DB-backed, replaces DataStore-backed updateGoal) ────────────────

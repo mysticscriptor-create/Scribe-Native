@@ -233,6 +233,10 @@ import com.primaloptima.scribe.util.ScribeProseLanguage
 import com.primaloptima.scribe.util.ThemeManager
 import com.primaloptima.scribe.ui.theme.FontHelper
 import io.github.rosemoe.sora.event.TextSizeChangeEvent
+import com.primaloptima.scribe.viewmodel.DocumentLoadState
+import com.primaloptima.scribe.viewmodel.ExternalSyncStatus
+import com.primaloptima.scribe.util.DocumentOpenTrace
+import com.primaloptima.scribe.data.NoteMetadata
 
 
 data class CardPreviewAnchor(
@@ -286,6 +290,8 @@ fun MainEditorScreen(
 
     // ── ViewModel state ───────────────────────────────────────────────────────
     val activeNote     by editorVm.activeNote.collectAsStateWithLifecycle()
+    val loadState      by editorVm.loadState.collectAsStateWithLifecycle()
+    val externalSyncStatus by editorVm.externalSyncStatus.collectAsStateWithLifecycle()
     val wordCount      by editorVm.wordCount.collectAsStateWithLifecycle()
     val charCount      by editorVm.charCount.collectAsStateWithLifecycle()
     val outline        by editorVm.outline.collectAsStateWithLifecycle()
@@ -688,7 +694,7 @@ fun MainEditorScreen(
     BackHandler {
         isExitingNote = true
         soraEditorRef?.text?.toString()?.let { curText ->
-            if (curText.isNotEmpty() && curText != editorVm.activeNote.value?.content) {
+            if (curText != editorVm.activeNote.value?.content) {
                 editorVm.onContentChanged(curText)
             }
         }
@@ -785,7 +791,7 @@ fun MainEditorScreen(
         } else null
     }
 
-    // Seed note synchronously on first composition pass if not yet set
+    // Seed note metadata synchronously on first composition pass if not yet set
     remember(initialNoteId, preloadedNote) {
         if (preloadedNote != null && editorVm.activeNote.value?.id != preloadedNote.id) {
             editorVm.preloadNote(preloadedNote)
@@ -794,12 +800,13 @@ fun MainEditorScreen(
     }
 
     LaunchedEffect(initialNoteId) {
-        if (!initialNoteId.isNullOrEmpty()) editorVm.loadNote(initialNoteId, preloadedNote)
-        else if (currentBookNotes.isNotEmpty()) editorVm.loadNote(currentBookNotes.first().id, currentBookNotes.first())
+        if (!initialNoteId.isNullOrEmpty()) editorVm.loadNote(initialNoteId, preloadedMetadata = preloadedNote)
+        else if (currentBookNotes.isNotEmpty()) editorVm.loadNote(currentBookNotes.first().id, preloadedMetadata = currentBookNotes.first())
     }
 
     var editorCurrentText by remember { mutableStateOf("") }
     var skipNextAnalysisByIndent by remember { mutableStateOf(false) }
+    var isProgrammaticLoading by remember { mutableStateOf(false) }
 
     // FIX 3: Removed activeNote?.content from the LaunchedEffect key.
     // The guard condition `editor.text.length == 0 && note.content.isNotEmpty()` already
@@ -842,6 +849,7 @@ fun MainEditorScreen(
                 worldEntries,
                 activeTheme?.paragraphSpacing ?: 1
             )
+            DocumentOpenTrace.mark("inlay_hints_computed")
 
             // Prepare for new document: suppress raw rendering and await wordwrap calculation
             if (editor is ScribeCodeEditor) {
@@ -854,14 +862,21 @@ fun MainEditorScreen(
             (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.firstLineIndentSpaces = initialIndent
 
             // Set text and inlay hints FIRST before layout and cursor restoration!
-            if (note.content.isEmpty() && initialIndent > 0) {
-                val indentStr = " ".repeat(initialIndent)
-                editor.setText(indentStr)
-                editorCurrentText = indentStr
-            } else {
-                editor.setText(note.content)
+            DocumentOpenTrace.mark("sora_set_text")
+            isProgrammaticLoading = true
+            try {
+                if (note.content.isEmpty() && initialIndent > 0) {
+                    val indentStr = " ".repeat(initialIndent)
+                    editor.setText(indentStr)
+                    editorCurrentText = indentStr
+                } else {
+                    editor.setText(note.content)
+                    editorCurrentText = note.content
+                }
+                editor.setInlayHints(hints)
+            } finally {
+                isProgrammaticLoading = false
             }
-            editor.setInlayHints(hints)
 
             if (note.content.isEmpty()) {
                 editor.alpha = 1f
@@ -1055,7 +1070,7 @@ fun MainEditorScreen(
         onDispose {
             activeNote?.let { note ->
                 soraEditorForDispose?.text?.toString()?.let { curText ->
-                    if (curText.isNotEmpty() && curText != note.content) {
+                    if (curText != note.content) {
                         editorVm.onContentChanged(curText)
                     }
                 }
@@ -1551,13 +1566,13 @@ fun MainEditorScreen(
                                     } catch (_: Exception) { }
 
                                     subscribeEvent(ContentChangeEvent::class.java) { event, _ ->
-                                        if (editor is ScribeCodeEditor && editor.isBatchApplyingIndent) {
+                                        if (isProgrammaticLoading || (editor is ScribeCodeEditor && editor.isBatchApplyingIndent)) {
                                             return@subscribeEvent
                                         }
                                         val current = text.toString()
+                                        if (loadedNoteId != activeNote?.id) return@subscribeEvent
                                         editorCurrentText = current
-                                        if (loadedNoteId != null)
-                                            editorVm.onContentChanged(current)
+                                        editorVm.onContentChanged(current)
                                         if (current.isEmpty()) {
                                             unifiedCanvasRef?.resetDocumentToTop(smooth = true)
                                         } else if (event.action != ContentChangeEvent.ACTION_DELETE) {
@@ -2746,6 +2761,104 @@ fun MainEditorScreen(
                             }
                         }
                     }
+
+                    // ── Document Loading Overlay ──
+                    if (loadState is DocumentLoadState.Loading) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(32.dp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    strokeWidth = 2.5.dp
+                                )
+                                Text(
+                                    text = "Opening document…",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+
+                    // ── Document Load Error Overlay ──
+                    if (loadState is DocumentLoadState.Error) {
+                        val errorState = loadState as DocumentLoadState.Error
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.surface),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.padding(24.dp),
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.ErrorOutline,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(48.dp),
+                                    tint = MaterialTheme.colorScheme.error
+                                )
+                                Text(
+                                    text = "Unable to open document",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = errorState.message,
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center
+                                )
+                                Button(
+                                    onClick = { editorVm.loadNote(errorState.noteId) }
+                                ) {
+                                    Text("Retry")
+                                }
+                            }
+                        }
+                    }
+
+                    // ── External Sync Warning Banner ──
+                    if (externalSyncStatus is ExternalSyncStatus.SyncFailed) {
+                        val syncFailed = externalSyncStatus as ExternalSyncStatus.SyncFailed
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .align(Alignment.TopCenter),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Warning,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "External sync issue: ${syncFailed.message}. Changes are safely preserved in your local vault.",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
                 }
             } // end Scaffold
         }
@@ -2763,7 +2876,8 @@ fun MainEditorScreen(
                             editorVm.saveCursorState(note.id, captureCurrentCursorState(soraEditorRef))
                         }
                     }
-                    editorVm.loadNote(id)
+                    val targetMeta = currentBookNotes.firstOrNull { it.id == id } ?: allNotes.firstOrNull { it.id == id }
+                    editorVm.loadNote(id, preloadedMetadata = targetMeta)
                     onClose()
                 },
                 onAddNote        = { scope.launch { captureForDialog { showCreateNoteDialog = true } } },

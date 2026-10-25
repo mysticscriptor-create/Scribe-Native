@@ -58,6 +58,55 @@ val Note.primaryTitle: String
 val Note.secondaryTitle: String
     get() = if (name.contains('\n')) name.substringAfter('\n') else ""
 
+/**
+ * Metadata-only projection of a note — excludes full content body to keep lists & navigation instantaneous.
+ * Contains lightweight snippet for excerpt previews where needed.
+ */
+@Immutable
+data class NoteMetadata(
+    val id: String,
+    val name: String,
+    @ColumnInfo(name = "book_id") val bookId: String = Note.DEFAULT_BOOK_ID,
+    @ColumnInfo(name = "folder_path") val folderPath: String = "/",
+    val ext: String = "md",
+    @ColumnInfo(name = "word_count") val wordCount: Int = 0,
+    @ColumnInfo(name = "created_at") val createdAt: Long = 0L,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long = 0L,
+    @ColumnInfo(name = "last_modified") val lastModified: Long = 0L,
+    @ColumnInfo(name = "external_uri") val externalUri: String? = null,
+    val loaded: Boolean = true,
+    @ColumnInfo(name = "cursor_state_json") val cursorStateJson: String? = null,
+    @ColumnInfo(name = "snippet") val snippet: String = ""
+)
+
+/** Formatted title for single-line display for NoteMetadata */
+val NoteMetadata.displayName: String
+    get() = name.replace("\n", " · ")
+
+/** Primary title/chapter header for NoteMetadata */
+val NoteMetadata.primaryTitle: String
+    get() = name.substringBefore('\n')
+
+/** Secondary title/subtitle for NoteMetadata */
+val NoteMetadata.secondaryTitle: String
+    get() = if (name.contains('\n')) name.substringAfter('\n') else ""
+
+fun Note.toMetadata(): NoteMetadata = NoteMetadata(
+    id = id,
+    name = name,
+    bookId = bookId,
+    folderPath = folderPath,
+    ext = ext,
+    wordCount = wordCount,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    lastModified = lastModified,
+    externalUri = externalUri,
+    loaded = loaded,
+    cursorStateJson = cursorStateJson,
+    snippet = content.take(300)
+)
+
 /** A logical folder entry in the vault, scoped to a book. */
 @Immutable
 @Entity(tableName = "folders", primaryKeys = ["book_id", "path"])

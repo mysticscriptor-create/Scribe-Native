@@ -69,6 +69,7 @@ import com.primaloptima.scribe.ScribeApp
 import com.primaloptima.scribe.LocalSharedTransitionScope
 import com.primaloptima.scribe.data.Folder
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.data.NoteMetadata
 import com.primaloptima.scribe.util.CoverUtils
 import com.primaloptima.scribe.viewmodel.BookViewModel
 import com.primaloptima.scribe.viewmodel.DashboardViewModel
@@ -159,8 +160,8 @@ fun BookScreen(
     // Dialog states
     var showCreateNoteDialog   by remember { mutableStateOf(false) }
     var showCreateFolderDialog by remember { mutableStateOf(false) }
-    var noteToRename  by remember { mutableStateOf<Note?>(null) }
-    var noteToDelete  by remember { mutableStateOf<Note?>(null) }
+    var noteToRename  by remember { mutableStateOf<NoteMetadata?>(null) }
+    var noteToDelete  by remember { mutableStateOf<NoteMetadata?>(null) }
     var showSummaryDialog by remember { mutableStateOf(false) }
     var showTagsDialog    by remember { mutableStateOf(false) }
 
@@ -922,7 +923,7 @@ fun BookScreen(
 @Composable
 private fun BookInfoHeader(
     book:           com.primaloptima.scribe.data.Book,
-    notes:          List<Note>,
+    notes:          List<NoteMetadata>,
     folders:        List<Folder>,
     onSummaryClick: () -> Unit
 ) {
@@ -1178,8 +1179,8 @@ private fun formatWordCount(count: Int): String {
 @Composable
 private fun TreeFolderHeader(
     fPath:       String,
-    notes:       List<Note>,
-    onNoteClick: (Note) -> Unit
+    notes:       List<NoteMetadata>,
+    onNoteClick: (NoteMetadata) -> Unit
 ) {
     var isExpanded by remember { mutableStateOf(true) }
 
@@ -1216,8 +1217,8 @@ private fun TreeFolderHeader(
 
 @Composable
 private fun NoteListRowStateless(
-    note:        Note,
-    onNoteClick: (Note) -> Unit
+    note:        NoteMetadata,
+    onNoteClick: (NoteMetadata) -> Unit
 ) {
     // Same visual as NoteListRow but without the context-menu actions
     NoteListRow(
@@ -1232,7 +1233,7 @@ private fun NoteListRowStateless(
 }
 
 @Composable
-private fun BookStatisticsTab(notes: List<Note>, bookTitle: String) {
+private fun BookStatisticsTab(notes: List<NoteMetadata>, bookTitle: String) {
     val series1Color = ScribeTheme.colors.analytics.series1
     val series2Color = ScribeTheme.colors.analytics.series2
     val targetColor  = ScribeTheme.colors.analytics.target
@@ -1310,7 +1311,7 @@ private fun BookStatisticsTab(notes: List<Note>, bookTitle: String) {
 
 @Composable
 private fun NoteListRow(
-    note:        Note,
+    note:        NoteMetadata,
     modifier:    Modifier = Modifier,
     onClick:     () -> Unit,
     onOpenFloat: () -> Unit,
@@ -1325,8 +1326,8 @@ private fun NoteListRow(
     val contentTertiary = ScribeTheme.colors.content.tertiary
 
     val wordLabel   = remember(note.wordCount) { formatWordCount(note.wordCount) }
-    val previewText = remember(note.content) {
-        note.content.lineSequence().filter { it.isNotBlank() }.take(2).joinToString(" ").ifBlank { null }
+    val previewText = remember(note.snippet) {
+        note.snippet.lineSequence().filter { it.isNotBlank() }.take(2).joinToString(" ").ifBlank { null }
     }
     val createdStr  = remember(note.createdAt) {
         SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(note.createdAt))

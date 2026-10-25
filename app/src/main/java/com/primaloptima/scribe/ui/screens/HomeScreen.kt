@@ -81,6 +81,7 @@ import com.primaloptima.scribe.R
 import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Folder
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.data.NoteMetadata
 import com.primaloptima.scribe.util.CoverUtils
 import com.primaloptima.scribe.viewmodel.BooksViewModel
 import com.primaloptima.scribe.viewmodel.DashboardViewModel
@@ -889,7 +890,7 @@ private fun BooksTabContent(
     wordCounts: Map<String, Int>,
     fileCounts: Map<String, Int>,
     folderCounts: Map<String, Int>,
-    allNotes: List<Note>,
+    allNotes: List<NoteMetadata>,
     onOpen: (Book) -> Unit,
     onRename: (Book) -> Unit,
     onChangeCover: (Book) -> Unit,
@@ -937,8 +938,8 @@ private fun BooksTabContent(
                 modifier = Modifier.fillMaxSize()
             ) {
                 items(books, key = { it.id }, contentType = { "book_row" }) { book ->
-                    val firstNote = allNotes.firstOrNull { it.bookId == book.id && it.content.isNotBlank() }
-                    val introSnippet = firstNote?.content?.take(100)?.replace("\n", " ") ?: "No book intro"
+                    val firstNote = allNotes.firstOrNull { it.bookId == book.id && it.snippet.isNotBlank() }
+                    val introSnippet = firstNote?.snippet?.take(100)?.replace("\n", " ") ?: "No book intro"
                     BookListRow(
                         book = book,
                         words = wordCounts[book.id] ?: 0,
@@ -1190,8 +1191,8 @@ private fun BookListRow(
 
 @Composable
 private fun NotesTabContent(
-    allNotes: List<Note>,
-    onOpenNote: (Note) -> Unit
+    allNotes: List<NoteMetadata>,
+    onOpenNote: (NoteMetadata) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
         if (allNotes.isEmpty()) {
@@ -1233,7 +1234,7 @@ private fun NotesTabContent(
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = note.content.ifBlank { "Empty quick note..." },
+                                text = note.snippet.ifBlank { "Empty quick note..." },
                                 fontSize = 13.sp,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
@@ -1251,8 +1252,8 @@ private fun NotesTabContent(
 private fun SearchResultsView(
     query: String,
     allBooks: List<Book>,
-    allNotes: List<Note>,
-    onOpenNote: (Note) -> Unit
+    allNotes: List<NoteMetadata>,
+    onOpenNote: (NoteMetadata) -> Unit
 ) {
     if (query.isBlank()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1261,7 +1262,7 @@ private fun SearchResultsView(
     } else {
         val matches = remember(query, allNotes) {
             allNotes.filter { n ->
-                n.name.contains(query, ignoreCase = true) || n.content.contains(query, ignoreCase = true) || n.folderPath.contains(query, ignoreCase = true)
+                n.name.contains(query, ignoreCase = true) || n.snippet.contains(query, ignoreCase = true) || n.folderPath.contains(query, ignoreCase = true)
             }
         }
 
