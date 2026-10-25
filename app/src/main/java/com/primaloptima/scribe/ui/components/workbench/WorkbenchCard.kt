@@ -53,6 +53,7 @@ import java.util.Date
 import java.util.Locale
 import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.data.NoteMetadata
 import com.primaloptima.scribe.data.WorldEntry
 import com.primaloptima.scribe.ui.components.AddFileSheet
 import com.primaloptima.scribe.ui.components.AddReferenceChoiceSheet
@@ -80,7 +81,8 @@ fun WorkbenchCard(
     slotKey             : String,
     pinnedIds           : List<String>,
     pinnedIndex         : Int,
-    allNotes            : List<Note>,
+    allNotes            : List<NoteMetadata>,
+    loadedNotes         : Map<String, Note> = emptyMap(),
     worldEntries        : List<WorldEntry>,
     books               : List<Book> = emptyList(),
     activeTheme         : AppTheme?,
@@ -111,8 +113,11 @@ fun WorkbenchCard(
     onCancelDetachedDrag: (() -> Unit)? = null,
 ) {
     val currentId = pinnedIds.getOrNull(pinnedIndex)
-    val currentNote = remember(currentId, allNotes, worldEntries) {
+    val currentMeta = remember(currentId, allNotes) {
         allNotes.firstOrNull { it.id == currentId }
+    }
+    val currentNote = remember(currentId, loadedNotes, worldEntries) {
+        loadedNotes[currentId]
             ?: worldEntries.firstOrNull { it.id == currentId }?.let { w ->
                 Note(id = w.id, name = w.name, content = "${w.type.uppercase()}: ${w.summary}\n\n${w.fieldsJson}")
             }
@@ -122,7 +127,7 @@ fun WorkbenchCard(
         pinnedIds.mapNotNull { id ->
             allNotes.firstOrNull { it.id == id }
                 ?: worldEntries.firstOrNull { it.id == id }?.let { w ->
-                    Note(id = w.id, name = w.name, content = "${w.type.uppercase()}: ${w.summary}")
+                    NoteMetadata(id = w.id, name = w.name, snippet = "${w.type.uppercase()}: ${w.summary}")
                 }
         }
     }
@@ -208,7 +213,7 @@ fun WorkbenchCard(
                 }
         )
 
-        if (currentNote == null) {
+        if (currentId == null) {
             Column(
                 modifier            = Modifier.fillMaxSize().clickable(onClick = { showAddReferenceChoiceSheet = true }),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -225,6 +230,14 @@ fun WorkbenchCard(
                      color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(3.dp))
                 Text("Tap to add notes or world sheets", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        } else if (currentNote == null) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.height(8.dp))
+                    Text(currentMeta?.name ?: "Loading...", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         } else {
             val currentNoteState by rememberUpdatedState(currentNote)
@@ -711,9 +724,9 @@ fun WorkbenchCard(
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
-                                        if (noteItem.content.isNotBlank()) {
+                                        if (noteItem.snippet.isNotBlank()) {
                                             Text(
-                                                text = noteItem.content.take(60).replace('\n', ' '),
+                                                text = noteItem.snippet.take(60).replace('\n', ' '),
                                                 fontSize = 10.sp,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 maxLines = 1,

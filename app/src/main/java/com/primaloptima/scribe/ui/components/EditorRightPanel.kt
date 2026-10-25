@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.data.NoteMetadata
 import com.primaloptima.scribe.data.WorldEntry
 import com.primaloptima.scribe.engine.ProseAnalysisResult
 import com.primaloptima.scribe.ui.components.workbench.Workbench
@@ -45,7 +46,8 @@ fun EditorRightPanel(
     rightPanelTab       : Int,
     onTabChange         : (Int) -> Unit,
     workbenchState      : WorkbenchState = WorkbenchState(),
-    allNotes            : List<Note>,
+    allNotes            : List<NoteMetadata>,
+    loadedNotes         : Map<String, Note> = emptyMap(),
     worldEntries        : List<WorldEntry>,
     books               : List<Book> = emptyList(),
     outline             : List<OutlineEntry>,
@@ -128,6 +130,7 @@ fun EditorRightPanel(
                         0 -> Workbench(
                             workbenchState      = workbenchState,
                             allNotes            = allNotes,
+                            loadedNotes         = loadedNotes,
                             worldEntries        = worldEntries,
                             books               = books,
                             activeTheme         = activeTheme,

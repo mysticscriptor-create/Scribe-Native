@@ -306,9 +306,7 @@ class ScribeActivity : ComponentActivity() {
                         val cached = bookVm.notes.value.firstOrNull { it.id == key.noteId }
                             ?: noteListVm.notes.value.firstOrNull { it.id == key.noteId }
                         if (cached != null) {
-                            editorVm.loadNote(key.noteId, preloadedMetadata = cached)
-                        } else {
-                            editorVm.loadNote(key.noteId)
+                            editorVm.preloadNote(cached)
                         }
                         true
                     }

@@ -1296,13 +1296,32 @@ private fun SearchResultsView(
                                 color = MaterialTheme.colorScheme.primary
                             )
                             Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = highlightMatch(note.content.take(150).replace("\n", " "), query),
-                                fontSize = 13.sp,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            val rawSnippet = note.snippet
+                            val excerpt = remember(rawSnippet, query) {
+                                if (query.isBlank() || rawSnippet.isBlank()) {
+                                    rawSnippet.take(150).replace("\n", " ")
+                                } else {
+                                    val idx = rawSnippet.indexOf(query, ignoreCase = true)
+                                    if (idx >= 0) {
+                                        val start = (idx - 30).coerceAtLeast(0)
+                                        val end = (idx + query.length + 90).coerceAtMost(rawSnippet.length)
+                                        val prefix = if (start > 0) "…" else ""
+                                        val suffix = if (end < rawSnippet.length) "…" else ""
+                                        prefix + rawSnippet.substring(start, end).replace("\n", " ") + suffix
+                                    } else {
+                                        rawSnippet.take(150).replace("\n", " ")
+                                    }
+                                }
+                            }
+                            if (excerpt.isNotBlank()) {
+                                Text(
+                                    text = highlightMatch(excerpt, query),
+                                    fontSize = 13.sp,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }

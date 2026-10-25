@@ -49,6 +49,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.data.NoteMetadata
 import com.primaloptima.scribe.data.WorldEntry
 import com.primaloptima.scribe.ui.components.AddSectionSheet
 import com.primaloptima.scribe.ui.components.OutOfScopeRestoreSheet
@@ -89,7 +90,8 @@ data class DetachedDragState(
 @Composable
 fun Workbench(
     workbenchState      : WorkbenchState = WorkbenchState(),
-    allNotes            : List<Note>,
+    allNotes            : List<NoteMetadata>,
+    loadedNotes         : Map<String, Note> = emptyMap(),
     worldEntries        : List<WorldEntry>,
     books               : List<Book> = emptyList(),
     activeTheme         : AppTheme?,
@@ -384,6 +386,7 @@ fun Workbench(
                                     pinnedIds = pane.pinnedNoteIds,
                                     pinnedIndex = pane.currentIndex,
                                     allNotes = allNotes,
+                                    loadedNotes = loadedNotes,
                                     worldEntries = worldEntries,
                                     activeTheme = activeTheme,
                                     activeNote = activeNote,
@@ -430,6 +433,7 @@ fun Workbench(
                                             pinnedIds = pane1.pinnedNoteIds,
                                             pinnedIndex = pane1.currentIndex,
                                             allNotes = allNotes,
+                                    loadedNotes = loadedNotes,
                                             worldEntries = worldEntries,
                                             activeTheme = activeTheme,
                                             activeNote = activeNote,
@@ -488,6 +492,7 @@ fun Workbench(
                                             pinnedIds = pane2.pinnedNoteIds,
                                             pinnedIndex = pane2.currentIndex,
                                             allNotes = allNotes,
+                                    loadedNotes = loadedNotes,
                                             worldEntries = worldEntries,
                                             activeTheme = activeTheme,
                                             activeNote = activeNote,
@@ -531,6 +536,7 @@ fun Workbench(
                                             pinnedIds = pane1.pinnedNoteIds,
                                             pinnedIndex = pane1.currentIndex,
                                             allNotes = allNotes,
+                                    loadedNotes = loadedNotes,
                                             worldEntries = worldEntries,
                                             activeTheme = activeTheme,
                                             activeNote = activeNote,
@@ -589,6 +595,7 @@ fun Workbench(
                                             pinnedIds = pane2.pinnedNoteIds,
                                             pinnedIndex = pane2.currentIndex,
                                             allNotes = allNotes,
+                                    loadedNotes = loadedNotes,
                                             worldEntries = worldEntries,
                                             activeTheme = activeTheme,
                                             activeNote = activeNote,
@@ -638,6 +645,7 @@ fun Workbench(
                                             pinnedIds = p0.pinnedNoteIds,
                                             pinnedIndex = p0.currentIndex,
                                             allNotes = allNotes,
+                                    loadedNotes = loadedNotes,
                                             worldEntries = worldEntries,
                                             activeTheme = activeTheme,
                                             activeNote = activeNote,
@@ -679,6 +687,7 @@ fun Workbench(
                                                 pinnedIds = p1.pinnedNoteIds,
                                                 pinnedIndex = p1.currentIndex,
                                                 allNotes = allNotes,
+                                    loadedNotes = loadedNotes,
                                                 worldEntries = worldEntries,
                                                 activeTheme = activeTheme,
                                                 activeNote = activeNote,
@@ -716,6 +725,7 @@ fun Workbench(
                                                 pinnedIds = p2.pinnedNoteIds,
                                                 pinnedIndex = p2.currentIndex,
                                                 allNotes = allNotes,
+                                    loadedNotes = loadedNotes,
                                                 worldEntries = worldEntries,
                                                 activeTheme = activeTheme,
                                                 activeNote = activeNote,
@@ -760,6 +770,7 @@ fun Workbench(
                                             pinnedIds = p0.pinnedNoteIds,
                                             pinnedIndex = p0.currentIndex,
                                             allNotes = allNotes,
+                                    loadedNotes = loadedNotes,
                                             worldEntries = worldEntries,
                                             activeTheme = activeTheme,
                                             activeNote = activeNote,
@@ -801,6 +812,7 @@ fun Workbench(
                                                 pinnedIds = p1.pinnedNoteIds,
                                                 pinnedIndex = p1.currentIndex,
                                                 allNotes = allNotes,
+                                    loadedNotes = loadedNotes,
                                                 worldEntries = worldEntries,
                                                 activeTheme = activeTheme,
                                                 activeNote = activeNote,
@@ -838,6 +850,7 @@ fun Workbench(
                                                 pinnedIds = p2.pinnedNoteIds,
                                                 pinnedIndex = p2.currentIndex,
                                                 allNotes = allNotes,
+                                    loadedNotes = loadedNotes,
                                                 worldEntries = worldEntries,
                                                 activeTheme = activeTheme,
                                                 activeNote = activeNote,
@@ -893,6 +906,7 @@ fun Workbench(
                                             pinnedIds = p0.pinnedNoteIds,
                                             pinnedIndex = p0.currentIndex,
                                             allNotes = allNotes,
+                                    loadedNotes = loadedNotes,
                                             worldEntries = worldEntries,
                                             activeTheme = activeTheme,
                                             activeNote = activeNote,
@@ -930,6 +944,7 @@ fun Workbench(
                                             pinnedIds = p1.pinnedNoteIds,
                                             pinnedIndex = p1.currentIndex,
                                             allNotes = allNotes,
+                                    loadedNotes = loadedNotes,
                                             worldEntries = worldEntries,
                                             activeTheme = activeTheme,
                                             activeNote = activeNote,
@@ -972,6 +987,7 @@ fun Workbench(
                                             pinnedIds = p2.pinnedNoteIds,
                                             pinnedIndex = p2.currentIndex,
                                             allNotes = allNotes,
+                                    loadedNotes = loadedNotes,
                                             worldEntries = worldEntries,
                                             activeTheme = activeTheme,
                                             activeNote = activeNote,
@@ -1009,6 +1025,7 @@ fun Workbench(
                                             pinnedIds = p3.pinnedNoteIds,
                                             pinnedIndex = p3.currentIndex,
                                             allNotes = allNotes,
+                                    loadedNotes = loadedNotes,
                                             worldEntries = worldEntries,
                                             activeTheme = activeTheme,
                                             activeNote = activeNote,
@@ -1275,8 +1292,13 @@ fun Workbench(
             }
 
             val currentFocusedNoteId = currentFocusedPane.pinnedNoteIds.getOrNull(currentFocusedPane.currentIndex)
-            val focusedNote = remember(currentFocusedNoteId, allNotes, worldEntries) {
-                allNotes.firstOrNull { it.id == currentFocusedNoteId }
+            LaunchedEffect(currentFocusedNoteId) {
+                if (currentFocusedNoteId != null && !loadedNotes.containsKey(currentFocusedNoteId)) {
+                    onLoadNote(currentFocusedNoteId)
+                }
+            }
+            val focusedNote = remember(currentFocusedNoteId, loadedNotes, worldEntries) {
+                loadedNotes[currentFocusedNoteId]
                     ?: worldEntries.firstOrNull { it.id == currentFocusedNoteId }?.let { w ->
                         Note(id = w.id, name = w.name, content = "${w.type.uppercase()}: ${w.summary}\n\n${w.fieldsJson}")
                     }

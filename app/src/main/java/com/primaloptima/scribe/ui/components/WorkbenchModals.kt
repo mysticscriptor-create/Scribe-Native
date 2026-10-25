@@ -32,6 +32,7 @@ import com.primaloptima.scribe.ui.theme.ScribeTheme
 import com.primaloptima.scribe.ui.theme.categoryMeta
 import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.data.NoteMetadata
 import com.primaloptima.scribe.data.WorldEntry
 import com.primaloptima.scribe.util.model.PaneAccentColor
 import com.primaloptima.scribe.util.model.PaneConfig
@@ -228,7 +229,7 @@ fun NewNoteDialog(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddFileSheet(
-    allNotes: List<Note>,
+    allNotes: List<NoteMetadata>,
     currentBookId: String? = null,
     books: List<Book> = emptyList(),
     onDismiss: () -> Unit,
@@ -247,7 +248,7 @@ fun AddFileSheet(
             val matchBook = selectedBookFilter == "ALL" || note.bookId == selectedBookFilter
             val matchQuery = searchQuery.isBlank() ||
                     note.name.contains(searchQuery, ignoreCase = true) ||
-                    note.content.contains(searchQuery, ignoreCase = true)
+                    note.snippet.contains(searchQuery, ignoreCase = true)
             matchBook && matchQuery
         }
     }
@@ -373,9 +374,9 @@ fun AddFileSheet(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    if (note.content.isNotBlank()) {
+                                    if (note.snippet.isNotBlank()) {
                                         Text(
-                                            text = note.content.take(80).replace('\n', ' '),
+                                            text = note.snippet.take(80).replace('\n', ' '),
                                             fontSize = 11.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             maxLines = 1,

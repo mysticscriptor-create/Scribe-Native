@@ -290,6 +290,8 @@ fun MainEditorScreen(
 
     // ── ViewModel state ───────────────────────────────────────────────────────
     val activeNote     by editorVm.activeNote.collectAsStateWithLifecycle()
+    val activeMetadata by editorVm.activeMetadata.collectAsStateWithLifecycle()
+    val loadedWorkbenchNotes by editorVm.loadedWorkbenchNotes.collectAsStateWithLifecycle()
     val loadState      by editorVm.loadState.collectAsStateWithLifecycle()
     val externalSyncStatus by editorVm.externalSyncStatus.collectAsStateWithLifecycle()
     val wordCount      by editorVm.wordCount.collectAsStateWithLifecycle()
@@ -549,32 +551,33 @@ fun MainEditorScreen(
         }
     }
 
+    val currentTitleNote = activeMetadata ?: activeNote
     // Dual-title inline editing state & persistence
-    var primaryTitleValue by remember(activeNote?.id) {
-        val raw = activeNote?.name ?: ""
+    var primaryTitleValue by remember(currentTitleNote?.id) {
+        val raw = currentTitleNote?.name ?: ""
         val p = raw.substringBefore('\n')
         mutableStateOf(TextFieldValue(p, TextRange(p.length)))
     }
-    var secondaryTitleValue by remember(activeNote?.id) {
-        val raw = activeNote?.name ?: ""
+    var secondaryTitleValue by remember(currentTitleNote?.id) {
+        val raw = currentTitleNote?.name ?: ""
         val s = if (raw.contains('\n')) raw.substringAfter('\n') else ""
         mutableStateOf(TextFieldValue(s, TextRange(s.length)))
     }
-    var primaryTitleText by remember(activeNote?.id) {
-        val raw = activeNote?.name ?: ""
+    var primaryTitleText by remember(currentTitleNote?.id) {
+        val raw = currentTitleNote?.name ?: ""
         mutableStateOf(raw.substringBefore('\n'))
     }
-    var secondaryTitleText by remember(activeNote?.id) {
-        val raw = activeNote?.name ?: ""
+    var secondaryTitleText by remember(currentTitleNote?.id) {
+        val raw = currentTitleNote?.name ?: ""
         mutableStateOf(if (raw.contains('\n')) raw.substringAfter('\n') else "")
     }
-    var showSecondaryTitle by remember(activeNote?.id) {
-        val raw = activeNote?.name ?: ""
+    var showSecondaryTitle by remember(currentTitleNote?.id) {
+        val raw = currentTitleNote?.name ?: ""
         mutableStateOf(raw.contains('\n'))
     }
 
-    LaunchedEffect(activeNote?.id, activeNote?.name) {
-        val raw = activeNote?.name ?: ""
+    LaunchedEffect(currentTitleNote?.id, currentTitleNote?.name) {
+        val raw = currentTitleNote?.name ?: ""
         val p = raw.substringBefore('\n')
         val s = if (raw.contains('\n')) raw.substringAfter('\n') else ""
         if (primaryTitleValue.text != p) {
@@ -693,15 +696,12 @@ fun MainEditorScreen(
 
     BackHandler {
         isExitingNote = true
-        soraEditorRef?.text?.toString()?.let { curText ->
-            if (curText != editorVm.activeNote.value?.content) {
-                editorVm.onContentChanged(curText)
-            }
-        }
-        editorVm.flushPendingContent()
+        val curText = soraEditorRef?.text?.toString()
         saveCurrentCursorStateToDb(soraEditorRef)
         activeNote?.id?.let { editorVm.clearSessionScroll(it) }
-        onBack()
+        editorVm.saveAndLeave(curText) {
+            onBack()
+        }
     }
 
     // Debounce save cursor state to DB whenever latestCursorState changes

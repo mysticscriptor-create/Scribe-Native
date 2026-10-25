@@ -30,6 +30,12 @@ interface NoteDao {
     @Query("SELECT * FROM notes WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): Note?
 
+    @Query("SELECT * FROM notes WHERE id IN (:ids)")
+    suspend fun getByIds(ids: Collection<String>): List<Note>
+
+    @Query("SELECT COUNT(*) FROM notes")
+    suspend fun getNoteCount(): Int
+
     // ── Metadata projections (fast, non-blocking list queries) ────────────────
     @Query("SELECT id, name, book_id, folder_path, ext, word_count, created_at, updated_at, last_modified, external_uri, loaded, cursor_state_json, SUBSTR(content, 1, 300) AS snippet FROM notes ORDER BY updated_at DESC")
     fun observeAllMetadata(): Flow<List<NoteMetadata>>

@@ -65,8 +65,7 @@ class NoteListViewModel(application: Application) : AndroidViewModel(application
 
     private fun checkFirstLaunch() {
         viewModelScope.launch(Dispatchers.IO) {
-            val existing = db.noteDao().getAll()
-            if (existing.isEmpty()) {
+            if (db.noteDao().getNoteCount() == 0) {
                 insertSampleNotes()
             }
         }

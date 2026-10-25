@@ -21,11 +21,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.data.NoteMetadata
 
 @Composable
 fun WorkbenchReferencesPanel(
     visible         : Boolean,
-    pinnedNotes     : List<Note>,
+    pinnedNotes     : List<NoteMetadata>,
     selectedIndex   : Int,
     onSelectIndex   : (Int) -> Unit,
     onReorderNote   : (fromIndex: Int, toIndex: Int) -> Unit,

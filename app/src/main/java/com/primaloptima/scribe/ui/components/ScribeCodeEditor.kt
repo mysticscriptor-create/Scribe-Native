@@ -31,6 +31,7 @@ import com.primaloptima.scribe.engine.IndentInlayHintRenderer
 import com.primaloptima.scribe.engine.ScribeEditorIndentFormatter
 import com.primaloptima.scribe.engine.FormatterNewlineAction
 import com.primaloptima.scribe.engine.FormatterDeleteAction
+import com.primaloptima.scribe.util.DocumentOpenTrace
 
 import kotlin.math.abs
 
@@ -1070,28 +1071,27 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     /**
      * Evaluates whether layout calculation is complete.
-     * When ready, reveals the document and triggers layout-ready listeners.
+     * When ready, triggers layout-ready listeners.
      */
     fun checkAndTriggerReady() {
+        deliverFirstVisible()
         if (isWordwrapReady()) {
-            deliverFirstVisible()
             deliverLayoutReady()
         }
     }
 
     /**
-     * Called after setting new text to check immediately if layout is already ready
-     * (e.g. empty document) or to schedule the check on the UI message looper.
+     * Called after setting new text to reveal the visible document frame immediately,
+     * then await full background word-wrap layout readiness.
      */
     fun notifyContentSet() {
+        deliverFirstVisible()
         if (text.length == 0 || !isWordwrap) {
             removeCallbacks(safetyCheckRunnable)
-            deliverFirstVisible()
             deliverLayoutReady()
             return
         }
         if (isWordwrapReady()) {
-            deliverFirstVisible()
             deliverLayoutReady()
         } else {
             post {

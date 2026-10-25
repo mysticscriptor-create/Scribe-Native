@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.data.NoteMetadata
 import com.primaloptima.scribe.ui.screens.LocalInteractiveBoundsRegistry
 import com.primaloptima.scribe.ui.theme.ScribeColorScheme
 import com.primaloptima.scribe.ui.theme.ScribeTheme
@@ -36,7 +37,9 @@ import kotlin.math.roundToInt
 @Composable
 fun FloatingWindowOverlay(
     floatingWindows: List<FloatingWindow>,
-    notes: List<Note>,
+    notes: List<NoteMetadata> = emptyList(),
+    loadedNotes: Map<String, Note> = emptyMap(),
+    onLoadNote: (String) -> Unit = {},
     activeTheme: AppTheme?,
     onCloseWindow: (String) -> Unit,
     onToggleCollapse: (String) -> Unit,
@@ -45,7 +48,12 @@ fun FloatingWindowOverlay(
 ) {
     Box(modifier = modifier.fillMaxSize()) {
         floatingWindows.forEach { windowState ->
-            val note = notes.firstOrNull { it.id == windowState.noteId }
+            val note = loadedNotes[windowState.noteId]
+            LaunchedEffect(windowState.noteId) {
+                if (note == null) {
+                    onLoadNote(windowState.noteId)
+                }
+            }
             if (note != null) {
                 FloatingWindowItem(
                     windowState = windowState,
