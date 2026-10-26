@@ -737,11 +737,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * Captures the live viewport snapshot directly from current canvas and editor measurements.
      * Does NOT advance or interfere with in-progress scroller animations.
      */
-    fun captureViewportSnapshot(noteId: String, sessionKey: Any = "active"): com.primaloptima.scribe.navigation.ViewportSnapshot {
-        val effectiveKey = (sessionKey as? com.primaloptima.scribe.navigation.Route.Editor)
-            ?: com.primaloptima.scribe.navigation.Route.Editor("", noteId)
+    fun captureViewportSnapshot(noteId: String, sessionKey: com.primaloptima.scribe.navigation.Route.Editor): com.primaloptima.scribe.navigation.ViewportSnapshot {
         return com.primaloptima.scribe.navigation.ViewportSnapshot(
-            sessionKey = effectiveKey,
+            sessionKey = sessionKey,
             noteId = noteId,
             scrollD = scrollD,
             editorOffsetY = editor.offsetY

@@ -153,8 +153,8 @@ class ScribeActivity : ComponentActivity() {
 
         val currentBackStackList = backStack.toList()
 
-        // Centrally observe backStack changes and notify the restoration coordinator
-        SideEffect {
+        // Centrally observe backStack transitions and notify the restoration coordinator
+        LaunchedEffect(currentBackStackList, isCompact) {
             restorationCoordinator.onNavigationBackStackChanged(currentBackStackList, isCompact)
         }
 

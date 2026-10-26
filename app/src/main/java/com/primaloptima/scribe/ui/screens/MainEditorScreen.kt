@@ -415,7 +415,7 @@ fun MainEditorScreen(
     var showManuscriptPreview by remember { mutableStateOf(false) }
 
     val coordinator = LocalEditorRestorationCoordinator.current
-    val effectiveKey = sessionKey ?: (initialNoteId?.let { Route.Editor("", it) })
+    val effectiveKey = sessionKey
 
     DisposableEffect(coordinator, effectiveKey, activeNote?.id) {
         val currentNoteId = activeNote?.id ?: initialNoteId ?: ""
@@ -426,18 +426,21 @@ fun MainEditorScreen(
 
                 override fun captureCurrentViewport(): ViewportSnapshot? {
                     val canvas = unifiedCanvasRef ?: return null
+                    canvas.settleOrCancelFling()
                     return canvas.captureViewportSnapshot(currentNoteId, effectiveKey)
                 }
 
                 override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onComplete: () -> Unit) {
                     val canvas = unifiedCanvasRef
-                    if (canvas != null) {
+                    val editor = soraEditorRef
+                    if (canvas != null && editor != null) {
                         canvas.restoreCanvasAndEditorScroll(
                             targetScrollD = snapshot.scrollD,
                             targetScrollY = snapshot.editorOffsetY,
                             isValid = {
                                 coordinator.isRestorationValid(effectiveKey, currentNoteId, generation) &&
-                                    (activeNote?.id == currentNoteId)
+                                    (activeNote?.id == currentNoteId) &&
+                                    (soraEditorRef === editor)
                             },
                             onComplete = onComplete
                         )
@@ -470,6 +473,7 @@ fun MainEditorScreen(
                 val canvas = unifiedCanvasRef
                 val editor = soraEditorRef
                 if (canvas != null && editor != null) {
+                    canvas.settleOrCancelFling()
                     editorVm.saveSessionScroll(noteId, canvas.scrollD, editor.offsetY)
                     if (effectiveKey != null) {
                         coordinator?.updateViewportSnapshot(effectiveKey, noteId, canvas.scrollD, editor.offsetY)
@@ -959,10 +963,16 @@ fun MainEditorScreen(
 
             // Wait until layout & wordwrap calculation are fully ready on the loaded text!
             (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.doOnLayoutReady {
-                if (coordinator == null && editorVm.hasSessionScroll(note.id)) {
-                    // CONTEXT B (Mid-Session legacy fallback when running without coordinator):
-                    restoreSessionScroll()
+                val isResumingSession = if (coordinator != null && effectiveKey != null) {
+                    coordinator.hasPendingRestoration(effectiveKey)
+                } else {
+                    editorVm.hasSessionScroll(note.id)
                 }
+                if (isResumingSession) {
+                    if (coordinator == null && editorVm.hasSessionScroll(note.id)) {
+                        // CONTEXT B (Mid-Session legacy fallback when running without coordinator):
+                        restoreSessionScroll()
+                    }
                     // Restore cursor position silently without driving scroll to cursor line
                     if (savedCursor != null) {
                         when (savedCursor.target) {
