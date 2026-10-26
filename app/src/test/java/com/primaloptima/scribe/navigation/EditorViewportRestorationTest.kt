@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class EditorViewportRestorationTest {
 
     // Test destination representing an arbitrary future Navigation 3 screen
-    private data object FutureArbitraryDestination : Route
+    private data object FutureArbitraryDestination : NavKey
 
     /**
      * 1. A viewport snapshot records the latest inner editor offset after the header has fully scrolled away.
