@@ -151,9 +151,11 @@ class ScribeActivity : ComponentActivity() {
         val adaptiveInfo = currentWindowAdaptiveInfo()
         val isCompact = adaptiveInfo.windowSizeClass.windowWidthSizeClass == WindowWidthSizeClass.COMPACT
 
+        val currentBackStackList = backStack.toList()
+
         // Centrally observe backStack changes and notify the restoration coordinator
-        LaunchedEffect(backStack.toList(), isCompact) {
-            restorationCoordinator.onNavigationBackStackChanged(backStack.toList(), isCompact)
+        SideEffect {
+            restorationCoordinator.onNavigationBackStackChanged(currentBackStackList, isCompact)
         }
 
         val lifecycleOwner = LocalLifecycleOwner.current
@@ -344,7 +346,9 @@ class ScribeActivity : ComponentActivity() {
                     // Keep the hoisted reference current so History can receive it.
                     activeEditorVm = editorVm
 
-                    val isEditorActive = restorationCoordinator.isEditorActive(key)
+                    val isEditorActive = remember(currentBackStackList, isCompact, key) {
+                        restorationCoordinator.isEditorVisibleInBackStack(key, currentBackStackList, isCompact)
+                    }
 
                     CompositionLocalProvider(LocalEditorViewModel provides editorVm) {
                         MainEditorScreen(

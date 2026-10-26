@@ -429,15 +429,18 @@ fun MainEditorScreen(
                     return canvas.captureViewportSnapshot(currentNoteId, effectiveKey)
                 }
 
-                override fun restoreViewport(snapshot: ViewportSnapshot, onComplete: () -> Unit) {
+                override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onComplete: () -> Unit) {
                     val canvas = unifiedCanvasRef
                     if (canvas != null) {
                         canvas.restoreCanvasAndEditorScroll(
-                            snapshot.scrollD,
-                            snapshot.editorOffsetY
-                        ) {
-                            onComplete()
-                        }
+                            targetScrollD = snapshot.scrollD,
+                            targetScrollY = snapshot.editorOffsetY,
+                            isValid = {
+                                coordinator.isRestorationValid(effectiveKey, currentNoteId, generation) &&
+                                    (activeNote?.id == currentNoteId)
+                            },
+                            onComplete = onComplete
+                        )
                     } else {
                         onComplete()
                     }
@@ -956,9 +959,10 @@ fun MainEditorScreen(
 
             // Wait until layout & wordwrap calculation are fully ready on the loaded text!
             (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.doOnLayoutReady {
-                if (editorVm.hasSessionScroll(note.id)) {
-                    // CONTEXT B (Mid-Session: ALWAYS ACTIVE by default, independent of restoreCursorOnOpen setting):
+                if (coordinator == null && editorVm.hasSessionScroll(note.id)) {
+                    // CONTEXT B (Mid-Session legacy fallback when running without coordinator):
                     restoreSessionScroll()
+                }
                     // Restore cursor position silently without driving scroll to cursor line
                     if (savedCursor != null) {
                         when (savedCursor.target) {

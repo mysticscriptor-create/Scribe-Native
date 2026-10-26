@@ -703,10 +703,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     fun restoreCanvasAndEditorScroll(
         targetScrollD: Int,
         targetScrollY: Int,
+        isValid: (() -> Boolean)? = null,
         onComplete: (() -> Unit)? = null
     ) {
         doOnCanvasReady {
+            if (isValid != null && !isValid()) return@doOnCanvasReady
             editor.doOnLayoutReady {
+                if (isValid != null && !isValid()) return@doOnLayoutReady
                 cancelCanvasAnimation()
                 val totalScroll = (targetScrollD + targetScrollY).coerceAtLeast(0)
                 val reconciled = ScribeScrollPolicy.reconcileScrollState(
@@ -732,18 +735,24 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     /**
      * Captures the live viewport snapshot directly from current canvas and editor measurements.
+     * Does NOT advance or interfere with in-progress scroller animations.
      */
     fun captureViewportSnapshot(noteId: String, sessionKey: Any = "active"): com.primaloptima.scribe.navigation.ViewportSnapshot {
-        if (!scroller.isFinished) {
-            scroller.computeScrollOffset()
-            lastScrollerY = scroller.currY
-        }
+        val effectiveKey = (sessionKey as? com.primaloptima.scribe.navigation.Route.Editor)
+            ?: com.primaloptima.scribe.navigation.Route.Editor("", noteId)
         return com.primaloptima.scribe.navigation.ViewportSnapshot(
-            sessionKey = sessionKey,
+            sessionKey = effectiveKey,
             noteId = noteId,
             scrollD = scrollD,
             editorOffsetY = editor.offsetY
         )
+    }
+
+    fun settleOrCancelFling() {
+        if (!scroller.isFinished) {
+            scroller.forceFinished(true)
+        }
+        editor.stopFling()
     }
 
     fun resetScroll() {
