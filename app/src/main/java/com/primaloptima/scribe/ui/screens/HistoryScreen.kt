@@ -55,6 +55,7 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(
+    targetNoteId: String,
     editorVm: EditorViewModel,
     onBack: () -> Unit
 ) {
@@ -64,12 +65,15 @@ fun HistoryScreen(
     val accentColor = ScribeTheme.colors.interaction.primary
     val subtleText = ScribeTheme.colors.content.secondary
 
-    val activeNoteIdState by app.dataStore.activeNoteIdFlow.collectAsStateWithLifecycle(initialValue = null)
-    val noteId = activeNoteIdState ?: ""
+    val noteId = targetNoteId
 
     var currentNoteContent by remember { mutableStateOf("") }
     val versionsFlow = remember(noteId) {
-        app.database.noteVersionDao().observeVersions(noteId)
+        if (noteId.isNotBlank()) {
+            app.database.noteVersionDao().observeVersions(noteId)
+        } else {
+            kotlinx.coroutines.flow.flowOf(emptyList())
+        }
     }
     val versions by versionsFlow.collectAsStateWithLifecycle(initialValue = emptyList())
 
@@ -78,7 +82,13 @@ fun HistoryScreen(
         if (!hasLoaded) hasLoaded = true
     }
 
+    var selectedVersion by remember { mutableStateOf<NoteVersion?>(null) }
+    var showConfirmRestoreDialog by remember { mutableStateOf(false) }
+
     LaunchedEffect(noteId) {
+        selectedVersion = null
+        showConfirmRestoreDialog = false
+        currentNoteContent = ""
         if (noteId.isNotBlank()) {
             withContext(Dispatchers.IO) {
                 val n = app.database.noteDao().getById(noteId)
@@ -88,9 +98,6 @@ fun HistoryScreen(
             }
         }
     }
-
-    var selectedVersion by remember { mutableStateOf<NoteVersion?>(null) }
-    var showConfirmRestoreDialog by remember { mutableStateOf(false) }
 
     val view = LocalView.current
     val blurRadiusPx = com.primaloptima.scribe.ui.theme.LocalFrostedBlurRadius.current.toInt().coerceIn(1, 25)
@@ -148,7 +155,7 @@ fun HistoryScreen(
                     .padding(padding)
                     .then(if (hazeState != null) Modifier.hazeSource(hazeState) else Modifier)
             ) {
-                itemsIndexed(versions, key = { _, ver -> ver.timestamp }) { index, ver ->
+                itemsIndexed(versions, key = { _, ver -> ver.id }) { index, ver ->
                     val dateStr = remember(ver.timestamp) {
                         SimpleDateFormat("MMM d, yyyy · h:mm a", Locale.getDefault()).format(Date(ver.timestamp))
                     }
@@ -321,13 +328,17 @@ fun HistoryScreen(
                 confirmButton = {
                     Button(
                         onClick = {
-                            val ver = selectedVersion!!
-                            editorVm.restoreSnapshot(ver.content)
-                            scope.launch(Dispatchers.Main) {
-                                Toast.makeText(context, "Version restored successfully", Toast.LENGTH_SHORT).show()
-                                showConfirmRestoreDialog = false
-                                selectedVersion = null
-                                onBack()
+                            val ver = selectedVersion ?: return@Button
+                            editorVm.restoreSnapshot(noteId, ver) { success ->
+                                if (success) {
+                                    Toast.makeText(context, "Version restored successfully", Toast.LENGTH_SHORT).show()
+                                    showConfirmRestoreDialog = false
+                                    selectedVersion = null
+                                    onBack()
+                                } else {
+                                    Toast.makeText(context, "Failed to restore version: Document mismatch", Toast.LENGTH_SHORT).show()
+                                    showConfirmRestoreDialog = false
+                                }
                             }
                         },
                         colors = ButtonDefaults.buttonColors(

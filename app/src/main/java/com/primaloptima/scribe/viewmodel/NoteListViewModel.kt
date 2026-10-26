@@ -320,14 +320,16 @@ When you come back, read it aloud. The sentences that make you stumble are the s
                     db.noteDao().insertFolders(folderEntries)
                     val noteEntries = result.files.map { f ->
                         val ext = if (f.ext in setOf("md", "mdown", "markdown")) "md" else "txt"
+                        val now = System.currentTimeMillis()
                         Note(
                             id = "ext::${f.uri}", name = f.name,
                             bookId = Note.DEFAULT_BOOK_ID,
                             folderPath = f.folderPath,
-                            ext = ext, content = "", loaded = false,
+                            ext = ext, content = "", wordCount = 0, loaded = false,
                             externalUri = f.uri,
-                            createdAt = System.currentTimeMillis(),
-                            updatedAt = System.currentTimeMillis()
+                            createdAt = now,
+                            updatedAt = now,
+                            lastModified = now
                         )
                     }
                     db.noteDao().insertAll(noteEntries)

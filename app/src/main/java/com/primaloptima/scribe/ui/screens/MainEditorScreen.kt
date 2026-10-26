@@ -260,7 +260,7 @@ fun MainEditorScreen(
     initialNoteId: String?,
     isScreenActive: Boolean = true,
     onBack: () -> Unit,
-    onOpenHistory: () -> Unit,
+    onOpenHistory: (String) -> Unit = {},
     onOpenShortcuts: () -> Unit,
     onOpenGuide: () -> Unit,
     onOpenThemes: () -> Unit = {},
@@ -1080,21 +1080,24 @@ fun MainEditorScreen(
     }
 
     val soraEditorForDispose = soraEditorRef
-    DisposableEffect(activeNote?.id) {
+    val currentNoteId = activeNote?.id
+    DisposableEffect(currentNoteId) {
+        if (currentNoteId == null) return@DisposableEffect onDispose {}
+        val sessionOwnerId = currentNoteId
+        val sessionBaseline = editorVm.getSnapshotBaseline(sessionOwnerId)
         onDispose {
-            activeNote?.let { note ->
-                soraEditorForDispose?.text?.toString()?.let { curText ->
-                    if (curText != note.content) {
-                        editorVm.onContentChanged(curText)
-                    }
-                }
-                editorVm.flushPendingContent()
-                editorVm.saveVersionSnapshotOnLeave(soraEditorForDispose?.text?.toString() ?: "")
-                if (!isExitingNote && editorVm.restoreCursorOnOpen.value) {
-                    val state = captureCurrentCursorState(soraEditorForDispose)
-                    latestCursorState = state
-                    editorVm.saveCursorState(note.id, state)
-                }
+            val curText = soraEditorForDispose?.text?.toString()
+            if (curText != null) {
+                editorVm.saveOnDisposeIfOwner(
+                    ownerNoteId = sessionOwnerId,
+                    content = curText,
+                    sessionSnapshotBaseline = sessionBaseline
+                )
+            }
+            if (!isExitingNote && editorVm.restoreCursorOnOpen.value) {
+                val state = captureCurrentCursorState(soraEditorForDispose)
+                latestCursorState = state
+                editorVm.saveCursorState(sessionOwnerId, state)
             }
         }
     }
@@ -2678,8 +2681,13 @@ fun MainEditorScreen(
                                         contentDescription = "Save Checkpoint",
                                         hazeState = hazeState,
                                         onClick = {
-                                            editorVm.saveManualSnapshot(soraEditorRef?.text?.toString() ?: "")
-                                            Toast.makeText(context, "Checkpoint saved", Toast.LENGTH_SHORT).show()
+                                            activeNote?.let { note ->
+                                                editorVm.saveManualSnapshot(
+                                                    content = soraEditorRef?.text?.toString() ?: "",
+                                                    targetNoteId = note.id
+                                                )
+                                                Toast.makeText(context, "Checkpoint saved", Toast.LENGTH_SHORT).show()
+                                            }
                                         }
                                     )
 
@@ -3086,7 +3094,8 @@ fun MainEditorScreen(
                     wasSheetOpen = false
                     activeSheetPage = null
                     editorVm.flushContent(soraEditorRef?.text?.toString() ?: "")
-                    onOpenHistory()
+                    val targetId = activeNote?.id ?: initialNoteId ?: ""
+                    onOpenHistory(targetId)
                 },
                 onShortcuts      = {
                     saveCurrentCursorStateToDb(soraEditorRef)

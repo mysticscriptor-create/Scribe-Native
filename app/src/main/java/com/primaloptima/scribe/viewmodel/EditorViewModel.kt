@@ -344,7 +344,7 @@ class EditorViewModel(
             val newWords = MarkdownUtil.countWords(content)
             val now = System.currentTimeMillis()
             db.noteDao().updateContentAndWordCount(noteId, content, newWords, now)
-            val updated = note.copy(content = content, wordCount = newWords, updatedAt = now)
+            val updated = note.copy(content = content, wordCount = newWords, updatedAt = now, lastModified = now)
             _loadedWorkbenchNotes.value = _loadedWorkbenchNotes.value + (noteId to updated)
             if (_activeNote.value?.id == noteId) {
                 _activeNote.value = updated
@@ -366,6 +366,7 @@ class EditorViewModel(
                 ext = "md",
                 createdAt = now,
                 updatedAt = now,
+                lastModified = now,
                 wordCount = MarkdownUtil.countWords(content)
             )
             db.noteDao().insert(note)
@@ -1051,7 +1052,7 @@ class EditorViewModel(
             lastSavedRevision = 0L
             lastWordCount = loadedNote.wordCount
             _wordCount.value = loadedNote.wordCount
-            lastSnapshotWordCount = lastWordCount
+            setSnapshotBaseline(loadedNote.id, loadedNote.wordCount)
 
             checkRecovery(loadedNote, requestId)
             dataStore.setActiveNoteId(loadedNote.id)
@@ -1153,7 +1154,6 @@ class EditorViewModel(
         currentContentRevision = 0L
         lastSavedRevision = 0L
         lastWordCount = 0
-        lastSnapshotWordCount = 0
         viewModelScope.launch { dataStore.setActiveNoteId(null) }
     }
 
@@ -1375,8 +1375,11 @@ class EditorViewModel(
 
     private suspend fun saveContentInternal(note: Note, content: String, revision: Long): Boolean {
         val newWords = withContext(Dispatchers.Default) { MarkdownUtil.countWords(content) }
-        val delta = newWords - lastWordCount
-        lastWordCount = newWords
+        val previousWc = if (_activeNote.value?.id == note.id) lastWordCount else note.wordCount
+        val delta = newWords - previousWc
+        if (_activeNote.value?.id == note.id) {
+            lastWordCount = newWords
+        }
 
         var safSuccess = true
         if (note.externalUri != null) {
@@ -1391,6 +1394,7 @@ class EditorViewModel(
         }
 
         var roomSuccess = false
+        val now = System.currentTimeMillis()
         try {
             val today = todayStr()
             db.writingLogDao().saveContentAndDelta(
@@ -1398,7 +1402,7 @@ class EditorViewModel(
                 noteId     = note.id,
                 content    = content,
                 wordCount  = newWords,
-                updatedAt  = System.currentTimeMillis(),
+                updatedAt  = now,
                 date       = today,
                 bookId     = note.bookId,
                 folderPath = note.folderPath,
@@ -1415,7 +1419,12 @@ class EditorViewModel(
 
         if (roomSuccess) {
             if (_activeNote.value?.id == note.id) {
-                _activeNote.value = note.copy(content = content, updatedAt = System.currentTimeMillis())
+                _activeNote.value = note.copy(
+                    content = content,
+                    wordCount = newWords,
+                    updatedAt = now,
+                    lastModified = now
+                )
             }
             lastSavedContent = content
             if (revision >= currentContentRevision) {
@@ -1454,53 +1463,99 @@ class EditorViewModel(
     }
 
     /**
-     * Called when the writer leaves a note (DisposableEffect onDispose).
+     * Called when the writer leaves a note (DisposableEffect onDispose or drawer loadNote switch).
+     * Explicit owner note ID ensures snapshots are never saved under the wrong note.
      * Saves an "auto" snapshot only if auto-history is enabled and the net
      * word change since the last snapshot meets the minimum threshold.
      */
-    fun saveVersionSnapshotOnLeave(content: String) {
-        val note = _activeNote.value ?: return
-        if (content.isBlank()) return
+    fun saveVersionSnapshotOnLeave(
+        noteId: String,
+        content: String,
+        sessionSnapshotBaseline: Int? = null
+    ) {
+        if (noteId.isBlank() || content.isBlank()) return
         viewModelScope.launch(Dispatchers.IO) {
             if (!dataStore.getAutoHistoryEnabled()) return@launch
             val currentWords = MarkdownUtil.countWords(content)
-            val wordDelta = Math.abs(currentWords - lastSnapshotWordCount)
+            val baseline = sessionSnapshotBaseline ?: getSnapshotBaseline(noteId)
+            val wordDelta = Math.abs(currentWords - baseline)
             if (wordDelta < dataStore.getAutoHistoryMinWords()) return@launch
             db.noteVersionDao().insert(
                 NoteVersion(
-                    noteId = note.id,
+                    noteId = noteId,
                     content = content,
                     wordCount = currentWords,
                     timestamp = System.currentTimeMillis(),
                     type = NoteVersion.TYPE_AUTO
                 )
             )
-            db.noteVersionDao().trimByType(note.id, NoteVersion.TYPE_AUTO, dataStore.getAutoHistorySlots())
-            lastSnapshotWordCount = currentWords
+            db.noteVersionDao().trimByType(noteId, NoteVersion.TYPE_AUTO, dataStore.getAutoHistorySlots())
+            setSnapshotBaseline(noteId, currentWords)
+        }
+    }
+
+    fun saveVersionSnapshotOnLeave(content: String) {
+        val note = _activeNote.value ?: return
+        saveVersionSnapshotOnLeave(note.id, content)
+    }
+
+    /**
+     * Safe onDispose handler capturing the session's owning note ID.
+     * Guarantees content and snapshots from document A are never written to document B.
+     */
+    fun saveOnDisposeIfOwner(
+        ownerNoteId: String,
+        content: String,
+        sessionSnapshotBaseline: Int? = null
+    ) {
+        if (ownerNoteId.isBlank()) return
+        val active = _activeNote.value
+        if (active != null && active.id == ownerNoteId) {
+            val rev = currentContentRevision
+            val dirty = isDirty || content != lastSavedContent
+            if (dirty) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    saveMutex.withLock {
+                        saveContentInternal(active, content, rev)
+                    }
+                }
+            }
+            saveVersionSnapshotOnLeave(ownerNoteId, content, sessionSnapshotBaseline)
+        } else {
+            viewModelScope.launch(Dispatchers.IO) {
+                val noteInDb = db.noteDao().getById(ownerNoteId)
+                if (noteInDb != null && noteInDb.content != content) {
+                    saveMutex.withLock {
+                        saveContentInternal(noteInDb, content, 0L)
+                    }
+                    saveVersionSnapshotOnLeave(ownerNoteId, content, sessionSnapshotBaseline)
+                }
+            }
         }
     }
 
     /**
      * Called when the writer taps the checkpoint (save) button in the toolbar.
      * Always saves regardless of word count, bypasses the min-words gate.
+     * Explicit target note ID guarantees ownership.
      */
-    fun saveManualSnapshot(content: String) {
-        val note = _activeNote.value ?: return
-        if (content.isBlank()) return
+    fun saveManualSnapshot(content: String, targetNoteId: String? = null) {
+        val noteId = targetNoteId ?: _activeNote.value?.id ?: return
+        if (noteId.isBlank() || content.isBlank()) return
         viewModelScope.launch(Dispatchers.IO) {
             if (!dataStore.getManualCheckpointsEnabled()) return@launch
             val words = MarkdownUtil.countWords(content)
             db.noteVersionDao().insert(
                 NoteVersion(
-                    noteId = note.id,
+                    noteId = noteId,
                     content = content,
                     wordCount = words,
                     timestamp = System.currentTimeMillis(),
                     type = NoteVersion.TYPE_MANUAL
                 )
             )
-            db.noteVersionDao().trimByType(note.id, NoteVersion.TYPE_MANUAL, dataStore.getManualCheckpointSlots())
-            lastSnapshotWordCount = words
+            db.noteVersionDao().trimByType(noteId, NoteVersion.TYPE_MANUAL, dataStore.getManualCheckpointSlots())
+            setSnapshotBaseline(noteId, words)
         }
     }
 
@@ -1577,38 +1632,86 @@ class EditorViewModel(
 
     // ── History ───────────────────────────────────────────────────────────────
 
-    fun restoreSnapshot(content: String) {
-        val note = _activeNote.value ?: return
-        viewModelScope.launch(Dispatchers.Default) {
+    fun restoreSnapshot(
+        targetNoteId: String,
+        selectedVersion: NoteVersion,
+        onComplete: (Boolean) -> Unit = {}
+    ) {
+        if (targetNoteId.isBlank() || selectedVersion.noteId != targetNoteId) {
+            onComplete(false)
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val note = db.noteDao().getById(targetNoteId)
+            if (note == null) {
+                withContext(Dispatchers.Main) { onComplete(false) }
+                return@launch
+            }
+            val content = selectedVersion.content
             val restoredWc = MarkdownUtil.countWords(content)
-            val previousWc = lastWordCount
-            withContext(Dispatchers.IO) {
-                val today = todayStr()
-                val delta = restoredWc - previousWc
-                // Atomically update notes and write_log so both reflect the restore.
-                db.writingLogDao().saveContentAndDelta(
-                    noteDao    = db.noteDao(),
-                    noteId     = note.id,
-                    content    = content,
-                    wordCount  = restoredWc,
-                    updatedAt  = System.currentTimeMillis(),
-                    date       = today,
-                    bookId     = note.bookId,
-                    folderPath = note.folderPath,
-                    delta      = delta
-                )
-                if (delta != 0) {
-                    updateGoalFromDb(today)
+            val previousWc = note.wordCount
+            val delta = restoredWc - previousWc
+            val now = System.currentTimeMillis()
+            val today = todayStr()
+
+            if (note.externalUri != null) {
+                try {
+                    SAFHelper.writeFile(getApplication(), Uri.parse(note.externalUri), content)
+                    _externalSyncStatus.value = ExternalSyncStatus.Synced
+                } catch (e: Exception) {
+                    android.util.Log.e("EditorViewModel", "SAF write failed in restoreSnapshot", e)
+                    _externalSyncStatus.value = ExternalSyncStatus.SyncFailed(note.externalUri, e.localizedMessage ?: "Write failed")
                 }
             }
+
+            db.writingLogDao().saveContentAndDelta(
+                noteDao    = db.noteDao(),
+                noteId     = targetNoteId,
+                content    = content,
+                wordCount  = restoredWc,
+                updatedAt  = now,
+                date       = today,
+                bookId     = note.bookId,
+                folderPath = note.folderPath,
+                delta      = delta
+            )
+            if (delta != 0) {
+                updateGoalFromDb(today)
+            }
+            setSnapshotBaseline(targetNoteId, restoredWc)
+
             withContext(Dispatchers.Main) {
-                _activeNote.value = note.copy(content = content, updatedAt = System.currentTimeMillis())
-                lastSavedContent = content
-                lastWordCount = restoredWc
-                _wordCount.value = restoredWc
-                scheduleAsyncStatsAndAnalysis(note.id, content, loadGeneration.get())
+                val active = _activeNote.value
+                if (active != null && active.id == targetNoteId) {
+                    _activeNote.value = active.copy(
+                        content = content,
+                        wordCount = restoredWc,
+                        updatedAt = now,
+                        lastModified = now
+                    )
+                    lastSavedContent = content
+                    pendingContent = content
+                    lastWordCount = restoredWc
+                    _wordCount.value = restoredWc
+                    isDirty = false
+                    scheduleAsyncStatsAndAnalysis(targetNoteId, content, loadGeneration.get())
+                }
+                onComplete(true)
             }
         }
+    }
+
+    fun restoreSnapshot(content: String) {
+        val note = _activeNote.value ?: return
+        restoreSnapshot(
+            targetNoteId = note.id,
+            selectedVersion = NoteVersion(
+                noteId = note.id,
+                content = content,
+                wordCount = MarkdownUtil.countWords(content),
+                timestamp = System.currentTimeMillis()
+            )
+        )
     }
 
     // ── SAF ───────────────────────────────────────────────────────────────────

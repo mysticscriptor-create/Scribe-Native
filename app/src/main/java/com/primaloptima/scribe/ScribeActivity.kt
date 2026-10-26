@@ -326,12 +326,12 @@ class ScribeActivity : ComponentActivity() {
                                     backStack.removeLastOrNull()
                                 }
                             },
-                            onOpenHistory   = {
+                            onOpenHistory   = { targetNoteId ->
                                 // Flush pending autosave before navigating so no
                                 // keystrokes in the 500ms debounce window are lost.
                                 editorVm.flushPendingContent()
                                 if (backStack.lastOrNull() !is Route.History)
-                                    backStack.add(Route.History)
+                                    backStack.add(Route.History(targetNoteId))
                             },
                             onOpenShortcuts = {
                                 if (backStack.lastOrNull() !is Route.Shortcuts)
@@ -485,15 +485,16 @@ class ScribeActivity : ComponentActivity() {
                                     + fadeOut(tween(200, easing = LinearEasing)))
                         }
                     }
-                ) {
+                ) { key ->
                     val editorVm = activeEditorVm
                     if (editorVm == null) {
                         LaunchedEffect(Unit) { backStack.removeLastOrNull() }
                         return@entry
                     }
                     HistoryScreen(
-                        editorVm = editorVm,
-                        onBack   = { backStack.removeLastOrNull() }
+                        targetNoteId = key.noteId,
+                        editorVm     = editorVm,
+                        onBack       = { backStack.removeLastOrNull() }
                     )
                 }
 
