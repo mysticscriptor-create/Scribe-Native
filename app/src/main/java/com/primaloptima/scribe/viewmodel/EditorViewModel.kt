@@ -698,13 +698,18 @@ class EditorViewModel(
     }
 
     // Context B (in-memory, per session scroll offset captured across the entire editing session)
-    data class SessionScroll(val noteId: String, val scrollD: Int, val scrollY: Int)
+    data class SessionScroll(
+        val noteId: String,
+        val scrollD: Int,
+        val scrollY: Int,
+        val totalLogicalScroll: Int = scrollD + scrollY
+    )
 
     private val sessionScrollMap = java.util.concurrent.ConcurrentHashMap<String, SessionScroll>()
 
     fun saveSessionScroll(noteId: String, scrollD: Int, scrollY: Int) {
         if (noteId.isNotEmpty()) {
-            sessionScrollMap[noteId] = SessionScroll(noteId, scrollD, scrollY)
+            sessionScrollMap[noteId] = SessionScroll(noteId, scrollD, scrollY, scrollD + scrollY)
         }
     }
 
@@ -920,7 +925,8 @@ class EditorViewModel(
         val prevRev = currentContentRevision
         val prevTextToSave = outgoingText ?: prevPending
 
-        if (_activeNote.value?.id != noteId) {
+        if (prevNote != null && prevNote.id != noteId) {
+            sessionScrollMap.remove(prevNote.id)
             sessionScrollMap.remove(noteId)
         }
 

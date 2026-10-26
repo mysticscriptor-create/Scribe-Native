@@ -1161,6 +1161,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 ScrollEvent.CAUSE_MAKE_POSITION_VISIBLE -> isFlingActive = false
                 ScrollEvent.CAUSE_TEXT_SELECTING -> isFlingActive = false
             }
+            (parent as? UnifiedCanvasLayout)?.notifyViewportScrollChanged()
         }
 
         // Listen for layout completion events from Sora Editor to trigger smooth fade-in and scroll clamping
@@ -1326,6 +1327,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (dx != 0 || dy != 0) {
             scroller.startScroll(currX, currY, dx, dy, 0)
             scroller.abortAnimation()
+            (parent as? UnifiedCanvasLayout)?.notifyViewportScrollChanged()
         }
         try {
             renderContext.invalidateRenderNodes()
@@ -1520,6 +1522,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
         }
         if (scroller != null && scroller.isFinished) {
             isFlingActive = false
+        }
+        if (prevY != (scroller?.currY ?: 0)) {
+            parentCanvas?.notifyViewportScrollChanged()
         }
     }
 

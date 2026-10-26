@@ -153,7 +153,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     var onScrollDelta: ((dy: Float) -> Unit)? = null
     var onUnifiedScrollChanged: ((scrollD: Int, maxHeaderHeight: Int) -> Unit)? = null
+    var onViewportScrollChanged: ((scrollD: Int, editorOffsetY: Int, totalLogicalScroll: Int) -> Unit)? = null
     var onUserTouchDown: (() -> Unit)? = null
+
+    fun notifyViewportScrollChanged() {
+        onViewportScrollChanged?.invoke(scrollD, editor.offsetY, scrollD + editor.offsetY)
+    }
 
     private val scroller = OverScroller(context)
     private var lastScrollerY = 0
@@ -693,25 +698,52 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     /**
      * Synchronously restores both canvas header displacement (scrollD) and Sora editor vertical offset (offsetY).
+     * Waits for both canvas geometry and editor layout to be fully settled.
      */
-    fun restoreCanvasAndEditorScroll(targetScrollD: Int, targetScrollY: Int) {
+    fun restoreCanvasAndEditorScroll(
+        targetScrollD: Int,
+        targetScrollY: Int,
+        onComplete: (() -> Unit)? = null
+    ) {
         doOnCanvasReady {
-            cancelCanvasAnimation()
-            val clampedD = targetScrollD.coerceIn(0, headerHeight)
-            scrollD = clampedD
-            scrollDFloat = clampedD.toFloat()
-            applyTranslations()
-            if (targetScrollY >= 0) {
+            editor.doOnLayoutReady {
+                cancelCanvasAnimation()
+                val totalScroll = (targetScrollD + targetScrollY).coerceAtLeast(0)
+                val reconciled = ScribeScrollPolicy.reconcileScrollState(
+                    headerHeight = headerHeight,
+                    scrollD = 0,
+                    editorOffsetY = totalScroll,
+                    maxCanvasScroll = maxCanvasScroll
+                )
+                scrollD = reconciled.scrollD
+                scrollDFloat = reconciled.scrollD.toFloat()
+                applyTranslations()
                 try {
-                    val maxY = editor.safeScrollMaxY
-                    val clampedY = if (clampedD < headerHeight) 0 else targetScrollY.coerceIn(0, maxY)
-                    editor.jumpScrollTo(editor.offsetX, clampedY)
+                    editor.jumpScrollTo(editor.offsetX, reconciled.editorOffsetY)
                 } catch (_: Throwable) {}
+                applyTranslations()
+                onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
+                notifyViewportScrollChanged()
+                invalidate()
+                onComplete?.invoke()
             }
-            applyTranslations()
-            onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
-            invalidate()
         }
+    }
+
+    /**
+     * Captures the live viewport snapshot directly from current canvas and editor measurements.
+     */
+    fun captureViewportSnapshot(noteId: String, sessionKey: Any = "active"): com.primaloptima.scribe.navigation.ViewportSnapshot {
+        if (!scroller.isFinished) {
+            scroller.computeScrollOffset()
+            lastScrollerY = scroller.currY
+        }
+        return com.primaloptima.scribe.navigation.ViewportSnapshot(
+            sessionKey = sessionKey,
+            noteId = noteId,
+            scrollD = scrollD,
+            editorOffsetY = editor.offsetY
+        )
     }
 
     fun resetScroll() {
@@ -724,6 +756,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         isDraggingCanvas = false
         applyTranslations()
         onUnifiedScrollChanged?.invoke(0, headerHeight)
+        notifyViewportScrollChanged()
         try {
             editor.jumpScrollTo(editor.offsetX, 0)
         } catch (_: Throwable) {}
@@ -969,7 +1002,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
         // Maintain continuous canvas invariant on resume/relayout:
-        if (headerHeight > 0) {
+        if (headerHeight > 0 && editor.isWordwrapReady() && editor.layout != null) {
             val reconciled = ScribeScrollPolicy.reconcileScrollState(
                 headerHeight = headerHeight,
                 scrollD = scrollD,
@@ -997,8 +1030,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         editor.layout(0, headerHeight, width, headerHeight + viewportHeight)
 
         // Only enforce viewport height invariant when layout & wordwrap are fully ready
-        val isReady = editor.isWordwrapReady()
-        val layoutH = editor.layout?.layoutHeight ?: 0
         if (editor.text.isEmpty()) {
             if (editor.offsetY > 0) {
                 try {
@@ -1009,8 +1040,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 scrollD = 0
                 scrollDFloat = 0f
                 onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
+                notifyViewportScrollChanged()
             }
-        } else {
+        } else if (editor.isWordwrapReady() && editor.layout != null) {
             val reconciled = ScribeScrollPolicy.reconcileScrollState(
                 headerHeight = headerHeight,
                 scrollD = scrollD,
@@ -1021,10 +1053,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 scrollD = reconciled.scrollD
                 scrollDFloat = reconciled.scrollD.toFloat()
                 onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
+                notifyViewportScrollChanged()
             }
             if (reconciled.editorOffsetY != editor.offsetY) {
                 try {
                     editor.jumpScrollTo(editor.offsetX, reconciled.editorOffsetY)
+                    notifyViewportScrollChanged()
                 } catch (_: Throwable) {}
             }
         }
@@ -1307,6 +1341,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             dispatchScrollToEditor(allocation.innerDelta)
         }
 
+        if (allocation.outerDelta != 0f || allocation.innerDelta != 0f) {
+            notifyViewportScrollChanged()
+        }
+
         // 3. Top edge stretch when overscrolling at the top
         if (dy < 0f && allocation.unconsumedDelta < 0f && scrollD <= 0 && editor.offsetY <= 0) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null) {
@@ -1343,6 +1381,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     editor.renderContext.invalidateRenderNodes()
                 } catch (_: Throwable) {}
                 editor.invalidate()
+                notifyViewportScrollChanged()
             }
         } catch (_: Throwable) {}
     }

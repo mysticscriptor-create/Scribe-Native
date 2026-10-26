@@ -41,6 +41,14 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import androidx.navigation3.runtime.metadata
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfo
+import androidx.compose.runtime.DisposableEffect
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.window.core.layout.WindowWidthSizeClass
+import com.primaloptima.scribe.navigation.EditorSessionRestorationCoordinator
+import com.primaloptima.scribe.navigation.LocalEditorRestorationCoordinator
 import com.primaloptima.scribe.navigation.Route
 import com.primaloptima.scribe.ui.screens.BookScreen
 import com.primaloptima.scribe.ui.screens.ExportStudioScreen
@@ -138,6 +146,26 @@ class ScribeActivity : ComponentActivity() {
     @Composable
     private fun ScribeNavigation() {
         val backStack = rememberNavBackStack(Route.Home)
+        val restorationCoordinator = remember { EditorSessionRestorationCoordinator() }
+
+        val adaptiveInfo = currentWindowAdaptiveInfo()
+        val isCompact = adaptiveInfo.windowSizeClass.windowWidthSizeClass == WindowWidthSizeClass.COMPACT
+
+        // Centrally observe backStack changes and notify the restoration coordinator
+        LaunchedEffect(backStack.toList(), isCompact) {
+            restorationCoordinator.onNavigationBackStackChanged(backStack.toList(), isCompact)
+        }
+
+        val lifecycleOwner = LocalLifecycleOwner.current
+        DisposableEffect(lifecycleOwner) {
+            val observer = LifecycleEventObserver { _, event ->
+                restorationCoordinator.onActivityLifecycleEvent(event)
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose {
+                lifecycleOwner.lifecycle.removeObserver(observer)
+            }
+        }
 
         // Holds the EditorViewModel from whichever Editor entry is currently active.
         // Updated inside entry<Route.Editor> so History can receive it directly.
@@ -152,7 +180,10 @@ class ScribeActivity : ComponentActivity() {
         val hazeState = com.primaloptima.scribe.ui.theme.LocalHazeState.current
 
         SharedTransitionLayout {
-        CompositionLocalProvider(LocalSharedTransitionScope provides this) {
+        CompositionLocalProvider(
+            LocalSharedTransitionScope provides this,
+            LocalEditorRestorationCoordinator provides restorationCoordinator
+        ) {
         NavDisplay(
             backStack = backStack,
             onBack    = { backStack.removeLastOrNull() },
@@ -313,6 +344,8 @@ class ScribeActivity : ComponentActivity() {
                     // Keep the hoisted reference current so History can receive it.
                     activeEditorVm = editorVm
 
+                    val isEditorActive = restorationCoordinator.isEditorActive(key)
+
                     CompositionLocalProvider(LocalEditorViewModel provides editorVm) {
                         MainEditorScreen(
                             editorVm        = editorVm,
@@ -320,7 +353,8 @@ class ScribeActivity : ComponentActivity() {
                             noteListVm      = noteListVm,
                             shortcutsVm     = shortcutsVm,
                             initialNoteId   = key.noteId,
-                            isScreenActive  = (backStack.lastOrNull() is Route.Editor),
+                            isScreenActive  = isEditorActive,
+                            sessionKey      = key,
                             onBack          = {
                                 editorVm.saveAndLeave {
                                     backStack.removeLastOrNull()

@@ -220,6 +220,10 @@ import androidx.compose.ui.platform.ViewCompositionStrategy
 import com.primaloptima.scribe.ui.components.UnifiedCanvasLayout
 import com.primaloptima.scribe.ui.components.ScribeCodeEditor
 import com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator
+import com.primaloptima.scribe.navigation.EditorSessionClient
+import com.primaloptima.scribe.navigation.LocalEditorRestorationCoordinator
+import com.primaloptima.scribe.navigation.Route
+import com.primaloptima.scribe.navigation.ViewportSnapshot
 import kotlinx.coroutines.suspendCancellableCoroutine
 import io.github.rosemoe.sora.widget.CodeEditor
 import io.github.rosemoe.sora.widget.EditorSearcher
@@ -259,6 +263,7 @@ fun MainEditorScreen(
     shortcutsVm: ShortcutsViewModel,
     initialNoteId: String?,
     isScreenActive: Boolean = true,
+    sessionKey: Route.Editor? = null,
     onBack: () -> Unit,
     onOpenHistory: (String) -> Unit = {},
     onOpenShortcuts: () -> Unit,
@@ -409,6 +414,52 @@ fun MainEditorScreen(
     var activeLightboxOriginSize by remember { mutableStateOf<Size?>(null) }
     var showManuscriptPreview by remember { mutableStateOf(false) }
 
+    val coordinator = LocalEditorRestorationCoordinator.current
+    val effectiveKey = sessionKey ?: (initialNoteId?.let { Route.Editor("", it) })
+
+    DisposableEffect(coordinator, effectiveKey, activeNote?.id) {
+        val currentNoteId = activeNote?.id ?: initialNoteId ?: ""
+        if (coordinator != null && effectiveKey != null && currentNoteId.isNotEmpty()) {
+            val client = object : EditorSessionClient {
+                override val sessionKey: Route.Editor = effectiveKey
+                override val noteId: String = currentNoteId
+
+                override fun captureCurrentViewport(): ViewportSnapshot? {
+                    val canvas = unifiedCanvasRef ?: return null
+                    return canvas.captureViewportSnapshot(currentNoteId, effectiveKey)
+                }
+
+                override fun restoreViewport(snapshot: ViewportSnapshot, onComplete: () -> Unit) {
+                    val canvas = unifiedCanvasRef
+                    if (canvas != null) {
+                        canvas.restoreCanvasAndEditorScroll(
+                            snapshot.scrollD,
+                            snapshot.editorOffsetY
+                        ) {
+                            onComplete()
+                        }
+                    } else {
+                        onComplete()
+                    }
+                }
+
+                override fun isLayoutReady(): Boolean {
+                    val canvas = unifiedCanvasRef
+                    val editor = soraEditorRef
+                    return canvas != null && canvas.headerHeight > 0 &&
+                        (editor as? ScribeCodeEditor)?.isWordwrapReady() == true &&
+                        editor.layout != null
+                }
+            }
+            coordinator.registerClient(client)
+            onDispose {
+                coordinator.unregisterClient(client)
+            }
+        } else {
+            onDispose {}
+        }
+    }
+
     val captureSessionScrollBeforeNavigate: () -> Unit = {
         if (!isExitingNote) {
             val noteId = activeNote?.id ?: ""
@@ -417,6 +468,9 @@ fun MainEditorScreen(
                 val editor = soraEditorRef
                 if (canvas != null && editor != null) {
                     editorVm.saveSessionScroll(noteId, canvas.scrollD, editor.offsetY)
+                    if (effectiveKey != null) {
+                        coordinator?.updateViewportSnapshot(effectiveKey, noteId, canvas.scrollD, editor.offsetY)
+                    }
                 }
             }
         }
@@ -428,20 +482,8 @@ fun MainEditorScreen(
             val sessionScroll = editorVm.getSessionScroll(noteId)
             if (sessionScroll != null) {
                 val canvas = unifiedCanvasRef
-                val editor = soraEditorRef
-                if (canvas != null && editor != null) {
+                if (canvas != null) {
                     canvas.restoreCanvasAndEditorScroll(sessionScroll.scrollD, sessionScroll.scrollY)
-                    (editor as? ScribeCodeEditor)?.doOnLayoutReady {
-                        val maxY = editor.scrollMaxY.coerceAtLeast(0)
-                        if (sessionScroll.scrollY > maxY && editor.isWordwrapReady()) {
-                            val cur = try { editor.cursor } catch (_: Throwable) { null }
-                            if (cur != null) {
-                                val line = cur.leftLine.coerceIn(0, (editor.text.lineCount - 1).coerceAtLeast(0))
-                                val col = cur.leftColumn.coerceIn(0, editor.text.getColumnCount(line))
-                                editor.ensurePositionVisible(line, col, true)
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -453,6 +495,9 @@ fun MainEditorScreen(
         if (activeSheetPage != null) {
             wasSheetOpen = true
             captureSessionScrollBeforeNavigate()
+            if (effectiveKey != null) {
+                coordinator?.onOverlayVisibilityChanged(effectiveKey, isCovered = true)
+            }
             keyboardController?.hide()
             focusManager.clearFocus()
             try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
@@ -463,8 +508,9 @@ fun MainEditorScreen(
         } else if (wasSheetOpen) {
             wasSheetOpen = false
             // Bottom sheet dismissed mid-session without navigating away:
-            // restore Context B saved scroll offset
-            if (editorVm.hasSessionScroll(noteId)) {
+            if (effectiveKey != null) {
+                coordinator?.onOverlayVisibilityChanged(effectiveKey, isCovered = false)
+            } else if (editorVm.hasSessionScroll(noteId)) {
                 restoreSessionScroll()
             }
             (soraEditorRef as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.showCursorSilently() ?: run {
@@ -482,7 +528,7 @@ fun MainEditorScreen(
             val editor = soraEditorRef
             (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.refreshRenderingOnResume()
             unifiedCanvasRef?.invalidate()
-            if (editorVm.hasSessionScroll(noteId)) {
+            if (coordinator == null && editorVm.hasSessionScroll(noteId)) {
                 restoreSessionScroll()
             }
             // Ensure editor cursor is silently aligned with the saved cursor state
@@ -728,7 +774,9 @@ fun MainEditorScreen(
                 if (!isExitingNote) {
                     (soraEditorRef as? ScribeCodeEditor)?.refreshRenderingOnResume()
                     unifiedCanvasRef?.invalidate()
-                    restoreSessionScroll()
+                    if (coordinator == null) {
+                        restoreSessionScroll()
+                    }
                 }
             } else if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE || event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
                 if (!isExitingNote) {
@@ -1491,6 +1539,18 @@ fun MainEditorScreen(
                                         }
                                     }
                                 }
+                                onViewportScrollChanged = { scrollD, editorOffsetY, _ ->
+                                    if (!isExitingNote) {
+                                        activeNote?.id?.let { id ->
+                                            if (id.isNotEmpty()) {
+                                                editorVm.saveSessionScroll(id, scrollD, editorOffsetY)
+                                                if (effectiveKey != null) {
+                                                    coordinator?.updateViewportSnapshot(effectiveKey, id, scrollD, editorOffsetY)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 onUnifiedScrollChanged = { scrollD, _ ->
                                     if (activeImageHintData != null) {
                                         val currentScroll = scrollD + (soraEditorRef?.offsetY ?: 0)
@@ -1509,6 +1569,9 @@ fun MainEditorScreen(
                                         activeNote?.id?.let { id ->
                                             if (id.isNotEmpty()) {
                                                 editorVm.saveSessionScroll(id, scrollD, editor.offsetY)
+                                                if (effectiveKey != null) {
+                                                    coordinator?.updateViewportSnapshot(effectiveKey, id, scrollD, editor.offsetY)
+                                                }
                                             }
                                         }
                                     }
