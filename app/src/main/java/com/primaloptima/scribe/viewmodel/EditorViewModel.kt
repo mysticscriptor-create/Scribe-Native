@@ -697,9 +697,8 @@ class EditorViewModel(
 
     fun setRestoreCursorOnOpen(enabled: Boolean) {
         overrideRestoreCursorOnOpen = enabled
-        (getApplication() as? ScribeApp)?.applicationScope?.launch {
-            dataStore.setRestoreCursorOnOpen(enabled)
-        } ?: viewModelScope.launch {
+        val scope = (getApplication() as? ScribeApp)?.applicationScope ?: viewModelScope
+        scope.launch {
             dataStore.setRestoreCursorOnOpen(enabled)
         }
     }
@@ -763,8 +762,8 @@ class EditorViewModel(
             _activeNote.value = cur.copy(cursorStateJson = json)
         }
         // Save to SQLite sequentially on app-level scope so backstack pop / ViewModel clearance does not cancel the DB write
-        @Suppress("OPT_IN_USAGE")
-        (getApplication() as? ScribeApp)?.applicationScope?.launch(Dispatchers.IO) ?: kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
+        val scope = (getApplication() as? ScribeApp)?.applicationScope ?: viewModelScope
+        scope.launch(Dispatchers.IO) {
             try {
                 cursorSaveMutex.withLock {
                     db.noteDao().updateCursorState(noteId, json)
