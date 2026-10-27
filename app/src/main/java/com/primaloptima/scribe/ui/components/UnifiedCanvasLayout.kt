@@ -98,7 +98,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             // comfortably above shortcut bar without double-counting keyboard height or scrolling empty space.
             val bottomSpace = if (isKeyboardVisible || isBottomSurfaceActive) {
                 breathingMargin
-            } else if (editor.isFocused || editor.offsetY > 0 || scrollD > 0) {
+            } else if (editor.isFocused || editor.offsetY > 0 || scrollD > 0 || isRestoringViewport) {
                 persistentBottomSpacePx.roundToInt()
             } else {
                 0
@@ -1315,7 +1315,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     temporaryExpansionDisplacement += actualMoved
                 }
                 return true
-            } else if (screenTop < -deadbandPx && (scrollD > 0 || editor.offsetY > 0)) {
+            } else if (screenTop < -deadbandPx && (scrollD > 0 || editor.offsetY > 0) && (isKeyboardVisible || isBottomSurfaceActive || isUserTouching)) {
                 val delta = screenTop.toFloat()
                 scrollCanvasBy(delta)
                 return true

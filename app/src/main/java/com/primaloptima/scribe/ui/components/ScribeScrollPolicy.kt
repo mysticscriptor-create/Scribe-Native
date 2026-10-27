@@ -247,11 +247,14 @@ object ScribeScrollPolicy {
         editorOffsetY: Int,
         maxCanvasScroll: Int
     ): ReconciledScrollState {
-        if (headerHeight <= 0) {
-            return ReconciledScrollState(0, 0)
-        }
         val safeMaxCanvas = maxCanvasScroll.coerceAtLeast(0)
         val totalScroll = (scrollD + editorOffsetY).coerceIn(0, safeMaxCanvas)
+        if (headerHeight <= 0) {
+            return ReconciledScrollState(
+                scrollD = 0,
+                editorOffsetY = totalScroll
+            )
+        }
 
         return if (totalScroll < headerHeight) {
             // Within header range: all displacement belongs to outer canvas; editor MUST be 0

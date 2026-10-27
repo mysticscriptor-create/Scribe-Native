@@ -904,4 +904,100 @@ class EditorViewportRestorationTest {
         assertFalse("Session must no longer be classified as retained", coordinator.isRetainedSession(editorKey))
         assertNull("Restoration state must be cleared", coordinator.getRestorationState(editorKey))
     }
+
+    /**
+     * Scenario 23: ScribeScrollPolicy.reconcileScrollState preserves editorOffsetY when headerHeight <= 0.
+     * When the headerView has not finished measuring (headerHeight = 0) or the note has no title,
+     * the scroll offset must not be collapsed to (0, 0); all displacement must belong to editorOffsetY.
+     */
+    @Test
+    fun testScenario23_ReconcileScrollStatePreservesEditorOffsetYWhenHeaderHeightNonPositive() {
+        // Zero header height with scroll within maxCanvas bounds:
+        val reconciledZeroHeader = ScribeScrollPolicy.reconcileScrollState(
+            headerHeight = 0,
+            scrollD = 150,
+            editorOffsetY = 600,
+            maxCanvasScroll = 1200
+        )
+        assertEquals("scrollD must be 0 when headerHeight <= 0", 0, reconciledZeroHeader.scrollD)
+        assertEquals("editorOffsetY must retain all totalScroll", 750, reconciledZeroHeader.editorOffsetY)
+
+        // Negative header height guard:
+        val reconciledNegativeHeader = ScribeScrollPolicy.reconcileScrollState(
+            headerHeight = -1,
+            scrollD = 0,
+            editorOffsetY = 500,
+            maxCanvasScroll = 1000
+        )
+        assertEquals("scrollD must be 0 when headerHeight is negative", 0, reconciledNegativeHeader.scrollD)
+        assertEquals("editorOffsetY must retain scroll when headerHeight is negative", 500, reconciledNegativeHeader.editorOffsetY)
+
+        // Clamping to maxCanvasScroll:
+        val reconciledClamped = ScribeScrollPolicy.reconcileScrollState(
+            headerHeight = 0,
+            scrollD = 200,
+            editorOffsetY = 800,
+            maxCanvasScroll = 600
+        )
+        assertEquals("scrollD must be 0", 0, reconciledClamped.scrollD)
+        assertEquals("editorOffsetY must be clamped to safeMaxCanvas", 600, reconciledClamped.editorOffsetY)
+    }
+
+    /**
+     * Scenario 24: Viewport restoration is deferred while document text is unmeasured/unloaded,
+     * and succeeds once client layout readiness notification fires without snapshot corruption.
+     */
+    @Test
+    fun testScenario24_ViewportRestorationDeferredUntilDocumentLayoutIsReady() {
+        val coordinator = EditorSessionRestorationCoordinator()
+        val editorKey = Route.Editor("book1", "note1")
+        coordinator.updateViewportSnapshot(editorKey, "note1", scrollD = 180, editorOffsetY = 520)
+
+        var isDocumentTextLoaded = false
+        var restoredScrollD = -1
+        var restoredEditorOffsetY = -1
+        val client = object : EditorSessionClient {
+            override val sessionKey = editorKey
+            override val noteId = "note1"
+            override fun captureCurrentViewport() = coordinator.getSnapshot(editorKey)
+            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onResult: (RestorationResult) -> Unit) {
+                if (!isDocumentTextLoaded) {
+                    onResult(RestorationResult.DEFERRED)
+                } else {
+                    restoredScrollD = snapshot.scrollD
+                    restoredEditorOffsetY = snapshot.editorOffsetY
+                    onResult(RestorationResult.APPLIED)
+                }
+            }
+            override fun isLayoutReady() = isDocumentTextLoaded
+        }
+
+        val initialStack = listOf<NavKey>(Route.Home, Route.Book("book1"), editorKey)
+        coordinator.onNavigationBackStackChanged(initialStack, isCompact = true)
+        coordinator.registerClient(client)
+
+        // User navigates to Settings and returns
+        val coveredStack = listOf<NavKey>(Route.Home, Route.Book("book1"), editorKey, Route.Settings)
+        coordinator.onNavigationBackStackChanged(coveredStack, isCompact = true)
+        coordinator.onNavigationBackStackChanged(initialStack, isCompact = true)
+
+        // Session must be PENDING since text has not finished loading into editor
+        assertTrue("Restoration must be pending", coordinator.hasPendingRestoration(editorKey))
+        assertEquals(RestorationState.PENDING, coordinator.getRestorationState(editorKey))
+        assertEquals(-1, restoredScrollD)
+
+        // While pending, transient scroll callbacks do NOT overwrite the snapshot:
+        val snapshotBeforeReady = coordinator.getSnapshot(editorKey)
+        assertNotNull(snapshotBeforeReady)
+        assertEquals(180, snapshotBeforeReady?.scrollD)
+        assertEquals(520, snapshotBeforeReady?.editorOffsetY)
+
+        // Now document text and wordwrap finish loading:
+        isDocumentTextLoaded = true
+        coordinator.onClientLayoutReady(editorKey)
+
+        assertEquals("Restoration must be APPLIED after layout ready", RestorationState.APPLIED, coordinator.getRestorationState(editorKey))
+        assertEquals("Target scrollD must be restored", 180, restoredScrollD)
+        assertEquals("Target editorOffsetY must be restored", 520, restoredEditorOffsetY)
+    }
 }

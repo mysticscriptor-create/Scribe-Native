@@ -437,7 +437,11 @@ fun MainEditorScreen(
                 ) {
                     val canvas = unifiedCanvasRef
                     val editor = soraEditorRef
-                    if (canvas != null && editor != null) {
+                    val isTextLoaded = (loadedNoteId == currentNoteId) &&
+                        (lastLoadedEditorInstance === editor) &&
+                        ((editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.isWordwrapReady() == true)
+
+                    if (canvas != null && editor != null && isTextLoaded) {
                         canvas.restoreCanvasAndEditorScroll(
                             targetScrollD = snapshot.scrollD,
                             targetScrollY = snapshot.editorOffsetY,
@@ -457,6 +461,8 @@ fun MainEditorScreen(
                     val canvas = unifiedCanvasRef
                     val editor = soraEditorRef
                     return canvas != null &&
+                        (loadedNoteId == currentNoteId) &&
+                        (lastLoadedEditorInstance === editor) &&
                         (editor as? ScribeCodeEditor)?.isWordwrapReady() == true &&
                         editor.layout != null
                 }
@@ -992,7 +998,9 @@ fun MainEditorScreen(
                     editorVm.hasSessionScroll(note.id)
                 }
                 if (isResumingSession) {
-                    if (coordinator == null && editorVm.hasSessionScroll(note.id)) {
+                    if (coordinator != null && effectiveKey != null) {
+                        coordinator.onClientLayoutReady(effectiveKey)
+                    } else if (editorVm.hasSessionScroll(note.id)) {
                         // CONTEXT B (Mid-Session legacy fallback when running without coordinator):
                         restoreSessionScroll()
                     }
@@ -1577,7 +1585,10 @@ fun MainEditorScreen(
                                     }
                                 }
                                 onViewportScrollChanged = { scrollD, editorOffsetY, _ ->
-                                    if (!isExitingNote) {
+                                    val isRestoring = (unifiedCanvasRef?.isRestoringViewport == true) ||
+                                        (effectiveKey != null && coordinator?.hasPendingRestoration(effectiveKey) == true)
+                                    val isLoaded = (loadedNoteId == activeNote?.id)
+                                    if (!isExitingNote && !isRestoring && isLoaded) {
                                         activeNote?.id?.let { id ->
                                             if (id.isNotEmpty()) {
                                                 editorVm.saveSessionScroll(id, scrollD, editorOffsetY)
@@ -1602,7 +1613,10 @@ fun MainEditorScreen(
                                     if (scrollD <= 5 && editor.offsetY <= 10) {
                                         floatingPillsVisible = true
                                     }
-                                    if (!isExitingNote) {
+                                    val isRestoring = (unifiedCanvasRef?.isRestoringViewport == true) ||
+                                        (effectiveKey != null && coordinator?.hasPendingRestoration(effectiveKey) == true)
+                                    val isLoaded = (loadedNoteId == activeNote?.id)
+                                    if (!isExitingNote && !isRestoring && isLoaded) {
                                         activeNote?.id?.let { id ->
                                             if (id.isNotEmpty()) {
                                                 editorVm.saveSessionScroll(id, scrollD, editor.offsetY)
@@ -1760,9 +1774,6 @@ fun MainEditorScreen(
                             }.also {
                                 unifiedCanvasRef = it
                                 soraEditorRef = it.editor
-                                if (effectiveKey != null) {
-                                    coordinator?.onClientLayoutReady(effectiveKey)
-                                }
                             }
                         },
                         update = { layout ->
