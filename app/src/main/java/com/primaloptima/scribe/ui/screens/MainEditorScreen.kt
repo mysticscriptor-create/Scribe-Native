@@ -466,6 +466,105 @@ fun MainEditorScreen(
         }
     }
 
+    val currentTitleId = activeMetadata?.id ?: activeNote?.id
+    val currentTitleName = activeMetadata?.name ?: activeNote?.name ?: ""
+    // Dual-title inline editing state & persistence
+    var primaryTitleValue by remember(currentTitleId) {
+        val raw = currentTitleName
+        val p = raw.substringBefore('\n')
+        mutableStateOf(TextFieldValue(p, TextRange(p.length)))
+    }
+    var secondaryTitleValue by remember(currentTitleId) {
+        val raw = currentTitleName
+        val s = if (raw.contains('\n')) raw.substringAfter('\n') else ""
+        mutableStateOf(TextFieldValue(s, TextRange(s.length)))
+    }
+    var primaryTitleText by remember(currentTitleId) {
+        val raw = currentTitleName
+        mutableStateOf(raw.substringBefore('\n'))
+    }
+    var secondaryTitleText by remember(currentTitleId) {
+        val raw = currentTitleName
+        mutableStateOf(if (raw.contains('\n')) raw.substringAfter('\n') else "")
+    }
+    var showSecondaryTitle by remember(currentTitleId) {
+        val raw = currentTitleName
+        mutableStateOf(raw.contains('\n'))
+    }
+
+    LaunchedEffect(currentTitleId, currentTitleName) {
+        val raw = currentTitleName
+        val p = raw.substringBefore('\n')
+        val s = if (raw.contains('\n')) raw.substringAfter('\n') else ""
+        if (primaryTitleValue.text != p) {
+            primaryTitleValue = TextFieldValue(p, TextRange(p.length))
+        }
+        if (secondaryTitleValue.text != s) {
+            secondaryTitleValue = TextFieldValue(s, TextRange(s.length))
+        }
+        if (primaryTitleText != p) {
+            primaryTitleText = p
+        }
+        if (secondaryTitleText != s) {
+            secondaryTitleText = s
+        }
+        showSecondaryTitle = raw.contains('\n')
+    }
+
+    val captureCurrentCursorState: (com.primaloptima.scribe.ui.components.ScribeCodeEditor?) -> DocumentCursorState = { customEditor ->
+        val editor = customEditor ?: soraEditorRef
+        val canvas = unifiedCanvasRef
+        val cur = try { editor?.cursor } catch (_: Throwable) { null }
+        if (editor == null || cur == null) {
+            val noteId = activeNote?.id ?: ""
+            latestCursorState ?: (if (noteId.isNotEmpty()) editorVm.getCursorStateInMemory(noteId) else null) ?: DocumentCursorState(
+                target = lastActiveTarget,
+                bodyStartLine = 0,
+                bodyStartCol = 0,
+                bodyEndLine = 0,
+                bodyEndCol = 0,
+                scrollD = canvas?.scrollD ?: 0,
+                scrollY = 0,
+                primarySelStart = primaryTitleValue.selection.start,
+                primarySelEnd = primaryTitleValue.selection.end,
+                secondarySelStart = secondaryTitleValue.selection.start,
+                secondarySelEnd = secondaryTitleValue.selection.end,
+                timestamp = System.currentTimeMillis()
+            )
+        } else {
+            val isSel = cur.isSelected
+            val startL = cur.leftLine
+            val startC = cur.leftColumn
+            val endL = if (isSel) cur.rightLine else startL
+            val endC = if (isSel) cur.rightColumn else startC
+            val cScrollD = canvas?.scrollD ?: 0
+            val cScrollY = editor.offsetY
+
+            DocumentCursorState(
+                target = lastActiveTarget,
+                bodyStartLine = startL,
+                bodyStartCol = startC,
+                bodyEndLine = endL,
+                bodyEndCol = endC,
+                scrollD = cScrollD,
+                scrollY = cScrollY,
+                primarySelStart = primaryTitleValue.selection.start,
+                primarySelEnd = primaryTitleValue.selection.end,
+                secondarySelStart = secondaryTitleValue.selection.start,
+                secondarySelEnd = secondaryTitleValue.selection.end,
+                timestamp = System.currentTimeMillis()
+            )
+        }
+    }
+
+    val saveCurrentCursorStateToDb: (com.primaloptima.scribe.ui.components.ScribeCodeEditor?) -> Unit = { customEditor ->
+        activeNote?.let { note ->
+            val state = captureCurrentCursorState(customEditor)
+            latestCursorState = state
+            editorVm.saveCursorState(note.id, state)
+        }
+    }
+
     val captureSessionScrollBeforeNavigate: () -> Unit = {
         if (!isExitingNote) {
             val noteId = activeNote?.id ?: ""
@@ -610,105 +709,6 @@ fun MainEditorScreen(
                 }
                 return Offset.Zero
             }
-        }
-    }
-
-    val currentTitleId = activeMetadata?.id ?: activeNote?.id
-    val currentTitleName = activeMetadata?.name ?: activeNote?.name ?: ""
-    // Dual-title inline editing state & persistence
-    var primaryTitleValue by remember(currentTitleId) {
-        val raw = currentTitleName
-        val p = raw.substringBefore('\n')
-        mutableStateOf(TextFieldValue(p, TextRange(p.length)))
-    }
-    var secondaryTitleValue by remember(currentTitleId) {
-        val raw = currentTitleName
-        val s = if (raw.contains('\n')) raw.substringAfter('\n') else ""
-        mutableStateOf(TextFieldValue(s, TextRange(s.length)))
-    }
-    var primaryTitleText by remember(currentTitleId) {
-        val raw = currentTitleName
-        mutableStateOf(raw.substringBefore('\n'))
-    }
-    var secondaryTitleText by remember(currentTitleId) {
-        val raw = currentTitleName
-        mutableStateOf(if (raw.contains('\n')) raw.substringAfter('\n') else "")
-    }
-    var showSecondaryTitle by remember(currentTitleId) {
-        val raw = currentTitleName
-        mutableStateOf(raw.contains('\n'))
-    }
-
-    LaunchedEffect(currentTitleId, currentTitleName) {
-        val raw = currentTitleName
-        val p = raw.substringBefore('\n')
-        val s = if (raw.contains('\n')) raw.substringAfter('\n') else ""
-        if (primaryTitleValue.text != p) {
-            primaryTitleValue = TextFieldValue(p, TextRange(p.length))
-        }
-        if (secondaryTitleValue.text != s) {
-            secondaryTitleValue = TextFieldValue(s, TextRange(s.length))
-        }
-        if (primaryTitleText != p) {
-            primaryTitleText = p
-        }
-        if (secondaryTitleText != s) {
-            secondaryTitleText = s
-        }
-        showSecondaryTitle = raw.contains('\n')
-    }
-
-    val captureCurrentCursorState: (com.primaloptima.scribe.ui.components.ScribeCodeEditor?) -> DocumentCursorState = { customEditor ->
-        val editor = customEditor ?: soraEditorRef
-        val canvas = unifiedCanvasRef
-        val cur = try { editor?.cursor } catch (_: Throwable) { null }
-        if (editor == null || cur == null) {
-            val noteId = activeNote?.id ?: ""
-            latestCursorState ?: (if (noteId.isNotEmpty()) editorVm.getCursorStateInMemory(noteId) else null) ?: DocumentCursorState(
-                target = lastActiveTarget,
-                bodyStartLine = 0,
-                bodyStartCol = 0,
-                bodyEndLine = 0,
-                bodyEndCol = 0,
-                scrollD = canvas?.scrollD ?: 0,
-                scrollY = 0,
-                primarySelStart = primaryTitleValue.selection.start,
-                primarySelEnd = primaryTitleValue.selection.end,
-                secondarySelStart = secondaryTitleValue.selection.start,
-                secondarySelEnd = secondaryTitleValue.selection.end,
-                timestamp = System.currentTimeMillis()
-            )
-        } else {
-            val isSel = cur.isSelected
-            val startL = cur.leftLine
-            val startC = cur.leftColumn
-            val endL = if (isSel) cur.rightLine else startL
-            val endC = if (isSel) cur.rightColumn else startC
-            val cScrollD = canvas?.scrollD ?: 0
-            val cScrollY = editor.offsetY
-
-            DocumentCursorState(
-                target = lastActiveTarget,
-                bodyStartLine = startL,
-                bodyStartCol = startC,
-                bodyEndLine = endL,
-                bodyEndCol = endC,
-                scrollD = cScrollD,
-                scrollY = cScrollY,
-                primarySelStart = primaryTitleValue.selection.start,
-                primarySelEnd = primaryTitleValue.selection.end,
-                secondarySelStart = secondaryTitleValue.selection.start,
-                secondarySelEnd = secondaryTitleValue.selection.end,
-                timestamp = System.currentTimeMillis()
-            )
-        }
-    }
-
-    val saveCurrentCursorStateToDb: (com.primaloptima.scribe.ui.components.ScribeCodeEditor?) -> Unit = { customEditor ->
-        activeNote?.let { note ->
-            val state = captureCurrentCursorState(customEditor)
-            latestCursorState = state
-            editorVm.saveCursorState(note.id, state)
         }
     }
 
