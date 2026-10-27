@@ -51,29 +51,7 @@ interface EditorSessionClient {
         snapshot: ViewportSnapshot,
         generation: Long,
         onResult: (RestorationResult) -> Unit
-    ) {
-        restoreViewport(snapshot, generation) {
-            onResult(RestorationResult.APPLIED)
-        }
-    }
-
-    /**
-     * Backwards compatibility overload.
-     */
-    fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onComplete: () -> Unit) {
-        restoreViewport(snapshot, generation) { result ->
-            if (result == RestorationResult.APPLIED) {
-                onComplete()
-            }
-        }
-    }
-
-    /**
-     * Overload for backwards compatibility.
-     */
-    fun restoreViewport(snapshot: ViewportSnapshot, onComplete: () -> Unit) {
-        restoreViewport(snapshot, -1L, onComplete)
-    }
+    )
 
     /**
      * Checks if both canvas and editor layout are settled and ready for scroll measurement.
@@ -283,6 +261,18 @@ class EditorSessionRestorationCoordinator {
         if (activeEditorKey == client.sessionKey && !isCurrentlyCovered && !isOverlayCovering && !isAppPaused) {
             if (sessionStates[client.sessionKey] == RestorationState.PENDING || pendingRestorationSessions.contains(client.sessionKey)) {
                 requestCoordinatedRestoration(client.sessionKey)
+            }
+        }
+    }
+
+    /**
+     * Notifies coordinator that the client views (UnifiedCanvasLayout / Sora CodeEditor)
+     * are fully inflated and ready for layout measurement and restoration.
+     */
+    fun onClientLayoutReady(editorKey: Route.Editor) {
+        if (activeEditorKey == editorKey && !isCurrentlyCovered && !isOverlayCovering && !isAppPaused) {
+            if (sessionStates[editorKey] == RestorationState.PENDING || pendingRestorationSessions.contains(editorKey)) {
+                requestCoordinatedRestoration(editorKey)
             }
         }
     }

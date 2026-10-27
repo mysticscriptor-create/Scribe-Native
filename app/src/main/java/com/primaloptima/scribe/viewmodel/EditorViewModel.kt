@@ -1234,6 +1234,15 @@ class EditorViewModel(
                     val success = saveMutex.withLock {
                         saveContentInternal(active, content, rev)
                     }
+                    val latestCursor = inMemoryCursorStates[effectiveNoteId]
+                    if (latestCursor != null) {
+                        try {
+                            cursorSaveMutex.withLock {
+                                val json = AppJson.encodeToString(latestCursor)
+                                db.noteDao().updateCursorState(effectiveNoteId, json)
+                            }
+                        } catch (_: Throwable) {}
+                    }
                     val verifiedInRecovery = if (!success) {
                         try {
                             RecoveryManager.get(getApplication(), active.id) == content
@@ -1250,8 +1259,21 @@ class EditorViewModel(
                     }
                 }
             } else {
-                clearActiveNote()
-                onSaved()
+                viewModelScope.launch(Dispatchers.IO) {
+                    val latestCursor = inMemoryCursorStates[effectiveNoteId]
+                    if (latestCursor != null) {
+                        try {
+                            cursorSaveMutex.withLock {
+                                val json = AppJson.encodeToString(latestCursor)
+                                db.noteDao().updateCursorState(effectiveNoteId, json)
+                            }
+                        } catch (_: Throwable) {}
+                    }
+                    withContext(Dispatchers.Main) {
+                        clearActiveNote()
+                        onSaved()
+                    }
+                }
             }
         } else {
             // Target note is not the currently active note (e.g. late disposal or already transitioned)

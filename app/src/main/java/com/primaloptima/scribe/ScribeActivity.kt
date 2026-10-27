@@ -360,6 +360,8 @@ class ScribeActivity : ComponentActivity() {
                             isScreenActive  = isEditorActive,
                             sessionKey      = key,
                             onBack          = {
+                                activeEditorVm?.clearSessionScroll(key.noteId)
+                                restorationCoordinator.invalidateSession(key)
                                 editorVm.saveAndLeave {
                                     backStack.removeLastOrNull()
                                 }

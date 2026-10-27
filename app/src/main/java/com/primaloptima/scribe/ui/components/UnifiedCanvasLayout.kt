@@ -653,18 +653,34 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * and headerView has a non-zero measured height.
      */
     fun doOnCanvasReady(action: () -> Unit) {
-        if (headerHeight > 0 && height > 0) {
+        if (height > 0 && isLaidOut) {
+            if (headerView.measuredHeight > 0 && headerHeight == 0) {
+                headerHeight = headerView.measuredHeight
+            }
             post { action() }
             return
         }
-        val listener = object : View.OnLayoutChangeListener {
+        var listener: View.OnLayoutChangeListener? = null
+        val attachListener = object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {}
+            override fun onViewDetachedFromWindow(v: View) {
+                listener?.let { removeOnLayoutChangeListener(it) }
+                removeOnAttachStateChangeListener(this)
+            }
+        }
+        addOnAttachStateChangeListener(attachListener)
+        listener = object : View.OnLayoutChangeListener {
             override fun onLayoutChange(
                 v: View?,
                 left: Int, top: Int, right: Int, bottom: Int,
                 oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int
             ) {
-                if (headerHeight > 0 && (bottom - top) > 0) {
+                if ((bottom - top) > 0) {
                     removeOnLayoutChangeListener(this)
+                    removeOnAttachStateChangeListener(attachListener)
+                    if (headerView.measuredHeight > 0 && headerHeight == 0) {
+                        headerHeight = headerView.measuredHeight
+                    }
                     post { action() }
                 }
             }
@@ -704,7 +720,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         targetScrollD: Int,
         targetScrollY: Int,
         isValid: (() -> Boolean)? = null,
-        onComplete: (() -> Unit)? = null
+        onComplete: (() -> Unit)? = null,
+        onResult: ((com.primaloptima.scribe.navigation.RestorationResult) -> Unit)? = null
     ) {
         isRestoringViewport = true
         suppressCursorVisibilityScroll = true
@@ -712,12 +729,14 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             if (isValid != null && !isValid()) {
                 isRestoringViewport = false
                 suppressCursorVisibilityScroll = false
+                onResult?.invoke(com.primaloptima.scribe.navigation.RestorationResult.CANCELLED)
                 return@doOnCanvasReady
             }
             editor.doOnLayoutReady {
                 if (isValid != null && !isValid()) {
                     isRestoringViewport = false
                     suppressCursorVisibilityScroll = false
+                    onResult?.invoke(com.primaloptima.scribe.navigation.RestorationResult.CANCELLED)
                     return@doOnLayoutReady
                 }
                 cancelCanvasAnimation()
@@ -743,6 +762,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     suppressCursorVisibilityScroll = false
                 }
                 onComplete?.invoke()
+                onResult?.invoke(com.primaloptima.scribe.navigation.RestorationResult.APPLIED)
             }
         }
     }

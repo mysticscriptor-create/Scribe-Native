@@ -47,9 +47,9 @@ class EditorViewportRestorationTest {
             override val sessionKey = editorKey
             override val noteId = "note1"
             override fun captureCurrentViewport() = coordinator.getSnapshot(editorKey)
-            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onComplete: () -> Unit) {
+            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onResult: (RestorationResult) -> Unit) {
                 restoreCount.incrementAndGet()
-                onComplete()
+                onResult(RestorationResult.APPLIED)
             }
             override fun isLayoutReady() = true
         }
@@ -108,9 +108,9 @@ class EditorViewportRestorationTest {
                 override val sessionKey = editorKey
                 override val noteId = "note1"
                 override fun captureCurrentViewport() = coordinator.getSnapshot(editorKey)
-                override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onComplete: () -> Unit) {
+                override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onResult: (RestorationResult) -> Unit) {
                     restoreCount.incrementAndGet()
-                    onComplete()
+                    onResult(RestorationResult.APPLIED)
                 }
                 override fun isLayoutReady() = true
             }
@@ -152,9 +152,9 @@ class EditorViewportRestorationTest {
             override val sessionKey = editorKey
             override val noteId = "note1"
             override fun captureCurrentViewport() = coordinator.getSnapshot(editorKey)
-            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onComplete: () -> Unit) {
+            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onResult: (RestorationResult) -> Unit) {
                 restoreCount.incrementAndGet()
-                onComplete()
+                onResult(RestorationResult.APPLIED)
             }
             override fun isLayoutReady() = true
         }
@@ -192,9 +192,9 @@ class EditorViewportRestorationTest {
             override val sessionKey = editorKey
             override val noteId = "note1"
             override fun captureCurrentViewport() = coordinator.getSnapshot(editorKey)
-            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onComplete: () -> Unit) {
+            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onResult: (RestorationResult) -> Unit) {
                 restoreCount.incrementAndGet()
-                onComplete()
+                onResult(RestorationResult.APPLIED)
             }
             override fun isLayoutReady() = true
         }
@@ -235,9 +235,9 @@ class EditorViewportRestorationTest {
             override val sessionKey = editorKey
             override val noteId = "note1"
             override fun captureCurrentViewport() = coordinator.getSnapshot(editorKey)
-            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onComplete: () -> Unit) {
+            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onResult: (RestorationResult) -> Unit) {
                 restoredSnapshot = snapshot
-                onComplete()
+                onResult(RestorationResult.APPLIED)
             }
             override fun isLayoutReady() = true
         }
@@ -277,9 +277,9 @@ class EditorViewportRestorationTest {
                 override val sessionKey = editorKey
                 override val noteId = "note1"
                 override fun captureCurrentViewport() = coordinator.getSnapshot(editorKey)
-                override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onComplete: () -> Unit) {
+                override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onResult: (RestorationResult) -> Unit) {
                     restoredSnapshot = snapshot
-                    onComplete()
+                    onResult(RestorationResult.APPLIED)
                 }
                 override fun isLayoutReady() = true
             }
@@ -518,17 +518,19 @@ class EditorViewportRestorationTest {
             override val sessionKey = editorKey
             override val noteId = "note1"
             override fun captureCurrentViewport() = coordinator.getSnapshot(editorKey)
-            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onComplete: () -> Unit) {
+            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onResult: (RestorationResult) -> Unit) {
                 if (!isLayoutReady()) {
                     deferredOnComplete = {
                         if (coordinator.isRestorationValid(editorKey, "note1", generation)) {
                             restorationApplied.set(true)
-                            onComplete()
+                            onResult(RestorationResult.APPLIED)
+                        } else {
+                            onResult(RestorationResult.CANCELLED)
                         }
                     }
                 } else {
                     restorationApplied.set(true)
-                    onComplete()
+                    onResult(RestorationResult.APPLIED)
                 }
             }
             override fun isLayoutReady() = isLayoutReadyFlag
@@ -572,11 +574,13 @@ class EditorViewportRestorationTest {
             override val sessionKey = note1Key
             override val noteId = "note1"
             override fun captureCurrentViewport() = coordinator.getSnapshot(note1Key)
-            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onComplete: () -> Unit) {
+            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onResult: (RestorationResult) -> Unit) {
                 inFlightCallback = {
                     if (coordinator.isRestorationValid(note1Key, "note1", generation)) {
                         restorationApplied.set(true)
-                        onComplete()
+                        onResult(RestorationResult.APPLIED)
+                    } else {
+                        onResult(RestorationResult.CANCELLED)
                     }
                 }
             }
@@ -617,9 +621,9 @@ class EditorViewportRestorationTest {
             override val sessionKey = editorKey
             override val noteId = "note1"
             override fun captureCurrentViewport() = coordinator.getSnapshot(editorKey)
-            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onComplete: () -> Unit) {
+            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onResult: (RestorationResult) -> Unit) {
                 restoreCount.incrementAndGet()
-                onComplete()
+                onResult(RestorationResult.APPLIED)
             }
             override fun isLayoutReady() = true
         }
@@ -661,7 +665,7 @@ class EditorViewportRestorationTest {
             override val sessionKey = editorKey
             override val noteId = "note1"
             override fun captureCurrentViewport() = coordinator.getSnapshot(editorKey)
-            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onComplete: () -> Unit) {}
+            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onResult: (RestorationResult) -> Unit) {}
             override fun isLayoutReady() = true
         }
 
@@ -739,9 +743,9 @@ class EditorViewportRestorationTest {
             override val sessionKey = editorKey
             override val noteId = "note1"
             override fun captureCurrentViewport() = coordinator.getSnapshot(editorKey)
-            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onComplete: () -> Unit) {
+            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onResult: (RestorationResult) -> Unit) {
                 restoreCalled = true
-                onComplete()
+                onResult(RestorationResult.APPLIED)
             }
             override fun isLayoutReady() = true
         }
@@ -785,5 +789,119 @@ class EditorViewportRestorationTest {
         assertEquals(scrollD, snapshot.scrollD)
         assertEquals(editorOffsetY, snapshot.editorOffsetY)
         assertEquals(scrollD + editorOffsetY, snapshot.totalLogicalScroll)
+    }
+
+    /**
+     * Scenario 20: Cancelled restoration cleanly clears SCHEDULED state and does not lock out future restoration.
+     */
+    @Test
+    fun testScenario20_CancelledRestorationClearsScheduledStateAndDoesNotLockOutFutureRestoration() {
+        val coordinator = EditorSessionRestorationCoordinator()
+        val editorKey = Route.Editor("book1", "note1")
+        coordinator.updateViewportSnapshot(editorKey, "note1", scrollD = 200, editorOffsetY = 600)
+
+        var shouldCancel = true
+        val applyCount = AtomicInteger(0)
+
+        val client = object : EditorSessionClient {
+            override val sessionKey = editorKey
+            override val noteId = "note1"
+            override fun captureCurrentViewport() = coordinator.getSnapshot(editorKey)
+            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onResult: (RestorationResult) -> Unit) {
+                if (shouldCancel) {
+                    onResult(RestorationResult.CANCELLED)
+                } else {
+                    applyCount.incrementAndGet()
+                    onResult(RestorationResult.APPLIED)
+                }
+            }
+            override fun isLayoutReady() = true
+        }
+
+        val initialStack = listOf<NavKey>(Route.Home, Route.Book("book1"), editorKey)
+        coordinator.onNavigationBackStackChanged(initialStack, isCompact = true)
+        coordinator.registerClient(client)
+
+        // 1. Suspend session and return: restoration attempts but is cancelled (e.g. view invalidated or mismatch)
+        val coveredStack = listOf<NavKey>(Route.Home, Route.Book("book1"), editorKey, Route.Settings)
+        coordinator.onNavigationBackStackChanged(coveredStack, isCompact = true)
+        coordinator.onNavigationBackStackChanged(initialStack, isCompact = true)
+
+        assertEquals("State must be CANCELLED", RestorationState.CANCELLED, coordinator.getRestorationState(editorKey))
+        assertEquals("No applied count on cancellation", 0, applyCount.get())
+
+        // 2. Next navigation return should NOT be wedged by SCHEDULED; it can schedule restoration again!
+        shouldCancel = false
+        coordinator.onNavigationBackStackChanged(coveredStack, isCompact = true)
+        coordinator.onNavigationBackStackChanged(initialStack, isCompact = true)
+
+        assertEquals("State must be APPLIED after valid retry", RestorationState.APPLIED, coordinator.getRestorationState(editorKey))
+        assertEquals("Restoration applied count must be 1", 1, applyCount.get())
+    }
+
+    /**
+     * Scenario 21: Deferred restoration (e.g. view not inflated yet) cleanly recovers once client views become ready.
+     */
+    @Test
+    fun testScenario21_DeferredRestorationConsumesSnapshotOnceClientLayoutBecomesReady() {
+        val coordinator = EditorSessionRestorationCoordinator()
+        val editorKey = Route.Editor("book1", "note1")
+        coordinator.updateViewportSnapshot(editorKey, "note1", scrollD = 150, editorOffsetY = 450)
+
+        var viewInflated = false
+        val restoreCount = AtomicInteger(0)
+
+        val client = object : EditorSessionClient {
+            override val sessionKey = editorKey
+            override val noteId = "note1"
+            override fun captureCurrentViewport() = coordinator.getSnapshot(editorKey)
+            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onResult: (RestorationResult) -> Unit) {
+                if (!viewInflated) {
+                    onResult(RestorationResult.DEFERRED)
+                } else {
+                    restoreCount.incrementAndGet()
+                    onResult(RestorationResult.APPLIED)
+                }
+            }
+            override fun isLayoutReady() = viewInflated
+        }
+
+        val initialStack = listOf<NavKey>(Route.Home, Route.Book("book1"), editorKey)
+        coordinator.onNavigationBackStackChanged(initialStack, isCompact = true)
+        coordinator.registerClient(client)
+
+        // User navigates away and back: view is not yet inflated at the instant navigation returns
+        val coveredStack = listOf<NavKey>(Route.Home, Route.Book("book1"), editorKey, Route.Settings)
+        coordinator.onNavigationBackStackChanged(coveredStack, isCompact = true)
+        coordinator.onNavigationBackStackChanged(initialStack, isCompact = true)
+
+        assertEquals("State must remain PENDING after DEFERRED", RestorationState.PENDING, coordinator.getRestorationState(editorKey))
+        assertEquals("No restoration applied while deferred", 0, restoreCount.get())
+
+        // Now view inflates and calls onClientLayoutReady
+        viewInflated = true
+        coordinator.onClientLayoutReady(editorKey)
+
+        assertEquals("State must be APPLIED after client layout is ready", RestorationState.APPLIED, coordinator.getRestorationState(editorKey))
+        assertEquals("Restoration must have executed exactly once", 1, restoreCount.get())
+    }
+
+    /**
+     * Scenario 22: Invalidation via top bar or back gesture clears coordinator session state.
+     */
+    @Test
+    fun testScenario22_TopBarBackNavigationInvalidatesCoordinatorSessionAndClearsScroll() {
+        val coordinator = EditorSessionRestorationCoordinator()
+        val editorKey = Route.Editor("book1", "note1")
+        coordinator.updateViewportSnapshot(editorKey, "note1", scrollD = 300, editorOffsetY = 900)
+
+        assertTrue("Snapshot must exist initially", coordinator.hasSnapshot("note1"))
+
+        // Top bar back or BackHandler invalidates session
+        coordinator.invalidateSession(editorKey)
+
+        assertFalse("Snapshot must be removed upon invalidation", coordinator.hasSnapshot("note1"))
+        assertFalse("Session must no longer be classified as retained", coordinator.isRetainedSession(editorKey))
+        assertNull("Restoration state must be cleared", coordinator.getRestorationState(editorKey))
     }
 }

@@ -430,7 +430,11 @@ fun MainEditorScreen(
                     return canvas.captureViewportSnapshot(currentNoteId, effectiveKey)
                 }
 
-                override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onComplete: () -> Unit) {
+                override fun restoreViewport(
+                    snapshot: ViewportSnapshot,
+                    generation: Long,
+                    onResult: (com.primaloptima.scribe.navigation.RestorationResult) -> Unit
+                ) {
                     val canvas = unifiedCanvasRef
                     val editor = soraEditorRef
                     if (canvas != null && editor != null) {
@@ -442,17 +446,17 @@ fun MainEditorScreen(
                                     (activeNote?.id == currentNoteId) &&
                                     (soraEditorRef === editor)
                             },
-                            onComplete = onComplete
+                            onResult = onResult
                         )
                     } else {
-                        onComplete()
+                        onResult(com.primaloptima.scribe.navigation.RestorationResult.DEFERRED)
                     }
                 }
 
                 override fun isLayoutReady(): Boolean {
                     val canvas = unifiedCanvasRef
                     val editor = soraEditorRef
-                    return canvas != null && canvas.headerHeight > 0 &&
+                    return canvas != null &&
                         (editor as? ScribeCodeEditor)?.isWordwrapReady() == true &&
                         editor.layout != null
                 }
@@ -645,6 +649,8 @@ fun MainEditorScreen(
                     restoreSessionScroll()
                 }
                 // Ensure editor cursor is silently aligned with the saved cursor state
+                val canvas = unifiedCanvasRef
+                canvas?.suppressCursorVisibilityScroll = true
                 val savedCursor = latestCursorState ?: editorVm.getCursorStateInMemory(noteId)
                 if (savedCursor != null && editor != null) {
                     if (savedCursor.target == com.primaloptima.scribe.util.model.EditingTarget.EDITOR_BODY || savedCursor.target == com.primaloptima.scribe.util.model.EditingTarget.NONE) {
@@ -667,6 +673,9 @@ fun MainEditorScreen(
                         }
                         keyboardController?.hide()
                     }
+                }
+                canvas?.post {
+                    canvas.suppressCursorVisibilityScroll = false
                 }
             }
         }
@@ -761,6 +770,9 @@ fun MainEditorScreen(
         val curText = soraEditorRef?.text?.toString()
         saveCurrentCursorStateToDb(soraEditorRef)
         activeNote?.id?.let { editorVm.clearSessionScroll(it) }
+        if (effectiveKey != null) {
+            coordinator?.invalidateSession(effectiveKey)
+        }
         editorVm.saveAndLeave(curText) {
             onBack()
         }
@@ -1748,6 +1760,9 @@ fun MainEditorScreen(
                             }.also {
                                 unifiedCanvasRef = it
                                 soraEditorRef = it.editor
+                                if (effectiveKey != null) {
+                                    coordinator?.onClientLayoutReady(effectiveKey)
+                                }
                             }
                         },
                         update = { layout ->
@@ -3144,31 +3159,7 @@ fun MainEditorScreen(
 
         // ── Unified Editor Bottom Sheet ───────────────────────────────────────
         if (activeSheetPage != null) {
-            EditorUnifiedBottomSheet(
-                activePage       = activeSheetPage!!,
-                onNavigate       = { page -> activeSheetPage = page },
-                onDismiss        = { activeSheetPage = null },
-                noteTitle        = activeNote?.name ?: "Untitled Note",
-                activeTheme      = activeTheme,
-                restoreCursorOnOpen = restoreCursorOnOpen,
-                onToggleRestoreCursor = { editorVm.setRestoreCursorOnOpen(it) },
-                onUpdateTheme    = { transform -> editorVm.updateActiveTheme(transform) },
-                onVisualIndentChange = { visualSpaces ->
-                    (soraEditorRef as? ScribeCodeEditor)?.setVisualFirstLineIndent(visualSpaces)
-                },
-                onEnterZen       = {
-                    activeSheetPage = null
-                    editorVm.setZen(true)
-                },
-                onOpenFloating   = {
-                    activeSheetPage = null
-                    activeNote?.let { editorVm.openFloatingWindow(it.id) }
-                },
-                onPreviewManuscript = {
-                    activeSheetPage = null
-                    showManuscriptPreview = true
-                },
-                onExport         = { fmt ->
+                val navigateFromSheet: (() -> Unit) -> Unit = { destinationAction ->
                     editorVm.flushContent(soraEditorRef?.text?.toString() ?: "")
                     saveCurrentCursorStateToDb(soraEditorRef)
                     captureSessionScrollBeforeNavigate()
@@ -3177,60 +3168,51 @@ fun MainEditorScreen(
                     }
                     wasSheetOpen = false
                     activeSheetPage = null
-                    onOpenExportStudio(fmt)
-                },
-                onVersionHistory = {
-                    editorVm.flushContent(soraEditorRef?.text?.toString() ?: "")
-                    val targetId = activeNote?.id ?: initialNoteId ?: ""
-                    saveCurrentCursorStateToDb(soraEditorRef)
-                    captureSessionScrollBeforeNavigate()
-                    if (effectiveKey != null) {
-                        coordinator?.onOverlayDismissedForNavigation(effectiveKey)
-                    }
-                    wasSheetOpen = false
-                    activeSheetPage = null
-                    onOpenHistory(targetId)
-                },
-                onShortcuts      = {
-                    saveCurrentCursorStateToDb(soraEditorRef)
-                    captureSessionScrollBeforeNavigate()
-                    if (effectiveKey != null) {
-                        coordinator?.onOverlayDismissedForNavigation(effectiveKey)
-                    }
-                    wasSheetOpen = false
-                    activeSheetPage = null
-                    onOpenShortcuts()
-                },
-                onGuide          = {
-                    saveCurrentCursorStateToDb(soraEditorRef)
-                    captureSessionScrollBeforeNavigate()
-                    if (effectiveKey != null) {
-                        coordinator?.onOverlayDismissedForNavigation(effectiveKey)
-                    }
-                    wasSheetOpen = false
-                    activeSheetPage = null
-                    onOpenGuide()
-                },
-                onOpenThemes     = {
-                    saveCurrentCursorStateToDb(soraEditorRef)
-                    captureSessionScrollBeforeNavigate()
-                    if (effectiveKey != null) {
-                        coordinator?.onOverlayDismissedForNavigation(effectiveKey)
-                    }
-                    wasSheetOpen = false
-                    activeSheetPage = null
-                    onOpenThemes()
-                },
-                onSettings       = {
-                    saveCurrentCursorStateToDb(soraEditorRef)
-                    captureSessionScrollBeforeNavigate()
-                    if (effectiveKey != null) {
-                        coordinator?.onOverlayDismissedForNavigation(effectiveKey)
-                    }
-                    wasSheetOpen = false
-                    activeSheetPage = null
-                    onOpenSettings()
+                    destinationAction()
                 }
+                EditorUnifiedBottomSheet(
+                    activePage       = activeSheetPage!!,
+                    onNavigate       = { page -> activeSheetPage = page },
+                    onDismiss        = { activeSheetPage = null },
+                    noteTitle        = activeNote?.name ?: "Untitled Note",
+                    activeTheme      = activeTheme,
+                    restoreCursorOnOpen = restoreCursorOnOpen,
+                    onToggleRestoreCursor = { editorVm.setRestoreCursorOnOpen(it) },
+                    onUpdateTheme    = { transform -> editorVm.updateActiveTheme(transform) },
+                    onVisualIndentChange = { visualSpaces ->
+                        (soraEditorRef as? ScribeCodeEditor)?.setVisualFirstLineIndent(visualSpaces)
+                    },
+                    onEnterZen       = {
+                        activeSheetPage = null
+                        editorVm.setZen(true)
+                    },
+                    onOpenFloating   = {
+                        activeSheetPage = null
+                        activeNote?.let { editorVm.openFloatingWindow(it.id) }
+                    },
+                    onPreviewManuscript = {
+                        activeSheetPage = null
+                        showManuscriptPreview = true
+                    },
+                    onExport         = { fmt ->
+                        navigateFromSheet { onOpenExportStudio(fmt) }
+                    },
+                    onVersionHistory = {
+                        val targetId = activeNote?.id ?: initialNoteId ?: ""
+                        navigateFromSheet { onOpenHistory(targetId) }
+                    },
+                    onShortcuts      = {
+                        navigateFromSheet { onOpenShortcuts() }
+                    },
+                    onGuide          = {
+                        navigateFromSheet { onOpenGuide() }
+                    },
+                    onOpenThemes     = {
+                        navigateFromSheet { onOpenThemes() }
+                    },
+                    onSettings       = {
+                        navigateFromSheet { onOpenSettings() }
+                    }
             )
         }
 
