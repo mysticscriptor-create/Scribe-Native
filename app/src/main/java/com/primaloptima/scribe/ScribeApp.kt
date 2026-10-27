@@ -22,6 +22,8 @@ class ScribeApp : Application() {
 
     val database: AppDatabase by lazy { AppDatabase.getInstance(this) }
 
+    val applicationScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+
     // Phase 2-B / 7: ScribeDataStore is the single preference layer.
     // PrefsManager has been fully retired — all callers now use dataStore.
     val dataStore: ScribeDataStore by lazy { ScribeDataStore(this) }

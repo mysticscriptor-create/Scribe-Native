@@ -697,7 +697,9 @@ class EditorViewModel(
 
     fun setRestoreCursorOnOpen(enabled: Boolean) {
         overrideRestoreCursorOnOpen = enabled
-        viewModelScope.launch {
+        (getApplication() as? ScribeApp)?.applicationScope?.launch {
+            dataStore.setRestoreCursorOnOpen(enabled)
+        } ?: viewModelScope.launch {
             dataStore.setRestoreCursorOnOpen(enabled)
         }
     }
@@ -742,23 +744,34 @@ class EditorViewModel(
         }
     }
 
+    private val cursorSaveMutex = Mutex()
     private val inMemoryCursorStates = java.util.concurrent.ConcurrentHashMap<String, DocumentCursorState>()
 
     fun getCursorStateInMemory(noteId: String): DocumentCursorState? = inMemoryCursorStates[noteId]
 
     fun saveCursorState(noteId: String, cursorState: DocumentCursorState) {
+        if (noteId.isBlank()) return
+        val existing = inMemoryCursorStates[noteId]
+        if (existing != null && existing.timestamp > cursorState.timestamp) {
+            // Older asynchronous write cannot overwrite newer cursor position
+            return
+        }
         inMemoryCursorStates[noteId] = cursorState
         val json = AppJson.encodeToString(cursorState)
         val cur = _activeNote.value
         if (cur?.id == noteId) {
             _activeNote.value = cur.copy(cursorStateJson = json)
         }
-        // Save to SQLite on app-level scope so backstack pop / ViewModel clearance does not cancel the DB write
+        // Save to SQLite sequentially on app-level scope so backstack pop / ViewModel clearance does not cancel the DB write
         @Suppress("OPT_IN_USAGE")
-        kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+        (getApplication() as? ScribeApp)?.applicationScope?.launch(Dispatchers.IO) ?: kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
             try {
-                db.noteDao().updateCursorState(noteId, json)
-            } catch (_: Throwable) {}
+                cursorSaveMutex.withLock {
+                    db.noteDao().updateCursorState(noteId, json)
+                }
+            } catch (e: Throwable) {
+                android.util.Log.e("EditorViewModel", "Failed to update cursor state in DB for $noteId", e)
+            }
         }
     }
 
@@ -768,7 +781,10 @@ class EditorViewModel(
         val json = if (cur?.id == noteId) cur.cursorStateJson else null
         if (json != null) {
             val parsed = try { AppJson.decodeFromString<DocumentCursorState>(json) } catch (_: Throwable) { null }
-            if (parsed != null) return parsed
+            if (parsed != null) {
+                inMemoryCursorStates[noteId] = parsed
+                return parsed
+            }
         }
         val fromDb = withContext(Dispatchers.IO) { db.noteDao().getCursorState(noteId) }
         if (fromDb != null) {
@@ -1052,24 +1068,37 @@ class EditorViewModel(
 
             if (loadGeneration.get() != requestId || !coroutineContext.isActive) return@launch
 
+            val recoveryContent = withContext(Dispatchers.IO) {
+                try { RecoveryManager.get(getApplication(), noteId) } catch (_: Exception) { null }
+            }
+            val effectiveContent = if (loadedNote.content.isEmpty() && !recoveryContent.isNullOrEmpty()) {
+                recoveryContent
+            } else {
+                loadedNote.content
+            }
+            val safeNote = if (effectiveContent != loadedNote.content) {
+                val safeWc = MarkdownUtil.countWords(effectiveContent)
+                loadedNote.copy(content = effectiveContent, wordCount = safeWc)
+            } else loadedNote
+
             DocumentOpenTrace.mark(noteId, "content_preparation")
-            _activeMetadata.value = loadedNote.toMetadata()
-            _activeNote.value = loadedNote
-            _loadState.value = DocumentLoadState.Loaded(loadedNote)
-            lastSavedContent = loadedNote.content
-            pendingContent = loadedNote.content
+            _activeMetadata.value = safeNote.toMetadata()
+            _activeNote.value = safeNote
+            _loadState.value = DocumentLoadState.Loaded(safeNote)
+            lastSavedContent = safeNote.content
+            pendingContent = safeNote.content
             isDirty = false
             currentContentRevision = 0L
             lastSavedRevision = 0L
-            lastWordCount = loadedNote.wordCount
-            _wordCount.value = loadedNote.wordCount
-            setSnapshotBaseline(loadedNote.id, loadedNote.wordCount)
+            lastWordCount = safeNote.wordCount
+            _wordCount.value = safeNote.wordCount
+            setSnapshotBaseline(safeNote.id, safeNote.wordCount)
 
-            checkRecovery(loadedNote, requestId)
-            dataStore.setActiveNoteId(loadedNote.id)
+            checkRecovery(safeNote, requestId)
+            dataStore.setActiveNoteId(safeNote.id)
 
             // 5. Asynchronous background calculations (off main thread, cached)
-            scheduleAsyncStatsAndAnalysis(loadedNote.id, loadedNote.content, requestId)
+            scheduleAsyncStatsAndAnalysis(safeNote.id, safeNote.content, requestId)
         }
     }
 
@@ -1171,6 +1200,19 @@ class EditorViewModel(
     /**
      * Suspendable save-and-leave: guarantees local persistence finishes before callback.
      */
+    fun saveAndLeave(onSaved: () -> Unit) {
+        saveAndLeave(targetNoteId = null, currentText = null, onSaved = onSaved)
+    }
+
+    fun saveAndLeave(currentText: String?, onSaved: () -> Unit) {
+        val active = _activeNote.value
+        if (currentText != null && active != null && currentText == active.id) {
+            saveAndLeave(targetNoteId = currentText, currentText = null, onSaved = onSaved)
+        } else {
+            saveAndLeave(targetNoteId = null, currentText = currentText, onSaved = onSaved)
+        }
+    }
+
     fun saveAndLeave(targetNoteId: String? = null, currentText: String? = null, onSaved: () -> Unit) {
         val active = _activeNote.value
         val effectiveNoteId = targetNoteId ?: active?.id
@@ -1271,6 +1313,26 @@ class EditorViewModel(
         }
     }
 
+    fun getPendingContent(): String = pendingContent
+
+    fun getAuthoritativeContent(noteId: String? = null): String {
+        val targetId = noteId ?: _activeNote.value?.id ?: return ""
+        val active = _activeNote.value
+        if (active != null && active.id == targetId) {
+            if (isDirty || pendingContent.isNotEmpty()) {
+                return pendingContent
+            }
+            if (active.content.isNotEmpty()) {
+                return active.content
+            }
+        }
+        val loaded = (_loadState.value as? DocumentLoadState.Loaded)?.note
+        if (loaded != null && loaded.id == targetId && loaded.content.isNotEmpty()) {
+            return loaded.content
+        }
+        return active?.content ?: loaded?.content ?: pendingContent
+    }
+
     fun onContentChanged(content: String, targetNoteId: String? = null) {
         val note = _activeNote.value ?: return
         if (targetNoteId != null && targetNoteId != note.id) return
@@ -1280,6 +1342,11 @@ class EditorViewModel(
         isDirty = true
         currentContentRevision++
         val rev = currentContentRevision
+
+        val cur = _activeNote.value
+        if (cur != null && cur.id == note.id) {
+            _activeNote.value = cur.copy(content = content)
+        }
 
         // 1. Cancel and reschedule autosave (debounced at 500ms)
         autosaveJob?.cancel()
@@ -1385,6 +1452,9 @@ class EditorViewModel(
     }
 
     private suspend fun saveContentInternal(note: Note, content: String, revision: Long): Boolean {
+        if (revision < lastSavedRevision && revision != 0L) {
+            return false
+        }
         val newWords = withContext(Dispatchers.Default) { MarkdownUtil.countWords(content) }
         val previousWc = if (_activeNote.value?.id == note.id) lastWordCount else note.wordCount
         val delta = newWords - previousWc
@@ -1429,13 +1499,18 @@ class EditorViewModel(
         }
 
         if (roomSuccess) {
+            val updated = note.copy(
+                content = content,
+                wordCount = newWords,
+                updatedAt = now,
+                lastModified = now
+            )
             if (_activeNote.value?.id == note.id) {
-                _activeNote.value = note.copy(
-                    content = content,
-                    wordCount = newWords,
-                    updatedAt = now,
-                    lastModified = now
-                )
+                _activeNote.value = updated
+            }
+            val curLoad = _loadState.value
+            if (curLoad is DocumentLoadState.Loaded && curLoad.note.id == note.id) {
+                _loadState.value = DocumentLoadState.Loaded(updated)
             }
             lastSavedContent = content
             if (revision >= currentContentRevision) {
@@ -1570,34 +1645,19 @@ class EditorViewModel(
         }
     }
 
-    fun flushContent(content: String) {
+    fun flushContent(content: String): kotlinx.coroutines.Job? {
         autosaveJob?.cancel()
-        val note = _activeNote.value ?: return
-        viewModelScope.launch(Dispatchers.IO) {
-            if (content != lastSavedContent) {
-                if (note.externalUri != null) {
-                    try { SAFHelper.writeFile(getApplication(), Uri.parse(note.externalUri), content) }
-                    catch (_: Exception) {}
-                }
-                val wc = MarkdownUtil.countWords(content)
-                // Fix (Bug 2): compute and record the delta so words written between
-                // the last autosave and app-going-to-background are not silently lost
-                // from writing_log (daily goal, charts, streaks).
-                val delta = wc - lastWordCount
-                val today = todayStr()
-                db.writingLogDao().saveContentAndDelta(
-                    noteDao    = db.noteDao(),
-                    noteId     = note.id,
-                    content    = content,
-                    wordCount  = wc,
-                    updatedAt  = System.currentTimeMillis(),
-                    date       = today,
-                    bookId     = note.bookId,
-                    folderPath = note.folderPath,
-                    delta      = delta
-                )
-                lastWordCount = wc
-                lastSavedContent = content
+        autosaveJob = null
+        val note = _activeNote.value ?: return null
+        if (content != pendingContent) {
+            pendingContent = content
+            isDirty = true
+            currentContentRevision++
+        }
+        val rev = currentContentRevision
+        return viewModelScope.launch(Dispatchers.IO) {
+            saveMutex.withLock {
+                saveContentInternal(note, content, rev)
             }
         }
     }

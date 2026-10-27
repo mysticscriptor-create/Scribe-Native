@@ -43,19 +43,36 @@ interface EditorSessionClient {
     fun captureCurrentViewport(): ViewportSnapshot?
 
     /**
+     * Executes viewport restoration with explicit result callback.
+     * Returns APPLIED if scroll was actually mutated, DEFERRED if view/layout not ready,
+     * or CANCELLED if generation/session is invalid.
+     */
+    fun restoreViewport(
+        snapshot: ViewportSnapshot,
+        generation: Long,
+        onResult: (RestorationResult) -> Unit
+    ) {
+        restoreViewport(snapshot, generation) {
+            onResult(RestorationResult.APPLIED)
+        }
+    }
+
+    /**
+     * Backwards compatibility overload.
+     */
+    fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onComplete: () -> Unit) {
+        restoreViewport(snapshot, generation) { result ->
+            if (result == RestorationResult.APPLIED) {
+                onComplete()
+            }
+        }
+    }
+
+    /**
      * Overload for backwards compatibility.
      */
     fun restoreViewport(snapshot: ViewportSnapshot, onComplete: () -> Unit) {
         restoreViewport(snapshot, -1L, onComplete)
-    }
-
-    /**
-     * Executes viewport restoration with the specified snapshot and validation generation.
-     * Must only apply when canvas and editor layout (and wordwrap) are ready,
-     * and must verify the generation / validity contract before mutating scroll.
-     */
-    fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onComplete: () -> Unit) {
-        restoreViewport(snapshot, onComplete)
     }
 
     /**
@@ -68,6 +85,15 @@ interface EditorSessionClient {
  * CompositionLocal providing access to the EditorSessionRestorationCoordinator.
  */
 val LocalEditorRestorationCoordinator = compositionLocalOf<EditorSessionRestorationCoordinator?> { null }
+
+/**
+ * Result of a viewport restoration attempt.
+ */
+enum class RestorationResult {
+    APPLIED,
+    DEFERRED,
+    CANCELLED
+}
 
 /**
  * Restoration lifecycle states for a Navigation 3 editor session.
