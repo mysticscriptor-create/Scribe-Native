@@ -501,6 +501,7 @@ fun MainEditorScreen(
         val noteId = activeNote?.id ?: ""
         if (activeSheetPage != null) {
             wasSheetOpen = true
+            saveCurrentCursorStateToDb(soraEditorRef)
             captureSessionScrollBeforeNavigate()
             if (effectiveKey != null) {
                 coordinator?.onOverlayVisibilityChanged(effectiveKey, isCovered = true)
@@ -535,31 +536,38 @@ fun MainEditorScreen(
             val editor = soraEditorRef
             (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.refreshRenderingOnResume()
             unifiedCanvasRef?.invalidate()
-            if (coordinator == null && editorVm.hasSessionScroll(noteId)) {
-                restoreSessionScroll()
+            val isRetained = if (coordinator != null && effectiveKey != null) {
+                coordinator.isRetainedSession(effectiveKey)
+            } else {
+                editorVm.hasSessionScroll(noteId)
             }
-            // Ensure editor cursor is silently aligned with the saved cursor state
-            val savedCursor = latestCursorState ?: editorVm.getCursorStateInMemory(noteId)
-            if (savedCursor != null && editor != null) {
-                if (savedCursor.target == com.primaloptima.scribe.util.model.EditingTarget.EDITOR_BODY || savedCursor.target == com.primaloptima.scribe.util.model.EditingTarget.NONE) {
-                    val lineCount = editor.text.lineCount.coerceAtLeast(1)
-                    val startL = savedCursor.bodyStartLine.coerceIn(0, lineCount - 1)
-                    val startCMax = editor.text.getColumnCount(startL)
-                    val startC = savedCursor.bodyStartCol.coerceIn(0, startCMax)
-                    val isRegion = (savedCursor.bodyStartLine != savedCursor.bodyEndLine || savedCursor.bodyStartCol != savedCursor.bodyEndCol)
-                    if (isRegion) {
-                        val endL = savedCursor.bodyEndLine.coerceIn(0, lineCount - 1)
-                        val endCMax = editor.text.getColumnCount(endL)
-                        val endC = savedCursor.bodyEndCol.coerceIn(0, endCMax)
-                        editor.setSelectionRegion(startL, startC, endL, endC, false)
-                    } else {
-                        editor.setSelection(startL, startC, false)
+            if (isRetained) {
+                if (coordinator == null && editorVm.hasSessionScroll(noteId)) {
+                    restoreSessionScroll()
+                }
+                // Ensure editor cursor is silently aligned with the saved cursor state
+                val savedCursor = latestCursorState ?: editorVm.getCursorStateInMemory(noteId)
+                if (savedCursor != null && editor != null) {
+                    if (savedCursor.target == com.primaloptima.scribe.util.model.EditingTarget.EDITOR_BODY || savedCursor.target == com.primaloptima.scribe.util.model.EditingTarget.NONE) {
+                        val lineCount = editor.text.lineCount.coerceAtLeast(1)
+                        val startL = savedCursor.bodyStartLine.coerceIn(0, lineCount - 1)
+                        val startCMax = editor.text.getColumnCount(startL)
+                        val startC = savedCursor.bodyStartCol.coerceIn(0, startCMax)
+                        val isRegion = (savedCursor.bodyStartLine != savedCursor.bodyEndLine || savedCursor.bodyStartCol != savedCursor.bodyEndCol)
+                        if (isRegion) {
+                            val endL = savedCursor.bodyEndLine.coerceIn(0, lineCount - 1)
+                            val endCMax = editor.text.getColumnCount(endL)
+                            val endC = savedCursor.bodyEndCol.coerceIn(0, endCMax)
+                            editor.setSelectionRegion(startL, startC, endL, endC, false)
+                        } else {
+                            editor.setSelection(startL, startC, false)
+                        }
+                        (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.showCursorSilently() ?: run {
+                            editor.requestFocus()
+                            try { editor.hideSoftInput() } catch (_: Throwable) {}
+                        }
+                        keyboardController?.hide()
                     }
-                    (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.showCursorSilently() ?: run {
-                        editor.requestFocus()
-                        try { editor.hideSoftInput() } catch (_: Throwable) {}
-                    }
-                    keyboardController?.hide()
                 }
             }
         }
@@ -655,7 +663,8 @@ fun MainEditorScreen(
         val canvas = unifiedCanvasRef
         val cur = try { editor?.cursor } catch (_: Throwable) { null }
         if (editor == null || cur == null) {
-            latestCursorState ?: DocumentCursorState(
+            val noteId = activeNote?.id ?: ""
+            latestCursorState ?: (if (noteId.isNotEmpty()) editorVm.getCursorStateInMemory(noteId) else null) ?: DocumentCursorState(
                 target = lastActiveTarget,
                 bodyStartLine = 0,
                 bodyStartCol = 0,
@@ -697,11 +706,9 @@ fun MainEditorScreen(
 
     val saveCurrentCursorStateToDb: (com.primaloptima.scribe.ui.components.ScribeCodeEditor?) -> Unit = { customEditor ->
         activeNote?.let { note ->
-            if (editorVm.restoreCursorOnOpen.value) {
-                val state = captureCurrentCursorState(customEditor)
-                latestCursorState = state
-                editorVm.saveCursorState(note.id, state)
-            }
+            val state = captureCurrentCursorState(customEditor)
+            latestCursorState = state
+            editorVm.saveCursorState(note.id, state)
         }
     }
 
@@ -760,9 +767,8 @@ fun MainEditorScreen(
     }
 
     // Debounce save cursor state to DB whenever latestCursorState changes
-    LaunchedEffect(latestCursorState, restoreCursorOnOpen) {
+    LaunchedEffect(latestCursorState) {
         val state = latestCursorState ?: return@LaunchedEffect
-        if (!restoreCursorOnOpen) return@LaunchedEffect
         val noteId = activeNote?.id ?: return@LaunchedEffect
         delay(600)
         editorVm.saveCursorState(noteId, state)
@@ -955,7 +961,12 @@ fun MainEditorScreen(
 
             // Await DataStore directly to eliminate startup race condition
             val isRestoreEnabled = editorVm.isRestoreCursorEnabled()
-            val savedCursor = if (isRestoreEnabled) {
+            val isResuming = if (coordinator != null && effectiveKey != null) {
+                coordinator.isRetainedSession(effectiveKey)
+            } else {
+                editorVm.hasSessionScroll(note.id)
+            }
+            val savedCursor = if (isResuming || isRestoreEnabled) {
                 editorVm.getOrFetchCursorState(note.id)
             } else null
 
@@ -964,7 +975,7 @@ fun MainEditorScreen(
             // Wait until layout & wordwrap calculation are fully ready on the loaded text!
             (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.doOnLayoutReady {
                 val isResumingSession = if (coordinator != null && effectiveKey != null) {
-                    coordinator.hasPendingRestoration(effectiveKey)
+                    coordinator.isRetainedSession(effectiveKey)
                 } else {
                     editorVm.hasSessionScroll(note.id)
                 }
@@ -3158,25 +3169,34 @@ fun MainEditorScreen(
                     showManuscriptPreview = true
                 },
                 onExport         = { fmt ->
+                    editorVm.flushContent(soraEditorRef?.text?.toString() ?: "")
                     saveCurrentCursorStateToDb(soraEditorRef)
                     captureSessionScrollBeforeNavigate()
+                    if (effectiveKey != null) {
+                        coordinator?.onOverlayDismissedForNavigation(effectiveKey)
+                    }
                     wasSheetOpen = false
                     activeSheetPage = null
-                    editorVm.flushContent(soraEditorRef?.text?.toString() ?: "")
                     onOpenExportStudio(fmt)
                 },
                 onVersionHistory = {
-                    saveCurrentCursorStateToDb(soraEditorRef)
-                    captureSessionScrollBeforeNavigate()
-                    wasSheetOpen = false
-                    activeSheetPage = null
                     editorVm.flushContent(soraEditorRef?.text?.toString() ?: "")
                     val targetId = activeNote?.id ?: initialNoteId ?: ""
+                    saveCurrentCursorStateToDb(soraEditorRef)
+                    captureSessionScrollBeforeNavigate()
+                    if (effectiveKey != null) {
+                        coordinator?.onOverlayDismissedForNavigation(effectiveKey)
+                    }
+                    wasSheetOpen = false
+                    activeSheetPage = null
                     onOpenHistory(targetId)
                 },
                 onShortcuts      = {
                     saveCurrentCursorStateToDb(soraEditorRef)
                     captureSessionScrollBeforeNavigate()
+                    if (effectiveKey != null) {
+                        coordinator?.onOverlayDismissedForNavigation(effectiveKey)
+                    }
                     wasSheetOpen = false
                     activeSheetPage = null
                     onOpenShortcuts()
@@ -3184,6 +3204,9 @@ fun MainEditorScreen(
                 onGuide          = {
                     saveCurrentCursorStateToDb(soraEditorRef)
                     captureSessionScrollBeforeNavigate()
+                    if (effectiveKey != null) {
+                        coordinator?.onOverlayDismissedForNavigation(effectiveKey)
+                    }
                     wasSheetOpen = false
                     activeSheetPage = null
                     onOpenGuide()
@@ -3191,6 +3214,9 @@ fun MainEditorScreen(
                 onOpenThemes     = {
                     saveCurrentCursorStateToDb(soraEditorRef)
                     captureSessionScrollBeforeNavigate()
+                    if (effectiveKey != null) {
+                        coordinator?.onOverlayDismissedForNavigation(effectiveKey)
+                    }
                     wasSheetOpen = false
                     activeSheetPage = null
                     onOpenThemes()
@@ -3198,6 +3224,9 @@ fun MainEditorScreen(
                 onSettings       = {
                     saveCurrentCursorStateToDb(soraEditorRef)
                     captureSessionScrollBeforeNavigate()
+                    if (effectiveKey != null) {
+                        coordinator?.onOverlayDismissedForNavigation(effectiveKey)
+                    }
                     wasSheetOpen = false
                     activeSheetPage = null
                     onOpenSettings()

@@ -70,6 +70,17 @@ interface EditorSessionClient {
 val LocalEditorRestorationCoordinator = compositionLocalOf<EditorSessionRestorationCoordinator?> { null }
 
 /**
+ * Restoration lifecycle states for a Navigation 3 editor session.
+ */
+enum class RestorationState {
+    IDLE,
+    PENDING,
+    SCHEDULED,
+    APPLIED,
+    CANCELLED
+}
+
+/**
  * Architectural coordinator for Editor Viewport Restoration across Navigation 3 screens.
  *
  * Responsibilities:
@@ -93,6 +104,7 @@ class EditorSessionRestorationCoordinator {
     private val sessionSnapshots = ConcurrentHashMap<Route.Editor, ViewportSnapshot>()
     private val clientMap = ConcurrentHashMap<Route.Editor, EditorSessionClient>()
     private val restorationGenerations = ConcurrentHashMap<Route.Editor, Long>()
+    private val sessionStates = ConcurrentHashMap<Route.Editor, RestorationState>()
     private val pendingRestorationSessions = ConcurrentHashMap.newKeySet<Route.Editor>()
     private val globalGenerationCounter = AtomicLong(0)
 
@@ -157,7 +169,7 @@ class EditorSessionRestorationCoordinator {
         val currentEditorKeys = editorsInStack.toSet()
 
         // Clean up sessions that were genuinely removed/popped from backStack across all collections
-        val allTracked = (sessionSnapshots.keys + pendingRestorationSessions + clientMap.keys + restorationGenerations.keys).toSet()
+        val allTracked = (sessionSnapshots.keys + sessionStates.keys + pendingRestorationSessions + clientMap.keys + restorationGenerations.keys).toSet()
         for (tracked in allTracked) {
             if (!currentEditorKeys.contains(tracked)) {
                 invalidateSession(tracked)
@@ -169,6 +181,7 @@ class EditorSessionRestorationCoordinator {
             activeNoteId = null
             isCurrentlyCovered = false
             sessionSnapshots.clear()
+            sessionStates.clear()
             pendingRestorationSessions.clear()
             restorationGenerations.clear()
             clientMap.clear()
@@ -187,6 +200,7 @@ class EditorSessionRestorationCoordinator {
             // Do NOT discard its snapshot! Capture and suspend it.
             if (currentEditorKeys.contains(prevActiveKey)) {
                 captureCurrentViewport(prevActiveKey)
+                sessionStates[prevActiveKey] = RestorationState.PENDING
                 pendingRestorationSessions.add(prevActiveKey)
             }
 
@@ -195,15 +209,14 @@ class EditorSessionRestorationCoordinator {
             isCurrentlyCovered = !isVisible
 
             if (isVisible) {
-                if (pendingRestorationSessions.contains(topEditor)) {
+                if (sessionStates[topEditor] == RestorationState.PENDING || pendingRestorationSessions.contains(topEditor)) {
                     if (!isOverlayCovering && !isAppPaused) {
-                        if (requestCoordinatedRestoration(topEditor)) {
-                            pendingRestorationSessions.remove(topEditor)
-                        }
+                        requestCoordinatedRestoration(topEditor)
                     }
                 }
             } else {
                 captureCurrentViewport(topEditor)
+                sessionStates[topEditor] = RestorationState.PENDING
                 pendingRestorationSessions.add(topEditor)
             }
             return
@@ -216,15 +229,14 @@ class EditorSessionRestorationCoordinator {
             // Transition: Active -> Covered (user pushed auxiliary screen or new destination)
             isCurrentlyCovered = true
             captureCurrentViewport(topEditor)
+            sessionStates[topEditor] = RestorationState.PENDING
             pendingRestorationSessions.add(topEditor)
         } else if (isVisible && prevCovered) {
             // Transition: Covered -> Active (user popped auxiliary screen and returned to editor)
             isCurrentlyCovered = false
             if (!isOverlayCovering && !isAppPaused) {
-                if (pendingRestorationSessions.contains(topEditor)) {
-                    if (requestCoordinatedRestoration(topEditor)) {
-                        pendingRestorationSessions.remove(topEditor)
-                    }
+                if (sessionStates[topEditor] == RestorationState.PENDING || pendingRestorationSessions.contains(topEditor)) {
+                    requestCoordinatedRestoration(topEditor)
                 }
             }
         }
@@ -243,10 +255,8 @@ class EditorSessionRestorationCoordinator {
         // If the session has a pending restoration requirement (e.g. view recreated while retained)
         // and is currently active and uncovered, execute restoration.
         if (activeEditorKey == client.sessionKey && !isCurrentlyCovered && !isOverlayCovering && !isAppPaused) {
-            if (pendingRestorationSessions.contains(client.sessionKey)) {
-                if (requestCoordinatedRestoration(client.sessionKey)) {
-                    pendingRestorationSessions.remove(client.sessionKey)
-                }
+            if (sessionStates[client.sessionKey] == RestorationState.PENDING || pendingRestorationSessions.contains(client.sessionKey)) {
+                requestCoordinatedRestoration(client.sessionKey)
             }
         }
     }
@@ -260,7 +270,11 @@ class EditorSessionRestorationCoordinator {
     fun unregisterClient(client: EditorSessionClient) {
         val removed = clientMap.remove(client.sessionKey, client)
         if (removed && sessionSnapshots.containsKey(client.sessionKey)) {
-            pendingRestorationSessions.add(client.sessionKey)
+            val currentState = sessionStates[client.sessionKey]
+            if (currentState == RestorationState.SCHEDULED || currentState == RestorationState.PENDING || pendingRestorationSessions.contains(client.sessionKey)) {
+                sessionStates[client.sessionKey] = RestorationState.PENDING
+                pendingRestorationSessions.add(client.sessionKey)
+            }
         }
     }
 
@@ -275,16 +289,35 @@ class EditorSessionRestorationCoordinator {
 
         if (isCovered && !wasCovered) {
             captureCurrentViewport(editorKey)
+            sessionStates[editorKey] = RestorationState.PENDING
             pendingRestorationSessions.add(editorKey)
         } else if (!isCovered && wasCovered) {
             if (!isCurrentlyCovered && !isAppPaused) {
-                if (pendingRestorationSessions.contains(editorKey)) {
-                    if (requestCoordinatedRestoration(editorKey)) {
-                        pendingRestorationSessions.remove(editorKey)
-                    }
+                if (sessionStates[editorKey] == RestorationState.PENDING || pendingRestorationSessions.contains(editorKey)) {
+                    requestCoordinatedRestoration(editorKey)
                 }
             }
         }
+    }
+
+    /**
+     * Called when an overlay is dismissed specifically because navigation to an auxiliary screen
+     * (Settings, History, Shortcuts, Guide, Themes, Export Studio) has been initiated.
+     *
+     * This ensures:
+     * 1. The live viewport snapshot is captured before navigating away.
+     * 2. Pending restoration requirement is explicitly recorded for when navigation returns.
+     * 3. The overlay covering flag is cleared immediately (isOverlayCovering = false).
+     * 4. The coordinator marks that the editor is transitioning/covered (isCurrentlyCovered = true)
+     *    so that no premature restoration is triggered against the old navigation state.
+     */
+    fun onOverlayDismissedForNavigation(editorKey: Route.Editor) {
+        if (activeEditorKey != editorKey) return
+        captureCurrentViewport(editorKey)
+        sessionStates[editorKey] = RestorationState.PENDING
+        pendingRestorationSessions.add(editorKey)
+        isOverlayCovering = false
+        isCurrentlyCovered = true
     }
 
     /**
@@ -297,6 +330,7 @@ class EditorSessionRestorationCoordinator {
                 isAppPaused = true
                 if (!isCurrentlyCovered && !isOverlayCovering) {
                     captureCurrentViewport(currentKey)
+                    sessionStates[currentKey] = RestorationState.PENDING
                     pendingRestorationSessions.add(currentKey)
                 }
             }
@@ -304,10 +338,8 @@ class EditorSessionRestorationCoordinator {
                 if (isAppPaused) {
                     isAppPaused = false
                     if (!isCurrentlyCovered && !isOverlayCovering) {
-                        if (pendingRestorationSessions.contains(currentKey)) {
-                            if (requestCoordinatedRestoration(currentKey)) {
-                                pendingRestorationSessions.remove(currentKey)
-                            }
+                        if (sessionStates[currentKey] == RestorationState.PENDING || pendingRestorationSessions.contains(currentKey)) {
+                            requestCoordinatedRestoration(currentKey)
                         }
                     }
                 }
@@ -356,7 +388,23 @@ class EditorSessionRestorationCoordinator {
 
     fun hasSnapshot(noteId: String): Boolean = sessionSnapshots.keys.any { it.noteId == noteId }
 
-    fun hasPendingRestoration(editorKey: Route.Editor): Boolean = pendingRestorationSessions.contains(editorKey)
+    fun hasPendingRestoration(editorKey: Route.Editor): Boolean {
+        val state = sessionStates[editorKey]
+        return state == RestorationState.PENDING || state == RestorationState.SCHEDULED || pendingRestorationSessions.contains(editorKey)
+    }
+
+    /**
+     * Determines whether an editor session is a returning/retained session
+     * (which must restore its captured viewport snapshot unconditionally)
+     * versus a genuinely fresh editor open.
+     */
+    fun isRetainedSession(editorKey: Route.Editor): Boolean {
+        if (!sessionSnapshots.containsKey(editorKey)) return false
+        val state = sessionStates[editorKey]
+        return (state != null && state != RestorationState.IDLE) || pendingRestorationSessions.contains(editorKey)
+    }
+
+    fun getRestorationState(editorKey: Route.Editor): RestorationState? = sessionStates[editorKey]
 
     /**
      * Requests exactly ONE coordinated viewport restoration for this session.
@@ -367,12 +415,21 @@ class EditorSessionRestorationCoordinator {
         val snapshot = sessionSnapshots[editorKey] ?: return false
         val client = clientMap[editorKey] ?: return false
 
+        if (sessionStates[editorKey] == RestorationState.SCHEDULED) {
+            // Already scheduled; avoid duplicate concurrent dispatch
+            return true
+        }
+
         val gen = globalGenerationCounter.incrementAndGet()
         activeRestorationGeneration = gen
         restorationGenerations[editorKey] = gen
+        sessionStates[editorKey] = RestorationState.SCHEDULED
 
         client.restoreViewport(snapshot, gen) {
-            // Completed
+            if (restorationGenerations[editorKey] == gen) {
+                sessionStates[editorKey] = RestorationState.APPLIED
+                pendingRestorationSessions.remove(editorKey)
+            }
         }
         return true
     }
@@ -413,6 +470,7 @@ class EditorSessionRestorationCoordinator {
         globalGenerationCounter.incrementAndGet()
         restorationGenerations.remove(editorKey)
         sessionSnapshots.remove(editorKey)
+        sessionStates.remove(editorKey)
         pendingRestorationSessions.remove(editorKey)
         clientMap.remove(editorKey)
         if (activeEditorKey == editorKey) {

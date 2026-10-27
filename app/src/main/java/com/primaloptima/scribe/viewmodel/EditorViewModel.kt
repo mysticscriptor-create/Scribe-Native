@@ -687,11 +687,16 @@ class EditorViewModel(
     val selectAllScrollMode: StateFlow<String> = dataStore.selectAllScrollModeFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), "KEEP_CURRENT_POSITION")
 
+    @Volatile
+    private var overrideRestoreCursorOnOpen: Boolean? = null
+
     suspend fun isRestoreCursorEnabled(): Boolean {
+        overrideRestoreCursorOnOpen?.let { return it }
         return dataStore.restoreCursorOnOpenFlow.first()
     }
 
     fun setRestoreCursorOnOpen(enabled: Boolean) {
+        overrideRestoreCursorOnOpen = enabled
         viewModelScope.launch {
             dataStore.setRestoreCursorOnOpen(enabled)
         }

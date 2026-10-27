@@ -687,10 +687,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     restoreCanvasAndEditorScroll(0, 0)
                 } else {
                     val targetScrollD = targetTotalScroll.toInt().coerceIn(0, headerHeight)
-                    val remainingScroll = targetTotalScroll.toInt() - targetScrollD
-                    val maxY = editor.safeScrollMaxY
-                    val targetScrollY = remainingScroll.coerceIn(0, maxY)
-                    restoreCanvasAndEditorScroll(targetScrollD, targetScrollY)
+                    val remainingScroll = (targetTotalScroll.toInt() - targetScrollD).coerceAtLeast(0)
+                    restoreCanvasAndEditorScroll(targetScrollD, remainingScroll)
                 }
             }
         }
