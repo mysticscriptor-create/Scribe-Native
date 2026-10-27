@@ -451,10 +451,22 @@ class EditorSessionRestorationCoordinator {
         restorationGenerations[editorKey] = gen
         sessionStates[editorKey] = RestorationState.SCHEDULED
 
-        client.restoreViewport(snapshot, gen) {
+        client.restoreViewport(snapshot, gen) { result ->
             if (restorationGenerations[editorKey] == gen) {
-                sessionStates[editorKey] = RestorationState.APPLIED
-                pendingRestorationSessions.remove(editorKey)
+                when (result) {
+                    RestorationResult.APPLIED -> {
+                        sessionStates[editorKey] = RestorationState.APPLIED
+                        pendingRestorationSessions.remove(editorKey)
+                    }
+                    RestorationResult.DEFERRED -> {
+                        sessionStates[editorKey] = RestorationState.PENDING
+                        pendingRestorationSessions.add(editorKey)
+                    }
+                    RestorationResult.CANCELLED -> {
+                        sessionStates[editorKey] = RestorationState.CANCELLED
+                        pendingRestorationSessions.remove(editorKey)
+                    }
+                }
             }
         }
         return true

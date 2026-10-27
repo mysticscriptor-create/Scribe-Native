@@ -5,6 +5,7 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
@@ -90,6 +91,14 @@ interface NoteDao {
     // Phase 1-B: update content + word_count together — called from EditorViewModel.saveContent()
     @Query("UPDATE notes SET content = :content, word_count = :wordCount, updated_at = :updatedAt, last_modified = :updatedAt WHERE id = :id")
     suspend fun updateContentAndWordCount(id: String, content: String, wordCount: Int, updatedAt: Long)
+
+    @Query("UPDATE notes SET content = :content, word_count = :wordCount, cursor_state_json = :cursorJson, updated_at = :updatedAt, last_modified = :updatedAt WHERE id = :id")
+    suspend fun updateContentWordCountAndCursor(id: String, content: String, wordCount: Int, cursorJson: String?, updatedAt: Long)
+
+    @Transaction
+    suspend fun updateContentAndCursor(id: String, content: String, wordCount: Int, cursorJson: String?, updatedAt: Long) {
+        updateContentWordCountAndCursor(id, content, wordCount, cursorJson, updatedAt)
+    }
 
     // Phase 1-B: backfill — only touches rows that still have word_count = 0
     @Query("UPDATE notes SET word_count = :count WHERE id = :id AND word_count = 0")

@@ -247,6 +247,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     val activeRestorationTargetScroll: Float?
         get() = if (isRestorationActive) scrollCoordinator.activeTargetTotalScroll else null
     private var pendingRestorationRunnable: Runnable? = null
+    var isRestoringViewport: Boolean = false
+    var suppressCursorVisibilityScroll: Boolean = false
 
     fun recordExpansionDisplacement(dy: Float, line: Int, col: Int = 0, isSelected: Boolean = false) {
         if (dy > 0f && isExpansionTransitionActive) {
@@ -704,10 +706,20 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         isValid: (() -> Boolean)? = null,
         onComplete: (() -> Unit)? = null
     ) {
+        isRestoringViewport = true
+        suppressCursorVisibilityScroll = true
         doOnCanvasReady {
-            if (isValid != null && !isValid()) return@doOnCanvasReady
+            if (isValid != null && !isValid()) {
+                isRestoringViewport = false
+                suppressCursorVisibilityScroll = false
+                return@doOnCanvasReady
+            }
             editor.doOnLayoutReady {
-                if (isValid != null && !isValid()) return@doOnLayoutReady
+                if (isValid != null && !isValid()) {
+                    isRestoringViewport = false
+                    suppressCursorVisibilityScroll = false
+                    return@doOnLayoutReady
+                }
                 cancelCanvasAnimation()
                 val totalScroll = (targetScrollD + targetScrollY).coerceAtLeast(0)
                 val reconciled = ScribeScrollPolicy.reconcileScrollState(
@@ -726,6 +738,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
                 notifyViewportScrollChanged()
                 invalidate()
+                isRestoringViewport = false
+                post {
+                    suppressCursorVisibilityScroll = false
+                }
                 onComplete?.invoke()
             }
         }
@@ -857,7 +873,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         customDurationMs: Long = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS,
         force: Boolean = false
     ) {
-        if ((!editor.isFocused && !isBottomSurfaceActive) || isKeyboardDismissing) return
+        if ((!editor.isFocused && !isBottomSurfaceActive) || isKeyboardDismissing || suppressCursorVisibilityScroll || isRestoringViewport) return
         val now = System.currentTimeMillis()
         if (!force && now - lastEnsureCursorTime < 60L) return
 
@@ -1239,7 +1255,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * so that the typing cursor is strictly kept above the keyboard and shortcut bar.
      */
     override fun requestChildRectangleOnScreen(child: View, rectangle: Rect, immediate: Boolean): Boolean {
-        if (isKeyboardDismissing) {
+        if (isKeyboardDismissing || suppressCursorVisibilityScroll || isRestoringViewport) {
             return true
         }
         if (child !== editor) {
