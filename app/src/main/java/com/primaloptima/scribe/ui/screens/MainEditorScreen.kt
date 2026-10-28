@@ -367,10 +367,6 @@ fun MainEditorScreen(
     val primaryFocusRequester = remember { FocusRequester() }
     val secondaryFocusRequester = remember { FocusRequester() }
     var lastActiveTarget by remember(activeNote?.id) { mutableStateOf(EditingTarget.NONE) }
-    val updateEditingTarget: (EditingTarget) -> Unit = { target ->
-        lastActiveTarget = target
-        unifiedCanvasRef?.activeEditingTarget = target
-    }
 
     // ── Local UI state ────────────────────────────────────────────────────────
     var rightPanelTab   by remember { mutableIntStateOf(0) }
@@ -401,6 +397,11 @@ fun MainEditorScreen(
     // ── Sora CodeEditor & Unified Canvas state ──────────────────────────────────
     var unifiedCanvasRef   by remember { mutableStateOf<UnifiedCanvasLayout?>(null) }
     var soraEditorRef      by remember { mutableStateOf<com.primaloptima.scribe.ui.components.ScribeCodeEditor?>(null) }
+
+    val updateEditingTarget: (EditingTarget) -> Unit = { target ->
+        lastActiveTarget = target
+        unifiedCanvasRef?.activeEditingTarget = target
+    }
     var isHandleDragging   by remember { mutableStateOf(false) }
     var loadedNoteId       by rememberSaveable { mutableStateOf<String?>(null) }
     var lastLoadedEditorInstance by remember { mutableStateOf<com.primaloptima.scribe.ui.components.ScribeCodeEditor?>(null) }
