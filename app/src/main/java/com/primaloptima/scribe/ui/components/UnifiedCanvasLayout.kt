@@ -840,6 +840,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      */
     fun predictivelyGlideCursorAboveKeyboard(targetLine: Int? = null, targetCol: Int? = null) {
         if (isKeyboardDismissing) return
+        if (activeEditingTarget == EditingTarget.PRIMARY_TITLE ||
+            activeEditingTarget == EditingTarget.SECONDARY_TITLE
+        ) {
+            return
+        }
         val density = resources.displayMetrics.density
         val cursor = try { editor.cursor } catch (_: Throwable) { null }
         val line = targetLine ?: cursor?.leftLine ?: return
@@ -906,9 +911,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         ) {
             return
         }
-        val isBodyTargetActive = activeEditingTarget == EditingTarget.EDITOR_BODY ||
-            (activeEditingTarget == EditingTarget.NONE && editor.isFocused)
-        if (!isBodyTargetActive) return
         if ((!editor.isFocused && !isBottomSurfaceActive) || isKeyboardDismissing || suppressCursorVisibilityScroll || isRestoringViewport) return
         val now = System.currentTimeMillis()
         if (!force && now - lastEnsureCursorTime < 60L) return
@@ -1141,9 +1143,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     expansionCaretCol = curC.leftColumn
                     expansionHadSelection = curC.isSelected
                 }
-                val isBodyTargetActive = activeEditingTarget == EditingTarget.EDITOR_BODY ||
-                    (activeEditingTarget == EditingTarget.NONE && editor.isFocused)
-                if (isBodyTargetActive && (editor.isFocused || isBottomSurfaceActive)) {
+                val isTitleTargetActive = activeEditingTarget == EditingTarget.PRIMARY_TITLE ||
+                    activeEditingTarget == EditingTarget.SECONDARY_TITLE
+                if (!isTitleTargetActive && (editor.isFocused || isBottomSurfaceActive)) {
                     val density = resources.displayMetrics.density
                     val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
                     val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
@@ -1319,11 +1321,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             if (activeEditingTarget == EditingTarget.PRIMARY_TITLE ||
                 activeEditingTarget == EditingTarget.SECONDARY_TITLE
             ) {
-                return false
-            }
-            val isBodyTargetActive = activeEditingTarget == EditingTarget.EDITOR_BODY ||
-                (activeEditingTarget == EditingTarget.NONE && editor.isFocused)
-            if (!isBodyTargetActive) {
                 return false
             }
             val screenTop = (headerHeight - scrollD) + rectangle.top

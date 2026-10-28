@@ -1234,6 +1234,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 touchDownTime = System.currentTimeMillis()
                 isTouchMoved = false
                 parentCanvas?.cancelCanvasAnimation()
+                parentCanvas?.activeEditingTarget = com.primaloptima.scribe.util.model.EditingTarget.EDITOR_BODY
                 stopFling()
             }
             MotionEvent.ACTION_MOVE -> {

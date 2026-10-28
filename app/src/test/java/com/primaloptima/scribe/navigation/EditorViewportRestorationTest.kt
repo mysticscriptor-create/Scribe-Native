@@ -1109,12 +1109,11 @@ class EditorViewportRestorationTest {
             isEditorFocused: Boolean,
             isBottomSurfaceActive: Boolean
         ): Boolean {
-            if (target == EditingTarget.PRIMARY_TITLE || target == EditingTarget.SECONDARY_TITLE) {
+            val isTitleTargetActive = target == EditingTarget.PRIMARY_TITLE || target == EditingTarget.SECONDARY_TITLE
+            if (isTitleTargetActive) {
                 return false
             }
-            val isBodyTargetActive = target == EditingTarget.EDITOR_BODY ||
-                (target == EditingTarget.NONE && isEditorFocused)
-            return isBodyTargetActive && (isEditorFocused || isBottomSurfaceActive)
+            return isEditorFocused || isBottomSurfaceActive
         }
 
         // Case A: User scrolled to title, tapped primary title, soft keyboard opened
@@ -1142,7 +1141,13 @@ class EditorViewportRestorationTest {
             shouldPerformBodyCaretScroll(EditingTarget.EDITOR_BODY, isEditorFocused = true, isBottomSurfaceActive = false)
         )
 
-        // Case E: Neither title nor body focused, bottom surface inactive
+        // Case E: Accessory drawer opened from body or initial document state
+        assertTrue(
+            "Accessory drawer expansion must scroll body caret to keep it visible above shortcut bar",
+            shouldPerformBodyCaretScroll(EditingTarget.NONE, isEditorFocused = false, isBottomSurfaceActive = true)
+        )
+
+        // Case F: Neither title nor body focused, bottom surface inactive
         assertFalse(
             "Idle state with no focus must not scroll body caret",
             shouldPerformBodyCaretScroll(EditingTarget.NONE, isEditorFocused = false, isBottomSurfaceActive = false)

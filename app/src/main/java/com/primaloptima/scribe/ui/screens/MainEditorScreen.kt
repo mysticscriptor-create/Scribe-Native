@@ -1560,6 +1560,7 @@ fun MainEditorScreen(
                                 this.isBottomSurfaceActive = curIsBottomSurfaceActive
                                 this.isKeyboardDismissing = isKeyboardDismissing
                                 onUserTouchDown = {
+                                    updateEditingTarget(EditingTarget.EDITOR_BODY)
                                     if (activeAccessoryDrawer != null) {
                                         activeAccessoryDrawer = null
                                         drawerState = AccessoryDrawerState.COMPACT
@@ -1791,6 +1792,7 @@ fun MainEditorScreen(
                         },
                         update = { layout ->
                             layout.onUserTouchDown = {
+                                updateEditingTarget(EditingTarget.EDITOR_BODY)
                                 if (activeAccessoryDrawer != null) {
                                     activeAccessoryDrawer = null
                                     drawerState = AccessoryDrawerState.COMPACT
