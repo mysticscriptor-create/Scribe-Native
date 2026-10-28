@@ -14,17 +14,22 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.primaloptima.scribe.LocalThemeViewModel
@@ -54,8 +59,12 @@ import kotlinx.coroutines.withContext
  *    remain continuously mounted in memory without disposal or recreation.
  * 2. Back navigation unwinds auxiliary screens (e.g. ThemeEdit -> ThemeList -> Settings -> Editor)
  *    and dismisses the overlay without popping the main Route.Editor route.
- * 3. Consumes all pointer input to strictly prevent touches from leaking through to the editor.
- * 4. Dismissal reveals the exact live viewport instantaneously with 0ms recreation or snapping.
+ * 3. Auxiliary screens receive full touch, scroll, drag, and tap interactions without interference.
+ *    Any taps falling on blank background margins are consumed by the host Surface, preventing
+ *    fall-through to the underlying editor.
+ * 4. Retains destination state during exit animation so dismissal slides the actual screen
+ *    content down smoothly before revealing the live editor underneath.
+ * 5. Dismissal reveals the exact live viewport instantaneously with 0ms recreation or snapping.
  */
 @Composable
 fun EditorAuxiliaryOverlayHost(
@@ -69,6 +78,14 @@ fun EditorAuxiliaryOverlayHost(
     val isOverlayActive = auxiliaryBackStack.isNotEmpty()
     val currentDestination = auxiliaryBackStack.lastOrNull()
     val context = LocalContext.current
+
+    // Retain the last active destination during the AnimatedVisibility exit transition so the
+    // screen does not vanish abruptly into an empty box while sliding out.
+    var lastActiveDestination by remember { mutableStateOf<Route?>(null) }
+    if (currentDestination != null) {
+        lastActiveDestination = currentDestination
+    }
+    val destination = currentDestination ?: lastActiveDestination
 
     // Hide keyboard and clear soft input whenever an auxiliary destination is opened
     LaunchedEffect(isOverlayActive) {
@@ -96,26 +113,26 @@ fun EditorAuxiliaryOverlayHost(
         exit = slideOutVertically(tween(300, easing = FastOutSlowInEasing)) { it } +
                fadeOut(tween(200, easing = LinearEasing))
     ) {
-        Box(
+        // Surface provides a solid theme background so underlying editor text never bleeds through,
+        // and clickable absorbs clicks on empty areas to prevent pass-through to background native views.
+        Surface(
             modifier = Modifier
                 .fillMaxSize()
-                // Strictly consume all raw pointer events so touches cannot reach the background editor
-                .pointerInput(Unit) {
-                    awaitPointerEventScope {
-                        while (true) {
-                            awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
-                        }
-                    }
-                }
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = { /* Intercept unhandled background clicks */ }
+                ),
+            color = MaterialTheme.colorScheme.background
         ) {
-            val destination = currentDestination
             if (destination != null) {
+                // Crossfade cleanly between nested auxiliary routes (e.g. Settings <-> Themes)
+                // without double vertical sliding conflicting with the outer AnimatedVisibility.
                 AnimatedContent(
                     targetState = destination,
                     transitionSpec = {
-                        (slideInVertically(tween(320, easing = FastOutSlowInEasing)) { it } +
-                                fadeIn(tween(200, easing = FastOutSlowInEasing))) togetherWith
-                                fadeOut(tween(100, easing = LinearEasing))
+                        fadeIn(tween(200, easing = FastOutSlowInEasing)) togetherWith
+                                fadeOut(tween(120, easing = LinearEasing))
                     },
                     label = "EditorAuxiliaryTransition"
                 ) { targetRoute ->
