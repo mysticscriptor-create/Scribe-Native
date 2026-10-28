@@ -3175,7 +3175,7 @@ fun MainEditorScreen(
                     saveCurrentCursorStateToDb(soraEditorRef)
                     captureSessionScrollBeforeNavigate()
                     if (effectiveKey != null) {
-                        coordinator?.onOverlayDismissedForNavigation(effectiveKey)
+                        coordinator?.onAuxiliaryOverlayVisibilityChanged(effectiveKey, isCovered = true)
                     }
                     wasSheetOpen = false
                     activeSheetPage = null

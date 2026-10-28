@@ -337,6 +337,23 @@ class EditorSessionRestorationCoordinator {
     }
 
     /**
+     * Called when an editor-owned auxiliary destination (Settings, History, Themes, etc.)
+     * is opened in the auxiliary overlay layer above the live editor.
+     * Captures the live viewport snapshot for safety (e.g. process death / low-memory fallback),
+     * but does NOT mark the session as pending restoration, because the underlying editor
+     * view remains mounted and alive.
+     */
+    fun onAuxiliaryOverlayVisibilityChanged(editorKey: Route.Editor, isCovered: Boolean) {
+        if (activeEditorKey != editorKey) return
+        if (isCovered) {
+            captureCurrentViewport(editorKey)
+            isOverlayCovering = true
+        } else {
+            isOverlayCovering = false
+        }
+    }
+
+    /**
      * Coordinates Activity lifecycle events.
      */
     fun onActivityLifecycleEvent(event: Lifecycle.Event) {

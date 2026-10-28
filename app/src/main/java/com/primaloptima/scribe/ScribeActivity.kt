@@ -28,6 +28,11 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import com.primaloptima.scribe.navigation.EditorAuxiliaryOverlayHost
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
@@ -346,64 +351,86 @@ class ScribeActivity : ComponentActivity() {
                     // Keep the hoisted reference current so History can receive it.
                     activeEditorVm = editorVm
 
-                    val isEditorActive = remember(currentBackStackList, isCompact, key) {
-                        restorationCoordinator.isEditorVisibleInBackStack(key, currentBackStackList, isCompact)
+                    // Editor-specific auxiliary overlay navigation stack
+                    val auxiliaryBackStack = remember { mutableStateListOf<Route>() }
+                    val isAuxiliaryActive = auxiliaryBackStack.isNotEmpty()
+
+                    val isEditorActive = remember(currentBackStackList, isCompact, key, isAuxiliaryActive) {
+                        !isAuxiliaryActive && restorationCoordinator.isEditorVisibleInBackStack(key, currentBackStackList, isCompact)
                     }
 
-                    CompositionLocalProvider(LocalEditorViewModel provides editorVm) {
-                        MainEditorScreen(
-                            editorVm        = editorVm,
-                            bookVm          = bookVm,
-                            noteListVm      = noteListVm,
-                            shortcutsVm     = shortcutsVm,
-                            initialNoteId   = key.noteId,
-                            isScreenActive  = isEditorActive,
-                            sessionKey      = key,
-                            onBack          = {
-                                activeEditorVm?.clearSessionScroll(key.noteId)
-                                restorationCoordinator.invalidateSession(key)
-                                editorVm.saveAndLeave {
-                                    backStack.removeLastOrNull()
-                                }
-                            },
-                            onOpenHistory   = { targetNoteId ->
-                                // Flush pending autosave before navigating so no
-                                // keystrokes in the 500ms debounce window are lost.
-                                editorVm.flushPendingContent()
-                                if (backStack.lastOrNull() !is Route.History)
-                                    backStack.add(Route.History(targetNoteId))
-                            },
-                            onOpenShortcuts = {
-                                if (backStack.lastOrNull() !is Route.Shortcuts)
-                                    backStack.add(Route.Shortcuts)
-                            },
-                            onOpenGuide     = {
-                                if (backStack.lastOrNull() !is Route.Guide)
-                                    backStack.add(Route.Guide)
-                            },
-                            onOpenThemes    = {
-                                if (backStack.lastOrNull() !is Route.ThemeList)
-                                    backStack.add(Route.ThemeList)
-                            },
-                            onOpenSettings  = {
-                                if (backStack.lastOrNull() !is Route.Settings)
-                                    backStack.add(Route.Settings)
-                            },
-                            onOpenSheets    = {
-                                if (backStack.lastOrNull() !is Route.Sheets)
-                                    backStack.add(Route.Sheets())
-                            },
-                            onOpenExportStudio = { format ->
-                                if (backStack.lastOrNull() !is Route.ExportStudio) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        CompositionLocalProvider(LocalEditorViewModel provides editorVm) {
+                            MainEditorScreen(
+                                editorVm        = editorVm,
+                                bookVm          = bookVm,
+                                noteListVm      = noteListVm,
+                                shortcutsVm     = shortcutsVm,
+                                initialNoteId   = key.noteId,
+                                isScreenActive  = isEditorActive,
+                                sessionKey      = key,
+                                onBack          = {
+                                    activeEditorVm?.clearSessionScroll(key.noteId)
+                                    restorationCoordinator.invalidateSession(key)
+                                    editorVm.saveAndLeave {
+                                        backStack.removeLastOrNull()
+                                    }
+                                },
+                                onOpenHistory   = { targetNoteId ->
+                                    editorVm.flushPendingContent()
+                                    restorationCoordinator.onAuxiliaryOverlayVisibilityChanged(key, isCovered = true)
+                                    if (auxiliaryBackStack.lastOrNull() !is Route.History)
+                                        auxiliaryBackStack.add(Route.History(targetNoteId))
+                                },
+                                onOpenShortcuts = {
+                                    restorationCoordinator.onAuxiliaryOverlayVisibilityChanged(key, isCovered = true)
+                                    if (auxiliaryBackStack.lastOrNull() !is Route.Shortcuts)
+                                        auxiliaryBackStack.add(Route.Shortcuts)
+                                },
+                                onOpenGuide     = {
+                                    restorationCoordinator.onAuxiliaryOverlayVisibilityChanged(key, isCovered = true)
+                                    if (auxiliaryBackStack.lastOrNull() !is Route.Guide)
+                                        auxiliaryBackStack.add(Route.Guide)
+                                },
+                                onOpenThemes    = {
+                                    restorationCoordinator.onAuxiliaryOverlayVisibilityChanged(key, isCovered = true)
+                                    if (auxiliaryBackStack.lastOrNull() !is Route.ThemeList)
+                                        auxiliaryBackStack.add(Route.ThemeList)
+                                },
+                                onOpenSettings  = {
+                                    restorationCoordinator.onAuxiliaryOverlayVisibilityChanged(key, isCovered = true)
+                                    if (auxiliaryBackStack.lastOrNull() !is Route.Settings)
+                                        auxiliaryBackStack.add(Route.Settings)
+                                },
+                                onOpenSheets    = {
+                                    restorationCoordinator.onAuxiliaryOverlayVisibilityChanged(key, isCovered = true)
+                                    if (auxiliaryBackStack.lastOrNull() !is Route.Sheets)
+                                        auxiliaryBackStack.add(Route.Sheets())
+                                },
+                                onOpenExportStudio = { format ->
                                     val currentNote = editorVm.activeNote.value
-                                    backStack.add(
-                                        Route.ExportStudio(
-                                            bookId = key.bookId,
-                                            noteId = currentNote?.id ?: key.noteId,
-                                            initialFormat = format
+                                    restorationCoordinator.onAuxiliaryOverlayVisibilityChanged(key, isCovered = true)
+                                    if (auxiliaryBackStack.lastOrNull() !is Route.ExportStudio) {
+                                        auxiliaryBackStack.add(
+                                            Route.ExportStudio(
+                                                bookId = key.bookId,
+                                                noteId = currentNote?.id ?: key.noteId,
+                                                initialFormat = format
+                                            )
                                         )
-                                    )
+                                    }
                                 }
+                            )
+                        }
+
+                        EditorAuxiliaryOverlayHost(
+                            auxiliaryBackStack = auxiliaryBackStack,
+                            editorVm           = editorVm,
+                            shortcutsVm        = shortcutsVm,
+                            defaultBookId      = key.bookId,
+                            defaultNoteId      = key.noteId,
+                            onDismissOverlay   = {
+                                restorationCoordinator.onAuxiliaryOverlayVisibilityChanged(key, isCovered = false)
                             }
                         )
                     }

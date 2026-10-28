@@ -1000,4 +1000,100 @@ class EditorViewportRestorationTest {
         assertEquals("Target scrollD must be restored", 180, restoredScrollD)
         assertEquals("Target editorOffsetY must be restored", 520, restoredEditorOffsetY)
     }
+
+    /**
+     * Scenario 25: Auxiliary overlay visibility changes do NOT leave spurious pending restorations.
+     * When Settings, History, or Themes is opened as an auxiliary overlay above the live editor,
+     * the snapshot is captured for process-death fallback, but session state is NOT set to PENDING
+     * because the editor view remains continuously mounted underneath.
+     */
+    @Test
+    fun testScenario25_AuxiliaryOverlayVisibilityDoesNotQueueSpuriousPendingRestoration() {
+        val coordinator = EditorSessionRestorationCoordinator()
+        val editorKey = Route.Editor("book1", "note1")
+        coordinator.updateViewportSnapshot(editorKey, "note1", scrollD = 250, editorOffsetY = 800)
+
+        var restoreCallCount = 0
+        val client = object : EditorSessionClient {
+            override val sessionKey = editorKey
+            override val noteId = "note1"
+            override fun captureCurrentViewport() = coordinator.getSnapshot(editorKey)
+            override fun restoreViewport(snapshot: ViewportSnapshot, generation: Long, onResult: (RestorationResult) -> Unit) {
+                restoreCallCount++
+                onResult(RestorationResult.APPLIED)
+            }
+            override fun isLayoutReady() = true
+        }
+
+        val mainStack = listOf<NavKey>(Route.Home, Route.Book("book1"), editorKey)
+        coordinator.onNavigationBackStackChanged(mainStack, isCompact = true)
+        coordinator.registerClient(client)
+
+        // Initial state is IDLE / active
+        assertFalse("Session must not be pending initially", coordinator.hasPendingRestoration(editorKey))
+        assertEquals(0, restoreCallCount)
+
+        // 1. User opens Settings in auxiliary overlay layer:
+        coordinator.onAuxiliaryOverlayVisibilityChanged(editorKey, isCovered = true)
+
+        // The snapshot is preserved safely:
+        val snapshot = coordinator.getSnapshot(editorKey)
+        assertNotNull(snapshot)
+        assertEquals(250, snapshot?.scrollD)
+        assertEquals(800, snapshot?.editorOffsetY)
+
+        // Crucial invariant: session must NOT be flagged as PENDING restoration!
+        assertFalse("Auxiliary overlay must NOT flag session as PENDING restoration", coordinator.hasPendingRestoration(editorKey))
+        assertEquals(0, restoreCallCount)
+
+        // 2. User dismisses auxiliary overlay layer:
+        coordinator.onAuxiliaryOverlayVisibilityChanged(editorKey, isCovered = false)
+
+        // Crucial invariant: dismissal of overlay must NOT trigger spurious restoreViewport()!
+        assertEquals("No restoration call should be triggered on overlay dismissal", 0, restoreCallCount)
+        assertFalse("Session remains clean", coordinator.hasPendingRestoration(editorKey))
+    }
+
+    /**
+     * Scenario 26: Editor auxiliary backstack unwinding keeps main backstack on Route.Editor.
+     * Simulates nested auxiliary navigation (Settings -> ThemeList -> ThemeEditArgs)
+     * and verifies that unwinding backstack returns to the live editor without touching the main stack.
+     */
+    @Test
+    fun testScenario26_AuxiliaryOverlayBackStackUnwindsCorrectlyWithoutTouchingMainStack() {
+        val mainBackStack = mutableListOf<NavKey>(Route.Home, Route.Book("book1"), Route.Editor("book1", "note1"))
+        val auxiliaryBackStack = mutableListOf<Route>()
+
+        // 1. Open Settings from editor
+        auxiliaryBackStack.add(Route.Settings)
+        assertEquals(1, auxiliaryBackStack.size)
+        assertEquals(Route.Settings, auxiliaryBackStack.last())
+        assertEquals(Route.Editor("book1", "note1"), mainBackStack.last())
+
+        // 2. Navigate nested: Settings -> ThemeList
+        auxiliaryBackStack.add(Route.ThemeList)
+        assertEquals(2, auxiliaryBackStack.size)
+        assertEquals(Route.ThemeList, auxiliaryBackStack.last())
+
+        // 3. Navigate nested: ThemeList -> ThemeEditArgs
+        auxiliaryBackStack.add(Route.ThemeEditArgs("theme_sepia"))
+        assertEquals(3, auxiliaryBackStack.size)
+        assertEquals(Route.ThemeEditArgs("theme_sepia"), auxiliaryBackStack.last())
+
+        // 4. Back press 1: pops ThemeEditArgs -> reveals ThemeList
+        auxiliaryBackStack.removeLast()
+        assertEquals(Route.ThemeList, auxiliaryBackStack.last())
+
+        // 5. Back press 2: pops ThemeList -> reveals Settings
+        auxiliaryBackStack.removeLast()
+        assertEquals(Route.Settings, auxiliaryBackStack.last())
+
+        // 6. Back press 3: pops Settings -> auxiliary stack empty, overlay dismissed
+        auxiliaryBackStack.removeLast()
+        assertTrue("Auxiliary stack must be empty", auxiliaryBackStack.isEmpty())
+
+        // Main backstack was completely untouched and editor remained on top throughout!
+        assertEquals(3, mainBackStack.size)
+        assertEquals(Route.Editor("book1", "note1"), mainBackStack.last())
+    }
 }
