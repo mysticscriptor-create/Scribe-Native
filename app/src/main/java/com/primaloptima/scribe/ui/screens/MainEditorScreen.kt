@@ -367,6 +367,10 @@ fun MainEditorScreen(
     val primaryFocusRequester = remember { FocusRequester() }
     val secondaryFocusRequester = remember { FocusRequester() }
     var lastActiveTarget by remember(activeNote?.id) { mutableStateOf(EditingTarget.NONE) }
+    val updateEditingTarget: (EditingTarget) -> Unit = { target ->
+        lastActiveTarget = target
+        unifiedCanvasRef?.activeEditingTarget = target
+    }
 
     // ── Local UI state ────────────────────────────────────────────────────────
     var rightPanelTab   by remember { mutableIntStateOf(0) }
@@ -630,9 +634,11 @@ fun MainEditorScreen(
             } else if (editorVm.hasSessionScroll(noteId)) {
                 restoreSessionScroll()
             }
-            (soraEditorRef as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.showCursorSilently() ?: run {
-                soraEditorRef?.requestFocus()
-                try { soraEditorRef?.hideSoftInput() } catch (_: Throwable) {}
+            if (lastActiveTarget == EditingTarget.EDITOR_BODY || lastActiveTarget == EditingTarget.NONE) {
+                (soraEditorRef as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.showCursorSilently() ?: run {
+                    soraEditorRef?.requestFocus()
+                    try { soraEditorRef?.hideSoftInput() } catch (_: Throwable) {}
+                }
             }
             keyboardController?.hide()
         }
@@ -654,34 +660,39 @@ fun MainEditorScreen(
                 if (coordinator == null && editorVm.hasSessionScroll(noteId)) {
                     restoreSessionScroll()
                 }
-                // Ensure editor cursor is silently aligned with the saved cursor state
-                val canvas = unifiedCanvasRef
-                canvas?.suppressCursorVisibilityScroll = true
-                val savedCursor = latestCursorState ?: editorVm.getCursorStateInMemory(noteId)
-                if (savedCursor != null && editor != null) {
-                    if (savedCursor.target == com.primaloptima.scribe.util.model.EditingTarget.EDITOR_BODY || savedCursor.target == com.primaloptima.scribe.util.model.EditingTarget.NONE) {
-                        val lineCount = editor.text.lineCount.coerceAtLeast(1)
-                        val startL = savedCursor.bodyStartLine.coerceIn(0, lineCount - 1)
-                        val startCMax = editor.text.getColumnCount(startL)
-                        val startC = savedCursor.bodyStartCol.coerceIn(0, startCMax)
-                        val isRegion = (savedCursor.bodyStartLine != savedCursor.bodyEndLine || savedCursor.bodyStartCol != savedCursor.bodyEndCol)
-                        if (isRegion) {
-                            val endL = savedCursor.bodyEndLine.coerceIn(0, lineCount - 1)
-                            val endCMax = editor.text.getColumnCount(endL)
-                            val endC = savedCursor.bodyEndCol.coerceIn(0, endCMax)
-                            editor.setSelectionRegion(startL, startC, endL, endC, false)
-                        } else {
-                            editor.setSelection(startL, startC, false)
+                // Under EditorAuxiliaryOverlayHost, the live editor view remained mounted and alive.
+                // Do NOT touch editor.setSelection or call showCursorSilently/requestFocus, which
+                // would clobber active text selections, shift focus away from titles, and cause spurious scrolling.
+                val isMountedUnderOverlay = editor != null && editor.isAttachedToWindow
+                if (!isMountedUnderOverlay) {
+                    val canvas = unifiedCanvasRef
+                    canvas?.suppressCursorVisibilityScroll = true
+                    val savedCursor = latestCursorState ?: editorVm.getCursorStateInMemory(noteId)
+                    if (savedCursor != null && editor != null) {
+                        if (savedCursor.target == com.primaloptima.scribe.util.model.EditingTarget.EDITOR_BODY || savedCursor.target == com.primaloptima.scribe.util.model.EditingTarget.NONE) {
+                            val lineCount = editor.text.lineCount.coerceAtLeast(1)
+                            val startL = savedCursor.bodyStartLine.coerceIn(0, lineCount - 1)
+                            val startCMax = editor.text.getColumnCount(startL)
+                            val startC = savedCursor.bodyStartCol.coerceIn(0, startCMax)
+                            val isRegion = (savedCursor.bodyStartLine != savedCursor.bodyEndLine || savedCursor.bodyStartCol != savedCursor.bodyEndCol)
+                            if (isRegion) {
+                                val endL = savedCursor.bodyEndLine.coerceIn(0, lineCount - 1)
+                                val endCMax = editor.text.getColumnCount(endL)
+                                val endC = savedCursor.bodyEndCol.coerceIn(0, endCMax)
+                                editor.setSelectionRegion(startL, startC, endL, endC, false)
+                            } else {
+                                editor.setSelection(startL, startC, false)
+                            }
+                            (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.showCursorSilently() ?: run {
+                                editor.requestFocus()
+                                try { editor.hideSoftInput() } catch (_: Throwable) {}
+                            }
+                            keyboardController?.hide()
                         }
-                        (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.showCursorSilently() ?: run {
-                            editor.requestFocus()
-                            try { editor.hideSoftInput() } catch (_: Throwable) {}
-                        }
-                        keyboardController?.hide()
                     }
-                }
-                canvas?.post {
-                    canvas.suppressCursorVisibilityScroll = false
+                    canvas?.post {
+                        canvas.suppressCursorVisibilityScroll = false
+                    }
                 }
             }
         }
@@ -1008,7 +1019,7 @@ fun MainEditorScreen(
                     if (savedCursor != null) {
                         when (savedCursor.target) {
                             EditingTarget.PRIMARY_TITLE -> {
-                                lastActiveTarget = EditingTarget.PRIMARY_TITLE
+                                updateEditingTarget(EditingTarget.PRIMARY_TITLE)
                                 val pLen = primaryTitleValue.text.length
                                 val start = savedCursor.primarySelStart.coerceIn(0, pLen)
                                 val end = savedCursor.primarySelEnd.coerceIn(0, pLen)
@@ -1017,7 +1028,7 @@ fun MainEditorScreen(
                                 )
                             }
                             EditingTarget.SECONDARY_TITLE -> {
-                                lastActiveTarget = EditingTarget.SECONDARY_TITLE
+                                updateEditingTarget(EditingTarget.SECONDARY_TITLE)
                                 showSecondaryTitle = true
                                 val sLen = secondaryTitleValue.text.length
                                 val start = savedCursor.secondarySelStart.coerceIn(0, sLen)
@@ -1027,7 +1038,7 @@ fun MainEditorScreen(
                                 )
                             }
                             EditingTarget.EDITOR_BODY, EditingTarget.NONE -> {
-                                lastActiveTarget = savedCursor.target
+                                updateEditingTarget(savedCursor.target)
                                 val lineCount = editor.text.lineCount.coerceAtLeast(1)
                                 val startL = savedCursor.bodyStartLine.coerceIn(0, lineCount - 1)
                                 val startCMax = editor.text.getColumnCount(startL)
@@ -1053,7 +1064,7 @@ fun MainEditorScreen(
                 } else if (isRestoreEnabled && savedCursor != null) {
                     when (savedCursor.target) {
                         EditingTarget.PRIMARY_TITLE -> {
-                            lastActiveTarget = EditingTarget.PRIMARY_TITLE
+                            updateEditingTarget(EditingTarget.PRIMARY_TITLE)
                             unifiedCanvasRef?.restoreCanvasAndEditorScroll(0, 0)
                             val pLen = primaryTitleValue.text.length
                             val start = savedCursor.primarySelStart.coerceIn(0, pLen)
@@ -1064,7 +1075,7 @@ fun MainEditorScreen(
                             // Silent: Do NOT auto-focus or trigger keyboard
                         }
                         EditingTarget.SECONDARY_TITLE -> {
-                            lastActiveTarget = EditingTarget.SECONDARY_TITLE
+                            updateEditingTarget(EditingTarget.SECONDARY_TITLE)
                             showSecondaryTitle = true
                             unifiedCanvasRef?.restoreCanvasAndEditorScroll(0, 0)
                             val sLen = secondaryTitleValue.text.length
@@ -1076,7 +1087,7 @@ fun MainEditorScreen(
                             // Silent: Do NOT auto-focus or trigger keyboard
                         }
                         EditingTarget.EDITOR_BODY, EditingTarget.NONE -> {
-                            lastActiveTarget = savedCursor.target
+                            updateEditingTarget(savedCursor.target)
                             val lineCount = editor.text.lineCount.coerceAtLeast(1)
                             val startL = savedCursor.bodyStartLine.coerceIn(0, lineCount - 1)
                             val startCMax = editor.text.getColumnCount(startL)
@@ -1111,7 +1122,7 @@ fun MainEditorScreen(
                     }
                 } else {
                     unifiedCanvasRef?.resetScroll()
-                    lastActiveTarget = EditingTarget.NONE
+                    updateEditingTarget(EditingTarget.NONE)
                     try {
                         val initCol = if (note.content.isEmpty()) initialIndent else 0
                         editor.setSelection(0, initCol, false)
@@ -1543,6 +1554,7 @@ fun MainEditorScreen(
                                 horizontalPaddingDp = initialPadH
                                 setBackgroundColor(bgArgb)
                                 estimatedKeyboardHeightPx = curEstimatedKbPx
+                                this.activeEditingTarget = lastActiveTarget
                                 this.isKeyboardVisible = curIsKeyboardVisible
                                 this.isBottomSurfaceActive = curIsBottomSurfaceActive
                                 this.isKeyboardDismissing = isKeyboardDismissing
@@ -1712,12 +1724,12 @@ fun MainEditorScreen(
                                     }
                                     setOnFocusChangeListener { _, hasFocus ->
                                         if (hasFocus) {
-                                            lastActiveTarget = EditingTarget.EDITOR_BODY
+                                            updateEditingTarget(EditingTarget.EDITOR_BODY)
                                         }
                                     }
                                     subscribeEvent(SelectionChangeEvent::class.java) { _, _ ->
                                         if (editor.isFocused && activeSheetPage == null) {
-                                            lastActiveTarget = EditingTarget.EDITOR_BODY
+                                            updateEditingTarget(EditingTarget.EDITOR_BODY)
                                             latestCursorState = captureCurrentCursorState(editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)
                                         }
                                     }
@@ -1803,6 +1815,7 @@ fun MainEditorScreen(
                             layout.isKeyboardVisible = curIsKeyboardVisible
                             layout.isBottomSurfaceActive = curIsBottomSurfaceActive
                             layout.isKeyboardDismissing = isKeyboardDismissing
+                            layout.activeEditingTarget = lastActiveTarget
                             val editor = layout.editor
                             val scribeEditor = editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor
                             scribeEditor?.activeShortcuts = shortcuts
@@ -1998,7 +2011,7 @@ fun MainEditorScreen(
                                             primaryFocusRequester = primaryFocusRequester,
                                             secondaryFocusRequester = secondaryFocusRequester,
                                             onTargetFocused = { target ->
-                                                lastActiveTarget = target
+                                                updateEditingTarget(target)
                                             },
                                             onPrimaryTitleValueChange = { newVal ->
                                                 primaryTitleValue = newVal
@@ -2041,7 +2054,7 @@ fun MainEditorScreen(
                                                     ed.setSelection(0, 0)
                                                     unifiedCanvasRef?.resetScroll()
                                                     ed.requestFocus()
-                                                    lastActiveTarget = EditingTarget.EDITOR_BODY
+                                                    updateEditingTarget(EditingTarget.EDITOR_BODY)
                                                 }
                                             },
                                             onBackspaceEmptySecondary = {
@@ -2053,7 +2066,7 @@ fun MainEditorScreen(
                                                     ed.setSelection(0, 0)
                                                     unifiedCanvasRef?.resetScroll()
                                                     ed.requestFocus()
-                                                    lastActiveTarget = EditingTarget.EDITOR_BODY
+                                                    updateEditingTarget(EditingTarget.EDITOR_BODY)
                                                 }
                                             },
                                             isEditable = true

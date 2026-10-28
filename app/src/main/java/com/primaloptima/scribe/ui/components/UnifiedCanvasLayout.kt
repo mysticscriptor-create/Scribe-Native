@@ -18,6 +18,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsAnimationCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.widget.EdgeEffectCompat
+import com.primaloptima.scribe.util.model.EditingTarget
 import io.github.rosemoe.sora.widget.CodeEditor
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -249,6 +250,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     private var pendingRestorationRunnable: Runnable? = null
     var isRestoringViewport: Boolean = false
     var suppressCursorVisibilityScroll: Boolean = false
+
+    /**
+     * Active editing target in the document (PRIMARY_TITLE, SECONDARY_TITLE, or EDITOR_BODY).
+     * Synchronously updated from focus changes so viewport adjustments and IME resize
+     * do not scroll or chase inactive body cursor positions when editing titles.
+     */
+    var activeEditingTarget: EditingTarget = EditingTarget.NONE
 
     fun recordExpansionDisplacement(dy: Float, line: Int, col: Int = 0, isSelected: Boolean = false) {
         if (dy > 0f && isExpansionTransitionActive) {
@@ -893,6 +901,14 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         customDurationMs: Long = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS,
         force: Boolean = false
     ) {
+        if (activeEditingTarget == EditingTarget.PRIMARY_TITLE ||
+            activeEditingTarget == EditingTarget.SECONDARY_TITLE
+        ) {
+            return
+        }
+        val isBodyTargetActive = activeEditingTarget == EditingTarget.EDITOR_BODY ||
+            (activeEditingTarget == EditingTarget.NONE && editor.isFocused)
+        if (!isBodyTargetActive) return
         if ((!editor.isFocused && !isBottomSurfaceActive) || isKeyboardDismissing || suppressCursorVisibilityScroll || isRestoringViewport) return
         val now = System.currentTimeMillis()
         if (!force && now - lastEnsureCursorTime < 60L) return
@@ -1125,7 +1141,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     expansionCaretCol = curC.leftColumn
                     expansionHadSelection = curC.isSelected
                 }
-                if (editor.isFocused || isBottomSurfaceActive) {
+                val isBodyTargetActive = activeEditingTarget == EditingTarget.EDITOR_BODY ||
+                    (activeEditingTarget == EditingTarget.NONE && editor.isFocused)
+                if (isBodyTargetActive && (editor.isFocused || isBottomSurfaceActive)) {
                     val density = resources.displayMetrics.density
                     val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
                     val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
@@ -1298,6 +1316,16 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
         if (child === editor) {
+            if (activeEditingTarget == EditingTarget.PRIMARY_TITLE ||
+                activeEditingTarget == EditingTarget.SECONDARY_TITLE
+            ) {
+                return false
+            }
+            val isBodyTargetActive = activeEditingTarget == EditingTarget.EDITOR_BODY ||
+                (activeEditingTarget == EditingTarget.NONE && editor.isFocused)
+            if (!isBodyTargetActive) {
+                return false
+            }
             val screenTop = (headerHeight - scrollD) + rectangle.top
             val screenBottom = (headerHeight - scrollD) + rectangle.bottom
             val density = resources.displayMetrics.density

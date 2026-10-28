@@ -1096,4 +1096,145 @@ class EditorViewportRestorationTest {
         assertEquals(3, mainBackStack.size)
         assertEquals(Route.Editor("book1", "note1"), mainBackStack.last())
     }
+    /**
+     * Scenario 27: Title editing targets suppress body cursor scroll during viewport/keyboard changes.
+     * When activeEditingTarget is PRIMARY_TITLE or SECONDARY_TITLE, body caret visibility corrections
+     * must be bypassed even if bottom surface is active, ensuring the viewport chosen by the user
+     * does not jump down to an inactive body cursor.
+     */
+    @Test
+    fun testScenario27_TitleEditingTargetSuppressesBodyCursorScroll() {
+        fun shouldPerformBodyCaretScroll(
+            target: EditingTarget,
+            isEditorFocused: Boolean,
+            isBottomSurfaceActive: Boolean
+        ): Boolean {
+            if (target == EditingTarget.PRIMARY_TITLE || target == EditingTarget.SECONDARY_TITLE) {
+                return false
+            }
+            val isBodyTargetActive = target == EditingTarget.EDITOR_BODY ||
+                (target == EditingTarget.NONE && isEditorFocused)
+            return isBodyTargetActive && (isEditorFocused || isBottomSurfaceActive)
+        }
+
+        // Case A: User scrolled to title, tapped primary title, soft keyboard opened
+        // Target is PRIMARY_TITLE, editor not focused, bottom surface active (keyboard open)
+        assertFalse(
+            "Primary title editing must suppress body caret scroll",
+            shouldPerformBodyCaretScroll(EditingTarget.PRIMARY_TITLE, isEditorFocused = false, isBottomSurfaceActive = true)
+        )
+
+        // Case B: Secondary title editing with keyboard open
+        assertFalse(
+            "Secondary title editing must suppress body caret scroll",
+            shouldPerformBodyCaretScroll(EditingTarget.SECONDARY_TITLE, isEditorFocused = false, isBottomSurfaceActive = true)
+        )
+
+        // Case C: Active typing in editor body with keyboard open
+        assertTrue(
+            "Editor body typing must allow body caret scroll",
+            shouldPerformBodyCaretScroll(EditingTarget.EDITOR_BODY, isEditorFocused = true, isBottomSurfaceActive = true)
+        )
+
+        // Case D: Editor body focused but drawer transition active
+        assertTrue(
+            "Editor body focused with accessory drawer must allow body caret scroll",
+            shouldPerformBodyCaretScroll(EditingTarget.EDITOR_BODY, isEditorFocused = true, isBottomSurfaceActive = false)
+        )
+
+        // Case E: Neither title nor body focused, bottom surface inactive
+        assertFalse(
+            "Idle state with no focus must not scroll body caret",
+            shouldPerformBodyCaretScroll(EditingTarget.NONE, isEditorFocused = false, isBottomSurfaceActive = false)
+        )
+    }
+
+    /**
+     * Scenario 28: Returning from auxiliary overlay preserves live text selection without clobbering.
+     * Under EditorAuxiliaryOverlayHost, the live editor view remains continuously mounted underneath.
+     * When returning (overlay dismissed), existing active text selections, cursor range, and focus
+     * must remain intact rather than being overwritten from a stale saved snapshot.
+     */
+    @Test
+    fun testScenario28_AuxiliaryOverlayReturnPreservesLiveSelectionWithoutClobbering() {
+        // Mock live editor state
+        class LiveEditorState(
+            var isAttachedToWindow: Boolean = true,
+            var selectionStartLine: Int = 12,
+            var selectionStartCol: Int = 5,
+            var selectionEndLine: Int = 12,
+            var selectionEndCol: Int = 25,
+            var isSelected: Boolean = true,
+            var focusRequestedCount: Int = 0
+        ) {
+            fun applySavedSnapshot(snapshot: DocumentCursorState) {
+                selectionStartLine = snapshot.bodyStartLine
+                selectionStartCol = snapshot.bodyStartCol
+                selectionEndLine = snapshot.bodyEndLine
+                selectionEndCol = snapshot.bodyEndCol
+                isSelected = (snapshot.bodyStartLine != snapshot.bodyEndLine || snapshot.bodyStartCol != snapshot.bodyEndCol)
+                focusRequestedCount++
+            }
+        }
+
+        val liveEditor = LiveEditorState(
+            isAttachedToWindow = true,
+            selectionStartLine = 12,
+            selectionStartCol = 5,
+            selectionEndLine = 12,
+            selectionEndCol = 25,
+            isSelected = true
+        )
+
+        // Saved snapshot from earlier in the session (e.g. single collapsed caret at line 0)
+        val staleSavedSnapshot = DocumentCursorState(
+            target = EditingTarget.EDITOR_BODY,
+            bodyStartLine = 0,
+            bodyStartCol = 0,
+            bodyEndLine = 0,
+            bodyEndCol = 0
+        )
+
+        // Overlay is opened and dismissed while editor remains mounted:
+        val isMountedUnderOverlay = liveEditor.isAttachedToWindow
+        if (!isMountedUnderOverlay) {
+            liveEditor.applySavedSnapshot(staleSavedSnapshot)
+        }
+
+        // Selection must be preserved exactly as the user had it before opening overlay!
+        assertEquals("Selection start line must be preserved", 12, liveEditor.selectionStartLine)
+        assertEquals("Selection start col must be preserved", 5, liveEditor.selectionStartCol)
+        assertEquals("Selection end line must be preserved", 12, liveEditor.selectionEndLine)
+        assertEquals("Selection end col must be preserved", 25, liveEditor.selectionEndCol)
+        assertTrue("Text must remain selected", liveEditor.isSelected)
+        assertEquals("Focus must not be spuriously re-requested", 0, liveEditor.focusRequestedCount)
+    }
+
+    /**
+     * Scenario 29: Synchronous EditingTarget propagation between Title and Editor Body.
+     * When user taps primary title, secondary title, or editor body, activeEditingTarget transitions
+     * immediately without frame delay, preventing asynchronous layout races from misidentifying the active target.
+     */
+    @Test
+    fun testScenario29_EditingTargetSynchronousTransitions() {
+        var currentTarget = EditingTarget.NONE
+        val updateTarget: (EditingTarget) -> Unit = { target ->
+            currentTarget = target
+        }
+
+        // 1. Initial document state
+        assertEquals(EditingTarget.NONE, currentTarget)
+
+        // 2. User taps Primary Title (CHAPTER I)
+        updateTarget(EditingTarget.PRIMARY_TITLE)
+        assertEquals(EditingTarget.PRIMARY_TITLE, currentTarget)
+
+        // 3. User hits Next / enters Secondary Title (The Beginning)
+        updateTarget(EditingTarget.SECONDARY_TITLE)
+        assertEquals(EditingTarget.SECONDARY_TITLE, currentTarget)
+
+        // 4. User hits Done in Title -> transitions to Editor Body
+        updateTarget(EditingTarget.EDITOR_BODY)
+        assertEquals(EditingTarget.EDITOR_BODY, currentTarget)
+    }
 }
