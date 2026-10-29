@@ -279,6 +279,15 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             glideVelocity += accel * dtSec
             glidePosition += glideVelocity * dtSec
 
+            // Hard boundary invariant: tail-deletion glide must never cross the 24dp breathing margin
+            if (activeGlideReason == ScribeScrollPolicy.ScrollAnimationReason.DELETION_ANCHOR && isDeletionTailAnchored) {
+                val minSafeScroll = (headerHeight + (editor.layout?.layoutHeight ?: 0) + breathingMarginPx - height).coerceAtLeast(0f)
+                if (glidePosition < minSafeScroll) {
+                    glidePosition = minSafeScroll
+                    if (glideVelocity < 0f) glideVelocity = 0f
+                }
+            }
+
             scrollCoordinator.applyStep(glidePosition, opId)
 
             val distToTarget = kotlin.math.abs(glidePosition - glideTarget)
@@ -298,8 +307,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 activeGlideOnEnd = null
                 activeGlideReason = null
 
-                if (reason == ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION ||
-                    reason == ScribeScrollPolicy.ScrollAnimationReason.DELETION_ANCHOR) {
+                if (reason == ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION) {
                     revalidateFinalTargetSafety()
                 } else if (reason == ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION) {
                     rebaseCompensationAfterSafeCorrection()
@@ -384,6 +392,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     // ── Coordinated Deletion Viewport Transaction ─────────────────────────────
     private var activeDeletionSnapshot: ScribeScrollPolicy.DeletionSnapshot? = null
     private var deletionTransactionGeneration: Long = 0L
+    private var isDeletionTailAnchored: Boolean = false
 
     val isDeletionTransactionActive: Boolean
         get() = activeDeletionSnapshot != null
@@ -422,7 +431,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val docH = (headerHeight + (lay?.layoutHeight ?: 0)).toFloat()
         val visibleH = height.toFloat()
         val breathingMargin = breathingMarginPx
-        val wasAtTail = (currentScroll + visibleH) >= (docH - breathingMargin - 24f)
+        val wasAtTail = (currentScroll + visibleH) >= (docH - breathingMargin - 4f)
         val caretDocY = if (cur != null && lay != null) {
             getCharGeometry(lay, cur.leftLine, cur.leftColumn, editor.rowHeight.toFloat()).bottomDocY
         } else {
@@ -484,8 +493,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             maxCanvasScroll = maxBound
         )
 
+        isDeletionTailAnchored = (intent == ScribeScrollPolicy.DeletionAnchorIntent.TAIL_ANCHOR)
+
         if (intent == ScribeScrollPolicy.DeletionAnchorIntent.RESET_TO_TOP) {
             activeDeletionSnapshot = null
+            isDeletionTailAnchored = false
             resetDocumentToTop(smooth = smooth)
         } else if (kotlin.math.abs(target - currentScroll) >= 1f) {
             startAuthoritativeScrollAnimation(
@@ -496,11 +508,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 onEnd = {
                     if (deletionTransactionGeneration == currentGen) {
                         activeDeletionSnapshot = null
+                        isDeletionTailAnchored = false
                     }
                 }
             )
         } else {
             activeDeletionSnapshot = null
+            isDeletionTailAnchored = false
         }
     }
 
@@ -1056,6 +1070,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (activeEditingTarget == EditingTarget.PRIMARY_TITLE ||
             activeEditingTarget == EditingTarget.SECONDARY_TITLE
         ) {
+            return
+        }
+        val isKeyboardOrDrawerActive = isKeyboardVisible || (height <= resources.displayMetrics.heightPixels * 0.65f)
+        if (isKeyboardOrDrawerActive) {
+            ensureCursorVisibleAboveKeyboard(targetLine = targetLine, targetCol = targetCol, smooth = true)
             return
         }
         val density = resources.displayMetrics.density

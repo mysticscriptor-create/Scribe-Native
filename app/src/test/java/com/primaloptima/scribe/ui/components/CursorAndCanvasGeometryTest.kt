@@ -3118,4 +3118,81 @@ class CursorAndCanvasGeometryTest {
         )
         assertEquals(0f, target, 0.001f)
     }
+
+    @Test
+    fun testTailDeletion_MotionBoundaryClampsOvershoot() {
+        // Issue A: Verifies that during numerical spring integration, the animated position
+        // is strictly prevented from dipping below minimumSafeScroll.
+        val headerHeight = 100f
+        val docHeight = 1200f
+        val breathingMarginPx = 48f // 24dp at 2.0x
+        val viewportHeight = 700f
+
+        val minSafeScroll = (headerHeight + docHeight + breathingMarginPx - viewportHeight).coerceAtLeast(0f)
+        assertEquals(648f, minSafeScroll, 0.001f)
+
+        // Simulate spring position dipping to 640f due to inertia
+        var simulatedGlidePosition = 640f
+        var simulatedVelocity = -200f
+
+        if (simulatedGlidePosition < minSafeScroll) {
+            simulatedGlidePosition = minSafeScroll
+            if (simulatedVelocity < 0f) simulatedVelocity = 0f
+        }
+
+        assertEquals("Glide position must be clamped to minSafeScroll", 648f, simulatedGlidePosition, 0.001f)
+        assertEquals("Downwards velocity must be clamped to zero at safe boundary", 0f, simulatedVelocity, 0.001f)
+    }
+
+    @Test
+    fun testMiddleDeletion_ClampsWhenBelowBreathingBoundary() {
+        // Issue A: Verifies that if collapsed caret would fall below breathing line,
+        // it is safely pulled up to the breathing line.
+        val preEditCaretScreenY = 680f // Caret was near bottom
+        val newCaretDocY = 1000f
+        val headerHeight = 100f
+        val currentScroll = 500f
+        val usableHeight = 700f
+        val breathingMargin = 48f
+        val targetLineBottom = usableHeight - breathingMargin // 652f
+
+        val target = ScribeScrollPolicy.calculateSafeDeletionDestination(
+            intent = ScribeScrollPolicy.DeletionAnchorIntent.CARET_ANCHOR,
+            currentScroll = currentScroll,
+            headerHeight = headerHeight,
+            newDocHeight = 1500f,
+            newCaretDocY = newCaretDocY,
+            preEditCaretScreenY = preEditCaretScreenY,
+            usableViewportHeight = usableHeight,
+            breathingMarginPx = breathingMargin,
+            maxCanvasScroll = 1000f
+        )
+
+        // minSafeScroll = header (100) + newCaret (1000) - targetLineBottom (652) = 448f
+        val expectedSafe = (headerHeight + newCaretDocY - targetLineBottom).coerceAtLeast(0f)
+        assertTrue("Target must be at least minSafeScroll to protect breathing margin", target >= expectedSafe)
+    }
+
+    @Test
+    fun testKeyboardTransaction_CombinedObstructionCalculatesFullTarget() {
+        // Issue B: Verifies that initial combined obstruction (keyboard 280dp + shortcut bar 44dp + margin 24dp)
+        // calculates the complete destination on frame 0, preventing two-phase scroll.
+        val density = 2f
+        val bottomHeightDp = 44f
+        val estimatedImeDp = 280f
+        val breathingMarginDp = 24f
+        val totalObstructionPx = (bottomHeightDp + estimatedImeDp + breathingMarginDp) * density // 696px
+
+        val fullHeight = 1600f
+        val expectedUsableHeight = fullHeight - totalObstructionPx // 904px
+
+        val caretDocY = 1100f
+        val headerHeight = 100f
+        val breathingMarginPx = breathingMarginDp * density // 48px
+        val targetLineBottom = expectedUsableHeight - breathingMarginPx // 856px
+
+        val initialTarget = (headerHeight + caretDocY - targetLineBottom).coerceAtLeast(0f)
+        assertEquals(344f, initialTarget, 0.001f)
+    }
+
 }

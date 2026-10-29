@@ -349,9 +349,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     } else {
                         val pCanvas = parent as? UnifiedCanvasLayout
                         pCanvas?.notifyContentDeletionStarted()
-                        post {
-                            pCanvas?.anchorCanvasAfterDeletion(smooth = true)
-                        }
+                        // Deletion settlement is safely deferred to LayoutStateChangeEvent once layout geometry is stable
                     }
                 }
             }
@@ -694,7 +692,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
             val currentScroll = (pCanvas.scrollD + offsetY).toFloat()
             val visibleH = pCanvas.height.toFloat()
             val breathingMargin = pCanvas.breathingMarginPx
-            val wasAtTail = (currentScroll + visibleH) >= (docH - breathingMargin - 24f)
+            val wasAtTail = (currentScroll + visibleH) >= (docH - breathingMargin - 4f)
             val affectsTail = endLine >= (lineCount - 1)
             val caretDocY = if (lay != null) {
                 pCanvas.getCharGeometry(lay, cur.leftLine, cur.leftColumn, rowHeight.toFloat()).bottomDocY
@@ -1462,9 +1460,14 @@ class ScribeCodeEditor @JvmOverloads constructor(
             val dt = System.currentTimeMillis() - touchDownTime
             val wasTap = !isTouchMoved && dt < 450L
             if (wasTap && !isPinchScaling && !isHandleDragging && !isInteractingWithImage) {
-                // Phase 1: Tap-Triggered Predictive Pre-Calculation Engine.
-                // Pre-calculate target Y and smoothly glide immediately at t = 0ms!
-                parentCanvas?.predictivelyGlideCursorAboveKeyboard()
+                val pCanvas = parentCanvas
+                if (pCanvas != null && !pCanvas.isKeyboardVisible && !pCanvas.isBottomSurfaceActive) {
+                    // Only start keyboard-appearance transaction when keyboard is appearing
+                    pCanvas.predictivelyGlideCursorAboveKeyboard()
+                } else {
+                    // Keyboard is already open: perform ordinary caret visibility scroll
+                    pCanvas?.ensureCursorVisibleAboveKeyboard(smooth = true)
+                }
             }
             if (isInteractingWithImage) {
                 post { isInteractingWithImage = false }

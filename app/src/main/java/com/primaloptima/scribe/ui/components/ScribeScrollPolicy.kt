@@ -425,9 +425,10 @@ object ScribeScrollPolicy {
         return when (intent) {
             DeletionAnchorIntent.RESET_TO_TOP -> 0f
             DeletionAnchorIntent.TAIL_ANCHOR -> {
-                // Hard 24dp breathing margin constraint above the shortcut bar / keyboard
-                val requiredScrollForMargin = (headerHeight + newDocHeight + breathingMarginPx - usableViewportHeight).coerceAtLeast(0f)
-                requiredScrollForMargin.coerceIn(0f, maxCanvasScroll)
+                // Hard 24dp breathing margin constraint above the shortcut bar / keyboard:
+                // lastLineBottom + breathingMarginPx <= usableBottom
+                val minimumSafeScroll = (headerHeight + newDocHeight + breathingMarginPx - usableViewportHeight).coerceAtLeast(0f)
+                minimumSafeScroll.coerceIn(0f, maxCanvasScroll)
             }
             DeletionAnchorIntent.CARET_ANCHOR -> {
                 val desiredTarget = (headerHeight + newCaretDocY - preEditCaretScreenY).coerceIn(0f, maxCanvasScroll)

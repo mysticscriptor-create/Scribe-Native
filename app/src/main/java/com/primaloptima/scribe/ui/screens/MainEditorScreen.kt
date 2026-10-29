@@ -1546,7 +1546,8 @@ fun MainEditorScreen(
                             lastAppliedThemeId = activeTheme?.id
 
                             val bottomHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight else compactHeightDp
-                            val curEstimatedKbPx = (bottomHeightDp.value + 36f) * density
+                            val estimatedImeDp = if (imeAboveNavDp.value > 100f) imeAboveNavDp.value else 280f
+                            val curEstimatedKbPx = (bottomHeightDp.value + estimatedImeDp + 24f) * density
                             val isDrawerOrTransitionActive = activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched
                             val curIsKeyboardVisible = isKeyboardVisible || isDrawerOrTransitionActive
                             val curIsBottomSurfaceActive = (isKeyboardVisible || isDrawerOrTransitionActive) && shortcuts.isNotEmpty()
@@ -1811,7 +1812,9 @@ fun MainEditorScreen(
                             }
                             val density = layout.context.resources.displayMetrics.density
                             val bottomHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight else compactHeightDp
-                            layout.estimatedKeyboardHeightPx = (bottomHeightDp.value + 36f) * density
+                            val estimatedImeDp = if (imeAboveNavDp.value > 100f) imeAboveNavDp.value else 280f
+                            val curEstimatedKbPx = (bottomHeightDp.value + estimatedImeDp + 24f) * density
+                            layout.estimatedKeyboardHeightPx = curEstimatedKbPx
                             val isDrawerOrTransitionActive = activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched
                             val curIsKeyboardVisible = isKeyboardVisible || isDrawerOrTransitionActive
                             val curIsBottomSurfaceActive = (isKeyboardVisible || isDrawerOrTransitionActive) && shortcuts.isNotEmpty()
