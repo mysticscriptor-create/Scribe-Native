@@ -1545,9 +1545,9 @@ fun MainEditorScreen(
                             lastAppliedBgArgb = bgArgb
                             lastAppliedThemeId = activeTheme?.id
 
-                            val bottomHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight else compactHeightDp
-                            val estimatedImeDp = if (imeAboveNavDp.value > 100f) imeAboveNavDp.value else 280f
-                            val curEstimatedKbPx = (bottomHeightDp.value + estimatedImeDp + 24f) * density
+                            val bottomSurfaceHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight.value else maxOf(compactHeightDp.value, imeAboveNavDp.value)
+                            val shortcutBarDp = if (shortcuts.isNotEmpty()) 36.dp.value else 0f
+                            val curEstimatedKbPx = (bottomSurfaceHeightDp + shortcutBarDp) * density
                             val isDrawerOrTransitionActive = activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched
                             val curIsKeyboardVisible = isKeyboardVisible || isDrawerOrTransitionActive
                             val curIsBottomSurfaceActive = (isKeyboardVisible || isDrawerOrTransitionActive) && shortcuts.isNotEmpty()
@@ -1811,9 +1811,9 @@ fun MainEditorScreen(
                                 }
                             }
                             val density = layout.context.resources.displayMetrics.density
-                            val bottomHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight else compactHeightDp
-                            val estimatedImeDp = if (imeAboveNavDp.value > 100f) imeAboveNavDp.value else 280f
-                            val curEstimatedKbPx = (bottomHeightDp.value + estimatedImeDp + 24f) * density
+                            val bottomSurfaceHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight.value else maxOf(compactHeightDp.value, imeAboveNavDp.value)
+                            val shortcutBarDp = if (shortcuts.isNotEmpty()) 36.dp.value else 0f
+                            val curEstimatedKbPx = (bottomSurfaceHeightDp + shortcutBarDp) * density
                             layout.estimatedKeyboardHeightPx = curEstimatedKbPx
                             val isDrawerOrTransitionActive = activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched
                             val curIsKeyboardVisible = isKeyboardVisible || isDrawerOrTransitionActive

@@ -692,7 +692,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
             val currentScroll = (pCanvas.scrollD + offsetY).toFloat()
             val visibleH = pCanvas.height.toFloat()
             val breathingMargin = pCanvas.breathingMarginPx
-            val wasAtTail = (currentScroll + visibleH) >= (docH - breathingMargin - 4f)
+            val tailTolerancePx = 2f * context.resources.displayMetrics.density
+            val wasAtTail = (currentScroll + visibleH) >= (docH - breathingMargin - tailTolerancePx)
             val affectsTail = endLine >= (lineCount - 1)
             val caretDocY = if (lay != null) {
                 pCanvas.getCharGeometry(lay, cur.leftLine, cur.leftColumn, rowHeight.toFloat()).bottomDocY
@@ -1257,6 +1258,14 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 post {
                     // Suppress any cursor-visibility scrolling originating from or completing during a pinch zoom transaction
                     if (capturedEpoch != zoomTransactionEpoch || wasAwaitingSettlement || isZoomActiveOrSettling) {
+                        return@post
+                    }
+                    if (isLayoutBusy || isLayoutBusyState) {
+                        return@post
+                    }
+                    val curLay = layout
+                    // Ensure Sora layout line count has caught up with document text line count before settling deletion
+                    if (curLay != null && curLay.lineCount < text.lineCount) {
                         return@post
                     }
                     checkAndTriggerReady()

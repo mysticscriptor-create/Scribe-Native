@@ -66,6 +66,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     var isKeyboardDismissing: Boolean = false
+        set(value) {
+            field = value
+            if (value) {
+                endKeyboardTransaction()
+            }
+        }
 
     var horizontalPaddingDp: Float = 28f
         set(value) {
@@ -377,16 +383,23 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     // ── Coordinated Keyboard Viewport Transaction ───────────────────────────
-    private var isKeyboardTransactionActive = false
+    private var activeKeyboardTransaction: ScribeScrollPolicy.KeyboardTransaction? = null
     private var keyboardTransactionId = 0L
 
-    fun beginKeyboardTransaction() {
+    val isKeyboardTransactionActive: Boolean
+        get() = activeKeyboardTransaction?.isActive == true
+
+    fun beginKeyboardTransaction(): Long {
         keyboardTransactionId++
-        isKeyboardTransactionActive = true
+        activeKeyboardTransaction = ScribeScrollPolicy.KeyboardTransaction(
+            transactionId = keyboardTransactionId,
+            isActive = true
+        )
+        return keyboardTransactionId
     }
 
     fun endKeyboardTransaction() {
-        isKeyboardTransactionActive = false
+        activeKeyboardTransaction = null
     }
 
     // ── Coordinated Deletion Viewport Transaction ─────────────────────────────
@@ -431,7 +444,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val docH = (headerHeight + (lay?.layoutHeight ?: 0)).toFloat()
         val visibleH = height.toFloat()
         val breathingMargin = breathingMarginPx
-        val wasAtTail = (currentScroll + visibleH) >= (docH - breathingMargin - 4f)
+        val tailTolerancePx = 2f * resources.displayMetrics.density
+        val wasAtTail = (currentScroll + visibleH) >= (docH - breathingMargin - tailTolerancePx)
         val caretDocY = if (cur != null && lay != null) {
             getCharGeometry(lay, cur.leftLine, cur.leftColumn, editor.rowHeight.toFloat()).bottomDocY
         } else {
@@ -1407,26 +1421,47 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                             val targetLineBottom = (h - marginPx).toFloat()
 
                             val isCurrentlySafe = screenBottom <= (targetLineBottom + deadbandPx)
+                            val wasTransactionActive = isKeyboardTransactionActive
                             if (!isKeyboardTransactionActive) {
                                 beginKeyboardTransaction()
                             }
-                            val desiredTarget = (headerHeight + caretDocBottom - targetLineBottom).coerceAtLeast(0f)
-                                .coerceIn(0f, maxCanvasScroll.toFloat())
+                            val desiredTarget = activeKeyboardTransaction?.calculateRetargetedDestination(
+                                caretDocBottom = caretDocBottom,
+                                headerHeight = headerHeight.toFloat(),
+                                usableViewportHeight = h.toFloat(),
+                                breathingMarginPx = marginPx.toFloat(),
+                                maxCanvasScroll = maxCanvasScroll.toFloat()
+                            ) ?: ((headerHeight + caretDocBottom - targetLineBottom).coerceAtLeast(0f)
+                                .coerceIn(0f, maxCanvasScroll.toFloat()))
 
                             if (isGlideRunning && scrollCoordinator.isAnimationActive) {
+                                val currentGen = keyboardTransactionId
                                 startAuthoritativeScrollAnimation(
                                     targetTotalScroll = desiredTarget,
                                     reason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE,
-                                    forceRetarget = true
+                                    forceRetarget = true,
+                                    onEnd = {
+                                        if (keyboardTransactionId == currentGen) {
+                                            endKeyboardTransaction()
+                                        }
+                                    }
                                 )
-                            } else if (!isCurrentlySafe) {
+                            } else if (!isCurrentlySafe || wasTransactionActive) {
                                 val currentScroll = (scrollD + editor.offsetY).toFloat()
                                 if (kotlin.math.abs(desiredTarget - currentScroll) >= 1f) {
+                                    val currentGen = keyboardTransactionId
                                     startAuthoritativeScrollAnimation(
                                         targetTotalScroll = desiredTarget,
                                         reason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE,
-                                        durationMs = ScribeScrollPolicy.DURATION_PREDICTIVE_GLIDE_MS
+                                        durationMs = ScribeScrollPolicy.DURATION_PREDICTIVE_GLIDE_MS,
+                                        onEnd = {
+                                            if (keyboardTransactionId == currentGen) {
+                                                endKeyboardTransaction()
+                                            }
+                                        }
                                     )
+                                } else {
+                                    endKeyboardTransaction()
                                 }
                             }
                         }

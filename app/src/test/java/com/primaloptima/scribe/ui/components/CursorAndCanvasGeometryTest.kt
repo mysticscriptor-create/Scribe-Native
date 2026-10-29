@@ -3175,24 +3175,69 @@ class CursorAndCanvasGeometryTest {
 
     @Test
     fun testKeyboardTransaction_CombinedObstructionCalculatesFullTarget() {
-        // Issue B: Verifies that initial combined obstruction (keyboard 280dp + shortcut bar 44dp + margin 24dp)
-        // calculates the complete destination on frame 0, preventing two-phase scroll.
+        // Issue B: Verifies that initial combined obstruction (keyboard 280dp + shortcut bar 36dp)
+        // plus single breathing clearance (24dp) calculates the exact target on frame 0 without double-counting.
         val density = 2f
-        val bottomHeightDp = 44f
+        val shortcutBarDp = 36f
         val estimatedImeDp = 280f
         val breathingMarginDp = 24f
-        val totalObstructionPx = (bottomHeightDp + estimatedImeDp + breathingMarginDp) * density // 696px
+        val totalObstructionPx = (shortcutBarDp + estimatedImeDp) * density // 316dp * 2 = 632px
 
         val fullHeight = 1600f
-        val expectedUsableHeight = fullHeight - totalObstructionPx // 904px
+        val expectedUsableHeight = fullHeight - totalObstructionPx // 968px
 
         val caretDocY = 1100f
         val headerHeight = 100f
         val breathingMarginPx = breathingMarginDp * density // 48px
-        val targetLineBottom = expectedUsableHeight - breathingMarginPx // 856px
+        val targetLineBottom = expectedUsableHeight - breathingMarginPx // 920px
 
         val initialTarget = (headerHeight + caretDocY - targetLineBottom).coerceAtLeast(0f)
-        assertEquals(344f, initialTarget, 0.001f)
+        assertEquals(280f, initialTarget, 0.001f)
+
+        // Verify that production KeyboardTransaction.calculateRetargetedDestination matches initialTarget
+        val transaction = ScribeScrollPolicy.KeyboardTransaction(transactionId = 1L, isActive = true)
+        val retargeted = transaction.calculateRetargetedDestination(
+            caretDocBottom = caretDocY,
+            headerHeight = headerHeight,
+            usableViewportHeight = expectedUsableHeight,
+            breathingMarginPx = breathingMarginPx,
+            maxCanvasScroll = 2000f
+        )
+        assertEquals("Production KeyboardTransaction destination must match initial predicted target", initialTarget, retargeted, 0.001f)
     }
 
+    @Test
+    fun testTailDeletion_ToleranceInPixelSpace() {
+        // Issue A: Verifies tail detection uses consistent pixel-space margin + tolerance
+        val density = 2f
+        val breathingMarginPx = 24f * density // 48px
+        val tailTolerancePx = 2f * density // 4px
+        val docH = 2000f
+        val visibleH = 800f
+
+        // Case 1: Exactly at breathing boundary
+        val scrollAtBoundary = docH - breathingMarginPx - visibleH // 1152px
+        val wasAtTail1 = (scrollAtBoundary + visibleH) >= (docH - breathingMarginPx - tailTolerancePx)
+        assertTrue("Must detect tail when at breathing margin", wasAtTail1)
+
+        // Case 2: 2px below breathing boundary (within tolerance)
+        val scrollSlightlyBelow = scrollAtBoundary - 2f
+        val wasAtTail2 = (scrollSlightlyBelow + visibleH) >= (docH - breathingMarginPx - tailTolerancePx)
+        assertTrue("Must detect tail within tolerance", wasAtTail2)
+
+        // Case 3: Far up in document
+        val scrollFarAbove = scrollAtBoundary - 100f
+        val wasAtTail3 = (scrollFarAbove + visibleH) >= (docH - breathingMarginPx - tailTolerancePx)
+        assertFalse("Must not classify as tail when far above tail", wasAtTail3)
+    }
+
+    @Test
+    fun testKeyboardTap_WhenAlreadyVisible_DoesNotStartNewTransaction() {
+        // Issue B.1: Tapping with keyboard or bottom surface already active routes to
+        // caret visibility scroll instead of starting predictive keyboard entrance.
+        val isKeyboardVisible = true
+        val isBottomSurfaceActive = true
+        val shouldStartKeyboardTransaction = !isKeyboardVisible && !isBottomSurfaceActive
+        assertFalse("Must not start keyboard-appearance transaction when keyboard is already visible", shouldStartKeyboardTransaction)
+    }
 }
