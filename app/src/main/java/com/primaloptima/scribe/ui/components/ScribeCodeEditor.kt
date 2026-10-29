@@ -1247,6 +1247,13 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     private var lastMoveX = 0f
     private var lastMoveY = 0f
+
+    private fun dispatchSyntheticMoveToSora(moveEv: MotionEvent) {
+        try {
+            super.onTouchEvent(moveEv)
+        } catch (_: Throwable) {}
+    }
+
     private var handleAutoScrollVelocity: Float = 0f
     private val handleAutoScrollRunnable = object : Runnable {
         override fun run() {
@@ -1258,8 +1265,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 val now = android.os.SystemClock.uptimeMillis()
                 val moveEv = MotionEvent.obtain(touchDownTime, now, MotionEvent.ACTION_MOVE, lastMoveX, lastMoveY, 0)
                 try {
-                    super.onTouchEvent(moveEv)
-                } catch (_: Throwable) {
+                    dispatchSyntheticMoveToSora(moveEv)
                 } finally {
                     moveEv.recycle()
                 }
