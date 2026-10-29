@@ -98,6 +98,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 pCanvas == null
             }
             if (!isHeaderFullyHidden) {
+                if (pCanvas != null && (isHandleDragging || pCanvas.isAnyHandleActive) && pCanvas.maxCanvasScroll > 0) {
+                    return pCanvas.maxCanvasScroll
+                }
                 return 0
             }
 
@@ -126,6 +129,30 @@ class ScribeCodeEditor @JvmOverloads constructor(
             )
         } catch (_: Throwable) {
             super.getScrollMaxY()
+        }
+    }
+
+    override fun canScrollVertically(direction: Int): Boolean {
+        val pCanvas = parent as? UnifiedCanvasLayout
+        if (pCanvas != null) {
+            if (direction > 0) {
+                return (pCanvas.scrollD + offsetY) < pCanvas.maxCanvasScroll
+            } else if (direction < 0) {
+                return (pCanvas.scrollD > 0 || offsetY > 0)
+            }
+        }
+        return super.canScrollVertically(direction)
+    }
+
+    override fun scrollBy(x: Int, y: Int) {
+        val pCanvas = parent as? UnifiedCanvasLayout
+        if (pCanvas != null && (pCanvas.scrollD < pCanvas.headerHeight || (y < 0 && pCanvas.scrollD > 0 && offsetY <= 0))) {
+            pCanvas.scrollCanvasBy(y.toFloat())
+            if (x != 0) {
+                super.scrollBy(x, 0)
+            }
+        } else {
+            super.scrollBy(x, y)
         }
     }
 
@@ -198,6 +225,10 @@ class ScribeCodeEditor @JvmOverloads constructor(
         try {
             subscribeEvent(HandleStateChangeEvent::class.java) { event, _ ->
                 isHandleDragging = event.isHeld
+                if (!event.isHeld) {
+                    handleAutoScrollVelocity = 0f
+                    removeCallbacks(handleAutoScrollRunnable)
+                }
             }
         } catch (_: Throwable) { }
         try {
@@ -1217,6 +1248,25 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     var onPinchScaleEndListener: ((finalSizeSp: Int) -> Unit)? = null
 
+    private var handleAutoScrollVelocity: Float = 0f
+    private val handleAutoScrollRunnable = object : Runnable {
+        override fun run() {
+            val pCanvas = parent as? UnifiedCanvasLayout
+            if (pCanvas != null && isHandleDragging && handleAutoScrollVelocity != 0f) {
+                pCanvas.scrollCanvasBy(handleAutoScrollVelocity)
+                if (handleAutoScrollVelocity > 0f && (pCanvas.scrollD + offsetY) < pCanvas.maxCanvasScroll) {
+                    postOnAnimation(this)
+                } else if (handleAutoScrollVelocity < 0f && (pCanvas.scrollD > 0 || offsetY > 0)) {
+                    postOnAnimation(this)
+                } else {
+                    handleAutoScrollVelocity = 0f
+                }
+            } else {
+                handleAutoScrollVelocity = 0f
+            }
+        }
+    }
+
     private var touchDownX = 0f
     private var touchDownY = 0f
     private var touchDownTime = 0L
@@ -1245,8 +1295,34 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 if (dx > slop || dy > slop) {
                     isTouchMoved = true
                 }
+                if (parentCanvas != null && isHandleDragging && parentCanvas.scrollD < parentCanvas.headerHeight) {
+                    val headerOffset = (parentCanvas.headerHeight - parentCanvas.scrollD).coerceAtLeast(0)
+                    val visibleBottom = height - headerOffset
+                    val hotZone = 40f * density
+                    val y = event.y
+                    val newVelocity = when {
+                        y > visibleBottom - hotZone -> {
+                            val ratio = ((y - (visibleBottom - hotZone)) / hotZone).coerceIn(0.1f, 2.0f)
+                            (ratio * 14f * density)
+                        }
+                        y < hotZone && (parentCanvas.scrollD > 0 || offsetY > 0) -> {
+                            val ratio = ((hotZone - y) / hotZone).coerceIn(0.1f, 2.0f)
+                            -(ratio * 14f * density)
+                        }
+                        else -> 0f
+                    }
+                    if (newVelocity != handleAutoScrollVelocity) {
+                        val wasRunning = handleAutoScrollVelocity != 0f
+                        handleAutoScrollVelocity = newVelocity
+                        if (newVelocity != 0f && !wasRunning) {
+                            postOnAnimation(handleAutoScrollRunnable)
+                        }
+                    }
+                }
             }
             MotionEvent.ACTION_UP -> {
+                handleAutoScrollVelocity = 0f
+                removeCallbacks(handleAutoScrollRunnable)
                 val cur = try { cursor } catch (_: Throwable) { null }
                 if (cur?.isSelected != true) {
                     isHandleDragging = false
@@ -1258,6 +1334,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 }
             }
             MotionEvent.ACTION_CANCEL -> {
+                handleAutoScrollVelocity = 0f
+                removeCallbacks(handleAutoScrollRunnable)
                 val cur = try { cursor } catch (_: Throwable) { null }
                 if (cur?.isSelected != true) {
                     isHandleDragging = false

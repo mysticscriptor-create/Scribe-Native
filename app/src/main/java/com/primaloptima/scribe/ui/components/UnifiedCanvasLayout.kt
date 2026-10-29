@@ -176,8 +176,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     private var isDraggingCanvas = false
     private var isTouchOnHandleActive = false
 
+    private var isMultiTouchLatched = false
+
     val isAnyHandleActive: Boolean
         get() = editor.isHandleDragging || isTouchOnHandleActive
+
+    val isMultiTouchActive: Boolean
+        get() = isMultiTouchLatched || editor.isPinchScaling
 
     private val topEdgeEffect: EdgeEffect? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         EdgeEffectCompat.create(context, null)
@@ -1350,7 +1355,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     override fun requestDisallowInterceptTouchEvent(disallowIntercept: Boolean) {
-        if (isAnyHandleActive) {
+        if (isAnyHandleActive || isMultiTouchActive) {
             super.requestDisallowInterceptTouchEvent(disallowIntercept)
             return
         }
@@ -1457,6 +1462,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                isMultiTouchLatched = false
                 isUserTouching = true
                 onUserTouchDown?.invoke()
                 cancelCanvasAnimation()
@@ -1474,7 +1480,20 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 velocityTracker?.addMovement(ev)
             }
 
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                isMultiTouchLatched = true
+                if (isDraggingCanvas) {
+                    isDraggingCanvas = false
+                }
+            }
+
             MotionEvent.ACTION_MOVE -> {
+                if (ev.pointerCount > 1) {
+                    isMultiTouchLatched = true
+                    if (isDraggingCanvas) {
+                        isDraggingCanvas = false
+                    }
+                }
                 if (!isTouchOnHandleActive && editor.isHandleDragging) {
                     isTouchOnHandleActive = true
                 }
@@ -1482,12 +1501,14 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 lastTouchX = ev.x
                 lastTouchY = ev.y
 
-                if (isDraggingCanvas) {
+                if (isDraggingCanvas && !isMultiTouchActive) {
                     scrollCanvasBy(dy)
                     return true
                 }
             }
+
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                isMultiTouchLatched = false
                 isTouchOnHandleActive = false
                 isUserTouching = false
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null && !topEdgeEffect.isFinished) {
@@ -1520,11 +1541,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
-        if (isAnyHandleActive) return false
+        if (isAnyHandleActive || isMultiTouchActive || ev.pointerCount > 1) return false
         if (isDraggingCanvas) return true
 
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                isMultiTouchLatched = false
                 initialDownX = ev.x
                 initialDownY = ev.y
                 lastTouchX = ev.x
@@ -1538,8 +1560,14 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 return false
             }
 
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                isMultiTouchLatched = true
+                isDraggingCanvas = false
+                return false
+            }
+
             MotionEvent.ACTION_MOVE -> {
-                if (isAnyHandleActive) return false
+                if (isAnyHandleActive || isMultiTouchActive || ev.pointerCount > 1) return false
                 velocityTracker?.addMovement(ev)
                 val totalDx = ev.x - initialDownX
                 val totalDy = initialDownY - ev.y
@@ -1564,6 +1592,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 isDraggingCanvas = false
                 isTouchOnHandleActive = false
+                isMultiTouchLatched = false
             }
         }
         return isDraggingCanvas

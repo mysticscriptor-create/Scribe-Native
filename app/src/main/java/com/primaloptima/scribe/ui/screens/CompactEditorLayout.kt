@@ -358,6 +358,23 @@ fun CompactEditorLayout(
 
                 while (true) {
                     val event = awaitPointerEvent(pass = PointerEventPass.Initial)
+
+                    // Multi-touch disqualification: If more than 1 pointer is pressed at any point
+                    // (e.g. pinch-to-zoom or multi-finger gesture), strictly disqualify drawer navigation.
+                    val pressedCount = event.changes.count { it.pressed }
+                    if (pressedCount > 1) {
+                        if (isDragging) {
+                            isDragging = false
+                            runningAnimationJob?.cancel()
+                            runningAnimationJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                                currentOffset.animateTo(0f, closeSpringSpec)
+                                currentOffset.snapTo(0f)
+                                currentActiveSide = ActiveDrawerSide.NONE
+                            }
+                        }
+                        isDisallowed = true
+                    }
+
                     val pointerChange = event.changes.firstOrNull { it.id == down.id } ?: break
 
                     // 2a: Continuous position tracking without stationary zero-delta UP dampening
