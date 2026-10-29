@@ -347,8 +347,10 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     if (text.isEmpty()) {
                         (parent as? UnifiedCanvasLayout)?.resetDocumentToTop(smooth = true)
                     } else {
+                        val pCanvas = parent as? UnifiedCanvasLayout
+                        pCanvas?.notifyContentDeletionStarted()
                         post {
-                            (parent as? UnifiedCanvasLayout)?.anchorCanvasAfterDeletion(smooth = true)
+                            pCanvas?.anchorCanvasAfterDeletion(smooth = true)
                         }
                     }
                 }
@@ -1213,20 +1215,27 @@ class ScribeCodeEditor @JvmOverloads constructor(
             (parent as? UnifiedCanvasLayout)?.notifyViewportScrollChanged()
         }
 
-        // Listen for layout completion events from Sora Editor to trigger smooth fade-in and scroll clamping
+        // Listen for layout completion events from Sora Editor to trigger smooth fade-in, deletion settlement, and scroll clamping
         subscribeEvent(LayoutStateChangeEvent::class.java) { event, _ ->
             isLayoutBusyState = event.isLayoutBusy
             if (!event.isLayoutBusy) {
+                val capturedEpoch = zoomTransactionEpoch
                 post {
+                    // Suppress any cursor-visibility scrolling originating from or completing during a pinch zoom transaction
+                    if (capturedEpoch != zoomTransactionEpoch || isZoomActiveOrSettling) {
+                        return@post
+                    }
                     checkAndTriggerReady()
                     val pCanvas = parentCanvas
                     if (pCanvas != null) {
                         val totalScroll = pCanvas.scrollD + offsetY
                         val maxScroll = pCanvas.maxCanvasScroll
-                        if (totalScroll > maxScroll || text.isEmpty()) {
+                        if (pCanvas.isDeletionTransactionActive) {
+                            pCanvas.handleDeletionSettlement(smooth = true)
+                        } else if (totalScroll > maxScroll || text.isEmpty()) {
                             pCanvas.clampCanvasScrollToMax(smooth = true)
                         } else if (isFocused) {
-                            pCanvas.ensureCursorVisibleAboveKeyboard(smooth = true, force = true)
+                            pCanvas.ensureCursorVisibleAboveKeyboard(smooth = true, force = false)
                         }
                     }
                 }
@@ -1260,6 +1269,17 @@ class ScribeCodeEditor @JvmOverloads constructor(
             isInsideWordwrapLayoutCreation = false
         }
     }
+
+    // Zoom transaction epoch & layout settlement window to prevent cursor-following during/after pinch zoom
+    @Volatile
+    private var zoomTransactionEpoch: Long = 0L
+    @Volatile
+    private var zoomSettlingDeadline: Long = 0L
+    @Volatile
+    private var isZoomTransactionActive: Boolean = false
+
+    val isZoomActiveOrSettling: Boolean
+        get() = isPinchScaling || isZoomTransactionActive || (android.os.SystemClock.uptimeMillis() < zoomSettlingDeadline)
 
     val isPinchScaling: Boolean
         get() = eventHandler?.isScaling == true
@@ -1385,9 +1405,21 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val result = super.onTouchEvent(event)
         val isScalingNow = eventHandler?.isScaling == true
 
-        if (wasScaling && !isScalingNow) {
+        if (!wasScaling && isScalingNow) {
+            zoomTransactionEpoch++
+            isZoomTransactionActive = true
+        } else if (wasScaling && !isScalingNow) {
+            isZoomTransactionActive = false
+            zoomSettlingDeadline = android.os.SystemClock.uptimeMillis() + 300L
             val currentSp = (textSizePx / context.resources.displayMetrics.density).roundToInt().coerceIn(12, 36)
             onPinchScaleEndListener?.invoke(currentSp)
+        }
+
+        if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+            if (isZoomTransactionActive) {
+                isZoomTransactionActive = false
+                zoomSettlingDeadline = android.os.SystemClock.uptimeMillis() + 300L
+            }
         }
         if (event.actionMasked == MotionEvent.ACTION_UP) {
             val dt = System.currentTimeMillis() - touchDownTime
@@ -1546,6 +1578,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         clearKeyMetaStates()
+        isZoomTransactionActive = false
+        zoomSettlingDeadline = 0L
     }
 
     override fun selectAll() {

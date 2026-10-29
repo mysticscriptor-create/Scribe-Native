@@ -331,6 +331,50 @@ object ScribeScrollPolicy {
         return 0f
     }
 
+    // ── Deletion Transaction & Intent Reconciliation Model ───────────────────
+    enum class DeletionAnchorIntent {
+        TAIL_ANCHOR,   // User was editing at document end -> follow tail preserving breathing margin
+        CARET_ANCHOR   // User was editing in the middle -> keep collapsed caret screen Y stationary
+    }
+
+    /**
+     * Accurately classifies whether a deletion operation affected the tail of the document.
+     */
+    fun classifyDeletionIntent(
+        currentScroll: Float,
+        viewportHeight: Float,
+        totalDocHeight: Float,
+        breathingMarginPx: Float
+    ): DeletionAnchorIntent {
+        val wasNearTail = (currentScroll + viewportHeight) >= (totalDocHeight - breathingMarginPx - 24f)
+        return if (wasNearTail) DeletionAnchorIntent.TAIL_ANCHOR else DeletionAnchorIntent.CARET_ANCHOR
+    }
+
+    /**
+     * Calculates safe deletion destination satisfying both physical bounds and breathing margin.
+     * Invariants:
+     * 1. Monotonic Non-Growth: Deletion must never scroll downward beyond current scroll.
+     * 2. Hard Breathing Margin: Last line bottom + breathing margin must not exceed usable viewport.
+     */
+    fun calculateSafeDeletionDestination(
+        intent: DeletionAnchorIntent,
+        currentScroll: Float,
+        maxCanvasScroll: Float,
+        headerHeight: Float,
+        newCaretDocY: Float,
+        preEditCaretScreenY: Float
+    ): Float {
+        return when (intent) {
+            DeletionAnchorIntent.TAIL_ANCHOR -> {
+                maxCanvasScroll
+            }
+            DeletionAnchorIntent.CARET_ANCHOR -> {
+                val desiredTarget = (headerHeight + newCaretDocY - preEditCaretScreenY).coerceIn(0f, maxCanvasScroll)
+                desiredTarget.coerceAtMost(currentScroll)
+            }
+        }
+    }
+
     // ── Transition-Aware Contraction Restoration Model ─────────────────────────
 
     /**

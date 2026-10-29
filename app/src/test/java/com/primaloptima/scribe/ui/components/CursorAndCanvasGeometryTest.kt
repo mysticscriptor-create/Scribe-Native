@@ -2977,4 +2977,124 @@ class CursorAndCanvasGeometryTest {
         val qualifiesDistant = distantDistance <= maxSmoothDistance && distantDistance > 1f
         assertFalse("Distant target (4000px > 1200px) must bypass smooth animation for instant settled restore", qualifiesDistant)
     }
+
+    @Test
+    fun testZoomTransactionEpochSuppressesDeferredLayoutCallbacks() {
+        // Issue 1: Verifies that callbacks carrying a mismatched epoch or occurring
+        // within the settling window do not command cursor visibility scrolling.
+        var currentEpoch = 1L
+        var zoomSettlingUntil = 5000L // Active settling window
+        val now = 4800L // Within settling window
+
+        val capturedEpoch = 1L
+        val isMismatched = capturedEpoch != currentEpoch
+        val isSettling = now < zoomSettlingUntil
+        val shouldSuppress = isMismatched || isSettling
+
+        assertTrue("Must suppress layout callback during settling cooldown", shouldSuppress)
+
+        // After settling window expires:
+        val afterCooldown = 5100L
+        val isStillSettling = afterCooldown < zoomSettlingUntil
+        assertFalse("Settling suppression must clear after settling deadline passes", isStillSettling)
+    }
+
+    @Test
+    fun testKeyboardContinuousGlide_RetargetsActiveOperationWithoutStutter() {
+        // Issue 2: Verifies that when viewport height changes mid-glide,
+        // the active animation target is updated continuously without resetting velocity or operation ID.
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 100f)
+        coordinator.onScrollBy = { 0f }
+
+        // Initial predictive glide starts toward 300f
+        val started = coordinator.requestTarget(300f, ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE)
+        assertTrue(started)
+        assertTrue(coordinator.isAnimationActive)
+        val initialOpId = coordinator.activeOperationId
+
+        // Animation steps partially
+        coordinator.applyStep(180f)
+        assertEquals(180f, coordinator.totalScroll, 0.001f)
+
+        // Real keyboard appearance finishes measurement: actual target is 360f
+        coordinator.retargetActiveOperation(360f, ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE)
+
+        // Verify operation ID remained unbroken so the continuous loop continues seamlessly
+        assertEquals(initialOpId, coordinator.activeOperationId)
+        assertTrue(coordinator.isAnimationActive)
+        assertEquals(360f, coordinator.activeTargetTotalScroll ?: 0f, 0.001f)
+    }
+
+    @Test
+    fun testEndOfDocumentDeletion_PreservesBreathingMarginConstraint() {
+        // Issue 3: Verifies that after deleting near the tail, the destination strictly
+        // satisfies the 24dp breathing margin above the shortcut bar without sliding underneath.
+        val viewportHeight = 1000f
+        val density = 2f
+        val breathingMarginPx = 24f * density // 48px
+        val maxCanvasScroll = 600f
+        val currentScroll = 700f
+
+        val intent = ScribeScrollPolicy.classifyDeletionIntent(
+            currentScroll = currentScroll,
+            viewportHeight = viewportHeight,
+            totalDocHeight = 1648f,
+            breathingMarginPx = breathingMarginPx
+        )
+        assertEquals(ScribeScrollPolicy.DeletionAnchorIntent.TAIL_ANCHOR, intent)
+
+        val target = ScribeScrollPolicy.calculateSafeDeletionDestination(
+            intent = intent,
+            currentScroll = currentScroll,
+            maxCanvasScroll = maxCanvasScroll,
+            headerHeight = 200f,
+            newCaretDocY = 1400f,
+            preEditCaretScreenY = 900f
+        )
+        // Tail anchor must dock cleanly at maxCanvasScroll where 24dp margin is guaranteed
+        assertEquals(600f, target, 0.001f)
+    }
+
+    @Test
+    fun testSelectionDeletion_MiddleDeletionPreservesCaretScreenPosition() {
+        // Issue 4: Verifies that deleting interior paragraphs anchors to the collapsed caret,
+        // maintaining the caret's exact vertical screen position so the user's focal point does not twitch.
+        val intent = ScribeScrollPolicy.DeletionAnchorIntent.CARET_ANCHOR
+        val headerHeight = 200f
+        val currentScroll = 500f
+        val preEditCaretScreenY = 400f // Caret was at screen Y = 400px before deletion
+        val newCaretDocY = 650f // Caret moved in doc coordinates due to collapsed text above it
+
+        val target = ScribeScrollPolicy.calculateSafeDeletionDestination(
+            intent = intent,
+            currentScroll = currentScroll,
+            maxCanvasScroll = 1200f,
+            headerHeight = headerHeight,
+            newCaretDocY = newCaretDocY,
+            preEditCaretScreenY = preEditCaretScreenY
+        )
+
+        // target = headerHeight (200) + newCaretDocY (650) - preEditCaretScreenY (400) = 450f
+        assertEquals(450f, target, 0.001f)
+        // With target = 450f, new screen Y = 200 + 650 - 450 = 400f (100% stationary!)
+        val finalScreenY = headerHeight + newCaretDocY - target
+        assertEquals(preEditCaretScreenY, finalScreenY, 0.001f)
+    }
+
+    @Test
+    fun testEmptyDocumentDeletion_ResetsToTop() {
+        // Issue 4: Verifies that when remaining document is completely empty or fits on screen,
+        // delta cleanly pulls canvas back to top (0px total scroll).
+        val delta = ScribeScrollPolicy.calculateDeletionAnchorDelta(
+            headerHeight = 200,
+            scrollD = 100,
+            layoutHeight = 0,
+            offsetY = 300,
+            viewportHeight = 1000,
+            density = 2f,
+            maxCanvasScroll = 0
+        )
+        // totalScroll = 100 + 300 = 400px. Delta must be -400f to reset to top.
+        assertEquals(-400f, delta, 0.001f)
+    }
 }

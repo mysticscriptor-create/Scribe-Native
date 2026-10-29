@@ -182,7 +182,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         get() = editor.isHandleDragging || isTouchOnHandleActive
 
     val isMultiTouchActive: Boolean
-        get() = isMultiTouchLatched || editor.isPinchScaling
+        get() = isMultiTouchLatched || (editor as? ScribeCodeEditor)?.isZoomActiveOrSettling == true || editor.isPinchScaling
 
     private val topEdgeEffect: EdgeEffect? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         EdgeEffectCompat.create(context, null)
@@ -298,7 +298,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 activeGlideOnEnd = null
                 activeGlideReason = null
 
-                if (reason == ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION) {
+                if (reason == ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION ||
+                    reason == ScribeScrollPolicy.ScrollAnimationReason.DELETION_ANCHOR) {
                     revalidateFinalTargetSafety()
                 } else if (reason == ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION) {
                     rebaseCompensationAfterSafeCorrection()
@@ -367,14 +368,92 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
     }
 
-    fun notifyLastLineDeletionStarted() {
-        isLastLineDeletionActive = true
-        resetDeletionActiveRunnable?.let { removeCallbacks(it) }
-        val r = Runnable {
-            isLastLineDeletionActive = false
+    data class DeletionContext(
+        val wasAtTail: Boolean,
+        val preEditCaretScreenY: Float,
+        val preEditScrollY: Float,
+        val preEditDocHeight: Float,
+        val timestamp: Long = System.currentTimeMillis()
+    )
+    private var pendingDeletionContext: DeletionContext? = null
+
+    val isDeletionTransactionActive: Boolean
+        get() = pendingDeletionContext != null && (System.currentTimeMillis() - (pendingDeletionContext?.timestamp ?: 0L) < 600L)
+
+    fun notifyContentDeletionStarted() {
+        val cur = try { editor.cursor } catch (_: Throwable) { null }
+        val lay = try { editor.layout } catch (_: Throwable) { null }
+        val currentScroll = (scrollD + editor.offsetY).toFloat()
+        val docH = (headerHeight + (lay?.layoutHeight ?: 0)).toFloat()
+        val visibleH = height.toFloat()
+        val breathingMargin = breathingMarginPx
+        val wasAtTail = (currentScroll + visibleH) >= (docH - breathingMargin - 24f)
+        val caretDocY = if (cur != null && lay != null) {
+            getCharGeometry(lay, cur.leftLine, cur.leftColumn, editor.rowHeight.toFloat()).bottomDocY
+        } else {
+            0f
         }
-        resetDeletionActiveRunnable = r
-        postDelayed(r, 220L)
+        val caretScreenY = (headerHeight + caretDocY - currentScroll)
+        pendingDeletionContext = DeletionContext(
+            wasAtTail = wasAtTail,
+            preEditCaretScreenY = caretScreenY,
+            preEditScrollY = currentScroll,
+            preEditDocHeight = docH
+        )
+    }
+
+    fun notifyLastLineDeletionStarted() {
+        notifyContentDeletionStarted()
+    }
+
+    fun handleDeletionSettlement(smooth: Boolean = true) {
+        val context = pendingDeletionContext
+        pendingDeletionContext = null
+
+        val currentScroll = (scrollD + editor.offsetY).toFloat()
+        val maxBound = maxCanvasScroll.toFloat()
+        val totalDocHeight = headerHeight + (editor.layout?.layoutHeight ?: 0)
+
+        if (editor.text.isEmpty() || totalDocHeight <= height) {
+            resetDocumentToTop(smooth = smooth)
+            return
+        }
+
+        if (context != null && context.wasAtTail) {
+            // Issue 4 Policy B & Issue 3: Tail follow — dock smoothly to new document tail
+            // preserving hard 24dp breathing margin constraint above the shortcut bar.
+            val target = maxBound
+            if (kotlin.math.abs(target - currentScroll) >= 1f) {
+                startAuthoritativeScrollAnimation(
+                    targetTotalScroll = target,
+                    reason = ScribeScrollPolicy.ScrollAnimationReason.DELETION_ANCHOR,
+                    durationMs = ScribeScrollPolicy.DURATION_DELETION_ANCHOR_MS
+                )
+            }
+        } else if (context != null) {
+            // Issue 4 Policy A: Middle deletion — preserve collapsed caret on-screen position wherever possible
+            val cur = try { editor.cursor } catch (_: Throwable) { null }
+            val lay = try { editor.layout } catch (_: Throwable) { null }
+            if (cur != null && lay != null) {
+                val newCaretDocY = getCharGeometry(lay, cur.leftLine, cur.leftColumn, editor.rowHeight.toFloat()).bottomDocY
+                val desiredTarget = (headerHeight + newCaretDocY - context.preEditCaretScreenY).coerceIn(0f, maxBound)
+                // Invariant: text deletion must never scroll downward beyond current scroll!
+                val safeTarget = desiredTarget.coerceAtMost(currentScroll)
+                if (kotlin.math.abs(safeTarget - currentScroll) >= 1f) {
+                    startAuthoritativeScrollAnimation(
+                        targetTotalScroll = safeTarget,
+                        reason = ScribeScrollPolicy.ScrollAnimationReason.DELETION_ANCHOR,
+                        durationMs = ScribeScrollPolicy.DURATION_DELETION_ANCHOR_MS
+                    )
+                }
+            } else if (currentScroll > maxBound) {
+                clampCanvasScrollToMax(smooth = smooth)
+            }
+        } else {
+            if (currentScroll > maxBound) {
+                clampCanvasScrollToMax(smooth = smooth)
+            }
+        }
     }
 
     companion object {
@@ -646,6 +725,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * 2. The title and header are restored to the top if the remaining document fits in view.
      */
     fun anchorCanvasAfterDeletion(smooth: Boolean = true) {
+        if (isDeletionTransactionActive) {
+            handleDeletionSettlement(smooth = smooth)
+            return
+        }
         val deltaY = ScribeScrollPolicy.calculateDeletionAnchorDelta(
             headerHeight = headerHeight,
             scrollD = scrollD,
@@ -1255,14 +1338,21 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                             val targetLineBottom = (h - marginPx).toFloat()
 
                             val isCurrentlySafe = screenBottom <= (targetLineBottom + deadbandPx)
-                            // If current position is not safe in the newly measured viewport,
-                            // immediately trigger an authoritative caret visibility correction.
-                            if (!isCurrentlySafe) {
+                            // If predictive glide is already running toward the target, dynamically retarget
+                            // the active glide with the newly measured exact viewport height in-flight without restarting.
+                            if (isPredictiveGlideRunning && isGlideRunning) {
+                                val desiredTarget = (headerHeight + caretDocBottom - targetLineBottom).coerceAtLeast(0f)
+                                startAuthoritativeScrollAnimation(
+                                    targetTotalScroll = desiredTarget,
+                                    reason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE,
+                                    forceRetarget = true
+                                )
+                            } else if (!isCurrentlySafe) {
                                 post {
                                     ensureCursorVisibleAboveKeyboard(
                                         smooth = true,
                                         customDurationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS,
-                                        force = true
+                                        force = false
                                     )
                                 }
                             }
@@ -1412,18 +1502,39 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
             val targetLineBottom = visibleHeight - marginPx
             if (screenBottom > (targetLineBottom + deadbandPx)) {
+                if (isDeletionTransactionActive) {
+                    return true
+                }
                 val delta = (screenBottom - targetLineBottom).toFloat()
-                val beforeScroll = (scrollD + editor.offsetY).toFloat()
-                scrollCanvasBy(delta)
-                val afterScroll = (scrollD + editor.offsetY).toFloat()
-                val actualMoved = afterScroll - beforeScroll
-                if (isExpansionTransitionActive && actualMoved > 0f) {
-                    temporaryExpansionDisplacement += actualMoved
+                val currentScroll = (scrollD + editor.offsetY).toFloat()
+                val desiredTarget = currentScroll + delta
+                if (isGlideRunning && scrollCoordinator.isAnimationActive) {
+                    startAuthoritativeScrollAnimation(
+                        targetTotalScroll = desiredTarget,
+                        reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+                        durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
+                    )
+                } else {
+                    smoothScrollCanvasBy(
+                        dy = delta,
+                        reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+                        durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
+                    )
                 }
                 return true
             } else if (screenTop < -deadbandPx && (scrollD > 0 || editor.offsetY > 0) && (isKeyboardVisible || isBottomSurfaceActive || isUserTouching)) {
                 val delta = screenTop.toFloat()
-                scrollCanvasBy(delta)
+                val currentScroll = (scrollD + editor.offsetY).toFloat()
+                val desiredTarget = (currentScroll + delta).coerceAtLeast(0f)
+                if (isGlideRunning && scrollCoordinator.isAnimationActive) {
+                    startAuthoritativeScrollAnimation(
+                        targetTotalScroll = desiredTarget,
+                        reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+                        durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
+                    )
+                } else {
+                    scrollCanvasBy(delta)
+                }
                 return true
             }
         }
