@@ -1482,17 +1482,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
             MotionEvent.ACTION_POINTER_DOWN -> {
                 isMultiTouchLatched = true
-                if (isDraggingCanvas) {
-                    isDraggingCanvas = false
-                }
             }
 
             MotionEvent.ACTION_MOVE -> {
                 if (ev.pointerCount > 1) {
                     isMultiTouchLatched = true
-                    if (isDraggingCanvas) {
-                        isDraggingCanvas = false
-                    }
                 }
                 if (!isTouchOnHandleActive && editor.isHandleDragging) {
                     isTouchOnHandleActive = true
@@ -1501,7 +1495,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 lastTouchX = ev.x
                 lastTouchY = ev.y
 
-                if (isDraggingCanvas && !isMultiTouchActive) {
+                if (isDraggingCanvas) {
                     scrollCanvasBy(dy)
                     return true
                 }

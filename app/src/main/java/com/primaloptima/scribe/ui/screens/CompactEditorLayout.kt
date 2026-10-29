@@ -355,6 +355,16 @@ fun CompactEditorLayout(
                     startOffset < -10f -> ActiveDrawerSide.RIGHT_PANEL
                     else -> ActiveDrawerSide.NONE
                 }
+                val preGestureStableTarget = when {
+                    startOffset > drawerWidthPx * 0.5f -> drawerWidthPx
+                    startOffset < -panelWidthPx * 0.5f -> -panelWidthPx
+                    else -> 0f
+                }
+                val preGestureStableSide = when {
+                    startOffset > drawerWidthPx * 0.5f -> ActiveDrawerSide.LEFT_DRAWER
+                    startOffset < -panelWidthPx * 0.5f -> ActiveDrawerSide.RIGHT_PANEL
+                    else -> ActiveDrawerSide.NONE
+                }
 
                 while (true) {
                     val event = awaitPointerEvent(pass = PointerEventPass.Initial)
@@ -367,12 +377,20 @@ fun CompactEditorLayout(
                             isDragging = false
                             runningAnimationJob?.cancel()
                             runningAnimationJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
-                                currentOffset.animateTo(0f, closeSpringSpec)
-                                currentOffset.snapTo(0f)
-                                currentActiveSide = ActiveDrawerSide.NONE
+                                currentOffset.animateTo(preGestureStableTarget, closeSpringSpec)
+                                currentOffset.snapTo(preGestureStableTarget)
+                                currentActiveSide = preGestureStableSide
                             }
                         }
                         isDisallowed = true
+                        // Drain all subsequent pointer events until every finger is lifted,
+                        // so releasing the first finger of a pinch cannot trigger a single-finger drawer drag.
+                        var anyPressed = event.changes.any { it.pressed }
+                        while (anyPressed) {
+                            val nextEvent = awaitPointerEvent(pass = PointerEventPass.Initial)
+                            anyPressed = nextEvent.changes.any { it.pressed }
+                        }
+                        break
                     }
 
                     val pointerChange = event.changes.firstOrNull { it.id == down.id } ?: break

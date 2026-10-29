@@ -98,9 +98,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 pCanvas == null
             }
             if (!isHeaderFullyHidden) {
-                if (pCanvas != null && (isHandleDragging || pCanvas.isAnyHandleActive) && pCanvas.maxCanvasScroll > 0) {
-                    return pCanvas.maxCanvasScroll
-                }
                 return 0
             }
 
@@ -1248,12 +1245,25 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     var onPinchScaleEndListener: ((finalSizeSp: Int) -> Unit)? = null
 
+    private var lastMoveX = 0f
+    private var lastMoveY = 0f
     private var handleAutoScrollVelocity: Float = 0f
     private val handleAutoScrollRunnable = object : Runnable {
         override fun run() {
             val pCanvas = parent as? UnifiedCanvasLayout
             if (pCanvas != null && isHandleDragging && handleAutoScrollVelocity != 0f) {
                 pCanvas.scrollCanvasBy(handleAutoScrollVelocity)
+                // Synthesize an ACTION_MOVE event at current finger coordinates so Sora
+                // updates its selection handle and extends selection as the document scrolls under the finger
+                val now = android.os.SystemClock.uptimeMillis()
+                val moveEv = MotionEvent.obtain(touchDownTime, now, MotionEvent.ACTION_MOVE, lastMoveX, lastMoveY, 0)
+                try {
+                    super.onTouchEvent(moveEv)
+                } catch (_: Throwable) {
+                } finally {
+                    moveEv.recycle()
+                }
+
                 if (handleAutoScrollVelocity > 0f && (pCanvas.scrollD + offsetY) < pCanvas.maxCanvasScroll) {
                     postOnAnimation(this)
                 } else if (handleAutoScrollVelocity < 0f && (pCanvas.scrollD > 0 || offsetY > 0)) {
@@ -1288,6 +1298,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 stopFling()
             }
             MotionEvent.ACTION_MOVE -> {
+                lastMoveX = event.x
+                lastMoveY = event.y
                 val dx = kotlin.math.abs(event.x - touchDownX)
                 val dy = kotlin.math.abs(event.y - touchDownY)
                 val density = context.resources.displayMetrics.density
