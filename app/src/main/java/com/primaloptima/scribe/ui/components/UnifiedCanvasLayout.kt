@@ -1089,7 +1089,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val headerRemaining = headerHeight - scrollD
         val screenBottom = headerRemaining + yOffset - editor.offsetY
 
-        val isKeyboardOrDrawerActive = isKeyboardVisible || (height <= resources.displayMetrics.heightPixels * 0.65f)
         val futureViewportHeight = if (isKeyboardOrDrawerActive) {
             height.toFloat()
         } else {
