@@ -687,8 +687,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (pCanvas != null && cur != null) {
             val lay = layout
             val isSel = cur.isSelected
-            val startLine = if (isSel) cur.leftLine else cur.line
-            val endLine = if (isSel) cur.rightLine else cur.line
+            val startLine = cur.leftLine
+            val endLine = if (isSel) cur.rightLine else cur.leftLine
             val lineCount = text.lineCount
             val docH = (pCanvas.headerHeight + (lay?.layoutHeight ?: 0)).toFloat()
             val currentScroll = (pCanvas.scrollD + offsetY).toFloat()
