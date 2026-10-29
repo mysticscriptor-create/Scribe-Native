@@ -331,46 +331,110 @@ object ScribeScrollPolicy {
         return 0f
     }
 
+    // ── Zoom & Multi-Touch Gesture Arbitration Policy ────────────────────────
+    data class ZoomTransaction(
+        val epoch: Long,
+        val isGestureActive: Boolean,
+        val isAwaitingLayoutSettlement: Boolean
+    ) {
+        fun shouldSuppressCursorVisibility(callbackEpoch: Long): Boolean {
+            return callbackEpoch != epoch || isGestureActive || isAwaitingLayoutSettlement
+        }
+
+        fun isMultiTouchActive(): Boolean {
+            // Strictly represents active physical touch, freeing single-touch as soon as fingers lift
+            return isGestureActive
+        }
+    }
+
+    // ── Keyboard Viewport Transaction Model ──────────────────────────────────
+    data class KeyboardTransaction(
+        val transactionId: Long,
+        val isActive: Boolean
+    ) {
+        fun calculateRetargetedDestination(
+            caretDocBottom: Float,
+            headerHeight: Float,
+            usableViewportHeight: Float,
+            breathingMarginPx: Float,
+            maxCanvasScroll: Float
+        ): Float {
+            val targetLineBottom = (usableViewportHeight - breathingMarginPx).coerceAtLeast(0f)
+            val desired = (headerHeight + caretDocBottom - targetLineBottom).coerceAtLeast(0f)
+            return desired.coerceIn(0f, maxCanvasScroll)
+        }
+    }
+
     // ── Deletion Transaction & Intent Reconciliation Model ───────────────────
+    data class DeletionSnapshot(
+        val transactionEpoch: Long,
+        val isSelection: Boolean,
+        val selectionStartLine: Int,
+        val selectionEndLine: Int,
+        val preEditDocLineCount: Int,
+        val preEditDocHeight: Float,
+        val preEditScrollY: Float,
+        val preEditCaretScreenY: Float,
+        val wasAtTail: Boolean,
+        val affectsDocumentTail: Boolean
+    )
+
     enum class DeletionAnchorIntent {
         TAIL_ANCHOR,   // User was editing at document end -> follow tail preserving breathing margin
-        CARET_ANCHOR   // User was editing in the middle -> keep collapsed caret screen Y stationary
+        CARET_ANCHOR,  // User was editing in the middle -> keep collapsed caret screen Y stationary
+        RESET_TO_TOP   // Document empty or fits entirely in view -> smoothly restore title and top
     }
 
     /**
-     * Accurately classifies whether a deletion operation affected the tail of the document.
+     * Issue 4: Accurately classifies deletion intent using verified pre-edit snapshot.
+     * Tail follow requires BOTH that the viewport was near the tail AND that the deletion affected the end.
      */
     fun classifyDeletionIntent(
-        currentScroll: Float,
-        viewportHeight: Float,
-        totalDocHeight: Float,
-        breathingMarginPx: Float
+        snapshot: DeletionSnapshot,
+        newDocLineCount: Int,
+        newDocHeight: Float,
+        usableViewportHeight: Float
     ): DeletionAnchorIntent {
-        val wasNearTail = (currentScroll + viewportHeight) >= (totalDocHeight - breathingMarginPx - 24f)
-        return if (wasNearTail) DeletionAnchorIntent.TAIL_ANCHOR else DeletionAnchorIntent.CARET_ANCHOR
+        if (newDocLineCount <= 0 || newDocHeight <= usableViewportHeight) {
+            return DeletionAnchorIntent.RESET_TO_TOP
+        }
+        if (snapshot.wasAtTail && snapshot.affectsDocumentTail) {
+            return DeletionAnchorIntent.TAIL_ANCHOR
+        }
+        return DeletionAnchorIntent.CARET_ANCHOR
     }
 
     /**
-     * Calculates safe deletion destination satisfying both physical bounds and breathing margin.
+     * Issue 3 & 4: Calculates safe deletion destination satisfying both physical bounds and breathing margin.
      * Invariants:
      * 1. Monotonic Non-Growth: Deletion must never scroll downward beyond current scroll.
      * 2. Hard Breathing Margin: Last line bottom + breathing margin must not exceed usable viewport.
+     * 3. Caret Screen Invariant: Middle deletions preserve exact collapsed caret screen Y.
      */
     fun calculateSafeDeletionDestination(
         intent: DeletionAnchorIntent,
         currentScroll: Float,
-        maxCanvasScroll: Float,
         headerHeight: Float,
+        newDocHeight: Float,
         newCaretDocY: Float,
-        preEditCaretScreenY: Float
+        preEditCaretScreenY: Float,
+        usableViewportHeight: Float,
+        breathingMarginPx: Float,
+        maxCanvasScroll: Float
     ): Float {
         return when (intent) {
+            DeletionAnchorIntent.RESET_TO_TOP -> 0f
             DeletionAnchorIntent.TAIL_ANCHOR -> {
-                maxCanvasScroll
+                // Hard 24dp breathing margin constraint above the shortcut bar / keyboard
+                val requiredScrollForMargin = (headerHeight + newDocHeight + breathingMarginPx - usableViewportHeight).coerceAtLeast(0f)
+                requiredScrollForMargin.coerceIn(0f, maxCanvasScroll)
             }
             DeletionAnchorIntent.CARET_ANCHOR -> {
                 val desiredTarget = (headerHeight + newCaretDocY - preEditCaretScreenY).coerceIn(0f, maxCanvasScroll)
-                desiredTarget.coerceAtMost(currentScroll)
+                val bounded = desiredTarget.coerceAtMost(currentScroll)
+                val targetLineBottom = (usableViewportHeight - breathingMarginPx).coerceAtLeast(0f)
+                val minSafeScroll = (headerHeight + newCaretDocY - targetLineBottom).coerceAtLeast(0f)
+                bounded.coerceAtLeast(minSafeScroll).coerceIn(0f, maxCanvasScroll)
             }
         }
     }

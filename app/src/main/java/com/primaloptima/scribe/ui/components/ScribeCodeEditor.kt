@@ -683,6 +683,38 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     override fun deleteText() {
         val cur = cursor
+        val pCanvas = parent as? UnifiedCanvasLayout
+        if (pCanvas != null && cur != null) {
+            val lay = layout
+            val isSel = cur.isSelected
+            val startLine = if (isSel) cur.leftLine else cur.line
+            val endLine = if (isSel) cur.rightLine else cur.line
+            val lineCount = text.lineCount
+            val docH = (pCanvas.headerHeight + (lay?.layoutHeight ?: 0)).toFloat()
+            val currentScroll = (pCanvas.scrollD + offsetY).toFloat()
+            val visibleH = pCanvas.height.toFloat()
+            val breathingMargin = pCanvas.breathingMarginPx
+            val wasAtTail = (currentScroll + visibleH) >= (docH - breathingMargin - 24f)
+            val affectsTail = endLine >= (lineCount - 1)
+            val caretDocY = if (lay != null) {
+                pCanvas.getCharGeometry(lay, cur.leftLine, cur.leftColumn, rowHeight.toFloat()).bottomDocY
+            } else {
+                ((cur.leftLine + 1) * rowHeight).toFloat()
+            }
+            val caretScreenY = (pCanvas.headerHeight + caretDocY - currentScroll)
+
+            pCanvas.beginPreEditDeletionSnapshot(
+                isSelection = isSel,
+                selectionStartLine = startLine,
+                selectionEndLine = endLine,
+                preEditDocLineCount = lineCount,
+                preEditDocHeight = docH,
+                preEditScrollY = currentScroll,
+                preEditCaretScreenY = caretScreenY,
+                wasAtTail = wasAtTail,
+                affectsDocumentTail = affectsTail
+            )
+        }
         if (cur.isSelected) {
             val wasAllSelected = (cur.leftLine == 0 && cur.leftColumn == 0 &&
                 cur.rightLine >= text.lineCount - 1 && cur.rightColumn >= text.getColumnCount(cur.rightLine))
@@ -1220,9 +1252,13 @@ class ScribeCodeEditor @JvmOverloads constructor(
             isLayoutBusyState = event.isLayoutBusy
             if (!event.isLayoutBusy) {
                 val capturedEpoch = zoomTransactionEpoch
+                val wasAwaitingSettlement = isZoomAwaitingSettlement
+                if (wasAwaitingSettlement && !isZoomGestureActive) {
+                    isZoomAwaitingSettlement = false
+                }
                 post {
                     // Suppress any cursor-visibility scrolling originating from or completing during a pinch zoom transaction
-                    if (capturedEpoch != zoomTransactionEpoch || isZoomActiveOrSettling) {
+                    if (capturedEpoch != zoomTransactionEpoch || wasAwaitingSettlement || isZoomActiveOrSettling) {
                         return@post
                     }
                     checkAndTriggerReady()
@@ -1274,12 +1310,15 @@ class ScribeCodeEditor @JvmOverloads constructor(
     @Volatile
     private var zoomTransactionEpoch: Long = 0L
     @Volatile
-    private var zoomSettlingDeadline: Long = 0L
+    private var isZoomGestureActive: Boolean = false
     @Volatile
-    private var isZoomTransactionActive: Boolean = false
+    private var isZoomAwaitingSettlement: Boolean = false
+
+    val isZoomGestureActiveOnly: Boolean
+        get() = isPinchScaling || isZoomGestureActive
 
     val isZoomActiveOrSettling: Boolean
-        get() = isPinchScaling || isZoomTransactionActive || (android.os.SystemClock.uptimeMillis() < zoomSettlingDeadline)
+        get() = isZoomGestureActiveOnly || isZoomAwaitingSettlement
 
     val isPinchScaling: Boolean
         get() = eventHandler?.isScaling == true
@@ -1407,19 +1446,17 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
         if (!wasScaling && isScalingNow) {
             zoomTransactionEpoch++
-            isZoomTransactionActive = true
+            isZoomGestureActive = true
+            isZoomAwaitingSettlement = true
         } else if (wasScaling && !isScalingNow) {
-            isZoomTransactionActive = false
-            zoomSettlingDeadline = android.os.SystemClock.uptimeMillis() + 300L
+            isZoomGestureActive = false
+            // Multi-touch ends immediately on finger lift; layout settlement tracked via isZoomAwaitingSettlement
             val currentSp = (textSizePx / context.resources.displayMetrics.density).roundToInt().coerceIn(12, 36)
             onPinchScaleEndListener?.invoke(currentSp)
         }
 
         if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
-            if (isZoomTransactionActive) {
-                isZoomTransactionActive = false
-                zoomSettlingDeadline = android.os.SystemClock.uptimeMillis() + 300L
-            }
+            isZoomGestureActive = false
         }
         if (event.actionMasked == MotionEvent.ACTION_UP) {
             val dt = System.currentTimeMillis() - touchDownTime
@@ -1578,8 +1615,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         clearKeyMetaStates()
-        isZoomTransactionActive = false
-        zoomSettlingDeadline = 0L
+        isZoomGestureActive = false
+        isZoomAwaitingSettlement = false
     }
 
     override fun selectAll() {
