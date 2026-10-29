@@ -448,19 +448,44 @@ class ScribeCodeEditor @JvmOverloads constructor(
     var firstLineIndentSpaces: Int = 0
     var activeShortcuts: List<ShortcutAction> = emptyList()
     private var isInternalPasting: Boolean = false
+    var isPasteTransactionActive: Boolean = false
+        private set
 
     override fun pasteText() {
+        isPasteTransactionActive = true
         super.pasteText()
+        doOnLayoutReady {
+            post {
+                isPasteTransactionActive = false
+                parentCanvas?.ensureCursorVisibleAboveKeyboard(
+                    smooth = true,
+                    customDurationMs = 380L,
+                    force = true
+                )
+            }
+        }
     }
 
     override fun pasteText(text: CharSequence?) {
         if (text == null) return
+        isPasteTransactionActive = true
         isInternalPasting = true
         try {
             val processed = if (firstLineIndentSpaces > 0) formatPastedText(text) else text
             super.pasteText(processed)
         } finally {
             postDelayed({ isInternalPasting = false }, 500)
+        }
+
+        doOnLayoutReady {
+            post {
+                isPasteTransactionActive = false
+                parentCanvas?.ensureCursorVisibleAboveKeyboard(
+                    smooth = true,
+                    customDurationMs = 380L,
+                    force = true
+                )
+            }
         }
     }
 
@@ -662,10 +687,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
             super.deleteText()
             if (wasAllSelected || text.isEmpty()) {
                 parentCanvas?.resetDocumentToTop(smooth = true)
-            } else {
-                post {
-                    parentCanvas?.anchorCanvasAfterDeletion(smooth = true)
-                }
             }
             return
         }

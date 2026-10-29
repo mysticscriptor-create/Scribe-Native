@@ -1108,7 +1108,7 @@ fun MainEditorScreen(
                             // Context A: Center cursor line vertically in the middle of the viewport/canvas
                             val canvas = unifiedCanvasRef
                             if (canvas != null) {
-                                canvas.centerCursorInViewport(startL, startC)
+                                canvas.centerCursorInViewport(startL, startC, smooth = true)
                             } else {
                                 editor.post {
                                     editor.ensurePositionVisible(startL, startC, true)

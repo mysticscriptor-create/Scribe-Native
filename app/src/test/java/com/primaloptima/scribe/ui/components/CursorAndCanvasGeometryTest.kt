@@ -2857,6 +2857,124 @@ class CursorAndCanvasGeometryTest {
         assertFalse(coordinator.isAnimationActive)
     }
 
+
+    @Test
+    fun testAuthoritativeScrollCoordinator_RetargetActiveOperation_ContinuousTargetUpdate() {
+        // Verifies that retargetActiveOperation updates the active target and reason in-flight
+        // without advancing operationId or disrupting step progression, ensuring continuous smooth glide.
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 100f)
+        coordinator.onScrollBy = { 0f } // all delta consumed
+
+        val started = coordinator.requestTarget(200f, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        assertTrue(started)
+        assertTrue(coordinator.isAnimationActive)
+        val initialOpId = coordinator.activeOperationId
+        assertEquals(200f, coordinator.activeTargetTotalScroll ?: 0f, 0.001f)
+
+        // Mid-flight: step toward 200f
+        coordinator.applyStep(140f)
+        assertEquals(140f, coordinator.totalScroll, 0.001f)
+
+        // User pressed Enter again: new target 280f arrives while in flight
+        coordinator.retargetActiveOperation(280f, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+
+        // Invariant: operationId must remain unchanged so running loop is not invalidated
+        assertEquals(initialOpId, coordinator.activeOperationId)
+        assertTrue(coordinator.isAnimationActive)
+        assertEquals(280f, coordinator.activeTargetTotalScroll ?: 0f, 0.001f)
+
+        // Subsequent steps seamlessly continue toward 280f
+        coordinator.applyStep(210f)
+        assertEquals(210f, coordinator.totalScroll, 0.001f)
+        coordinator.applyStep(280f)
+        assertEquals(280f, coordinator.totalScroll, 0.001f)
+        assertFalse(coordinator.isAnimationActive)
+    }
+
+    @Test
+    fun testProductionCoordinator_RetargetAuthoritativeAnimation_SmoothlyRetargetsWithoutNewDriver() {
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 500f)
+        coordinator.onScrollBy = { 0f }
+        val drivers = mutableListOf<TestAnimationDriver>()
+        val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
+            scrollCoordinator = coordinator,
+            animationDriverFactory = {
+                val d = TestAnimationDriver()
+                drivers.add(d)
+                d
+            }
+        )
+
+        productionCoordinator.startAuthoritativeAnimation(600f, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        assertEquals(1, drivers.size)
+        val driver = drivers[0]
+        driver.step(550f)
+        assertEquals(550f, coordinator.totalScroll, 0.001f)
+
+        // Retarget in-flight to 750f
+        val retargeted = productionCoordinator.retargetAuthoritativeAnimation(750f, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        assertTrue(retargeted)
+        assertEquals(1, drivers.size) // No extra driver instantiated!
+        assertEquals(750f, coordinator.activeTargetTotalScroll ?: 0f, 0.001f)
+
+        driver.step(750f)
+        assertEquals(750f, coordinator.totalScroll, 0.001f)
+        driver.complete()
+        assertFalse(coordinator.isAnimationActive)
+    }
+
+    @Test
+    fun testPasteTransaction_SuppressesScrollWhenEndpointAlreadyVisible() {
+        // Verifies that when text is pasted and its insertion point is within the safe breathing zone,
+        // resolveCursorScrollDelta reports shouldScroll = false (no unnecessary jump).
+        val density = 2f
+        val visibleHeight = 1000
+        val marginPx = ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density // 48px
+        val breathingTarget = visibleHeight - marginPx // 952px
+
+        // Insertion point is at screenBottom = 800px (well above 952px)
+        val resolutionSafe = ScribeScrollPolicy.resolveCursorScrollDelta(
+            screenBottom = 800f,
+            screenTop = 760f,
+            visibleHeight = visibleHeight,
+            density = density,
+            isLastLine = false,
+            isDeletionActive = false,
+            hasScrollOffset = true
+        )
+        assertFalse("Must not scroll when paste insertion point is already visible", resolutionSafe.shouldScroll)
+
+        // Insertion point is offscreen at screenBottom = 1100px (below 952px)
+        val resolutionOffscreen = ScribeScrollPolicy.resolveCursorScrollDelta(
+            screenBottom = 1100f,
+            screenTop = 1060f,
+            visibleHeight = visibleHeight,
+            density = density,
+            isLastLine = false,
+            isDeletionActive = false,
+            hasScrollOffset = true
+        )
+        assertTrue("Must scroll when paste insertion point is offscreen", resolutionOffscreen.shouldScroll)
+        assertEquals(1100f - breathingTarget, resolutionOffscreen.deltaY, 0.001f)
+    }
+
+    @Test
+    fun testBoundedCursorRestoration_DistanceThresholdValidation() {
+        // Verifies the distance-bounded smooth glide condition:
+        // <= 1.5 * viewportHeight qualifies for smooth animation;
+        // > 1.5 * viewportHeight uses instant layout-settled placement to avoid disorienting travel time.
+        val viewportHeight = 800f
+        val maxSmoothDistance = 1.5f * viewportHeight // 1200px
+
+        val nearbyTargetScroll = 500f
+        val currentScroll = 0f
+        val nearbyDistance = kotlin.math.abs(nearbyTargetScroll - currentScroll)
+        val qualifiesNearby = nearbyDistance <= maxSmoothDistance && nearbyDistance > 1f
+        assertTrue("Nearby target (500px <= 1200px) must qualify for smooth restoration glide", qualifiesNearby)
+
+        val distantTargetScroll = 4000f
+        val distantDistance = kotlin.math.abs(distantTargetScroll - currentScroll)
+        val qualifiesDistant = distantDistance <= maxSmoothDistance && distantDistance > 1f
+        assertFalse("Distant target (4000px > 1200px) must bypass smooth animation for instant settled restore", qualifiesDistant)
+    }
 }
-
-

@@ -248,6 +248,71 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * are owned by scrollCoordinator to eliminate cancellation/retargeting races.
      */
     private var activeCanvasAnimator: android.animation.ValueAnimator? = null
+    private var isGlideRunning = false
+    private var glidePosition = 0f
+    private var glideVelocity = 0f
+    private var glideTarget = 0f
+    private var glideLastTimeNs = 0L
+    private var activeGlideReason: ScribeScrollPolicy.ScrollAnimationReason? = null
+    private var activeGlideOnEnd: (() -> Unit)? = null
+    private var activeGlideOpId: Long = 0L
+
+    private val glideFrameRunnable: Runnable = object : Runnable {
+        override fun run() {
+            if (!isGlideRunning) return
+            val opId = activeGlideOpId
+            if (opId != scrollCoordinator.activeOperationId || !scrollCoordinator.isAnimationActive) {
+                isGlideRunning = false
+                return
+            }
+
+            val nowNs = System.nanoTime()
+            val dtSec = ((nowNs - glideLastTimeNs) / 1_000_000_000f).coerceIn(0.001f, 0.032f)
+            glideLastTimeNs = nowNs
+
+            // Critically damped second-order spring:
+            // Natural frequency omega = 13.5 rad/s gives ~300ms ultra-smooth gentle glide
+            // Damping ratio zeta = 1.0 (critically damped: zero overshoot, perfectly smooth asymptotic settling)
+            val omega = 13.5f
+            val displacement = glidePosition - glideTarget
+            val accel = -omega * omega * displacement - 2f * omega * glideVelocity
+            glideVelocity += accel * dtSec
+            glidePosition += glideVelocity * dtSec
+
+            scrollCoordinator.applyStep(glidePosition, opId)
+
+            val distToTarget = kotlin.math.abs(glidePosition - glideTarget)
+            val isSettled = distToTarget < 0.5f && kotlin.math.abs(glideVelocity) < 15f
+            val isStoppedByCoord = !scrollCoordinator.isAnimationActive
+
+            if (isSettled || isStoppedByCoord) {
+                isGlideRunning = false
+                if (scrollCoordinator.isAnimationActive && opId == scrollCoordinator.activeOperationId) {
+                    if (distToTarget < 1f) {
+                        scrollCoordinator.applyStep(glideTarget, opId)
+                    }
+                    scrollCoordinator.finishAnimation(opId)
+                }
+                val reason = activeGlideReason
+                val onEnd = activeGlideOnEnd
+                activeGlideOnEnd = null
+                activeGlideReason = null
+
+                if (reason == ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION) {
+                    revalidateFinalTargetSafety()
+                } else if (reason == ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION) {
+                    rebaseCompensationAfterSafeCorrection()
+                }
+                if (reason == ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE) {
+                    isPredictiveGlideRunning = false
+                    targetPredictedScrollTotal = -1f
+                }
+                onEnd?.invoke()
+            } else {
+                postOnAnimation(this)
+            }
+        }
+    }
     val isRestorationActive: Boolean
         get() = scrollCoordinator.isAnimationActive && scrollCoordinator.activeReason == ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION
     val activeRestorationTargetScroll: Float?
@@ -291,6 +356,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         pendingRestorationRunnable?.let { removeCallbacks(it) }
         pendingRestorationRunnable = null
         if (isRestorationActive) {
+            removeCallbacks(glideFrameRunnable)
+            isGlideRunning = false
+            activeGlideReason = null
+            activeGlideOnEnd = null
             val oldAnimator = activeCanvasAnimator
             activeCanvasAnimator = null
             oldAnimator?.cancel()
@@ -326,20 +395,37 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val maxBound = maxCanvasScroll
         val clampedTarget = targetTotalScroll.coerceIn(0f, maxBound.toFloat())
 
+        // Continuous retargeting: if a glide is already running, seamlessly retarget in-flight!
+        if (isGlideRunning && scrollCoordinator.isAnimationActive) {
+            val currTarget = glideTarget
+            if (!forceRetarget && kotlin.math.abs(currTarget - clampedTarget) <= 1f) {
+                onEnd?.invoke()
+                return
+            }
+            glideTarget = clampedTarget
+            activeGlideReason = reason
+            if (onEnd != null) {
+                val prevOnEnd = activeGlideOnEnd
+                activeGlideOnEnd = {
+                    prevOnEnd?.invoke()
+                    onEnd.invoke()
+                }
+            }
+            scrollCoordinator.retargetActiveOperation(clampedTarget, reason, maxBound)
+            return
+        }
+
         val shouldStart = scrollCoordinator.requestTarget(clampedTarget, reason, forceRetarget, maxBound)
         if (!shouldStart) {
             onEnd?.invoke()
             return
         }
 
-        // Operation ID is authoritatively owned by scrollCoordinator!
         val opId = scrollCoordinator.activeOperationId
-
-        // Cancel previous running animator. Its cancel/end listeners will see its captured
-        // oldOpId != scrollCoordinator.activeOperationId and safely NO-OP!
         val oldAnimator = activeCanvasAnimator
         activeCanvasAnimator = null
         oldAnimator?.cancel()
+        removeCallbacks(glideFrameRunnable)
 
         val target = scrollCoordinator.activeTargetTotalScroll ?: clampedTarget
         val distance = kotlin.math.abs(target - currentScroll)
@@ -349,47 +435,16 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             return
         }
 
-        val scaledDuration = (distance * 1.2f).toLong().coerceIn(120L, durationMs)
-        activeCanvasAnimator = android.animation.ValueAnimator.ofFloat(currentScroll, target).apply {
-            duration = scaledDuration
-            this.interpolator = interpolator
-            addUpdateListener { anim ->
-                if (opId != scrollCoordinator.activeOperationId) return@addUpdateListener
-                val curr = anim.animatedValue as Float
-                scrollCoordinator.applyStep(curr, opId)
-            }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                private var isCancelled = false
+        isGlideRunning = true
+        glidePosition = currentScroll
+        glideVelocity = 0f
+        glideTarget = target
+        glideLastTimeNs = System.nanoTime()
+        activeGlideReason = reason
+        activeGlideOnEnd = onEnd
+        activeGlideOpId = opId
 
-                override fun onAnimationCancel(animation: android.animation.Animator) {
-                    isCancelled = true
-                    if (opId != scrollCoordinator.activeOperationId) return
-                    activeCanvasAnimator = null
-                    scrollCoordinator.cancelAnimation("Animator cancelled", opId)
-                    if (reason == ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE) {
-                        isPredictiveGlideRunning = false
-                        targetPredictedScrollTotal = -1f
-                    }
-                }
-
-                override fun onAnimationEnd(animation: android.animation.Animator) {
-                    if (isCancelled || opId != scrollCoordinator.activeOperationId) return
-                    activeCanvasAnimator = null
-                    scrollCoordinator.finishAnimation(opId)
-                    if (reason == ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION) {
-                        revalidateFinalTargetSafety()
-                    } else if (reason == ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION) {
-                        rebaseCompensationAfterSafeCorrection()
-                    }
-                    if (reason == ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE) {
-                        isPredictiveGlideRunning = false
-                        targetPredictedScrollTotal = -1f
-                    }
-                    onEnd?.invoke()
-                }
-            })
-            start()
-        }
+        postOnAnimation(glideFrameRunnable)
     }
 
     fun smoothScrollCanvasBy(
@@ -567,6 +622,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     fun cancelCanvasAnimation() {
         cancelRestoration()
+        removeCallbacks(glideFrameRunnable)
+        isGlideRunning = false
+        activeGlideReason = null
+        activeGlideOnEnd = null
         val oldAnimator = activeCanvasAnimator
         activeCanvasAnimator = null
         oldAnimator?.cancel()
@@ -703,9 +762,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     /**
      * Centers the given cursor line vertically within the viewport/canvas.
-     * Clamps to top (header visible) or bottom (max scroll) naturally.
+     * When smooth is true and the target is within a bounded distance (1.5 screen heights),
+     * gently glides to the destination. For distant locations or when smooth is false,
+     * immediately restores via settled layout placement.
      */
-    fun centerCursorInViewport(line: Int, column: Int) {
+    fun centerCursorInViewport(line: Int, column: Int, smooth: Boolean = false) {
         doOnCanvasReady {
             editor.doOnLayoutReady {
                 val edLayout = editor.layout ?: return@doOnLayoutReady
@@ -714,12 +775,26 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val cursorCanvasY = headerHeight + lineDocY
                 val viewportHeight = height.toFloat()
                 val targetTotalScroll = cursorCanvasY - (viewportHeight / 2f)
-                if (targetTotalScroll <= 0f) {
-                    restoreCanvasAndEditorScroll(0, 0)
+                val currentScroll = (scrollDFloat + editor.offsetY)
+                val distance = kotlin.math.abs(targetTotalScroll - currentScroll)
+                val maxSmoothDistance = 1.5f * viewportHeight
+
+                if (smooth && distance <= maxSmoothDistance && distance > 1f) {
+                    val maxBound = maxCanvasScroll.toFloat()
+                    val clampedTarget = targetTotalScroll.coerceIn(0f, maxBound)
+                    startAuthoritativeScrollAnimation(
+                        targetTotalScroll = clampedTarget,
+                        reason = ScribeScrollPolicy.ScrollAnimationReason.PROGRAMMATIC,
+                        durationMs = 320L
+                    )
                 } else {
-                    val targetScrollD = targetTotalScroll.toInt().coerceIn(0, headerHeight)
-                    val remainingScroll = (targetTotalScroll.toInt() - targetScrollD).coerceAtLeast(0)
-                    restoreCanvasAndEditorScroll(targetScrollD, remainingScroll)
+                    if (targetTotalScroll <= 0f) {
+                        restoreCanvasAndEditorScroll(0, 0)
+                    } else {
+                        val targetScrollD = targetTotalScroll.toInt().coerceIn(0, headerHeight)
+                        val remainingScroll = (targetTotalScroll.toInt() - targetScrollD).coerceAtLeast(0)
+                        restoreCanvasAndEditorScroll(targetScrollD, remainingScroll)
+                    }
                 }
             }
         }
@@ -917,8 +992,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             return
         }
         if ((!editor.isFocused && !isBottomSurfaceActive) || isKeyboardDismissing || suppressCursorVisibilityScroll || isRestoringViewport) return
+        if (!force && editor.isPasteTransactionActive) return
         val now = System.currentTimeMillis()
-        if (!force && now - lastEnsureCursorTime < 60L) return
+        if (!force && now - lastEnsureCursorTime < 16L) return
 
         // If a predictive glide is currently in flight, check if its predicted target will already
         // place the active caret safely above the target breathing line for the current measured viewport.

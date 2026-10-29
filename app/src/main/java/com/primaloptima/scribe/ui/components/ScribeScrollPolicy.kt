@@ -628,6 +628,21 @@ object ScribeScrollPolicy {
         }
 
         /**
+         * Retargets an ongoing animation in-flight without resetting velocity,
+         * advancing operation IDs, or disrupting step tracking.
+         */
+        fun retargetActiveOperation(
+            newTarget: Float,
+            reason: ScrollAnimationReason,
+            maxCanvasScroll: Int? = null
+        ) {
+            val maxBound = maxCanvasScroll?.toFloat()?.coerceAtLeast(0f)
+            val clampedTarget = if (maxBound != null) newTarget.coerceIn(0f, maxBound) else newTarget.coerceAtLeast(0f)
+            activeTargetTotalScroll = clampedTarget
+            activeReason = reason
+        }
+
+        /**
          * Applies a tick of animation with the new absolute animated scroll value.
          * Returns actual displacement moved.
          */
@@ -827,6 +842,16 @@ object ScribeScrollPolicy {
             activeDriver = null
             oldDriver?.cancel()
             scrollCoordinator.cancelAnimation(reason)
+        }
+
+        fun retargetAuthoritativeAnimation(
+            newTarget: Float,
+            reason: ScrollAnimationReason,
+            maxCanvasScroll: Int? = null
+        ): Boolean {
+            if (!scrollCoordinator.isAnimationActive) return false
+            scrollCoordinator.retargetActiveOperation(newTarget, reason, maxCanvasScroll)
+            return true
         }
     }
 
