@@ -3705,4 +3705,252 @@ class CursorAndCanvasGeometryTest {
             )
         )
     }
+
+    // =========================================================================
+    // PART G — COMPREHENSIVE ARCHITECTURAL VERIFICATION SUITE
+    // =========================================================================
+
+    @Test
+    fun testCursorSafety_WellAboveMargin_ZeroMovement() {
+        val viewportHeight = 1200f
+        val breathingMargin = 60f
+        val cursorBottom = 600f // Well above margin boundary (1140f)
+
+        val isSafe = ScribeBottomSurfaceCoordinator.isCursorSafeInViewport(
+            screenBottom = cursorBottom,
+            viewportHeight = viewportHeight,
+            breathingMarginPx = breathingMargin
+        )
+        val displacement = ScribeBottomSurfaceCoordinator.calculateRequiredUpwardDisplacement(
+            screenBottom = cursorBottom,
+            viewportHeight = viewportHeight,
+            breathingMarginPx = breathingMargin
+        )
+
+        assertTrue("Cursor well above breathing margin must be safe", isSafe)
+        assertEquals("Displacement must be 0f", 0f, displacement, 0.001f)
+    }
+
+    @Test
+    fun testCursorSafety_ModeratelyAboveMargin_ZeroMovement() {
+        val viewportHeight = 1200f
+        val breathingMargin = 60f
+        val cursorBottom = 1000f // Moderately above margin boundary (1140f)
+
+        val isSafe = ScribeBottomSurfaceCoordinator.isCursorSafeInViewport(
+            screenBottom = cursorBottom,
+            viewportHeight = viewportHeight,
+            breathingMarginPx = breathingMargin
+        )
+        val displacement = ScribeBottomSurfaceCoordinator.calculateRequiredUpwardDisplacement(
+            screenBottom = cursorBottom,
+            viewportHeight = viewportHeight,
+            breathingMarginPx = breathingMargin
+        )
+
+        assertTrue("Cursor moderately above breathing margin must be safe", isSafe)
+        assertEquals("Displacement must be 0f", 0f, displacement, 0.001f)
+    }
+
+    @Test
+    fun testCursorSafety_ExactlyAtMargin_ZeroMovement() {
+        val viewportHeight = 1200f
+        val breathingMargin = 60f
+        val cursorBottom = 1140f // Exactly at boundary (1200 - 60)
+
+        val isSafe = ScribeBottomSurfaceCoordinator.isCursorSafeInViewport(
+            screenBottom = cursorBottom,
+            viewportHeight = viewportHeight,
+            breathingMarginPx = breathingMargin
+        )
+        val displacement = ScribeBottomSurfaceCoordinator.calculateRequiredUpwardDisplacement(
+            screenBottom = cursorBottom,
+            viewportHeight = viewportHeight,
+            breathingMarginPx = breathingMargin
+        )
+
+        assertTrue("Cursor exactly at breathing margin boundary must be safe", isSafe)
+        assertEquals("Displacement must be 0f", 0f, displacement, 0.001f)
+    }
+
+    @Test
+    fun testCursorSafety_SlightlyBelowMargin_CalculatesExactDelta() {
+        val viewportHeight = 1200f
+        val breathingMargin = 60f
+        val cursorBottom = 1165f // 25px below margin boundary (1140f)
+
+        val isSafe = ScribeBottomSurfaceCoordinator.isCursorSafeInViewport(
+            screenBottom = cursorBottom,
+            viewportHeight = viewportHeight,
+            breathingMarginPx = breathingMargin
+        )
+        val displacement = ScribeBottomSurfaceCoordinator.calculateRequiredUpwardDisplacement(
+            screenBottom = cursorBottom,
+            viewportHeight = viewportHeight,
+            breathingMarginPx = breathingMargin
+        )
+
+        assertFalse("Cursor below breathing margin is not safe", isSafe)
+        assertEquals("Displacement must be exactly 25px", 25f, displacement, 0.001f)
+    }
+
+    @Test
+    fun testCursorSafety_SubstantiallyBelowMargin_CalculatesExactDelta() {
+        val viewportHeight = 1200f
+        val breathingMargin = 60f
+        val cursorBottom = 1450f // 310px below margin boundary (1140f)
+
+        val isSafe = ScribeBottomSurfaceCoordinator.isCursorSafeInViewport(
+            screenBottom = cursorBottom,
+            viewportHeight = viewportHeight,
+            breathingMarginPx = breathingMargin
+        )
+        val displacement = ScribeBottomSurfaceCoordinator.calculateRequiredUpwardDisplacement(
+            screenBottom = cursorBottom,
+            viewportHeight = viewportHeight,
+            breathingMarginPx = breathingMargin
+        )
+
+        assertFalse("Covered cursor is not safe", isSafe)
+        assertEquals("Displacement must be exactly 310px", 310f, displacement, 0.001f)
+    }
+
+    @Test
+    fun testCursorSafety_DeadbandSuppressesMicroJitter() {
+        val viewportHeight = 1200f
+        val breathingMargin = 60f
+        val deadband = 20f
+        val cursorBottom = 1150f // 10px below margin (1140f), but within deadband (1140 + 20 = 1160f)
+
+        val isSafe = ScribeBottomSurfaceCoordinator.isCursorSafeInViewport(
+            screenBottom = cursorBottom,
+            viewportHeight = viewportHeight,
+            breathingMarginPx = breathingMargin,
+            deadbandPx = deadband
+        )
+        val displacement = ScribeBottomSurfaceCoordinator.calculateRequiredUpwardDisplacement(
+            screenBottom = cursorBottom,
+            viewportHeight = viewportHeight,
+            breathingMarginPx = breathingMargin,
+            deadbandPx = deadband
+        )
+
+        assertTrue("Cursor within deadband tolerance must be safe", isSafe)
+        assertEquals("Displacement must be 0f within deadband", 0f, displacement, 0.001f)
+    }
+
+    @Test
+    fun testCursorSafety_SelectionCrossingBottomMargin_UsesSelectionBottom() {
+        val viewportHeight = 1200f
+        val breathingMargin = 60f
+        // Multi-line selection spanning from screen Y 950 to 1250
+        val selectionTop = 950f
+        val selectionBottom = 1250f // Below margin 1140f by 110px
+
+        val displacement = ScribeBottomSurfaceCoordinator.calculateRequiredUpwardDisplacement(
+            screenBottom = selectionBottom,
+            viewportHeight = viewportHeight,
+            breathingMarginPx = breathingMargin
+        )
+
+        assertEquals("Displacement must clear the selection bottom by 110px", 110f, displacement, 0.001f)
+    }
+
+    @Test
+    fun testPresentationStateMachine_InitialEntrance_BarHidden() {
+        val state = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE
+        val isVisible = ScribeBottomSurfaceCoordinator.isShortcutBarVisible(state)
+
+        assertFalse("Shortcut bar must remain hidden during initial entrance", isVisible)
+    }
+
+    @Test
+    fun testPresentationStateMachine_KeyboardSettled_BarVisible() {
+        val state = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED
+        val isVisible = ScribeBottomSurfaceCoordinator.isShortcutBarVisible(state)
+
+        assertTrue("Shortcut bar must be visible once keyboard has settled", isVisible)
+    }
+
+    @Test
+    fun testPresentationStateMachine_KeyboardDismissal_BarDismissing() {
+        val state = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_DISMISSAL
+        val isVisible = ScribeBottomSurfaceCoordinator.isShortcutBarVisible(state)
+
+        assertTrue("Shortcut bar remains visible with keyboard until fully dismissed", isVisible)
+    }
+
+    @Test
+    fun testPresentationStateMachine_AccessoryDrawerOpen_BarVisible() {
+        val state = ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN
+        val isVisible = ScribeBottomSurfaceCoordinator.isShortcutBarVisible(state)
+
+        assertTrue("Shortcut bar must be visible when accessory drawer is open", isVisible)
+    }
+
+    @Test
+    fun testPresentationStateMachine_DrawerToKeyboardHandoff_BarContinuouslyVisible() {
+        val state = ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF
+        val isVisible = ScribeBottomSurfaceCoordinator.isShortcutBarVisible(state)
+
+        assertTrue("Shortcut bar must remain continuously visible during handoff", isVisible)
+    }
+
+    @Test
+    fun testInvariantLockstep_ZeroProgress_ZeroClearance() {
+        val clearance = ScribeBottomSurfaceCoordinator.calculateShortcutBarClearanceDp(0f)
+        assertEquals("Zero progress must produce exactly 0dp clearance", 0f, clearance, 0.001f)
+    }
+
+    @Test
+    fun testInvariantLockstep_FullProgress_FullClearance() {
+        val clearance = ScribeBottomSurfaceCoordinator.calculateShortcutBarClearanceDp(1f)
+        assertEquals("Full progress must produce full 36dp clearance", 36f, clearance, 0.001f)
+    }
+
+    @Test
+    fun testInvariantLockstep_MidflightProgress_ExactProportionalClearance() {
+        val clearance50 = ScribeBottomSurfaceCoordinator.calculateShortcutBarClearanceDp(0.5f)
+        assertEquals("50% progress must produce 18dp clearance", 18f, clearance50, 0.001f)
+
+        val clearance25 = ScribeBottomSurfaceCoordinator.calculateShortcutBarClearanceDp(0.25f)
+        assertEquals("25% progress must produce 9dp clearance", 9f, clearance25, 0.001f)
+    }
+
+    @Test
+    fun testStationaryDismissal_ExpansionDoesNotTriggerDownwardMovement() {
+        // When keyboard is dismissing, shouldFollowDownward must strictly be FALSE
+        val follow = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = true,
+            isBottomSurfaceActive = false,
+            isKeyboardVisible = false,
+            hasPhysicalBottomObstruction = false,
+            isAtLastLine = true,
+            hasActiveScroll = true
+        )
+        assertFalse("Downward follow must be strictly forbidden during keyboard dismissal", follow)
+    }
+
+    @Test
+    fun testStationaryDismissal_RetainedScrollExtent_PreventsDownwardClamping() {
+        val totalScroll = 800
+        val headerHeight = 200
+        val layoutHeight = 1500
+        val naturalContentHeight = headerHeight + layoutHeight // 1700
+        val expandedViewport = 2200 // Expands to full screen on dismissal
+
+        val retainedExtent = ScribeBottomSurfaceCoordinator.calculateRetainedScrollExtent(
+            totalScroll = totalScroll,
+            headerHeight = headerHeight,
+            layoutHeight = layoutHeight,
+            expandedViewportHeight = expandedViewport
+        )
+
+        // totalScroll (800) + expandedViewport (2200) - naturalContent (1700) = 1300
+        assertEquals("Retained extent must preserve exact bottom space to prevent clamping", 1300, retainedExtent)
+
+        // Verifying maxCanvasScroll with retained extent
+        val maxCanvas = (naturalContentHeight + retainedExtent - expandedViewport).coerceAtLeast(0)
+        assertEquals("Max canvas scroll must equal or exceed totalScroll", totalScroll, maxCanvas)
+    }
 }

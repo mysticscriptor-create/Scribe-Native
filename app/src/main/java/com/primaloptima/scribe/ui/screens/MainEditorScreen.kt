@@ -190,6 +190,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -253,7 +255,8 @@ data class CardPreviewAnchor(
     ExperimentalMaterial3Api::class,
     ExperimentalMaterial3AdaptiveApi::class,
     androidx.compose.foundation.ExperimentalFoundationApi::class,
-    androidx.compose.foundation.layout.ExperimentalLayoutApi::class
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+    FlowPreview::class
 )
 @Composable
 fun MainEditorScreen(
@@ -349,8 +352,33 @@ fun MainEditorScreen(
             }
         }
     )
-    var isAwaitingKeyboardOpen by remember { mutableStateOf(false) }
-    var isBarTransitionLatched by remember { mutableStateOf(false) }
+    var presentationState by remember {
+        mutableStateOf(
+            if (androidx.compose.foundation.layout.WindowInsets.isImeVisible)
+                com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED
+            else
+                com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN
+        )
+    }
+    var transitionalSpacerDp by remember { mutableStateOf(0.dp) }
+
+    val returnFromDrawerToKeyboard: () -> Unit = {
+        if (activeAccessoryDrawer != null) {
+            val currentDrawerH = if (drawerState == AccessoryDrawerState.COMPACT) 260.dp else 420.dp
+            transitionalSpacerDp = currentDrawerH
+            activeAccessoryDrawer = null
+            drawerState = AccessoryDrawerState.COMPACT
+            presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF
+            isWritingBarSearchActive = false
+            drawerSearchQuery = ""
+            previewItem = null
+            activeCardPreview = null
+            isPreviewExpanded = false
+            soraEditorRef?.requestFocus()
+            keyboardController?.show()
+            try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+        }
+    }
 
     LaunchedEffect(isWritingBarSearchActive) {
         if (isWritingBarSearchActive) {
@@ -765,22 +793,12 @@ fun MainEditorScreen(
         isWritingBarSearchActive = false
         drawerSearchQuery = ""
     }
-    BackHandler(enabled = activeCardPreview == null && previewItem == null && !isWritingBarSearchActive && drawerState != AccessoryDrawerState.COMPACT) {
-        drawerState = AccessoryDrawerState.COMPACT
-    }
-    BackHandler(enabled = activeCardPreview == null && previewItem == null && !isWritingBarSearchActive && drawerState == AccessoryDrawerState.COMPACT && activeAccessoryDrawer != null) {
-        activeAccessoryDrawer = null
-        activeCardPreview = null
-        isPreviewExpanded = false
-        drawerState = AccessoryDrawerState.COMPACT
-        isAwaitingKeyboardOpen = true
-        isBarTransitionLatched = true
-        drawerSearchQuery = ""
-        isWritingBarSearchActive = false
-        previewItem = null
-        soraEditorRef?.requestFocus()
-        keyboardController?.show()
-        try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+    BackHandler(enabled = activeCardPreview == null && previewItem == null && !isWritingBarSearchActive && activeAccessoryDrawer != null) {
+        if (drawerState != AccessoryDrawerState.COMPACT) {
+            drawerState = AccessoryDrawerState.COMPACT
+        } else {
+            returnFromDrawerToKeyboard()
+        }
     }
 
     BackHandler {
@@ -1223,27 +1241,16 @@ fun MainEditorScreen(
     val density = LocalDensity.current
     val imeBottomDp = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
     val docBottomNavInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val imeAboveNavDp = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
     val configuration = LocalConfiguration.current
-    val savedKeyboardHeightFloat by dataStore.lastKeyboardHeightFlow.collectAsState(initial = 280f)
-    var lastKeyboardHeightDp by remember {
-        mutableStateOf(if (savedKeyboardHeightFloat >= 220f) savedKeyboardHeightFloat.dp else 280.dp)
-    }
 
-    LaunchedEffect(savedKeyboardHeightFloat) {
-        if (ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(savedKeyboardHeightFloat, configuration.screenHeightDp.toFloat())) {
-            lastKeyboardHeightDp = savedKeyboardHeightFloat.dp
-        }
-    }
-
-    val compactHeightDp = lastKeyboardHeightDp.coerceIn(160.dp, (configuration.screenHeightDp.dp * 0.60f))
-    val expandedHeightDp = maxOf(compactHeightDp + 60.dp, (configuration.screenHeightDp.dp * 0.48f).coerceIn(360.dp, 480.dp))
+    val compactHeightDp = 260.dp
+    val expandedHeightDp = (configuration.screenHeightDp.dp * 0.48f).coerceIn(360.dp, 480.dp)
     val fullHeightDp = (configuration.screenHeightDp.dp * 0.72f).coerceIn(480.dp, 650.dp)
     val drawerHeightDpAnim = remember { Animatable(compactHeightDp.value) }
     var isDrawerDragging by remember { mutableStateOf(false) }
     var dragLiveHeightDp by remember { mutableFloatStateOf(compactHeightDp.value) }
-
     var lastDrawerToggleTimestamp by remember { mutableLongStateOf(0L) }
+
     val toggleAccessoryDrawer: (AccessoryDrawerMode) -> Unit = { targetMode ->
         val now = System.currentTimeMillis()
         val isSwitchingBetweenOpenDrawers = activeAccessoryDrawer != null && targetMode != activeAccessoryDrawer
@@ -1253,34 +1260,18 @@ fun MainEditorScreen(
                 activeSheetPage = null
             }
             if (activeAccessoryDrawer == targetMode) {
-                // Closing active drawer -> Restore soft keyboard with locked transition height
-                activeAccessoryDrawer = null
-                drawerState = AccessoryDrawerState.COMPACT
-                isAwaitingKeyboardOpen = true
-                isBarTransitionLatched = true
-                unifiedCanvasRef?.isBottomSurfaceActive = true
-                unifiedCanvasRef?.isKeyboardVisible = true
-                isWritingBarSearchActive = false
-                drawerSearchQuery = ""
-                previewItem = null
-                scope.launch { drawerHeightDpAnim.snapTo(compactHeightDp.value) }
-                soraEditorRef?.requestFocus()
-                keyboardController?.show()
-                try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+                returnFromDrawerToKeyboard()
             } else if (activeAccessoryDrawer != null) {
-                // Seamless instantaneous switch between open drawers: zero keyboard/cursor flicker
                 activeAccessoryDrawer = targetMode
                 isWritingBarSearchActive = false
                 drawerSearchQuery = ""
                 previewItem = null
             } else {
-                // Opening drawer from keyboard / idle state
-                isAwaitingKeyboardOpen = false
-                isBarTransitionLatched = false
                 keyboardController?.hide()
                 try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
                 activeAccessoryDrawer = targetMode
                 drawerState = AccessoryDrawerState.COMPACT
+                presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN
                 scope.launch { drawerHeightDpAnim.snapTo(compactHeightDp.value) }
                 isWritingBarSearchActive = false
                 drawerSearchQuery = ""
@@ -1289,70 +1280,50 @@ fun MainEditorScreen(
         }
     }
 
-    // Capture steady-state standard keyboard height once settled, saving to DataStore only on confirmed rest.
-    // Filter out transient oversized keyboard pickers (emojis, stickers, GIFs, clipboard) which exceed 330dp,
-    // ensuring compact drawers and transition latches reflect the baseline standard keyboard.
-    val maxStandardKbBaselineDp = ScribeBottomSurfaceCoordinator.calculateMaxStandardBaselineDp(configuration.screenHeightDp.toFloat()).dp
-    LaunchedEffect(imeBottomDp, isKeyboardVisible, docBottomNavInset) {
-        if (isKeyboardVisible && activeAccessoryDrawer == null && !isAwaitingKeyboardOpen && imeBottomDp > 150.dp) {
-            val aboveNav = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
-            if (ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(aboveNav.value, configuration.screenHeightDp.toFloat())) {
-                // Debounce 350ms to ensure the keyboard has finished 100% of its entrance animation and settled
-                kotlinx.coroutines.delay(350)
-                val settledAboveNav = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
-                if (isKeyboardVisible && activeAccessoryDrawer == null && !isAwaitingKeyboardOpen &&
-                    ScribeBottomSurfaceCoordinator.shouldUpdateSavedBaseline(settledAboveNav.value, lastKeyboardHeightDp.value, configuration.screenHeightDp.toFloat()) &&
-                    kotlin.math.abs(settledAboveNav.value - aboveNav.value) < 1f) {
-                    lastKeyboardHeightDp = settledAboveNav
-                    if (kotlin.math.abs(settledAboveNav.value - savedKeyboardHeightFloat) >= 1f) {
-                        dataStore.setLastKeyboardHeight(settledAboveNav.value)
-                    }
-                }
-            }
+    // Single authoritative event-driven settling mechanism via snapshotFlow with debounce
+    LaunchedEffect(Unit) {
+        if (isKeyboardVisible && imeBottomDp > 0.dp) {
+            presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED
         }
     }
 
-    // Keep bottom spacer pinned at compactHeightDp when returning from drawer to keyboard
-    // so the shortcut bar stays rock-solid while the IME animates in
-    LaunchedEffect(isAwaitingKeyboardOpen) {
-        if (isAwaitingKeyboardOpen) {
-            var settled = false
-            try {
-                // 1. Give keyboard at least 150ms to begin its animation from 0
-                delay(150)
+    LaunchedEffect(isKeyboardVisible, activeAccessoryDrawer) {
+        if (activeAccessoryDrawer != null) {
+            presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN
+            return@LaunchedEffect
+        }
 
-                // 2. Sample imeAboveNavDp until it stops changing (settled at rest)
-                var lastHeight = imeAboveNavDp.value
-                var stableCount = 0
-
-                val result = withTimeoutOrNull(750) {
-                    snapshotFlow { Pair(imeAboveNavDp.value, isKeyboardVisible) }
-                        .filter { (currentHeight, visible) ->
-                            if (!visible) return@filter false
-
-                            // If keyboard is substantial and height delta is < 0.5dp for 3 consecutive checks
-                            if (currentHeight >= 140f) {
-                                if (kotlin.math.abs(currentHeight - lastHeight) < 0.5f) {
-                                    stableCount++
-                                } else {
-                                    stableCount = 0
-                                    lastHeight = currentHeight
-                                }
-                                stableCount >= 3
-                            } else {
-                                false
-                            }
+        if (isKeyboardVisible) {
+            if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
+                snapshotFlow { WindowInsets.ime.getBottom(density) }
+                    .debounce(100L)
+                    .collect { settledPx ->
+                        if (settledPx > 0) {
+                            presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED
+                            transitionalSpacerDp = 0.dp
                         }
-                        .first()
-                }
-                settled = result != null
-            } finally {
-                // 3. Calibrate compactHeightDp to the exact settled height so future toggles match 1:1
-                if (settled && ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(imeAboveNavDp.value, configuration.screenHeightDp.toFloat())) {
-                    lastKeyboardHeightDp = imeAboveNavDp
-                }
-                isAwaitingKeyboardOpen = false
-                isBarTransitionLatched = false
+                    }
+            } else if (presentationState != com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED) {
+                presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE
+                snapshotFlow { WindowInsets.ime.getBottom(density) }
+                    .debounce(100L)
+                    .collect { settledPx ->
+                        if (settledPx > 0) {
+                            presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED
+                        }
+                    }
+            }
+        } else {
+            if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED ||
+                presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE) {
+                presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_DISMISSAL
+                snapshotFlow { WindowInsets.ime.getBottom(density) }
+                    .filter { it == 0 }
+                    .first()
+                presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN
+            } else if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
+                presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN
+                transitionalSpacerDp = 0.dp
             }
         }
     }
@@ -1487,40 +1458,37 @@ fun MainEditorScreen(
                         }
                     }
 
-                    val isDrawerActive = activeAccessoryDrawer != null
-                    val drawerHeightDpVal = when {
-                        isDrawerDragging -> dragLiveHeightDp.dp.coerceIn(compactHeightDp, fullHeightDp).value
-                        drawerState == AccessoryDrawerState.COMPACT -> compactHeightDp.value
-                        else -> drawerHeightDpAnim.value.dp.coerceIn(compactHeightDp, fullHeightDp).value
-                    }
-                    val effectiveBottomSurfaceHeight = ScribeBottomSurfaceCoordinator.resolveEffectiveBottomSurfaceHeight(
-                        isAccessoryDrawerActive = isDrawerActive,
-                        drawerHeightDp = drawerHeightDpVal,
-                        isAwaitingKeyboardOpen = isAwaitingKeyboardOpen,
-                        isBarTransitionLatched = isBarTransitionLatched,
-                        isKeyboardVisible = isKeyboardVisible,
-                        compactHeightDp = compactHeightDp.value,
-                        imeAboveNavDp = imeAboveNavDp.value
-                    ).dp
-                    val isKeyboardDismissing = ScribeBottomSurfaceCoordinator.isKeyboardDismissing(
-                        isKeyboardVisible = isKeyboardVisible,
-                        isAccessoryDrawerActive = isDrawerActive,
-                        isAwaitingKeyboardOpen = isAwaitingKeyboardOpen,
-                        isBarTransitionLatched = isBarTransitionLatched,
-                        imeAboveNavDp = imeAboveNavDp.value
-                    )
-                    val isKeyboardSettled = ScribeBottomSurfaceCoordinator.isKeyboardSettled(
-                        isKeyboardVisible = isKeyboardVisible,
-                        isAwaitingKeyboardOpen = isAwaitingKeyboardOpen,
-                        imeAboveNavDp = imeAboveNavDp.value
-                    )
-                    val isShortcutBarVisuallyVisible = (activeAccessoryDrawer != null || isKeyboardSettled) && shortcuts.isNotEmpty()
-                    val isBarVisible = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched) && shortcuts.isNotEmpty()
-                    val docBottomPadding = if (!isBarVisible) {
-                        docBottomNavInset
+                    val currentDrawerHeightDp = if (activeAccessoryDrawer != null) {
+                        if (isDrawerDragging) dragLiveHeightDp.dp.coerceIn(compactHeightDp, fullHeightDp)
+                        else if (drawerState == AccessoryDrawerState.COMPACT) compactHeightDp
+                        else drawerHeightDpAnim.value.dp.coerceIn(compactHeightDp, fullHeightDp)
+                    } else if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
+                        transitionalSpacerDp
                     } else {
-                        shortcutBarHeight + docBottomNavInset + effectiveBottomSurfaceHeight
+                        0.dp
                     }
+
+                    val isShortcutBarTargetVisible = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isShortcutBarVisible(
+                        presentationState,
+                        shortcuts.isNotEmpty()
+                    )
+
+                    val shortcutBarProgress by animateFloatAsState(
+                        targetValue = if (isShortcutBarTargetVisible) 1f else 0f,
+                        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+                        label = "shortcutBarProgress"
+                    )
+                    val animatedShortcutBarHeightDp = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.calculateShortcutBarClearanceDp(shortcutBarProgress).dp
+
+                    val isKeyboardDismissing = presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_DISMISSAL
+                    val isKeyboardSettled = presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED
+
+                    val docBottomPadding = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.calculateEditorBottomPaddingDp(
+                        imeBottomDp = imeBottomDp.value,
+                        navBarBottomDp = docBottomNavInset.value,
+                        drawerHeightDp = currentDrawerHeightDp.value,
+                        shortcutBarClearanceDp = animatedShortcutBarHeightDp.value
+                    ).dp
 
                     var lastAppliedPadding by remember { mutableFloatStateOf(-1f) }
                     var lastAppliedTextSize by remember { mutableFloatStateOf(-1f) }
@@ -1551,50 +1519,17 @@ fun MainEditorScreen(
                             lastAppliedBgArgb = bgArgb
                             lastAppliedThemeId = activeTheme?.id
 
-                            val bottomSurfaceHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight.value else maxOf(compactHeightDp.value, imeAboveNavDp.value)
-                            val shortcutBarDp = if (shortcuts.isNotEmpty()) 36.dp.value else 0f
-                            val curEstimatedKbPx = (bottomSurfaceHeightDp + shortcutBarDp) * density
-                            val isDrawerOrTransitionActive = activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched
-                            val curIsKeyboardVisible = isKeyboardVisible || isDrawerOrTransitionActive
-                            val curIsBottomSurfaceActive = (isKeyboardVisible || isDrawerOrTransitionActive) && shortcuts.isNotEmpty()
-
                             UnifiedCanvasLayout(ctx).apply {
                                 horizontalPaddingDp = initialPadH
                                 setBackgroundColor(bgArgb)
-                                estimatedKeyboardHeightPx = curEstimatedKbPx
                                 this.activeEditingTarget = lastActiveTarget
-                                this.isKeyboardVisible = curIsKeyboardVisible
-                                this.isBottomSurfaceActive = curIsBottomSurfaceActive
+                                this.isKeyboardVisible = isKeyboardVisible
+                                this.isBottomSurfaceActive = (activeAccessoryDrawer != null || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF)
                                 this.isKeyboardDismissing = isKeyboardDismissing
                                 onUserTouchDown = {
                                     updateEditingTarget(EditingTarget.EDITOR_BODY)
                                     if (activeAccessoryDrawer != null) {
-                                        activeAccessoryDrawer = null
-                                        drawerState = AccessoryDrawerState.COMPACT
-                                        isAwaitingKeyboardOpen = true
-                                        isBarTransitionLatched = true
-                                        unifiedCanvasRef?.isBottomSurfaceActive = true
-                                        unifiedCanvasRef?.isKeyboardVisible = true
-                                        isWritingBarSearchActive = false
-                                        drawerSearchQuery = ""
-                                        previewItem = null
-                                        scope.launch { drawerHeightDpAnim.snapTo(compactHeightDp.value) }
-                                        soraEditorRef?.requestFocus()
-                                        keyboardController?.show()
-                                        try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
-                                    } else if (!isKeyboardVisible) {
-                                        isAwaitingKeyboardOpen = true
-                                        isBarTransitionLatched = true
-                                        unifiedCanvasRef?.isBottomSurfaceActive = true
-                                        unifiedCanvasRef?.isKeyboardVisible = true
-                                    }
-                                }
-                                onKeyboardEntranceStarted = {
-                                    if (!isAwaitingKeyboardOpen && !isKeyboardVisible) {
-                                        isAwaitingKeyboardOpen = true
-                                        isBarTransitionLatched = true
-                                        unifiedCanvasRef?.isBottomSurfaceActive = true
-                                        unifiedCanvasRef?.isKeyboardVisible = true
+                                        returnFromDrawerToKeyboard()
                                     }
                                 }
                                 onScrollDelta = { dy ->
@@ -1814,39 +1749,11 @@ fun MainEditorScreen(
                             layout.onUserTouchDown = {
                                 updateEditingTarget(EditingTarget.EDITOR_BODY)
                                 if (activeAccessoryDrawer != null) {
-                                    activeAccessoryDrawer = null
-                                    drawerState = AccessoryDrawerState.COMPACT
-                                    isAwaitingKeyboardOpen = true
-                                    isBarTransitionLatched = true
-                                    unifiedCanvasRef?.isBottomSurfaceActive = true
-                                    unifiedCanvasRef?.isKeyboardVisible = true
-                                    isWritingBarSearchActive = false
-                                    drawerSearchQuery = ""
-                                    previewItem = null
-                                    scope.launch { drawerHeightDpAnim.snapTo(compactHeightDp.value) }
-                                    soraEditorRef?.requestFocus()
-                                    keyboardController?.show()
-                                    try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+                                    returnFromDrawerToKeyboard()
                                 }
                             }
-                            val density = layout.context.resources.displayMetrics.density
-                            val bottomSurfaceHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight.value else maxOf(compactHeightDp.value, imeAboveNavDp.value)
-                            val shortcutBarDp = if (shortcuts.isNotEmpty()) 36.dp.value else 0f
-                            val curEstimatedKbPx = (bottomSurfaceHeightDp + shortcutBarDp) * density
-                            layout.estimatedKeyboardHeightPx = curEstimatedKbPx
-                            layout.onKeyboardEntranceStarted = {
-                                if (!isAwaitingKeyboardOpen && !isKeyboardVisible) {
-                                    isAwaitingKeyboardOpen = true
-                                    isBarTransitionLatched = true
-                                    unifiedCanvasRef?.isBottomSurfaceActive = true
-                                    unifiedCanvasRef?.isKeyboardVisible = true
-                                }
-                            }
-                            val isDrawerOrTransitionActive = activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched
-                            val curIsKeyboardVisible = isKeyboardVisible || isDrawerOrTransitionActive
-                            val curIsBottomSurfaceActive = (isKeyboardVisible || isDrawerOrTransitionActive) && shortcuts.isNotEmpty()
-                            layout.isKeyboardVisible = curIsKeyboardVisible
-                            layout.isBottomSurfaceActive = curIsBottomSurfaceActive
+                            layout.isKeyboardVisible = isKeyboardVisible
+                            layout.isBottomSurfaceActive = (activeAccessoryDrawer != null || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF)
                             layout.isKeyboardDismissing = isKeyboardDismissing
                             layout.activeEditingTarget = lastActiveTarget
                             val editor = layout.editor
@@ -2139,7 +2046,7 @@ fun MainEditorScreen(
                     }
 
                     // ── Shortcut Bar & Accessory Drawer (Floating Keyboard Accessory) ────────────
-                    if (isBarVisible) {
+                    if (shortcutBarProgress > 0.001f || activeAccessoryDrawer != null || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
                         CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
                             val registerBounds = LocalInteractiveBoundsRegistry.current
                             DisposableEffect(Unit) {
@@ -2153,31 +2060,17 @@ fun MainEditorScreen(
                                     .fillMaxWidth()
                                     .align(Alignment.BottomCenter)
                                     .navigationBarsPadding()
+                                    .imePadding()
                             ) {
-                                AnimatedVisibility(
-                                    visible = isShortcutBarVisuallyVisible,
-                                    enter = fadeIn(
-                                        animationSpec = spring(
-                                            stiffness = Spring.StiffnessMediumLow,
-                                            dampingRatio = Spring.DampingRatioNoBouncy
-                                        )
-                                    ) + slideInVertically(
-                                        initialOffsetY = { it / 2 },
-                                        animationSpec = spring(
-                                            stiffness = Spring.StiffnessMediumLow,
-                                            dampingRatio = Spring.DampingRatioNoBouncy
-                                        )
-                                    ),
-                                    exit = fadeOut(animationSpec = tween(140)) +
-                                           slideOutVertically(
-                                               targetOffsetY = { it / 2 },
-                                               animationSpec = tween(140)
-                                           )
-                                ) {
+                                if (shortcutBarProgress > 0.001f) {
                                     Surface(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(shortcutBarHeight)
+                                        .height(animatedShortcutBarHeightDp)
+                                        .graphicsLayer {
+                                            alpha = shortcutBarProgress
+                                            clip = true
+                                        }
                                         .onGloballyPositioned { coords ->
                                             registerBounds("shortcut_bar", coords.boundsInRoot())
                                         },
@@ -2416,8 +2309,7 @@ fun MainEditorScreen(
                                                                 .clickable {
                                                                     shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
                                                                     activeAccessoryDrawer = null
-                                                                    isAwaitingKeyboardOpen = false
-                                                                    isBarTransitionLatched = false
+                                                                    presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN
                                                                     drawerSearchQuery = ""
                                                                     isWritingBarSearchActive = false
                                                                     previewItem = null
@@ -2632,15 +2524,17 @@ fun MainEditorScreen(
                                 }
 
                                 // ── Persistent Bottom Surface Container (Zero Unmounting) ──
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(effectiveBottomSurfaceHeight)
-                                ) {
-                                    if (activeAccessoryDrawer != null) {
-                                        AccessoryDrawer(
-                                            mode = activeAccessoryDrawer!!,
-                                            currentHeightDp = effectiveBottomSurfaceHeight,
+                                val drawerPanelHeight = if (activeAccessoryDrawer != null) currentDrawerHeightDp else (transitionalSpacerDp - imeBottomDp).coerceAtLeast(0.dp)
+                                if (drawerPanelHeight > 0.dp) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(drawerPanelHeight)
+                                    ) {
+                                        if (activeAccessoryDrawer != null) {
+                                            AccessoryDrawer(
+                                                mode = activeAccessoryDrawer!!,
+                                                currentHeightDp = drawerPanelHeight,
                                             activePreviewItemId = activeCardPreview?.item?.id,
                                             drawerState = drawerState,
                                             onDrawerStateChange = {
@@ -2705,8 +2599,7 @@ fun MainEditorScreen(
                                             onOpenShortcuts = {
                                                 shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
                                                 activeAccessoryDrawer = null
-                                                isAwaitingKeyboardOpen = false
-                                                isBarTransitionLatched = false
+                                                presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN
                                                                                                 drawerSearchQuery = ""
                                                 isWritingBarSearchActive = false
                                                 previewItem = null
@@ -2742,6 +2635,7 @@ fun MainEditorScreen(
                                             }
                                         )
                                     }
+                                }
                                 }
                             }
 
@@ -2888,8 +2782,7 @@ fun MainEditorScreen(
                                             if (activeAccessoryDrawer != null) {
                                                 activeAccessoryDrawer = null
                                                 drawerState = AccessoryDrawerState.COMPACT
-                                                isAwaitingKeyboardOpen = false
-                                                isBarTransitionLatched = false
+                                                presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN
                                                                                             }
                                             activeSheetPage = EditorSheetPage.MENU
                                         }

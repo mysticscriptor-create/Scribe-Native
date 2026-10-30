@@ -106,11 +106,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
             val baseSora = super.getScrollMaxY()
             val density = context.resources.displayMetrics.density
             val breathingMargin = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
-            val activeGlideTarget = if (pCanvas != null && pCanvas.targetPredictedScrollTotal > pCanvas.headerHeight) {
-                (pCanvas.targetPredictedScrollTotal - pCanvas.headerHeight).toInt().coerceAtLeast(0)
-            } else {
-                0
-            }
+            val activeGlideTarget = 0
             ScribeScrollPolicy.calculateSafeScrollMaxY(
                 layoutHeight = layoutH,
                 viewportHeight = height,
@@ -1470,12 +1466,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
             val wasTap = !isTouchMoved && dt < 450L
             if (wasTap && !isPinchScaling && !isHandleDragging && !isInteractingWithImage) {
                 val pCanvas = parentCanvas
-                if (pCanvas != null && !pCanvas.isKeyboardVisible && !pCanvas.isBottomSurfaceActive) {
-                    // Only start keyboard-appearance transaction when keyboard is appearing
-                    pCanvas.predictivelyGlideCursorAboveKeyboard()
-                } else {
-                    // Keyboard is already open: perform ordinary caret visibility scroll
-                    pCanvas?.ensureCursorVisibleAboveKeyboard(smooth = true)
+                if (pCanvas != null && (pCanvas.isKeyboardVisible || pCanvas.isBottomSurfaceActive)) {
+                    // Viewport is already contracted: perform ordinary caret visibility check
+                    pCanvas.ensureCursorVisibleAboveKeyboard(smooth = true)
                 }
             }
             if (isInteractingWithImage) {
@@ -1731,10 +1724,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     override fun showSoftInput() {
         if (isInteractingWithImage) return
-        val pCanvas = parentCanvas
-        if (pCanvas != null && !pCanvas.isKeyboardVisible && !pCanvas.isBottomSurfaceActive) {
-            pCanvas.notifyKeyboardEntranceStarting()
-        }
         super.showSoftInput()
     }
 
@@ -1777,11 +1766,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 parentCanvas.post {
                     ensurePositionVisible(line, column, noAnimation)
                 }
-                return
-            }
-            if (parentCanvas.isKeyboardTransactionActive) {
-                // Active keyboard transaction is already handling viewport transition
-                invalidate()
                 return
             }
             parentCanvas.ensureCursorVisibleAboveKeyboard(

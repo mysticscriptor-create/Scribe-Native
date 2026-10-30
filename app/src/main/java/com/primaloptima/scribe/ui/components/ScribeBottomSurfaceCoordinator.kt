@@ -1,28 +1,127 @@
 package com.primaloptima.scribe.ui.components
 
 /**
- * ScribeBottomSurfaceCoordinator — Unified single source of truth for keyboard,
- * accessory drawer, and bottom surface geometry.
+ * ScribeBottomSurfaceCoordinator — Unified single source of truth for bottom surface
+ * presentation state machine, shortcut bar clearance, and viewport safety geometry.
  *
  * Architecture Principles:
- * 1. Standard Keyboard Baseline: Preserves the user's standard QWERTY keyboard height
- *    (typically 220dp-320dp). Rejects transient oversized pickers (emojis/stickers/GIFs > 320dp)
- *    so compact drawers and transition latches never get poisoned.
- * 2. Stable Bottom Surface Sizing: Clamps effective keyboard height to maxOf(baseline, imeAboveNav)
- *    during active keyboard mode. Prevents 60fps relayout vibration during keyboard entrance.
- * 3. Pure Writer Stationary Invariant: When the soft keyboard or drawer dismisses to 0dp,
- *    the document canvas MUST remain 100% rock-solid stationary at the saved margin
- *    (keyboard height + shortcut bar + breathing margin). Downward following is strictly
- *    suppressed.
- * 4. Downward Follow Tracking: ONLY permitted when a bottom surface remains actively open
- *    (e.g., expanded emoji keyboard contracts to standard keyboard, or accessory drawer
- *    collapses to compact state or keyboard).
+ * 1. Three Clear Ownership Boundaries:
+ *    - Physical Viewport & Insets: Owned by Compose WindowInsets.ime and WindowInsets.navigationBars.
+ *    - Presentation State: Owned by PresentationState state machine (Hidden, Entrance, Settled, Dismissal, Drawer, Handoff).
+ *    - Document Geometry & Scrolling: Owned by UnifiedCanvasLayout and ScribeScrollPolicy via actual measured viewport.
+ * 2. Shared Dimensions & Clearance:
+ *    - The editor must never reserve shortcut bar height while invisible.
+ *    - At zero visibility, bar occupies 0dp. At full visibility, bar occupies 36dp.
+ *    - Intermediate frames use matching dimensions.
+ * 3. Pure Writer Stationary Invariant:
+ *    - Total document scroll (scrollD + editor.offsetY) remains 100% stationary when keyboard is dismissed.
+ *    - Downward follow is strictly suppressed on dismissal.
  */
 object ScribeBottomSurfaceCoordinator {
 
+    const val SHORTCUT_BAR_HEIGHT_DP = 36f
     const val MIN_STANDARD_KEYBOARD_DP = 200f
     const val MAX_STANDARD_KEYBOARD_DP = 330f
     const val DEFAULT_KEYBOARD_DP = 280f
+
+    /**
+     * Authoritative presentation state machine for keyboard, shortcut bar, and accessory drawers.
+     * Controls presentation and visual coordination, completely decoupled from physical keyboard insets.
+     */
+    enum class PresentationState {
+        HIDDEN,
+        KEYBOARD_ENTRANCE,
+        KEYBOARD_SETTLED,
+        KEYBOARD_DISMISSAL,
+        ACCESSORY_DRAWER_OPEN,
+        DRAWER_TO_KEYBOARD_HANDOFF
+    }
+
+    /**
+     * Determines whether the shortcut bar should be visible based on presentation state.
+     */
+    fun isShortcutBarVisible(state: PresentationState, hasShortcuts: Boolean = true): Boolean {
+        if (!hasShortcuts) return false
+        return when (state) {
+            PresentationState.HIDDEN,
+            PresentationState.KEYBOARD_ENTRANCE -> false
+            PresentationState.KEYBOARD_SETTLED,
+            PresentationState.KEYBOARD_DISMISSAL,
+            PresentationState.ACCESSORY_DRAWER_OPEN,
+            PresentationState.DRAWER_TO_KEYBOARD_HANDOFF -> true
+        }
+    }
+
+    /**
+     * Computes the shared animated bottom clearance in dp for the shortcut bar.
+     * Guarantees the strict invariant: at 0 progress, bar occupies 0dp.
+     * At 1.0 progress, bar occupies full 36dp.
+     * The editor clearance and shortcut bar height use the exact same dimension.
+     */
+    fun calculateShortcutBarClearanceDp(progress: Float): Float {
+        return (SHORTCUT_BAR_HEIGHT_DP * progress.coerceIn(0f, 1f))
+    }
+
+    /**
+     * Computes the authoritative bottom padding to apply to the editor layout.
+     * Combines physical IME insets and accessory drawer height, accounting for
+     * the shared shortcut bar height.
+     */
+    fun calculateEditorBottomPaddingDp(
+        imeBottomDp: Float,
+        navBarBottomDp: Float,
+        drawerHeightDp: Float,
+        shortcutBarClearanceDp: Float
+    ): Float {
+        val baseObstruction = maxOf(imeBottomDp, navBarBottomDp + drawerHeightDp)
+        return baseObstruction + shortcutBarClearanceDp
+    }
+
+    /**
+     * Viewport cursor safety check according to actual measured geometry.
+     * Returns true if the cursor's screen-space bottom coordinate is within the safe viewport area.
+     */
+    fun isCursorSafeInViewport(
+        screenBottom: Float,
+        viewportHeight: Float,
+        breathingMarginPx: Float,
+        deadbandPx: Float = 0f
+    ): Boolean {
+        val safeBottomBoundary = (viewportHeight - breathingMarginPx).coerceAtLeast(0f)
+        return screenBottom <= (safeBottomBoundary + deadbandPx)
+    }
+
+    /**
+     * Computes the minimum necessary upward displacement to bring an unsafe cursor
+     * into the safe breathing zone. Returns 0f if cursor is already safe.
+     */
+    fun calculateRequiredUpwardDisplacement(
+        screenBottom: Float,
+        viewportHeight: Float,
+        breathingMarginPx: Float,
+        deadbandPx: Float = 0f
+    ): Float {
+        val safeBottomBoundary = (viewportHeight - breathingMarginPx).coerceAtLeast(0f)
+        if (screenBottom <= safeBottomBoundary + deadbandPx) {
+            return 0f
+        }
+        return (screenBottom - safeBottomBoundary).coerceAtLeast(0f)
+    }
+
+    /**
+     * Computes the retained scroll extent needed upon keyboard dismissal to preserve
+     * the stationary document position without downward bounds clamping.
+     */
+    fun calculateRetainedScrollExtent(
+        totalScroll: Int,
+        headerHeight: Int,
+        layoutHeight: Int,
+        expandedViewportHeight: Int
+    ): Int {
+        val naturalContentHeight = headerHeight + layoutHeight
+        val requiredBottomExtent = (totalScroll + expandedViewportHeight - naturalContentHeight).coerceAtLeast(0)
+        return requiredBottomExtent
+    }
 
     /**
      * Resolves the maximum upper bound for a standard text keyboard based on screen height.
@@ -53,16 +152,16 @@ object ScribeBottomSurfaceCoordinator {
     }
 
     /**
-     * Resolves the effective height of the bottom surface spacer (beneath the Shortcut Bar).
+     * Backwards-compatible resolver for bottom surface height during transitions.
      */
     fun resolveEffectiveBottomSurfaceHeight(
         isAccessoryDrawerActive: Boolean,
         drawerHeightDp: Float,
-        isAwaitingKeyboardOpen: Boolean,
-        isBarTransitionLatched: Boolean,
-        isKeyboardVisible: Boolean,
-        compactHeightDp: Float,
-        imeAboveNavDp: Float
+        isAwaitingKeyboardOpen: Boolean = false,
+        isBarTransitionLatched: Boolean = false,
+        isKeyboardVisible: Boolean = false,
+        compactHeightDp: Float = DEFAULT_KEYBOARD_DP,
+        imeAboveNavDp: Float = 0f
     ): Float {
         if (isAccessoryDrawerActive) {
             return drawerHeightDp
@@ -71,27 +170,23 @@ object ScribeBottomSurfaceCoordinator {
             return maxOf(compactHeightDp, imeAboveNavDp)
         }
         if (isKeyboardVisible) {
-            // Standard keyboard: locks at compactHeightDp to prevent 60fps layout thrashing.
-            // Emoji keyboard: expands smoothly to imeAboveNavDp when > compactHeightDp.
-            // Return to standard: drops immediately to compactHeightDp with ZERO delay or floating!
             return maxOf(compactHeightDp, imeAboveNavDp)
         }
         if (imeAboveNavDp > 10f) {
-            // Keyboard is dismissing: allows the visual shortcut bar to follow IME down
             return imeAboveNavDp
         }
         return 0f
     }
 
     /**
-     * Resolves whether the soft keyboard is currently in the process of dismissing.
+     * Backwards-compatible helper for keyboard dismissal state check.
      */
     fun isKeyboardDismissing(
         isKeyboardVisible: Boolean,
-        isAccessoryDrawerActive: Boolean,
-        isAwaitingKeyboardOpen: Boolean,
-        isBarTransitionLatched: Boolean,
-        imeAboveNavDp: Float
+        isAccessoryDrawerActive: Boolean = false,
+        isAwaitingKeyboardOpen: Boolean = false,
+        isBarTransitionLatched: Boolean = false,
+        imeAboveNavDp: Float = 0f
     ): Boolean {
         return !isKeyboardVisible &&
                 !isAccessoryDrawerActive &&
@@ -101,28 +196,19 @@ object ScribeBottomSurfaceCoordinator {
     }
 
     /**
-     * Determines whether the soft keyboard has fully settled into its resting position,
-     * signaling that the accessory shortcut bar may now be rendered smoothly.
+     * Backwards-compatible helper for keyboard settled state check.
      */
     fun isKeyboardSettled(
         isKeyboardVisible: Boolean,
-        isAwaitingKeyboardOpen: Boolean,
-        imeAboveNavDp: Float
+        isAwaitingKeyboardOpen: Boolean = false,
+        imeAboveNavDp: Float = 0f
     ): Boolean {
         return isKeyboardVisible && !isAwaitingKeyboardOpen && imeAboveNavDp > 100f
     }
 
     /**
      * Pure Writer Invariant Decision Function:
-     * Governs whether UnifiedCanvasLayout is permitted to pull the document downward on resize.
-     *
-     * @param isKeyboardDismissing Soft keyboard is actively dismissing to 0.
-     * @param isBottomSurfaceActive Compose reports an active bottom bar or drawer.
-     * @param isKeyboardVisible Soft keyboard is currently reported visible by WindowInsets.
-     * @param hasPhysicalBottomObstruction Viewport has remaining obstruction >= 140dp.
-     * @param isAtLastLine Cursor is on or near the last line of the document.
-     * @param hasActiveScroll Document has scroll offset > 0.
-     * @param temporaryDisplacement Recorded upward displacement caused by prior surface expansion.
+     * Governs whether downward follow is permitted on layout resize.
      */
     fun shouldFollowDownward(
         isKeyboardDismissing: Boolean,
@@ -134,25 +220,14 @@ object ScribeBottomSurfaceCoordinator {
         temporaryDisplacement: Float = 0f
     ): Boolean {
         // Pure Writer Invariant:
-        // When keyboard is dismissed or actively closing, the document MUST remain
-        // 100% completely stationary at the saved margin. NEVER pull down to the bottom of the screen!
+        // When keyboard is dismissed or actively closing, document MUST remain 100% stationary!
         if (isKeyboardDismissing) {
             return false
         }
-
-        // If no bottom surface remains active, document must stay stationary at saved margin.
         val isBottomActive = isBottomSurfaceActive || isKeyboardVisible || hasPhysicalBottomObstruction
-        if (!isBottomActive) {
+        if (!isBottomActive || !hasActiveScroll) {
             return false
         }
-
-        if (!hasActiveScroll) {
-            return false
-        }
-
-        // Downward follow is permitted when:
-        // 1. A prior expansion displaced the canvas upward (temporaryDisplacement > 0f) across ANY caret position, OR
-        // 2. The cursor is at the last line of the document following an actively contracting bottom surface.
         return (temporaryDisplacement > 0f) || isAtLastLine
     }
 }
