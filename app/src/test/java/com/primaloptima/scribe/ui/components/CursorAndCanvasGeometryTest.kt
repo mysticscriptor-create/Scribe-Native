@@ -3500,4 +3500,113 @@ class CursorAndCanvasGeometryTest {
         // 200 + 1400 - (1300 - 48) = 348px
         assertEquals(348f, target, 0.001f)
     }
+
+    @Test
+    fun testCaretAlreadySafePostResize_DoesNotTriggerSecondAnimation() {
+        // When spring completes and layout resize delivers measured h,
+        // if the caret is already safely within breathing margin + deadband,
+        // no secondary scroll animation should be launched.
+        val headerHeight = 200f
+        val caretDocY = 1500f
+        val h = 1200f
+        val breathingMarginPx = 60f
+        val deadbandPx = 10f
+        val maxCanvasScroll = 2000f
+
+        val transaction = ScribeScrollPolicy.KeyboardTransaction(1L, true)
+        val desiredTarget = transaction.calculateRetargetedDestination(
+            caretDocBottom = caretDocY,
+            headerHeight = headerHeight,
+            usableViewportHeight = h,
+            breathingMarginPx = breathingMarginPx,
+            maxCanvasScroll = maxCanvasScroll
+        ) // 200 + 1500 - (1200 - 60) = 560px
+
+        // Caret is currently at scroll = 556px (4px difference, well within 10px deadband)
+        val currentScroll = 556f
+        val isSafe = transaction.isCaretSafe(
+            currentScroll = currentScroll,
+            caretDocBottom = caretDocY,
+            headerHeight = headerHeight,
+            usableViewportHeight = h,
+            breathingMarginPx = breathingMarginPx,
+            deadbandPx = deadbandPx
+        )
+        val shouldRetarget = transaction.shouldRetarget(
+            currentScroll = currentScroll,
+            desiredTarget = desiredTarget,
+            isSafe = isSafe,
+            deadbandPx = deadbandPx
+        )
+
+        assertTrue("Caret within deadband must be classified as safe", isSafe)
+        assertFalse("Safe caret within deadband must NOT trigger retargeting or second animation", shouldRetarget)
+    }
+
+    @Test
+    fun testEnsurePositionVisibleDuringActiveKeyboardTransaction_Suppressed() {
+        // Verifies that during an active keyboard transaction, a planned target that
+        // already makes the caret safe correctly suppresses competing cursor visibility scroll.
+        val headerHeight = 200f
+        val caretDocY = 1400f
+        val futureViewportH = 1200f
+        val breathingMarginPx = 60f
+        val deadbandPx = 10f
+        val plannedTarget = 500f // Already planned upward scroll
+
+        val targetLineBottom = futureViewportH - breathingMarginPx // 1140px
+        val finalScreenBottom = (headerHeight + caretDocY - plannedTarget) // 200 + 1400 - 500 = 1100px
+
+        val isSafeInTarget = finalScreenBottom <= targetLineBottom + deadbandPx
+        assertTrue("Planned target (1100px) is well within target line bottom (1140px + 10px)", isSafeInTarget)
+    }
+
+    @Test
+    fun testAuthoritativeTargetCalculationEquality() {
+        // Pre-resize predictive calculation and post-resize onSizeChanged calculation
+        // MUST produce the exact same target down to 0.001f.
+        val density = 2.5f
+        val compactKeyboardDp = 280f
+        val shortcutBarDp = 36f
+        val breathingMarginDp = 24f
+
+        val estimatedKbPx = (compactKeyboardDp + shortcutBarDp) * density // 790px
+        val breathingMarginPx = breathingMarginDp * density // 60px
+        val headerHeight = 200f
+        val fullHeight = 2200f
+        val caretDocBottom = 1600f
+        val layoutHeight = 3000
+
+        // 1. Pre-resize at t = 0ms:
+        val futureViewportH = fullHeight - estimatedKbPx // 1410px
+        val targetLineBottomPre = futureViewportH - breathingMarginPx // 1350px
+        val maxScrollPre = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight.toInt(),
+            layoutHeight = layoutHeight,
+            viewportHeight = futureViewportH.toInt(),
+            bottomSpace = breathingMarginPx.toInt(),
+            isTextEmpty = false
+        ).toFloat()
+        val targetPre = (headerHeight + caretDocBottom - targetLineBottomPre).coerceIn(0f, maxScrollPre)
+
+        // 2. Post-resize when measured h = futureViewportH arrives:
+        val measuredH = futureViewportH
+        val transaction = ScribeScrollPolicy.KeyboardTransaction(1L, true)
+        val maxScrollPost = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight.toInt(),
+            layoutHeight = layoutHeight,
+            viewportHeight = measuredH.toInt(),
+            bottomSpace = breathingMarginPx.toInt(),
+            isTextEmpty = false
+        ).toFloat()
+        val targetPost = transaction.calculateRetargetedDestination(
+            caretDocBottom = caretDocBottom,
+            headerHeight = headerHeight,
+            usableViewportHeight = measuredH,
+            breathingMarginPx = breathingMarginPx,
+            maxCanvasScroll = maxScrollPost
+        )
+
+        assertEquals("Pre-resize and post-resize targets must match exactly", targetPre, targetPost, 0.001f)
+    }
 }

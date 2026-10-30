@@ -162,6 +162,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var onUnifiedScrollChanged: ((scrollD: Int, maxHeaderHeight: Int) -> Unit)? = null
     var onViewportScrollChanged: ((scrollD: Int, editorOffsetY: Int, totalLogicalScroll: Int) -> Unit)? = null
     var onUserTouchDown: (() -> Unit)? = null
+    var onKeyboardEntranceStarted: (() -> Unit)? = null
 
     fun notifyViewportScrollChanged() {
         onViewportScrollChanged?.invoke(scrollD, editor.offsetY, scrollD + editor.offsetY)
@@ -406,13 +407,18 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     val isKeyboardTransactionActive: Boolean
         get() = activeKeyboardTransaction?.isActive == true
 
-    fun beginKeyboardTransaction(): Long {
+    fun beginKeyboardTransaction(targetScroll: Float = -1f): Long {
         keyboardTransactionId++
         activeKeyboardTransaction = ScribeScrollPolicy.KeyboardTransaction(
             transactionId = keyboardTransactionId,
-            isActive = true
+            isActive = true,
+            targetScroll = targetScroll
         )
         return keyboardTransactionId
+    }
+
+    fun notifyKeyboardEntranceStarting() {
+        predictivelyGlideCursorAboveKeyboard()
     }
 
     fun endKeyboardTransaction() {
@@ -1128,7 +1134,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val headerRemaining = headerHeight - scrollD
         val screenBottom = headerRemaining + yOffset - editor.offsetY
 
-        val futureViewportHeight = if (isKeyboardOrDrawerActive) {
+        val futureViewportHeight = if (isKeyboardOrDrawerActive && height > 0) {
             height.toFloat()
         } else {
             (height - estimatedKeyboardHeightPx).coerceAtLeast(editor.rowHeight * 3f)
@@ -1138,43 +1144,48 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
         val targetLineBottom = futureViewportHeight - marginPx
 
-        if (screenBottom > (targetLineBottom + deadbandPx)) {
-            var deltaY = screenBottom - targetLineBottom
+        // Authoritative future max canvas scroll matching post-resize onSizeChanged exactly
+        val maxScrollFuture = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = layout.layoutHeight,
+            viewportHeight = futureViewportHeight.toInt(),
+            bottomSpace = marginPx,
+            isTextEmpty = editor.text.isEmpty()
+        ).toFloat()
 
-            // Pure Writer Persistent Bottom Space:
-            // Document bounds include generous bottom clearance so that lines near the end
-            // of the document can glide fluidly above the shortcut bar without restriction.
-            val bottomClearance = maxOf(marginPx.toFloat(), futureViewportHeight * 0.45f)
-            val totalContentHeight = (headerHeight + layout.layoutHeight + bottomClearance)
-            val maxScrollFuture = (totalContentHeight - futureViewportHeight).coerceAtLeast(0f)
-            val currentScroll = (scrollD + editor.offsetY).toFloat()
-            val maxAllowedDelta = (maxScrollFuture - currentScroll).coerceAtLeast(0f)
-            deltaY = minOf(deltaY, maxAllowedDelta)
+        val desiredTarget = (headerHeight + yOffset - targetLineBottom).coerceIn(0f, maxScrollFuture)
+        val currentScroll = (scrollD + editor.offsetY).toFloat()
+        val deltaY = desiredTarget - currentScroll
 
-            if (deltaY > ScribeScrollPolicy.DRAG_THRESHOLD_DP) {
-                beginKeyboardTransaction()
-                isExpansionTransitionActive = true
-                resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
-                val rReset = Runnable {
-                    isExpansionTransitionActive = false
-                    checkKeyboardTransactionSettled()
-                }
-                resetExpansionTransitionRunnable = rReset
-                postDelayed(rReset, 600L)
+        // Always initiate keyboard transaction and notify Compose to lock bottom spacer and show shortcut bar
+        beginKeyboardTransaction(desiredTarget)
+        onKeyboardEntranceStarted?.invoke()
 
-                isPredictiveGlideRunning = true
-                targetPredictedScrollTotal = currentScroll + deltaY
-                smoothScrollCanvasBy(
-                    dy = deltaY,
-                    reason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE,
-                    durationMs = ScribeScrollPolicy.DURATION_PREDICTIVE_GLIDE_MS,
-                    interpolator = FastOutSlowInInterpolator
-                ) {
-                    isPredictiveGlideRunning = false
-                    targetPredictedScrollTotal = -1f
-                    checkKeyboardTransactionSettled()
-                }
+        if (deltaY > ScribeScrollPolicy.DRAG_THRESHOLD_DP && screenBottom > (targetLineBottom + deadbandPx)) {
+            isExpansionTransitionActive = true
+            resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
+            val rReset = Runnable {
+                isExpansionTransitionActive = false
+                checkKeyboardTransactionSettled()
             }
+            resetExpansionTransitionRunnable = rReset
+            postDelayed(rReset, 600L)
+
+            isPredictiveGlideRunning = true
+            targetPredictedScrollTotal = desiredTarget
+            smoothScrollCanvasBy(
+                dy = deltaY,
+                reason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE,
+                durationMs = ScribeScrollPolicy.DURATION_PREDICTIVE_GLIDE_MS,
+                interpolator = FastOutSlowInInterpolator
+            ) {
+                isPredictiveGlideRunning = false
+                targetPredictedScrollTotal = -1f
+                checkKeyboardTransactionSettled()
+            }
+        } else {
+            // Already safe, no scroll needed; settle transaction once keyboard finishes opening
+            targetPredictedScrollTotal = currentScroll
         }
     }
 
@@ -1197,21 +1208,26 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val now = System.currentTimeMillis()
         if (!force && now - lastEnsureCursorTime < 16L) return
 
-        // If a predictive glide is currently in flight, check if its predicted target will already
-        // place the active caret safely above the target breathing line for the current measured viewport.
-        // If it will already be safe and force is false, allow it to continue without restarting.
-        // If it will NOT be safe, or force is true, proceed to calculate the authoritative upward movement.
-        if (!force && isPredictiveGlideRunning && targetPredictedScrollTotal > 0f) {
+        // If a keyboard transaction or predictive glide is currently in flight:
+        if (isKeyboardTransactionActive || (isPredictiveGlideRunning && targetPredictedScrollTotal > 0f)) {
             val density = resources.displayMetrics.density
             val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
             val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
-            val targetLineBottom = (height - marginPx).toFloat()
+            val targetViewportH = if (isKeyboardVisible || isBottomSurfaceActive) height.toFloat() else (height - estimatedKeyboardHeightPx).coerceAtLeast(editor.rowHeight * 3f)
+            val targetLineBottom = (targetViewportH - marginPx).toFloat()
             val cur = try { editor.cursor } catch (_: Throwable) { null }
             val lay = try { editor.layout } catch (_: Throwable) { null }
             if (cur != null && lay != null) {
                 val selGeom = getSelectionGeometry(cur, lay)
                 val bottomY = selGeom?.bottomDocY ?: getCharGeometry(lay, targetLine ?: cur.leftLine, targetCol ?: cur.leftColumn, editor.rowHeight.toFloat()).bottomDocY
-                val finalScreenBottom = (headerHeight + bottomY - targetPredictedScrollTotal)
+                val plannedTarget = if (targetPredictedScrollTotal > 0f) {
+                    targetPredictedScrollTotal
+                } else if (activeKeyboardTransaction?.targetScroll ?: -1f >= 0f) {
+                    activeKeyboardTransaction!!.targetScroll
+                } else {
+                    (scrollD + editor.offsetY).toFloat()
+                }
+                val finalScreenBottom = (headerHeight + bottomY - plannedTarget)
                 if (finalScreenBottom <= targetLineBottom + deadbandPx) {
                     return
                 }
@@ -1481,17 +1497,21 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                                 .coerceIn(0f, maxCanvasScroll.toFloat()))
 
                             if (isGlideRunning && scrollCoordinator.isAnimationActive) {
-                                startAuthoritativeScrollAnimation(
-                                    targetTotalScroll = desiredTarget,
-                                    reason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE,
-                                    forceRetarget = true,
-                                    onEnd = {
-                                        checkKeyboardTransactionSettled()
-                                    }
-                                )
-                            } else if (!isCurrentlySafe || wasTransactionActive) {
+                                val targetDelta = kotlin.math.abs(glideTarget - desiredTarget)
+                                if (targetDelta > deadbandPx) {
+                                    startAuthoritativeScrollAnimation(
+                                        targetTotalScroll = desiredTarget,
+                                        reason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE,
+                                        forceRetarget = true,
+                                        onEnd = {
+                                            checkKeyboardTransactionSettled()
+                                        }
+                                    )
+                                }
+                            } else if (!isCurrentlySafe) {
                                 val currentScroll = (scrollD + editor.offsetY).toFloat()
-                                if (kotlin.math.abs(desiredTarget - currentScroll) >= 1f) {
+                                val scrollDelta = kotlin.math.abs(desiredTarget - currentScroll)
+                                if (scrollDelta > deadbandPx) {
                                     startAuthoritativeScrollAnimation(
                                         targetTotalScroll = desiredTarget,
                                         reason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE,
@@ -1503,6 +1523,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                                 } else {
                                     checkKeyboardTransactionSettled()
                                 }
+                            } else {
+                                // Caret is already safe! Suppress any secondary jump.
+                                checkKeyboardTransactionSettled()
                             }
                         }
                     }

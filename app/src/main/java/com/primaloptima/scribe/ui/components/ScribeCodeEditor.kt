@@ -1731,6 +1731,10 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     override fun showSoftInput() {
         if (isInteractingWithImage) return
+        val pCanvas = parentCanvas
+        if (pCanvas != null && !pCanvas.isKeyboardVisible && !pCanvas.isBottomSurfaceActive) {
+            pCanvas.notifyKeyboardEntranceStarting()
+        }
         super.showSoftInput()
     }
 
@@ -1773,6 +1777,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 parentCanvas.post {
                     ensurePositionVisible(line, column, noAnimation)
                 }
+                return
+            }
+            if (parentCanvas.isKeyboardTransactionActive) {
+                // Active keyboard transaction is already handling viewport transition
+                invalidate()
                 return
             }
             parentCanvas.ensureCursorVisibleAboveKeyboard(

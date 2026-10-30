@@ -1576,6 +1576,19 @@ fun MainEditorScreen(
                                         soraEditorRef?.requestFocus()
                                         keyboardController?.show()
                                         try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+                                    } else if (!isKeyboardVisible) {
+                                        isAwaitingKeyboardOpen = true
+                                        isBarTransitionLatched = true
+                                        unifiedCanvasRef?.isBottomSurfaceActive = true
+                                        unifiedCanvasRef?.isKeyboardVisible = true
+                                    }
+                                }
+                                onKeyboardEntranceStarted = {
+                                    if (!isAwaitingKeyboardOpen && !isKeyboardVisible) {
+                                        isAwaitingKeyboardOpen = true
+                                        isBarTransitionLatched = true
+                                        unifiedCanvasRef?.isBottomSurfaceActive = true
+                                        unifiedCanvasRef?.isKeyboardVisible = true
                                     }
                                 }
                                 onScrollDelta = { dy ->
@@ -1815,6 +1828,14 @@ fun MainEditorScreen(
                             val shortcutBarDp = if (shortcuts.isNotEmpty()) 36.dp.value else 0f
                             val curEstimatedKbPx = (bottomSurfaceHeightDp + shortcutBarDp) * density
                             layout.estimatedKeyboardHeightPx = curEstimatedKbPx
+                            layout.onKeyboardEntranceStarted = {
+                                if (!isAwaitingKeyboardOpen && !isKeyboardVisible) {
+                                    isAwaitingKeyboardOpen = true
+                                    isBarTransitionLatched = true
+                                    unifiedCanvasRef?.isBottomSurfaceActive = true
+                                    unifiedCanvasRef?.isKeyboardVisible = true
+                                }
+                            }
                             val isDrawerOrTransitionActive = activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched
                             val curIsKeyboardVisible = isKeyboardVisible || isDrawerOrTransitionActive
                             val curIsBottomSurfaceActive = (isKeyboardVisible || isDrawerOrTransitionActive) && shortcuts.isNotEmpty()

@@ -350,7 +350,8 @@ object ScribeScrollPolicy {
     // ── Keyboard Viewport Transaction Model ──────────────────────────────────
     data class KeyboardTransaction(
         val transactionId: Long,
-        val isActive: Boolean
+        val isActive: Boolean,
+        val targetScroll: Float = -1f
     ) {
         fun calculateRetargetedDestination(
             caretDocBottom: Float,
@@ -362,6 +363,31 @@ object ScribeScrollPolicy {
             val targetLineBottom = (usableViewportHeight - breathingMarginPx).coerceAtLeast(0f)
             val desired = (headerHeight + caretDocBottom - targetLineBottom).coerceAtLeast(0f)
             return desired.coerceIn(0f, maxCanvasScroll)
+        }
+
+        fun isCaretSafe(
+            currentScroll: Float,
+            caretDocBottom: Float,
+            headerHeight: Float,
+            usableViewportHeight: Float,
+            breathingMarginPx: Float,
+            deadbandPx: Float
+        ): Boolean {
+            val targetLineBottom = (usableViewportHeight - breathingMarginPx).coerceAtLeast(0f)
+            val caretScreenBottom = headerHeight + caretDocBottom - currentScroll
+            return caretScreenBottom <= (targetLineBottom + deadbandPx)
+        }
+
+        fun shouldRetarget(
+            currentScroll: Float,
+            desiredTarget: Float,
+            isSafe: Boolean,
+            deadbandPx: Float
+        ): Boolean {
+            if (isSafe && kotlin.math.abs(desiredTarget - currentScroll) <= deadbandPx) {
+                return false
+            }
+            return kotlin.math.abs(desiredTarget - currentScroll) > 1f
         }
     }
 
