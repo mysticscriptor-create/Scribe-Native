@@ -50,6 +50,7 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.material3.ripple
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.TransformOrigin
@@ -352,9 +353,11 @@ fun MainEditorScreen(
             }
         }
     )
+    val isImeCurrentlyVisible = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+    var soraEditorRef by remember { mutableStateOf<com.primaloptima.scribe.ui.components.ScribeCodeEditor?>(null) }
     var presentationState by remember {
         mutableStateOf(
-            if (androidx.compose.foundation.layout.WindowInsets.isImeVisible)
+            if (isImeCurrentlyVisible)
                 com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED
             else
                 com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN
@@ -424,7 +427,6 @@ fun MainEditorScreen(
 
     // ── Sora CodeEditor & Unified Canvas state ──────────────────────────────────
     var unifiedCanvasRef   by remember { mutableStateOf<UnifiedCanvasLayout?>(null) }
-    var soraEditorRef      by remember { mutableStateOf<com.primaloptima.scribe.ui.components.ScribeCodeEditor?>(null) }
 
     val updateEditingTarget: (EditingTarget) -> Unit = { target ->
         lastActiveTarget = target
@@ -1239,7 +1241,8 @@ fun MainEditorScreen(
     val isKeyboardVisible = WindowInsets.isImeVisible
     val hazeState = LocalHazeState.current ?: dev.chrisbanes.haze.HazeState()
     val density = LocalDensity.current
-    val imeBottomDp = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    val imeInsets = WindowInsets.ime
+    val imeBottomDp = imeInsets.asPaddingValues().calculateBottomPadding()
     val docBottomNavInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val configuration = LocalConfiguration.current
 
@@ -1295,7 +1298,7 @@ fun MainEditorScreen(
 
         if (isKeyboardVisible) {
             if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
-                snapshotFlow { WindowInsets.ime.getBottom(density) }
+                snapshotFlow { imeInsets.getBottom(density) }
                     .debounce(100L)
                     .collect { settledPx ->
                         if (settledPx > 0) {
@@ -1305,7 +1308,7 @@ fun MainEditorScreen(
                     }
             } else if (presentationState != com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED) {
                 presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE
-                snapshotFlow { WindowInsets.ime.getBottom(density) }
+                snapshotFlow { imeInsets.getBottom(density) }
                     .debounce(100L)
                     .collect { settledPx ->
                         if (settledPx > 0) {
@@ -1317,7 +1320,7 @@ fun MainEditorScreen(
             if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED ||
                 presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE) {
                 presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_DISMISSAL
-                snapshotFlow { WindowInsets.ime.getBottom(density) }
+                snapshotFlow { imeInsets.getBottom(density) }
                     .filter { it == 0 }
                     .first()
                 presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN

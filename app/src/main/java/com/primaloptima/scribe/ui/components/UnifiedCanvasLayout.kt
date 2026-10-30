@@ -203,7 +203,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     var isPredictiveGlideRunning: Boolean = false
         private set
-        private set
 
     /**
      * Set to true strictly during text deletion on the last line of the document.
