@@ -101,6 +101,18 @@ object ScribeBottomSurfaceCoordinator {
     }
 
     /**
+     * Determines whether the soft keyboard has fully settled into its resting position,
+     * signaling that the accessory shortcut bar may now be rendered smoothly.
+     */
+    fun isKeyboardSettled(
+        isKeyboardVisible: Boolean,
+        isAwaitingKeyboardOpen: Boolean,
+        imeAboveNavDp: Float
+    ): Boolean {
+        return isKeyboardVisible && !isAwaitingKeyboardOpen && imeAboveNavDp > 100f
+    }
+
+    /**
      * Pure Writer Invariant Decision Function:
      * Governs whether UnifiedCanvasLayout is permitted to pull the document downward on resize.
      *

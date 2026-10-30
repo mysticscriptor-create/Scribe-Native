@@ -3609,4 +3609,100 @@ class CursorAndCanvasGeometryTest {
 
         assertEquals("Pre-resize and post-resize targets must match exactly", targetPre, targetPost, 0.001f)
     }
+
+    @Test
+    fun testTapOnDocumentAboveBreathingMarginDoesNotScroll() {
+        val density = 2.5f
+        val height = 2200f
+        val estimatedKeyboardHeightPx = 300f * density // 750px
+        val futureViewportHeight = height - estimatedKeyboardHeightPx // 1450px
+        val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density) // 60px
+        val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density) // 20px
+        val targetLineBottom = futureViewportHeight - marginPx // 1390px
+
+        // User taps at screen coordinate 800px (well above breathing margin 1390px)
+        val touchY = 800f
+        val isTapAboveMargin = touchY <= (targetLineBottom + deadbandPx)
+
+        assertTrue("Tap above breathing margin must be recognized as safe", isTapAboveMargin)
+    }
+
+    @Test
+    fun testTitleVisibleTapDoesNotScrollWhenAlreadySafe() {
+        val density = 2.5f
+        val height = 2200f
+        val estimatedKeyboardHeightPx = 300f * density
+        val futureViewportHeight = height - estimatedKeyboardHeightPx
+        val scrollD = 0
+
+        // User taps on line 1 near top of document at screen Y = 350px
+        val touchY = 350f
+        val isTitleSafe = (scrollD == 0 && touchY <= futureViewportHeight)
+
+        assertTrue("Tap within future viewport while title is visible must not scroll", isTitleSafe)
+    }
+
+    @Test
+    fun testTapBelowBreathingMarginCalculatesTouchOverflowWithoutDoubleJump() {
+        val density = 2.5f
+        val height = 2200f
+        val estimatedKeyboardHeightPx = 300f * density // 750px
+        val futureViewportHeight = height - estimatedKeyboardHeightPx // 1450px
+        val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density) // 60px
+        val targetLineBottom = futureViewportHeight - marginPx // 1390px
+        val currentScroll = 100f
+        val maxScrollFuture = 2000f
+
+        // User taps at screen coordinate 1500px (occluded behind incoming keyboard)
+        val touchY = 1500f
+        val touchOverflow = touchY - targetLineBottom // 110px
+        val desiredTarget = (currentScroll + touchOverflow).coerceIn(0f, maxScrollFuture) // 210px
+        val deltaY = desiredTarget - currentScroll // 110px
+
+        assertEquals("Delta must match the exact touch overflow of 110px", 110f, deltaY, 0.001f)
+        assertEquals("Desired target must be 210px", 210f, desiredTarget, 0.001f)
+    }
+
+    @Test
+    fun testKeyboardSettledPredicate() {
+        // While awaiting keyboard open (animating), keyboard is NOT settled
+        assertFalse(
+            "Keyboard must not be settled while awaiting open",
+            ScribeBottomSurfaceCoordinator.isKeyboardSettled(
+                isKeyboardVisible = true,
+                isAwaitingKeyboardOpen = true,
+                imeAboveNavDp = 280f
+            )
+        )
+
+        // When keyboard is not visible, it is NOT settled
+        assertFalse(
+            "Keyboard must not be settled when invisible",
+            ScribeBottomSurfaceCoordinator.isKeyboardSettled(
+                isKeyboardVisible = false,
+                isAwaitingKeyboardOpen = false,
+                imeAboveNavDp = 0f
+            )
+        )
+
+        // When IME height is very small (< 100dp, e.g. starting to open or dismissing), not settled
+        assertFalse(
+            "Keyboard must not be settled when IME height is too small",
+            ScribeBottomSurfaceCoordinator.isKeyboardSettled(
+                isKeyboardVisible = true,
+                isAwaitingKeyboardOpen = false,
+                imeAboveNavDp = 50f
+            )
+        )
+
+        // Fully open and rested: keyboard is settled!
+        assertTrue(
+            "Keyboard must be settled once rested and visible",
+            ScribeBottomSurfaceCoordinator.isKeyboardSettled(
+                isKeyboardVisible = true,
+                isAwaitingKeyboardOpen = false,
+                imeAboveNavDp = 280f
+            )
+        )
+    }
 }

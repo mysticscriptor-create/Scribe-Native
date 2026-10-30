@@ -1509,6 +1509,12 @@ fun MainEditorScreen(
                         isBarTransitionLatched = isBarTransitionLatched,
                         imeAboveNavDp = imeAboveNavDp.value
                     )
+                    val isKeyboardSettled = ScribeBottomSurfaceCoordinator.isKeyboardSettled(
+                        isKeyboardVisible = isKeyboardVisible,
+                        isAwaitingKeyboardOpen = isAwaitingKeyboardOpen,
+                        imeAboveNavDp = imeAboveNavDp.value
+                    )
+                    val isShortcutBarVisuallyVisible = (activeAccessoryDrawer != null || isKeyboardSettled) && shortcuts.isNotEmpty()
                     val isBarVisible = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || isAwaitingKeyboardOpen || isBarTransitionLatched) && shortcuts.isNotEmpty()
                     val docBottomPadding = if (!isBarVisible) {
                         docBottomNavInset
@@ -2148,8 +2154,27 @@ fun MainEditorScreen(
                                     .align(Alignment.BottomCenter)
                                     .navigationBarsPadding()
                             ) {
-
-                                Surface(
+                                AnimatedVisibility(
+                                    visible = isShortcutBarVisuallyVisible,
+                                    enter = fadeIn(
+                                        animationSpec = spring(
+                                            stiffness = Spring.StiffnessMediumLow,
+                                            dampingRatio = Spring.DampingRatioNoBouncy
+                                        )
+                                    ) + slideInVertically(
+                                        initialOffsetY = { it / 2 },
+                                        animationSpec = spring(
+                                            stiffness = Spring.StiffnessMediumLow,
+                                            dampingRatio = Spring.DampingRatioNoBouncy
+                                        )
+                                    ),
+                                    exit = fadeOut(animationSpec = tween(140)) +
+                                           slideOutVertically(
+                                               targetOffsetY = { it / 2 },
+                                               animationSpec = tween(140)
+                                           )
+                                ) {
+                                    Surface(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(shortcutBarHeight)
@@ -2603,6 +2628,7 @@ fun MainEditorScreen(
                                             }
                                         }
                                     }
+                                }
                                 }
 
                                 // ── Persistent Bottom Surface Container (Zero Unmounting) ──

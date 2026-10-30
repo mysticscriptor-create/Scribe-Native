@@ -401,6 +401,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     // ── Coordinated Keyboard Viewport Transaction ───────────────────────────
+    var lastTouchDownY: Float? = null
+        private set
+    var lastTouchDownTime: Long = 0L
+        private set
+
     private var activeKeyboardTransaction: ScribeScrollPolicy.KeyboardTransaction? = null
     private var keyboardTransactionId = 0L
 
@@ -1153,15 +1158,46 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             isTextEmpty = editor.text.isEmpty()
         ).toFloat()
 
-        val desiredTarget = (headerHeight + yOffset - targetLineBottom).coerceIn(0f, maxScrollFuture)
         val currentScroll = (scrollD + editor.offsetY).toFloat()
+
+        // Phase 1b: Check if the user initiated this via a recent tap on the canvas.
+        // If the tap location is already above the breathing margin / shortcut bar in the future viewport,
+        // or if the canvas is at the top (scrollD == 0) and the tap is within the future viewport,
+        // suppress any predictive glide and prevent false scroll-and-return bouncing.
+        val now = System.currentTimeMillis()
+        val recentTouchY = if (now - lastTouchDownTime < 500L) lastTouchDownY else null
+
+        if (targetLine == null && recentTouchY != null) {
+            val isTapAboveMargin = recentTouchY <= (targetLineBottom + deadbandPx)
+            val isTitleSafe = (scrollD == 0 && recentTouchY <= futureViewportHeight)
+            if (isTapAboveMargin || isTitleSafe) {
+                // Tapped position is already safe! Suppress glide completely.
+                beginKeyboardTransaction(currentScroll)
+                targetPredictedScrollTotal = currentScroll
+                onKeyboardEntranceStarted?.invoke()
+                return
+            }
+        }
+
+        val desiredTarget = if (targetLine == null && recentTouchY != null) {
+            val touchOverflow = recentTouchY - targetLineBottom
+            (currentScroll + touchOverflow).coerceIn(0f, maxScrollFuture)
+        } else {
+            (headerHeight + yOffset - targetLineBottom).coerceIn(0f, maxScrollFuture)
+        }
         val deltaY = desiredTarget - currentScroll
 
         // Always initiate keyboard transaction and notify Compose to lock bottom spacer and show shortcut bar
         beginKeyboardTransaction(desiredTarget)
         onKeyboardEntranceStarted?.invoke()
 
-        if (deltaY > ScribeScrollPolicy.DRAG_THRESHOLD_DP && screenBottom > (targetLineBottom + deadbandPx)) {
+        val isTargetOccluded = if (targetLine == null && recentTouchY != null) {
+            recentTouchY > (targetLineBottom + deadbandPx)
+        } else {
+            screenBottom > (targetLineBottom + deadbandPx)
+        }
+
+        if (deltaY > ScribeScrollPolicy.DRAG_THRESHOLD_DP && isTargetOccluded) {
             isExpansionTransitionActive = true
             resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
             val rReset = Runnable {
@@ -1825,6 +1861,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> {
                 isMultiTouchLatched = false
                 isUserTouching = true
+                lastTouchDownY = ev.y
+                lastTouchDownTime = System.currentTimeMillis()
                 onUserTouchDown?.invoke()
                 cancelCanvasAnimation()
                 invalidateCompensation()
