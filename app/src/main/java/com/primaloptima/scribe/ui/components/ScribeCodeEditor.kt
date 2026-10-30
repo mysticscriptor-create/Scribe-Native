@@ -1260,12 +1260,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     if (capturedEpoch != zoomTransactionEpoch || wasAwaitingSettlement || isZoomActiveOrSettling) {
                         return@post
                     }
-                    if (isLayoutBusy || isLayoutBusyState) {
+                    if (isLayoutComputing || isLayoutBusyState) {
                         return@post
                     }
                     val curLay = layout
-                    // Ensure Sora layout line count has caught up with document text line count before settling deletion
-                    if (curLay != null && (curLay.lineCount < text.lineCount || !isWordwrapReady())) {
+                    // Ensure Sora layout is non-null and wordwrap calculation is completely ready before settling deletion
+                    if (curLay == null || !isWordwrapReady()) {
                         return@post
                     }
                     checkAndTriggerReady()
