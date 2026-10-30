@@ -1265,7 +1265,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     }
                     val curLay = layout
                     // Ensure Sora layout line count has caught up with document text line count before settling deletion
-                    if (curLay != null && curLay.lineCount < text.lineCount) {
+                    if (curLay != null && (curLay.lineCount < text.lineCount || !isWordwrapReady())) {
                         return@post
                     }
                     checkAndTriggerReady()

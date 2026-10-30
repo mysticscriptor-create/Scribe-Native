@@ -285,9 +285,20 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             glideVelocity += accel * dtSec
             glidePosition += glideVelocity * dtSec
 
-            // Hard boundary invariant: tail-deletion glide must never cross the 24dp breathing margin
-            if (activeGlideReason == ScribeScrollPolicy.ScrollAnimationReason.DELETION_ANCHOR && isDeletionTailAnchored) {
-                val minSafeScroll = (headerHeight + (editor.layout?.layoutHeight ?: 0) + breathingMarginPx - height).coerceAtLeast(0f)
+            // Hard boundary invariant: deletion glide must never cross the 24dp breathing margin
+            if (activeGlideReason == ScribeScrollPolicy.ScrollAnimationReason.DELETION_ANCHOR) {
+                val minSafeScroll = if (isDeletionTailAnchored) {
+                    (headerHeight + (editor.layout?.layoutHeight ?: 0) + breathingMarginPx - height).coerceAtLeast(0f)
+                } else {
+                    val cur = try { editor.cursor } catch (_: Throwable) { null }
+                    val lay = editor.layout
+                    val caretDocY = if (cur != null && lay != null) {
+                        getCharGeometry(lay, cur.leftLine, cur.leftColumn, editor.rowHeight.toFloat()).bottomDocY
+                    } else {
+                        0f
+                    }
+                    (headerHeight + caretDocY + breathingMarginPx - height).coerceAtLeast(0f)
+                }
                 if (glidePosition < minSafeScroll) {
                     glidePosition = minSafeScroll
                     if (glideVelocity < 0f) glideVelocity = 0f
@@ -342,6 +353,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * do not scroll or chase inactive body cursor positions when editing titles.
      */
     var activeEditingTarget: EditingTarget = EditingTarget.NONE
+        set(value) {
+            field = value
+            if (value != EditingTarget.EDITOR_BODY) {
+                endKeyboardTransaction()
+            }
+        }
 
     fun recordExpansionDisplacement(dy: Float, line: Int, col: Int = 0, isSelected: Boolean = false) {
         if (dy > 0f && isExpansionTransitionActive) {
@@ -452,6 +469,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             0f
         }
         val caretScreenY = (headerHeight + caretDocY - currentScroll)
+        val endLine = if (cur?.isSelected == true) cur.rightLine else (cur?.leftLine ?: 0)
+        val affectsDocumentTail = endLine >= (editor.text.lineCount - 1)
         beginPreEditDeletionSnapshot(
             isSelection = cur?.isSelected == true,
             selectionStartLine = cur?.leftLine ?: 0,
@@ -461,7 +480,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             preEditScrollY = currentScroll,
             preEditCaretScreenY = caretScreenY,
             wasAtTail = wasAtTail,
-            affectsDocumentTail = wasAtTail
+            affectsDocumentTail = affectsDocumentTail
         )
     }
 
@@ -1259,7 +1278,15 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             // Authoritative positioning supersedes predictive glide state
             isPredictiveGlideRunning = false
             targetPredictedScrollTotal = -1f
-            if (smooth) {
+            if (isKeyboardTransactionActive || (isGlideRunning && scrollCoordinator.isAnimationActive)) {
+                val currentScroll = (scrollD + editor.offsetY).toFloat()
+                val desiredTarget = (currentScroll + resolution.deltaY).coerceIn(0f, maxCanvasScroll.toFloat())
+                startAuthoritativeScrollAnimation(
+                    targetTotalScroll = desiredTarget,
+                    reason = if (isKeyboardTransactionActive) ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE else ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+                    forceRetarget = true
+                )
+            } else if (smooth) {
                 smoothScrollCanvasBy(
                     dy = resolution.deltaY,
                     reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,

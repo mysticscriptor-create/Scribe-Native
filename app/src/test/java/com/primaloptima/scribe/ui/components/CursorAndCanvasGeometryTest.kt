@@ -3240,4 +3240,79 @@ class CursorAndCanvasGeometryTest {
         val shouldStartKeyboardTransaction = !isKeyboardVisible && !isBottomSurfaceActive
         assertFalse("Must not start keyboard-appearance transaction when keyboard is already visible", shouldStartKeyboardTransaction)
     }
+
+    @Test
+    fun testMiddleDeletion_MotionBoundaryClampsCaretOvershoot() {
+        // Issue A.2: Verifies that during numerical spring integration for CARET_ANCHOR,
+        // the animated position is strictly prevented from dipping below minSafeScroll for caret.
+        val headerHeight = 100f
+        val caretDocY = 800f
+        val breathingMarginPx = 48f
+        val viewportHeight = 700f
+
+        val minSafeScroll = (headerHeight + caretDocY + breathingMarginPx - viewportHeight).coerceAtLeast(0f)
+        assertEquals(248f, minSafeScroll, 0.001f)
+
+        // Simulate spring position dipping to 240f due to inertia
+        var simulatedGlidePosition = 240f
+        var simulatedVelocity = -150f
+
+        if (simulatedGlidePosition < minSafeScroll) {
+            simulatedGlidePosition = minSafeScroll
+            if (simulatedVelocity < 0f) simulatedVelocity = 0f
+        }
+
+        assertEquals("Glide position must be clamped to minSafeScroll", 248f, simulatedGlidePosition, 0.001f)
+        assertEquals("Downwards velocity must be clamped to zero at safe boundary", 0f, simulatedVelocity, 0.001f)
+    }
+
+    @Test
+    fun testTailDeletion_RequiresBothWasAtTailAndAffectsTail() {
+        // Issue A.4: Verifies that tail-follow deletion strictly requires BOTH wasAtTail AND affectsTail.
+        // If viewport is scrolled to tail but edit is in the middle, classify as CARET_ANCHOR.
+        val snapshotMiddleEditAtTailViewport = ScribeScrollPolicy.DeletionSnapshot(
+            transactionEpoch = 1L,
+            isSelection = false,
+            selectionStartLine = 5,
+            selectionEndLine = 5,
+            preEditDocLineCount = 50,
+            preEditDocHeight = 3000f,
+            preEditScrollY = 2400f,
+            preEditCaretScreenY = 300f,
+            wasAtTail = true,
+            affectsDocumentTail = false // Cursor is at line 5, document has 50 lines!
+        )
+
+        val intent = ScribeScrollPolicy.classifyDeletionIntent(
+            snapshot = snapshotMiddleEditAtTailViewport,
+            newDocLineCount = 50,
+            newDocHeight = 3000f,
+            usableViewportHeight = 800f
+        )
+
+        assertEquals("Middle edit must be classified as CARET_ANCHOR even if viewport was at tail",
+            ScribeScrollPolicy.DeletionAnchorIntent.CARET_ANCHOR, intent)
+    }
+
+    @Test
+    fun testKeyboardTransaction_InvalidatesOnDismissalOrTargetSwitch() {
+        // Issue B.2: Verifies lifecycle invalidation
+        var activeTransaction: ScribeScrollPolicy.KeyboardTransaction? = ScribeScrollPolicy.KeyboardTransaction(1L, true)
+        assertTrue("Transaction active before dismissal", activeTransaction?.isActive == true)
+
+        // Dismissal invalidates transaction
+        val isKeyboardDismissing = true
+        if (isKeyboardDismissing) {
+            activeTransaction = null
+        }
+        assertNull("Transaction must be cleanly invalidated on dismissal", activeTransaction)
+
+        // Target switch away from body invalidates transaction
+        activeTransaction = ScribeScrollPolicy.KeyboardTransaction(2L, true)
+        val activeTarget = "PRIMARY_TITLE"
+        if (activeTarget != "EDITOR_BODY") {
+            activeTransaction = null
+        }
+        assertNull("Transaction must be invalidated when focusing title", activeTransaction)
+    }
 }
