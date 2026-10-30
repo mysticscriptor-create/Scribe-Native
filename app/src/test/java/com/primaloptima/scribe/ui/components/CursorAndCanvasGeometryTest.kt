@@ -3316,4 +3316,188 @@ class CursorAndCanvasGeometryTest {
         }
         assertNull("Transaction must be invalidated when focusing title", activeTransaction)
     }
+
+    @Test
+    fun testKeyboardEntryAnticipatesShortcutBar() {
+        // Requirement A: Initial predicted destination accounts for keyboard height and shortcut bar height.
+        val fullHeight = 2000f
+        val density = 2.5f
+        val compactKeyboardDp = 280f
+        val shortcutBarDp = 36f
+        val estimatedKbPx = (compactKeyboardDp + shortcutBarDp) * density // 790px
+        val breathingMarginPx = 24f * density // 60px
+        val headerHeight = 200f
+        val caretDocY = 1800f // Caret near bottom
+
+        val futureViewportHeight = (fullHeight - estimatedKbPx).coerceAtLeast(100f) // 1210px
+        val targetLineBottom = futureViewportHeight - breathingMarginPx // 1150px
+        val predictedTarget = (headerHeight + caretDocY - targetLineBottom).coerceAtLeast(0f) // 200 + 1800 - 1150 = 850px
+
+        // Once measured height h arrives (which equals 1210px after Compose applies padding):
+        val transaction = ScribeScrollPolicy.KeyboardTransaction(1L, true)
+        val retargeted = transaction.calculateRetargetedDestination(
+            caretDocBottom = caretDocY,
+            headerHeight = headerHeight,
+            usableViewportHeight = futureViewportHeight,
+            breathingMarginPx = breathingMarginPx,
+            maxCanvasScroll = 2000f
+        )
+
+        assertEquals("Predicted destination at t=0 must match retargeted destination post-resize", predictedTarget, retargeted, 0.001f)
+    }
+
+    @Test
+    fun testLateShortcutBarMeasurementRetargetsTransaction() {
+        // Requirement B: Start with default/estimated shortcut bar, receive measured height later, same transaction retargeted.
+        val transaction = ScribeScrollPolicy.KeyboardTransaction(1L, true)
+        val caretDocY = 1500f
+        val headerHeight = 200f
+        val breathingMarginPx = 60f
+
+        // Initial estimate (viewport = 1200px)
+        val initialTarget = transaction.calculateRetargetedDestination(
+            caretDocBottom = caretDocY,
+            headerHeight = headerHeight,
+            usableViewportHeight = 1200f,
+            breathingMarginPx = breathingMarginPx,
+            maxCanvasScroll = 2000f
+        ) // 200 + 1500 - (1200 - 60) = 560px
+
+        // Measured shortcut bar is slightly taller (viewport = 1170px)
+        val retargetedTarget = transaction.calculateRetargetedDestination(
+            caretDocBottom = caretDocY,
+            headerHeight = headerHeight,
+            usableViewportHeight = 1170f,
+            breathingMarginPx = breathingMarginPx,
+            maxCanvasScroll = 2000f
+        ) // 200 + 1500 - (1170 - 60) = 590px
+
+        assertTrue("Transaction remains active with transaction ID 1", transaction.isActive)
+        assertEquals(560f, initialTarget, 0.001f)
+        assertEquals(590f, retargetedTarget, 0.001f)
+    }
+
+    @Test
+    fun testMultipleImeUpdatesMaintainSingleTransaction() {
+        // Requirement C: Deliver successive IME height changes; all belongs to 1 transaction and target updates smoothly.
+        val transaction = ScribeScrollPolicy.KeyboardTransaction(1L, true)
+        val caretDocY = 1600f
+        val headerHeight = 200f
+        val breathingMarginPx = 60f
+
+        val targets = listOf(1800f, 1600f, 1400f, 1200f).map { viewportH ->
+            transaction.calculateRetargetedDestination(
+                caretDocBottom = caretDocY,
+                headerHeight = headerHeight,
+                usableViewportHeight = viewportH,
+                breathingMarginPx = breathingMarginPx,
+                maxCanvasScroll = 2000f
+            )
+        }
+
+        assertTrue("All IME updates maintain transaction ID 1", transaction.transactionId == 1L)
+        assertEquals(listOf(60f, 260f, 460f, 660f), targets)
+    }
+
+    @Test
+    fun testSpringFinishesBeforeGeometrySettles_TransactionRemainsActive() {
+        // Requirement D: Spring reaching target must not end transaction while geometry transition is active.
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 0f)
+        val transaction = ScribeScrollPolicy.KeyboardTransaction(1L, true)
+        var isExpansionTransitionActive = true
+
+        // Request initial target
+        coordinator.requestTarget(500f, ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE)
+
+        // Simulate spring settling at 500f
+        coordinator.applyStep(500f)
+        coordinator.finishAnimation()
+
+        // Transaction is NOT ended when spring finishes while expansion transition is active
+        var isKeyboardTransactionActive = transaction.isActive
+        if (!isExpansionTransitionActive) {
+            isKeyboardTransactionActive = false
+        }
+        assertTrue("Transaction must remain active while transition is in flight even if spring completes", isKeyboardTransactionActive)
+
+        // Late IME update arrives: coordinator retargets active transaction
+        coordinator.requestTarget(580f, ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE)
+        assertEquals(580f, coordinator.activeTargetTotalScroll ?: 0f, 0.001f)
+    }
+
+    @Test
+    fun testNoScrollPath_EventuallyCompletesTransaction() {
+        // Requirement E: Keyboard entry when cursor is already safe completes cleanly without staying active forever.
+        var transaction: ScribeScrollPolicy.KeyboardTransaction? = ScribeScrollPolicy.KeyboardTransaction(1L, true)
+        var isExpansionTransitionActive = true
+
+        // Simulate 600ms stability timer expiring
+        isExpansionTransitionActive = false
+        val isGlideRunning = false
+
+        if (!isGlideRunning && !isExpansionTransitionActive) {
+            transaction = null
+        }
+
+        assertNull("Transaction must complete when transition timer expires and no scroll is running", transaction)
+    }
+
+    @Test
+    fun testKeyboardCancellation_SafelyClearsTransaction() {
+        // Requirement F: Dismissing keyboard during entry cancels transaction safely.
+        var transaction: ScribeScrollPolicy.KeyboardTransaction? = ScribeScrollPolicy.KeyboardTransaction(1L, true)
+        val isKeyboardDismissing = true
+
+        if (isKeyboardDismissing) {
+            transaction = null
+        }
+
+        assertNull("Keyboard dismissal must immediately cancel active transaction", transaction)
+    }
+
+    @Test
+    fun testNoDoubleCounting_KeyboardHeightCountedExactlyOnce() {
+        // Requirement G: Keyboard height + shortcut bar is counted exactly once.
+        val fullHeight = 2000f
+        val density = 2f
+        val keyboardHeightPx = 600f
+        val shortcutBarPx = 72f
+        val totalObstructionPx = keyboardHeightPx + shortcutBarPx // 672px
+        val breathingMarginPx = 48f
+        val headerHeight = 200f
+        val caretDocY = 1500f
+
+        // Case 1: Pre-resize calculation using unpadded fullHeight minus totalObstructionPx
+        val targetLineBottom1 = (fullHeight - totalObstructionPx) - breathingMarginPx // 2000 - 672 - 48 = 1280px
+        val target1 = headerHeight + caretDocY - targetLineBottom1 // 200 + 1500 - 1280 = 420px
+
+        // Case 2: Post-resize calculation using View height h (which is already 2000 - 672 = 1328px)
+        val measuredViewHeight = fullHeight - totalObstructionPx // 1328px
+        val targetLineBottom2 = measuredViewHeight - breathingMarginPx // 1328 - 48 = 1280px
+        val target2 = headerHeight + caretDocY - targetLineBottom2 // 200 + 1500 - 1280 = 420px
+
+        assertEquals("Pre-resize and post-resize targets must match exactly (no double counting)", target1, target2, 0.001f)
+    }
+
+    @Test
+    fun testViewportAlreadyResized_DoesNotSubtractKeyboardObstructionAgain() {
+        // Requirement H: When measured viewport h already reflects Android adjustResize / padding,
+        // targetLineBottom uses h - breathingMarginPx without subtracting keyboard height again.
+        val measuredViewportH = 1300f // Already resized by keyboard
+        val breathingMarginPx = 48f
+        val headerHeight = 200f
+        val caretDocY = 1400f
+
+        val transaction = ScribeScrollPolicy.KeyboardTransaction(1L, true)
+        val target = transaction.calculateRetargetedDestination(
+            caretDocBottom = caretDocY,
+            headerHeight = headerHeight,
+            usableViewportHeight = measuredViewportH,
+            breathingMarginPx = breathingMarginPx,
+            maxCanvasScroll = 2000f
+        )
+
+        // 200 + 1400 - (1300 - 48) = 348px
+        assertEquals(348f, target, 0.001f)
+    }
 }

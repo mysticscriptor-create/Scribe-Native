@@ -419,6 +419,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         activeKeyboardTransaction = null
     }
 
+    fun checkKeyboardTransactionSettled() {
+        if (isKeyboardTransactionActive && !isGlideRunning && !isExpansionTransitionActive) {
+            endKeyboardTransaction()
+        }
+    }
+
     // ── Coordinated Deletion Viewport Transaction ─────────────────────────────
     private var activeDeletionSnapshot: ScribeScrollPolicy.DeletionSnapshot? = null
     private var deletionTransactionGeneration: Long = 0L
@@ -1105,8 +1111,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         ) {
             return
         }
-        val isKeyboardOrDrawerActive = isKeyboardVisible || (height <= resources.displayMetrics.heightPixels * 0.65f)
-        if (isKeyboardOrDrawerActive) {
+        val isKeyboardOrDrawerActive = isKeyboardVisible || isBottomSurfaceActive || isKeyboardTransactionActive
+        if (isKeyboardOrDrawerActive && !isKeyboardTransactionActive) {
             ensureCursorVisibleAboveKeyboard(targetLine = targetLine, targetCol = targetCol, smooth = true)
             return
         }
@@ -1147,6 +1153,15 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
             if (deltaY > ScribeScrollPolicy.DRAG_THRESHOLD_DP) {
                 beginKeyboardTransaction()
+                isExpansionTransitionActive = true
+                resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
+                val rReset = Runnable {
+                    isExpansionTransitionActive = false
+                    checkKeyboardTransactionSettled()
+                }
+                resetExpansionTransitionRunnable = rReset
+                postDelayed(rReset, 600L)
+
                 isPredictiveGlideRunning = true
                 targetPredictedScrollTotal = currentScroll + deltaY
                 smoothScrollCanvasBy(
@@ -1157,6 +1172,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 ) {
                     isPredictiveGlideRunning = false
                     targetPredictedScrollTotal = -1f
+                    checkKeyboardTransactionSettled()
                 }
             }
         }
@@ -1408,7 +1424,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 isExpansionTransitionActive = true
                 isKeyboardDismissing = false // Opening/expanding: clear any stale dismissal flag
                 resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
-                val rReset = Runnable { isExpansionTransitionActive = false }
+                val rReset = Runnable {
+                    isExpansionTransitionActive = false
+                    checkKeyboardTransactionSettled()
+                }
                 resetExpansionTransitionRunnable = rReset
                 postDelayed(rReset, 600L)
                 val curC = try { editor.cursor } catch (_: Throwable) { null }
@@ -1462,33 +1481,27 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                                 .coerceIn(0f, maxCanvasScroll.toFloat()))
 
                             if (isGlideRunning && scrollCoordinator.isAnimationActive) {
-                                val currentGen = keyboardTransactionId
                                 startAuthoritativeScrollAnimation(
                                     targetTotalScroll = desiredTarget,
                                     reason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE,
                                     forceRetarget = true,
                                     onEnd = {
-                                        if (keyboardTransactionId == currentGen) {
-                                            endKeyboardTransaction()
-                                        }
+                                        checkKeyboardTransactionSettled()
                                     }
                                 )
                             } else if (!isCurrentlySafe || wasTransactionActive) {
                                 val currentScroll = (scrollD + editor.offsetY).toFloat()
                                 if (kotlin.math.abs(desiredTarget - currentScroll) >= 1f) {
-                                    val currentGen = keyboardTransactionId
                                     startAuthoritativeScrollAnimation(
                                         targetTotalScroll = desiredTarget,
                                         reason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE,
                                         durationMs = ScribeScrollPolicy.DURATION_PREDICTIVE_GLIDE_MS,
                                         onEnd = {
-                                            if (keyboardTransactionId == currentGen) {
-                                                endKeyboardTransaction()
-                                            }
+                                            checkKeyboardTransactionSettled()
                                         }
                                     )
                                 } else {
-                                    endKeyboardTransaction()
+                                    checkKeyboardTransactionSettled()
                                 }
                             }
                         }
