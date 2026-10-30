@@ -7,7 +7,7 @@ package com.primaloptima.scribe.ui.components
  * Architecture Principles:
  * 1. Three Clear Ownership Boundaries:
  *    - Physical Viewport & Insets: Owned by Compose WindowInsets.ime and WindowInsets.navigationBars.
- *    - Presentation State: Owned by PresentationState state machine (Hidden, Entrance, Settled, Dismissal, Drawer, Handoff).
+ *    - Presentation State: Owned by the authoritative PresentationState reducer (Hidden, Entrance, Settled, Dismissal, Drawer, Handoff).
  *    - Document Geometry & Scrolling: Owned by UnifiedCanvasLayout and ScribeScrollPolicy via actual measured viewport.
  * 2. Shared Dimensions & Clearance:
  *    - The editor must never reserve shortcut bar height while invisible.
@@ -15,7 +15,7 @@ package com.primaloptima.scribe.ui.components
  *    - Intermediate frames use matching dimensions.
  * 3. Pure Writer Stationary Invariant:
  *    - Total document scroll (scrollD + editor.offsetY) remains 100% stationary when keyboard is dismissed.
- *    - Downward follow is strictly suppressed on dismissal.
+ *    - Viewport-owned safety animations are cleanly cancelled on dismissal without affecting user scrolls or deletion anchors.
  */
 object ScribeBottomSurfaceCoordinator {
 
@@ -35,6 +35,176 @@ object ScribeBottomSurfaceCoordinator {
         KEYBOARD_DISMISSAL,
         ACCESSORY_DRAWER_OPEN,
         DRAWER_TO_KEYBOARD_HANDOFF
+    }
+
+    /**
+     * Authoritative event definitions driving bottom-surface presentation transitions.
+     */
+    sealed interface PresentationEvent {
+        data class ImeTargetChanged(val targetBottomPx: Int, val currentBottomPx: Int) : PresentationEvent
+        data class ImeAnimationProgress(val currentBottomPx: Int, val targetBottomPx: Int) : PresentationEvent
+        data object ImeSettledAtTarget : PresentationEvent
+        data object ImeDismissalStarted : PresentationEvent
+        data object ImeDismissalFinished : PresentationEvent
+        data class DrawerOpened(val mode: String) : PresentationEvent
+        data object DrawerClosed : PresentationEvent
+        data class DrawerSwitched(val mode: String) : PresentationEvent
+        data class DrawerToKeyboardHandoffStarted(val capturedDrawerHeightDp: Float) : PresentationEvent
+        data object HandoffCompleted : PresentationEvent
+        data object HandoffFailed : PresentationEvent
+        data object ShortcutsConfigurationChanged : PresentationEvent
+        data class ScreenRestored(
+            val isImeVisible: Boolean,
+            val currentImeBottomPx: Int,
+            val targetImeBottomPx: Int,
+            val hasActiveDrawer: Boolean
+        ) : PresentationEvent
+    }
+
+    /**
+     * Authoritative pure transition reducer governing the bottom surface presentation lifecycle.
+     */
+    fun reduce(currentState: PresentationState, event: PresentationEvent): PresentationState {
+        return when (event) {
+            is PresentationEvent.DrawerOpened -> PresentationState.ACCESSORY_DRAWER_OPEN
+            is PresentationEvent.DrawerClosed -> {
+                if (currentState == PresentationState.ACCESSORY_DRAWER_OPEN ||
+                    currentState == PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
+                    PresentationState.HIDDEN
+                } else {
+                    currentState
+                }
+            }
+            is PresentationEvent.DrawerSwitched -> {
+                PresentationState.ACCESSORY_DRAWER_OPEN
+            }
+            is PresentationEvent.DrawerToKeyboardHandoffStarted -> {
+                if (currentState == PresentationState.ACCESSORY_DRAWER_OPEN) {
+                    PresentationState.DRAWER_TO_KEYBOARD_HANDOFF
+                } else {
+                    currentState
+                }
+            }
+            is PresentationEvent.HandoffCompleted -> {
+                if (currentState == PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
+                    PresentationState.KEYBOARD_SETTLED
+                } else {
+                    currentState
+                }
+            }
+            is PresentationEvent.HandoffFailed -> {
+                if (currentState == PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
+                    PresentationState.HIDDEN
+                } else {
+                    currentState
+                }
+            }
+            is PresentationEvent.ImeSettledAtTarget -> {
+                if (currentState == PresentationState.KEYBOARD_ENTRANCE ||
+                    currentState == PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
+                    PresentationState.KEYBOARD_SETTLED
+                } else {
+                    currentState
+                }
+            }
+            is PresentationEvent.ImeDismissalStarted -> {
+                if (currentState == PresentationState.KEYBOARD_SETTLED ||
+                    currentState == PresentationState.KEYBOARD_ENTRANCE ||
+                    currentState == PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
+                    PresentationState.KEYBOARD_DISMISSAL
+                } else {
+                    currentState
+                }
+            }
+            is PresentationEvent.ImeDismissalFinished -> {
+                if (currentState == PresentationState.KEYBOARD_DISMISSAL ||
+                    currentState == PresentationState.KEYBOARD_ENTRANCE ||
+                    currentState == PresentationState.KEYBOARD_SETTLED) {
+                    PresentationState.HIDDEN
+                } else {
+                    currentState
+                }
+            }
+            is PresentationEvent.ImeTargetChanged -> {
+                if (event.targetBottomPx > 0) {
+                    when (currentState) {
+                        PresentationState.HIDDEN,
+                        PresentationState.KEYBOARD_DISMISSAL -> {
+                            if (event.currentBottomPx >= event.targetBottomPx) {
+                                PresentationState.KEYBOARD_SETTLED
+                            } else {
+                                PresentationState.KEYBOARD_ENTRANCE
+                            }
+                        }
+                        PresentationState.DRAWER_TO_KEYBOARD_HANDOFF -> {
+                            if (event.currentBottomPx >= event.targetBottomPx) {
+                                PresentationState.KEYBOARD_SETTLED
+                            } else {
+                                currentState
+                            }
+                        }
+                        PresentationState.KEYBOARD_ENTRANCE -> {
+                            if (event.currentBottomPx >= event.targetBottomPx) {
+                                PresentationState.KEYBOARD_SETTLED
+                            } else {
+                                currentState
+                            }
+                        }
+                        else -> currentState
+                    }
+                } else {
+                    // targetBottomPx == 0 (dismissal requested)
+                    when (currentState) {
+                        PresentationState.KEYBOARD_SETTLED,
+                        PresentationState.KEYBOARD_ENTRANCE -> {
+                            if (event.currentBottomPx <= 0) {
+                                PresentationState.HIDDEN
+                            } else {
+                                PresentationState.KEYBOARD_DISMISSAL
+                            }
+                        }
+                        PresentationState.DRAWER_TO_KEYBOARD_HANDOFF -> {
+                            PresentationState.HIDDEN
+                        }
+                        else -> currentState
+                    }
+                }
+            }
+            is PresentationEvent.ImeAnimationProgress -> {
+                when (currentState) {
+                    PresentationState.KEYBOARD_ENTRANCE,
+                    PresentationState.DRAWER_TO_KEYBOARD_HANDOFF -> {
+                        if (event.targetBottomPx > 0 && event.currentBottomPx >= event.targetBottomPx) {
+                            PresentationState.KEYBOARD_SETTLED
+                        } else {
+                            currentState
+                        }
+                    }
+                    PresentationState.KEYBOARD_DISMISSAL -> {
+                        if (event.currentBottomPx <= 0) {
+                            PresentationState.HIDDEN
+                        } else {
+                            currentState
+                        }
+                    }
+                    else -> currentState
+                }
+            }
+            is PresentationEvent.ShortcutsConfigurationChanged -> {
+                currentState
+            }
+            is PresentationEvent.ScreenRestored -> {
+                if (event.hasActiveDrawer) {
+                    PresentationState.ACCESSORY_DRAWER_OPEN
+                } else if (event.isImeVisible && event.targetImeBottomPx > 0 && event.currentImeBottomPx >= event.targetImeBottomPx) {
+                    PresentationState.KEYBOARD_SETTLED
+                } else if (event.isImeVisible || event.targetImeBottomPx > 0) {
+                    PresentationState.KEYBOARD_ENTRANCE
+                } else {
+                    PresentationState.HIDDEN
+                }
+            }
+        }
     }
 
     /**
@@ -60,6 +230,19 @@ object ScribeBottomSurfaceCoordinator {
      */
     fun calculateShortcutBarClearanceDp(progress: Float): Float {
         return (SHORTCUT_BAR_HEIGHT_DP * progress.coerceIn(0f, 1f))
+    }
+
+    /**
+     * Authoritative calculation for the complete three-part retained bottom clearance:
+     * actual IME obstruction above navigation baseline + actual shortcut bar height + breathing margin.
+     * Used exclusively for virtual document scroll clearance (never as visible padding).
+     */
+    fun calculateRetainedBottomScrollClearancePx(
+        actualObstructionAboveNavPx: Float,
+        shortcutBarHeightPx: Float,
+        breathingMarginPx: Float
+    ): Float {
+        return (actualObstructionAboveNavPx.coerceAtLeast(0f) + shortcutBarHeightPx.coerceAtLeast(0f) + breathingMarginPx.coerceAtLeast(0f))
     }
 
     /**
@@ -149,85 +332,5 @@ object ScribeBottomSurfaceCoordinator {
     ): Boolean {
         if (!isValidStandardKeyboardHeight(settledHeightDp, screenHeightDp)) return false
         return kotlin.math.abs(settledHeightDp - currentBaselineDp) > 2f
-    }
-
-    /**
-     * Backwards-compatible resolver for bottom surface height during transitions.
-     */
-    fun resolveEffectiveBottomSurfaceHeight(
-        isAccessoryDrawerActive: Boolean,
-        drawerHeightDp: Float,
-        isAwaitingKeyboardOpen: Boolean = false,
-        isBarTransitionLatched: Boolean = false,
-        isKeyboardVisible: Boolean = false,
-        compactHeightDp: Float = DEFAULT_KEYBOARD_DP,
-        imeAboveNavDp: Float = 0f
-    ): Float {
-        if (isAccessoryDrawerActive) {
-            return drawerHeightDp
-        }
-        if (isAwaitingKeyboardOpen || isBarTransitionLatched) {
-            return maxOf(compactHeightDp, imeAboveNavDp)
-        }
-        if (isKeyboardVisible) {
-            return maxOf(compactHeightDp, imeAboveNavDp)
-        }
-        if (imeAboveNavDp > 10f) {
-            return imeAboveNavDp
-        }
-        return 0f
-    }
-
-    /**
-     * Backwards-compatible helper for keyboard dismissal state check.
-     */
-    fun isKeyboardDismissing(
-        isKeyboardVisible: Boolean,
-        isAccessoryDrawerActive: Boolean = false,
-        isAwaitingKeyboardOpen: Boolean = false,
-        isBarTransitionLatched: Boolean = false,
-        imeAboveNavDp: Float = 0f
-    ): Boolean {
-        return !isKeyboardVisible &&
-                !isAccessoryDrawerActive &&
-                !isAwaitingKeyboardOpen &&
-                !isBarTransitionLatched &&
-                imeAboveNavDp > 0f
-    }
-
-    /**
-     * Backwards-compatible helper for keyboard settled state check.
-     */
-    fun isKeyboardSettled(
-        isKeyboardVisible: Boolean,
-        isAwaitingKeyboardOpen: Boolean = false,
-        imeAboveNavDp: Float = 0f
-    ): Boolean {
-        return isKeyboardVisible && !isAwaitingKeyboardOpen && imeAboveNavDp > 100f
-    }
-
-    /**
-     * Pure Writer Invariant Decision Function:
-     * Governs whether downward follow is permitted on layout resize.
-     */
-    fun shouldFollowDownward(
-        isKeyboardDismissing: Boolean,
-        isBottomSurfaceActive: Boolean,
-        isKeyboardVisible: Boolean,
-        hasPhysicalBottomObstruction: Boolean,
-        isAtLastLine: Boolean,
-        hasActiveScroll: Boolean,
-        temporaryDisplacement: Float = 0f
-    ): Boolean {
-        // Pure Writer Invariant:
-        // When keyboard is dismissed or actively closing, document MUST remain 100% stationary!
-        if (isKeyboardDismissing) {
-            return false
-        }
-        val isBottomActive = isBottomSurfaceActive || isKeyboardVisible || hasPhysicalBottomObstruction
-        if (!isBottomActive || !hasActiveScroll) {
-            return false
-        }
-        return (temporaryDisplacement > 0f) || isAtLastLine
     }
 }

@@ -88,23 +88,25 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * Plus breathing margin (24dp) so that the line rests comfortably above the shortcut bar.
      */
     /**
-     * Retained bottom scroll extent in pixels, derived from actual measured bottom surface
-     * obstruction when the keyboard/drawer was active. When the keyboard dismisses, this
-     * extent preserves the user's stationary document scroll position without downward bounds clamping.
+     * Authoritative retained bottom scroll clearance in pixels.
+     * Captures the complete three-part geometry:
+     * actual IME obstruction above navigation baseline + actual shortcut bar height + breathing margin.
+     * When the physical bottom surface disappears upon dismissal, this clearance preserves the document's
+     * complete previously available scroll range without clamping or creating visible blank space.
      */
-    var retainedScrollExtentPx: Float = 0f
+    var retainedBottomScrollClearancePx: Float = 0f
         set(value) {
             field = value
             editor.persistentBottomSpacePx = persistentBottomSpacePx.roundToInt()
         }
 
     val persistentBottomSpacePx: Float
-        get() = maxOf(retainedScrollExtentPx, breathingMarginPx)
+        get() = maxOf(retainedBottomScrollClearancePx, breathingMarginPx)
 
-    var estimatedKeyboardHeightPx: Float
-        get() = retainedScrollExtentPx
+    var retainedScrollExtentPx: Float
+        get() = retainedBottomScrollClearancePx
         set(value) {
-            retainedScrollExtentPx = value
+            retainedBottomScrollClearancePx = value
         }
 
     val maxCanvasScroll: Int
@@ -114,8 +116,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val bottomSpace = if (isKeyboardVisible || isBottomSurfaceActive) {
                 breathingMargin
             } else {
-                val requiredForScroll = ((scrollD + editor.offsetY + height) - (headerHeight + layoutH)).coerceAtLeast(0)
-                maxOf(retainedScrollExtentPx.roundToInt(), requiredForScroll)
+                maxOf(retainedBottomScrollClearancePx.roundToInt(), breathingMargin)
             }
             return ScribeScrollPolicy.calculateMaxCanvasScroll(
                 headerHeight = headerHeight,
@@ -201,8 +202,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var isUserTouching: Boolean = false
         private set
 
-    var isPredictiveGlideRunning: Boolean = false
-        private set
 
     /**
      * Set to true strictly during text deletion on the last line of the document.
@@ -328,9 +327,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     revalidateFinalTargetSafety()
                 } else if (reason == ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION) {
                     rebaseCompensationAfterSafeCorrection()
-                }
-                if (reason == ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE) {
-                    isPredictiveGlideRunning = false
                 }
                 onEnd?.invoke()
             } else {
