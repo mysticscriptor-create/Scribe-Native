@@ -66,8 +66,8 @@ object ScribeBottomSurfaceCoordinator {
      */
     const val IME_TARGET_TOLERANCE_PX = 4
 
-    private fun isImeAtTarget(currentPx: Int, targetPx: Int): Boolean {
-        return kotlin.math.abs(currentPx - targetPx) <= IME_TARGET_TOLERANCE_PX
+    fun isImeAtTarget(targetImePx: Int, curImePx: Int): Boolean {
+        return kotlin.math.abs(targetImePx - curImePx) <= IME_TARGET_TOLERANCE_PX
     }
 
     /**
