@@ -354,6 +354,13 @@ fun MainEditorScreen(
         }
     )
     val isImeCurrentlyVisible = androidx.compose.foundation.layout.WindowInsets.isImeVisible
+    val density = LocalDensity.current
+    val imeInsets = WindowInsets.ime
+    val imeAnimTarget = WindowInsets.imeAnimationTarget
+    val navInsets = WindowInsets.navigationBars
+    val imeBottomDp = imeInsets.asPaddingValues().calculateBottomPadding()
+    val docBottomNavInset = navInsets.asPaddingValues().calculateBottomPadding()
+
     var soraEditorRef by remember { mutableStateOf<com.primaloptima.scribe.ui.components.ScribeCodeEditor?>(null) }
     var presentationState by remember {
         mutableStateOf(
@@ -390,8 +397,11 @@ fun MainEditorScreen(
     val returnFromDrawerToKeyboard: () -> Unit = {
         if (activeAccessoryDrawer != null || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN) {
             val currentDrawerH = drawerHeightController.currentDisplayedHeightDp
-            val currentIme = imeAboveNavDp.value
-            val targetIme = ((imeAnimTarget.getBottom(density) - navInsets.getBottom(density)).coerceAtLeast(0) / density.density)
+            val curImePx = imeInsets.getBottom(density)
+            val navBottomPx = navInsets.getBottom(density)
+            val currentIme = ((curImePx - navBottomPx).coerceAtLeast(0) / density.density)
+            val targetImePx = imeAnimTarget.getBottom(density)
+            val targetIme = ((targetImePx - navBottomPx).coerceAtLeast(0) / density.density)
 
             handoffStartingObstructionDp = currentDrawerH
             handoffStartingImeDp = currentIme
@@ -1295,10 +1305,6 @@ fun MainEditorScreen(
 
     val isKeyboardVisible = WindowInsets.isImeVisible
     val hazeState = LocalHazeState.current ?: dev.chrisbanes.haze.HazeState()
-    val density = LocalDensity.current
-    val imeInsets = WindowInsets.ime
-    val imeBottomDp = imeInsets.asPaddingValues().calculateBottomPadding()
-    val docBottomNavInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     var lastDrawerToggleTimestamp by remember { mutableLongStateOf(0L) }
 
     val toggleAccessoryDrawer: (AccessoryDrawerMode) -> Unit = { targetMode ->
@@ -1337,10 +1343,6 @@ fun MainEditorScreen(
         }
     }
 
-    // Authoritative event-driven settling mechanism via native WindowInsets target tracking
-    val imeAnimTarget = WindowInsets.imeAnimationTarget
-    val navInsets = WindowInsets.navigationBars
-
     LaunchedEffect(density) {
         snapshotFlow {
             val curImePx = imeInsets.getBottom(density)
@@ -1371,7 +1373,11 @@ fun MainEditorScreen(
                 }
                 // Capture actual displayed drawer obstruction into retained scroll clearance
                 val drawerHeightPx = displayedDrawerH * density.density
-                val barHeightPx = if (isShortcutBarTargetVisible) 36f * density.density else 0f
+                val isBarVisible = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isShortcutBarVisible(
+                    presentationState,
+                    shortcuts.isNotEmpty()
+                )
+                val barHeightPx = if (isBarVisible) 36f * density.density else 0f
                 unifiedCanvasRef?.updateRetainedBottomScrollClearance(
                     actualObstructionAboveNavPx = drawerHeightPx,
                     shortcutBarHeightPx = barHeightPx
@@ -2165,8 +2171,8 @@ fun MainEditorScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .layout { measurable, constraints ->
-                                val curImeBottomDp = imeInsets.getBottom(this) / density
-                                val curNavBottomDp = navInsets.getBottom(this) / density
+                                val curImeBottomDp = imeInsets.getBottom(this).toDp().value
+                                val curNavBottomDp = navInsets.getBottom(this).toDp().value
                                 val geometry = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.calculateEditorBottomGeometry(
                                     navBarBottomDp = curNavBottomDp,
                                     imeBottomDp = curImeBottomDp,
@@ -2175,8 +2181,8 @@ fun MainEditorScreen(
                                     handoffObstructionDp = handoffBottomSurfaceHeightDp,
                                     shortcutBarClearanceDp = animatedShortcutBarHeightDp.value
                                 )
-                                val topPaddingPx = (docTopInset.value * density).roundToInt()
-                                val bottomPaddingPx = (geometry.editorBottomPaddingDp * density).roundToInt()
+                                val topPaddingPx = docTopInset.roundToPx()
+                                val bottomPaddingPx = geometry.editorBottomPaddingDp.dp.roundToPx()
                                 val adjustedHeight = (constraints.maxHeight - topPaddingPx - bottomPaddingPx).coerceAtLeast(0)
                                 val placeable = measurable.measure(
                                     constraints.copy(
