@@ -109,6 +109,46 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             retainedBottomScrollClearancePx = value
         }
 
+    /**
+     * Authoritative update of the three-part retained bottom clearance:
+     * actual IME obstruction above navigation baseline + actual shortcut bar height + breathing margin.
+     */
+    fun updateRetainedBottomScrollClearance(
+        actualObstructionAboveNavPx: Float,
+        shortcutBarHeightPx: Float
+    ) {
+        val breathingMargin = breathingMarginPx
+        retainedBottomScrollClearancePx = ScribeBottomSurfaceCoordinator.calculateRetainedBottomScrollClearancePx(
+            actualObstructionAboveNavPx = actualObstructionAboveNavPx,
+            shortcutBarHeightPx = shortcutBarHeightPx,
+            breathingMarginPx = breathingMargin
+        )
+    }
+
+    /**
+     * Ends an active expansion transition lifecycle upon IME or drawer settlement.
+     */
+    fun endExpansionTransition() {
+        isExpansionTransitionActive = false
+    }
+
+    /**
+     * Cancels any active viewport-owned safety animation when keyboard dismissal starts.
+     */
+    fun cancelViewportSafetyAnimation() {
+        if (isGlideRunning && (activeGlideReason == ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY ||
+                    activeGlideReason == ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION)) {
+            removeCallbacks(glideFrameRunnable)
+            isGlideRunning = false
+            activeGlideReason = null
+            activeGlideOnEnd = null
+            val oldAnimator = activeCanvasAnimator
+            activeCanvasAnimator = null
+            oldAnimator?.cancel()
+            scrollCoordinator.cancelAnimation("IME dismissal started")
+        }
+    }
+
     val maxCanvasScroll: Int
         get() {
             val layoutH = editor.layout?.layoutHeight ?: 0
@@ -393,14 +433,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
     }
 
-    // ── Keyboard Viewport Architecture (Simplified Single Source of Truth) ───
-    val isKeyboardTransactionActive: Boolean
-        get() = false
 
-    fun beginKeyboardTransaction(targetScroll: Float = -1f): Long = 0L
-    fun notifyKeyboardEntranceStarting() {}
-    fun endKeyboardTransaction() {}
-    fun checkKeyboardTransactionSettled() {}
 
     // ── Coordinated Deletion Viewport Transaction ─────────────────────────────
     private var activeDeletionSnapshot: ScribeScrollPolicy.DeletionSnapshot? = null
@@ -787,7 +820,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         activeCanvasAnimator = null
         oldAnimator?.cancel()
         scrollCoordinator.cancelAnimation("cancelCanvasAnimation")
-        isPredictiveGlideRunning = false
         activeDeletionSnapshot = null
         if (!scroller.isFinished) {
             scroller.forceFinished(true)
@@ -1079,11 +1111,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * height using cached lastKeyboardHeightDp + shortcutBarHeight, and immediately starts
      * a smooth parallel glide running concurrently with the keyboard entrance animation.
      */
-    fun predictivelyGlideCursorAboveKeyboard(targetLine: Int? = null, targetCol: Int? = null) {
-        if (isKeyboardVisible || isBottomSurfaceActive) {
-            ensureCursorVisibleAboveKeyboard(targetLine = targetLine, targetCol = targetCol, smooth = true)
-        }
-    }
+
 
     private var lastEnsureCursorTime = 0L
 
@@ -1179,7 +1207,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             if (resolution.deltaY > 0f && isExpansionTransitionActive) {
                 recordExpansionDisplacement(resolution.deltaY, line, col, cursor.isSelected)
             }
-            isPredictiveGlideRunning = false
             if (smooth) {
                 smoothScrollCanvasBy(
                     dy = resolution.deltaY,
@@ -1299,7 +1326,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val dh = oldh - h
             if (dh > 0) {
                 // Viewport shrinking (keyboard appearing or accessory drawer opening)
-                retainedScrollExtentPx = maxOf(retainedScrollExtentPx, dh.toFloat())
                 isExpansionTransitionActive = true
                 isKeyboardDismissing = false
 
@@ -1314,8 +1340,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     activeEditingTarget == EditingTarget.SECONDARY_TITLE
                 if (!isTitleTargetActive && (editor.isFocused || isBottomSurfaceActive || isKeyboardVisible)) {
                     val density = resources.displayMetrics.density
-                    val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
-                    val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
+                    val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density)
+                    val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density)
                     val cur = try { editor.cursor } catch (_: Throwable) { null }
                     val lay = try { editor.layout } catch (_: Throwable) { null }
                     if (cur != null && lay != null) {
@@ -1328,6 +1354,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                             lineCount = editor.text.lineCount,
                             lastLineColCount = try { editor.text.getColumnCount(editor.text.lineCount - 1) } catch (_: Throwable) { 0 }
                         )
+
                         if (!(isAllSelected && editor.selectAllScrollMode == ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION)) {
                             val selGeom = getSelectionGeometry(cur, lay)
                             val caretDocBottom = selGeom?.bottomDocY ?: run {
@@ -1335,13 +1362,24 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                                 val targetCol = if (isAllSelected) cur.rightColumn else cur.leftColumn
                                 getCharGeometry(lay, targetLine, targetCol, editor.rowHeight.toFloat()).bottomDocY
                             }
+
                             val headerRemaining = (headerHeight - scrollD).coerceAtLeast(0)
                             val screenBottom = headerRemaining + caretDocBottom - editor.offsetY
-                            val targetLineBottom = (h - marginPx).toFloat()
-                            val isCurrentlySafe = screenBottom <= (targetLineBottom + deadbandPx)
+
+                            val isCurrentlySafe = ScribeBottomSurfaceCoordinator.isCursorSafeInViewport(
+                                screenBottom = screenBottom,
+                                viewportHeight = h.toFloat(),
+                                breathingMarginPx = marginPx,
+                                deadbandPx = deadbandPx
+                            )
 
                             if (!isCurrentlySafe) {
-                                val neededDelta = screenBottom - targetLineBottom
+                                val neededDelta = ScribeBottomSurfaceCoordinator.calculateRequiredUpwardDisplacement(
+                                    screenBottom = screenBottom,
+                                    viewportHeight = h.toFloat(),
+                                    breathingMarginPx = marginPx,
+                                    deadbandPx = deadbandPx
+                                )
                                 if (neededDelta > deadbandPx) {
                                     val currentScroll = (scrollD + editor.offsetY).toFloat()
                                     val desiredTarget = (currentScroll + neededDelta).coerceIn(0f, maxCanvasScroll.toFloat())
@@ -1362,6 +1400,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 // Total document scroll (scrollD + editor.offsetY) remains 100% stationary throughout dismissal.
                 // Downward follow or contraction restoration is strictly suppressed.
                 cancelRestoration()
+                cancelViewportSafetyAnimation()
+                isExpansionTransitionActive = false
             }
         }
     }

@@ -256,8 +256,89 @@ object ScribeBottomSurfaceCoordinator {
         drawerHeightDp: Float,
         shortcutBarClearanceDp: Float
     ): Float {
-        val baseObstruction = maxOf(imeBottomDp, navBarBottomDp + drawerHeightDp)
+        val baseObstruction = if (drawerHeightDp > 0f) {
+            maxOf(imeBottomDp, navBarBottomDp) + drawerHeightDp
+        } else {
+            maxOf(imeBottomDp, navBarBottomDp)
+        }
         return baseObstruction + shortcutBarClearanceDp
+    }
+
+    /**
+     * Backwards-compatible resolver for bottom surface height during transitions.
+     */
+    fun resolveEffectiveBottomSurfaceHeight(
+        isAccessoryDrawerActive: Boolean,
+        drawerHeightDp: Float,
+        isAwaitingKeyboardOpen: Boolean = false,
+        isBarTransitionLatched: Boolean = false,
+        isKeyboardVisible: Boolean = false,
+        compactHeightDp: Float = DEFAULT_KEYBOARD_DP,
+        imeAboveNavDp: Float = 0f
+    ): Float {
+        if (isAccessoryDrawerActive) {
+            return drawerHeightDp
+        }
+        if (isAwaitingKeyboardOpen || isBarTransitionLatched) {
+            return maxOf(compactHeightDp, imeAboveNavDp)
+        }
+        if (isKeyboardVisible) {
+            return maxOf(compactHeightDp, imeAboveNavDp)
+        }
+        if (imeAboveNavDp > 10f) {
+            return imeAboveNavDp
+        }
+        return 0f
+    }
+
+    /**
+     * Backwards-compatible helper for keyboard dismissal state check.
+     */
+    fun isKeyboardDismissing(
+        isKeyboardVisible: Boolean,
+        isAccessoryDrawerActive: Boolean = false,
+        isAwaitingKeyboardOpen: Boolean = false,
+        isBarTransitionLatched: Boolean = false,
+        imeAboveNavDp: Float = 0f
+    ): Boolean {
+        return !isKeyboardVisible &&
+                !isAccessoryDrawerActive &&
+                !isAwaitingKeyboardOpen &&
+                !isBarTransitionLatched &&
+                imeAboveNavDp > 0f
+    }
+
+    /**
+     * Backwards-compatible helper for keyboard settled state check.
+     */
+    fun isKeyboardSettled(
+        isKeyboardVisible: Boolean,
+        isAwaitingKeyboardOpen: Boolean = false,
+        imeAboveNavDp: Float = 0f
+    ): Boolean {
+        return isKeyboardVisible && !isAwaitingKeyboardOpen && imeAboveNavDp > 100f
+    }
+
+    /**
+     * Backwards-compatible Pure Writer Invariant Decision Function.
+     */
+    fun shouldFollowDownward(
+        isKeyboardDismissing: Boolean,
+        isBottomSurfaceActive: Boolean,
+        isKeyboardVisible: Boolean,
+        hasPhysicalBottomObstruction: Boolean,
+        isAtLastLine: Boolean,
+        hasActiveScroll: Boolean,
+        temporaryDisplacement: Float = 0f
+    ): Boolean {
+        if (isKeyboardDismissing) {
+            return false
+        }
+        val isBottomActive = isBottomSurfaceActive || isKeyboardVisible || hasPhysicalBottomObstruction
+        if (!isBottomActive || !hasActiveScroll) {
+            return false
+        }
+        return (temporaryDisplacement > 0f) || isAtLastLine
     }
 
     /**

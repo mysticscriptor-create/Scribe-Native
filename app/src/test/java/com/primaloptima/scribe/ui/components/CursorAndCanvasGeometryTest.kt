@@ -3953,4 +3953,187 @@ class CursorAndCanvasGeometryTest {
         val maxCanvas = (naturalContentHeight + retainedExtent - expandedViewport).coerceAtLeast(0)
         assertEquals("Max canvas scroll must equal or exceed totalScroll", totalScroll, maxCanvas)
     }
+
+    // ── Architectural Hardening & Reducer Regression Tests ────────────────────
+
+    @Test
+    fun testPresentationStateReducer_CompleteLifecycleTransitions() {
+        val reduce = ScribeBottomSurfaceCoordinator::reduce
+
+        // 1. Initial keyboard entrance
+        var state = ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN
+        state = reduce(state, ScribeBottomSurfaceCoordinator.PresentationEvent.ImeTargetChanged(targetBottomPx = 900, currentBottomPx = 0))
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE, state)
+
+        // 2. Mid-animation progress
+        state = reduce(state, ScribeBottomSurfaceCoordinator.PresentationEvent.ImeAnimationProgress(currentBottomPx = 450, targetBottomPx = 900))
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE, state)
+
+        // 3. IME arrives at target -> Settled
+        state = reduce(state, ScribeBottomSurfaceCoordinator.PresentationEvent.ImeSettledAtTarget)
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED, state)
+
+        // 4. Dismissal begins
+        state = reduce(state, ScribeBottomSurfaceCoordinator.PresentationEvent.ImeDismissalStarted)
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_DISMISSAL, state)
+
+        // 5. Dismissal in progress
+        state = reduce(state, ScribeBottomSurfaceCoordinator.PresentationEvent.ImeAnimationProgress(currentBottomPx = 200, targetBottomPx = 0))
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_DISMISSAL, state)
+
+        // 6. Dismissal complete -> Hidden
+        state = reduce(state, ScribeBottomSurfaceCoordinator.PresentationEvent.ImeDismissalFinished)
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN, state)
+
+        // 7. Drawer open / switch / close
+        state = reduce(state, ScribeBottomSurfaceCoordinator.PresentationEvent.DrawerOpened("SNIPPETS"))
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN, state)
+
+        state = reduce(state, ScribeBottomSurfaceCoordinator.PresentationEvent.DrawerSwitched("TEMPLATES"))
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN, state)
+
+        // 8. Drawer to keyboard handoff
+        state = reduce(state, ScribeBottomSurfaceCoordinator.PresentationEvent.DrawerToKeyboardHandoffStarted(260f))
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF, state)
+
+        // 9. Handoff completes -> Settled
+        state = reduce(state, ScribeBottomSurfaceCoordinator.PresentationEvent.HandoffCompleted)
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED, state)
+    }
+
+    @Test
+    fun testPresentationStateReducer_ScreenRestoration() {
+        val reduce = ScribeBottomSurfaceCoordinator::reduce
+
+        // Screen restored with already settled keyboard
+        val settledRestored = reduce(
+            ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN,
+            ScribeBottomSurfaceCoordinator.PresentationEvent.ScreenRestored(
+                isImeVisible = true,
+                currentImeBottomPx = 900,
+                targetImeBottomPx = 900,
+                hasActiveDrawer = false
+            )
+        )
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED, settledRestored)
+
+        // Screen restored mid-animation
+        val midAnimationRestored = reduce(
+            ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN,
+            ScribeBottomSurfaceCoordinator.PresentationEvent.ScreenRestored(
+                isImeVisible = true,
+                currentImeBottomPx = 400,
+                targetImeBottomPx = 900,
+                hasActiveDrawer = false
+            )
+        )
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE, midAnimationRestored)
+
+        // Screen restored with active drawer
+        val drawerRestored = reduce(
+            ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN,
+            ScribeBottomSurfaceCoordinator.PresentationEvent.ScreenRestored(
+                isImeVisible = false,
+                currentImeBottomPx = 0,
+                targetImeBottomPx = 0,
+                hasActiveDrawer = true
+            )
+        )
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN, drawerRestored)
+    }
+
+    @Test
+    fun testShortcutBarVisibility_ByPresentationState() {
+        // Must be invisible during entrance to prevent double/premature movement
+        assertFalse(ScribeBottomSurfaceCoordinator.isShortcutBarVisible(ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN))
+        assertFalse(ScribeBottomSurfaceCoordinator.isShortcutBarVisible(ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE))
+
+        // Must be visible once keyboard is settled
+        assertTrue(ScribeBottomSurfaceCoordinator.isShortcutBarVisible(ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED))
+
+        // Must remain visible throughout dismissal until zero
+        assertTrue(ScribeBottomSurfaceCoordinator.isShortcutBarVisible(ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_DISMISSAL))
+
+        // Must be visible during drawer and handoff
+        assertTrue(ScribeBottomSurfaceCoordinator.isShortcutBarVisible(ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN))
+        assertTrue(ScribeBottomSurfaceCoordinator.isShortcutBarVisible(ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF))
+    }
+
+    @Test
+    fun testAuthoritativeThreePartRetainedClearance_CalculatesCorrectSum() {
+        val clearance = ScribeBottomSurfaceCoordinator.calculateRetainedBottomScrollClearancePx(
+            actualObstructionAboveNavPx = 800f,
+            shortcutBarHeightPx = 108f,
+            breathingMarginPx = 72f
+        )
+        assertEquals(980f, clearance, 0.001f)
+
+        // Clamps negatives to 0f
+        val zeroClearance = ScribeBottomSurfaceCoordinator.calculateRetainedBottomScrollClearancePx(
+            actualObstructionAboveNavPx = -50f,
+            shortcutBarHeightPx = -20f,
+            breathingMarginPx = -10f
+        )
+        assertEquals(0f, zeroClearance, 0.001f)
+    }
+
+    @Test
+    fun testStackedDrawerAndImePadding_AccountsForCombinedObstruction() {
+        // Drawer stacked above IME
+        val stackedPadding = ScribeBottomSurfaceCoordinator.calculateEditorBottomPaddingDp(
+            imeBottomDp = 280f,
+            navBarBottomDp = 48f,
+            drawerHeightDp = 260f,
+            shortcutBarClearanceDp = 36f
+        )
+        // 280 (IME) + 260 (drawer) + 36 (bar) = 576
+        assertEquals(576f, stackedPadding, 0.001f)
+
+        // Keyboard alone without drawer
+        val keyboardOnly = ScribeBottomSurfaceCoordinator.calculateEditorBottomPaddingDp(
+            imeBottomDp = 280f,
+            navBarBottomDp = 48f,
+            drawerHeightDp = 0f,
+            shortcutBarClearanceDp = 36f
+        )
+        // maxOf(280, 48) + 36 = 316
+        assertEquals(316f, keyboardOnly, 0.001f)
+    }
+
+    @Test
+    fun testCursorSafetyInViewportAndUpwardDisplacement() {
+        val viewportH = 1200f
+        val breathingMargin = 72f // 24dp at 3x
+        val deadband = 24f
+
+        // Safe cursor well above boundary
+        assertTrue(ScribeBottomSurfaceCoordinator.isCursorSafeInViewport(
+            screenBottom = 1000f,
+            viewportHeight = viewportH,
+            breathingMarginPx = breathingMargin,
+            deadbandPx = deadband
+        ))
+        assertEquals(0f, ScribeBottomSurfaceCoordinator.calculateRequiredUpwardDisplacement(
+            screenBottom = 1000f,
+            viewportHeight = viewportH,
+            breathingMarginPx = breathingMargin,
+            deadbandPx = deadband
+        ), 0.001f)
+
+        // Unsafe cursor (e.g. at 1160px, while safe limit is 1200 - 72 = 1128px)
+        assertFalse(ScribeBottomSurfaceCoordinator.isCursorSafeInViewport(
+            screenBottom = 1160f,
+            viewportHeight = viewportH,
+            breathingMarginPx = breathingMargin,
+            deadbandPx = deadband
+        ))
+        // Required displacement brings cursor back to safe boundary (1160 - 1128 = 32px)
+        val displacement = ScribeBottomSurfaceCoordinator.calculateRequiredUpwardDisplacement(
+            screenBottom = 1160f,
+            viewportHeight = viewportH,
+            breathingMarginPx = breathingMargin,
+            deadbandPx = deadband
+        )
+        assertEquals(32f, displacement, 0.001f)
+    }
 }
