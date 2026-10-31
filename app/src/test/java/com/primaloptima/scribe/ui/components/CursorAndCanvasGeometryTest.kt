@@ -4884,5 +4884,94 @@ class CursorAndCanvasGeometryTest {
         val stateAfterProgress = ScribeBottomSurfaceCoordinator.reduce(stateAfterRequest, progressEvent)
         assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN, stateAfterProgress)
     }
-}
 
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Priority 6 — Viewport Geometry, Standard Baseline & Contraction Restoration
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun testInitialVirtualBottomScrollClearanceCalculation() {
+        val density = 2.5f
+        val baselineDp = 280f
+        val shortcutBarDp = 36f
+        val breathingMarginDp = 24f
+        val expectedClearancePx = (baselineDp + shortcutBarDp + breathingMarginDp) * density
+
+        val clearancePx = ScribeBottomSurfaceCoordinator.calculateRetainedBottomScrollClearancePx(
+            actualObstructionAboveNavPx = baselineDp * density,
+            shortcutBarHeightPx = shortcutBarDp * density,
+            breathingMarginPx = breathingMarginDp * density
+        )
+
+        assertEquals(expectedClearancePx, clearancePx, 0.001f)
+        assertEquals(850f, clearancePx, 0.001f)
+    }
+
+    @Test
+    fun testStationaryKeyboardDismissalPreservesScroll() {
+        // When keyboard is dismissing, shouldFollowDownward MUST return false
+        val shouldFollowOnDismissal = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = true,
+            isBottomSurfaceActive = false,
+            isKeyboardVisible = false,
+            hasPhysicalBottomObstruction = false,
+            isAtLastLine = true,
+            hasActiveScroll = true,
+            temporaryDisplacement = 0f
+        )
+        assertFalse("Keyboard dismissal must never follow downward", shouldFollowOnDismissal)
+    }
+
+    @Test
+    fun testKeyboardContractionRestorationDeltaCalculation() {
+        // When an expanded keyboard (e.g., 450dp emoji picker) contracts back to standard (280dp),
+        // any temporary displacement should be restored downwards with the contraction
+        val shouldFollowOnContraction = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true,
+            isKeyboardVisible = true,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = false,
+            hasActiveScroll = true,
+            temporaryDisplacement = 120f
+        )
+        assertTrue("Temporary displacement during keyboard contraction must allow downward restoration", shouldFollowOnContraction)
+    }
+
+    @Test
+    fun testHandoffBottomSurfaceHeightCoercesTargetToCompactBaseline() {
+        // When tapping Tmpl/Snip to switch to keyboard, target IME may initially be reported as 0dp
+        // by the window manager before animation starts. Coercing target to compact baseline (280dp)
+        // ensures the handoff surface height remains continuous at 280dp rather than collapsing.
+        val capturedDrawerHeightDp = 280f
+        val rawTargetImeDp = 0f
+        val compactBaselineDp = 280f
+        val effectiveTarget = rawTargetImeDp.coerceAtLeast(compactBaselineDp)
+
+        val handoffHeight = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            startingObstructionDp = capturedDrawerHeightDp,
+            startingImeAboveNavDp = 0f,
+            currentImeAboveNavDp = 0f,
+            targetImeAboveNavDp = effectiveTarget
+        )
+        assertEquals(280f, handoffHeight, 0.001f)
+    }
+
+    @Test
+    fun testStandardKeyboardBaselineFilteringForOversizedKeyboard() {
+        val screenHeightDp = 800f
+        // Valid standard keyboard heights (e.g. 260dp, 280dp, 300dp)
+        assertTrue(ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(280f, screenHeightDp))
+        assertTrue(ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(260f, screenHeightDp))
+
+        // Oversized keyboard (emoji/sticker/GIF panel at 450dp or 480dp) must be rejected
+        assertFalse(ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(450f, screenHeightDp))
+        assertFalse(ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(480f, screenHeightDp))
+
+        // Baseline update check rejects oversized settled heights
+        assertFalse(ScribeBottomSurfaceCoordinator.shouldUpdateSavedBaseline(450f, 280f, screenHeightDp))
+
+        // Legitimate standard keyboard height change (e.g. 280dp -> 295dp) is accepted
+        assertTrue(ScribeBottomSurfaceCoordinator.shouldUpdateSavedBaseline(295f, 280f, screenHeightDp))
+    }
+}

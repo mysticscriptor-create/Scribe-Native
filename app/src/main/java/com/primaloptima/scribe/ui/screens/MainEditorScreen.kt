@@ -376,7 +376,16 @@ fun MainEditorScreen(
         )
     }
     val configuration = LocalConfiguration.current
-    val compactHeightDp = 260.dp
+    val savedKeyboardHeightFloat by dataStore.lastKeyboardHeightFlow.collectAsStateWithLifecycle(initialValue = 280f)
+    var lastKeyboardHeightDp by remember {
+        mutableStateOf(savedKeyboardHeightFloat.dp)
+    }
+    LaunchedEffect(savedKeyboardHeightFloat) {
+        if (savedKeyboardHeightFloat in 160f..600f) {
+            lastKeyboardHeightDp = savedKeyboardHeightFloat.dp
+        }
+    }
+    val compactHeightDp = lastKeyboardHeightDp.coerceIn(160.dp, (configuration.screenHeightDp.dp * 0.60f))
     val expandedHeightDp = (configuration.screenHeightDp.dp * 0.48f).coerceIn(360.dp, 480.dp)
     val fullHeightDp = (configuration.screenHeightDp.dp * 0.72f).coerceIn(480.dp, 650.dp)
     val drawerHeightController = remember(compactHeightDp, expandedHeightDp, fullHeightDp) {
@@ -401,7 +410,8 @@ fun MainEditorScreen(
             val navBottomPx = navInsets.getBottom(density)
             val currentIme = ((curImePx - navBottomPx).coerceAtLeast(0) / density.density)
             val targetImePx = imeAnimTarget.getBottom(density)
-            val targetIme = ((targetImePx - navBottomPx).coerceAtLeast(0) / density.density)
+            val measuredTargetIme = ((targetImePx - navBottomPx).coerceAtLeast(0) / density.density)
+            val targetIme = if (measuredTargetIme > 0f) measuredTargetIme else compactHeightDp.value
 
             handoffStartingObstructionDp = currentDrawerH
             handoffStartingImeDp = currentIme
@@ -409,7 +419,6 @@ fun MainEditorScreen(
 
             activeAccessoryDrawer = null
             drawerState = AccessoryDrawerState.COMPACT
-            drawerHeightController.dismiss(forceSnap = false)
 
             presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.reduce(
                 presentationState,
@@ -420,22 +429,7 @@ fun MainEditorScreen(
                 )
             )
 
-            if (kotlin.math.abs(targetIme - currentIme) < 1f) {
-                handoffExplicitProgress = 0f
-                scope.launch {
-                    handoffAnim.snapTo(0f)
-                    handoffAnim.animateTo(
-                        targetValue = 1f,
-                        animationSpec = spring(
-                            stiffness = Spring.StiffnessMediumLow,
-                            dampingRatio = Spring.DampingRatioNoBouncy
-                        )
-                    )
-                    handoffExplicitProgress = 1f
-                }
-            } else {
-                handoffExplicitProgress = null
-            }
+            handoffExplicitProgress = null
 
             isWritingBarSearchActive = false
             drawerSearchQuery = ""
@@ -1430,11 +1424,20 @@ fun MainEditorScreen(
                             )
                         }
                         val imeAboveNavPx = (curImePx - navBottomPx).coerceAtLeast(0)
-                        val barHeightPx = 36f * density.density
-                        unifiedCanvasRef?.updateRetainedBottomScrollClearance(
-                            actualObstructionAboveNavPx = imeAboveNavPx.toFloat(),
-                            shortcutBarHeightPx = barHeightPx
-                        )
+                        val imeAboveNavDpVal = imeAboveNavPx / density.density
+                        val barHeightPx = if (shortcuts.isNotEmpty()) 36f * density.density else 0f
+                        if (com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(imeAboveNavDpVal, configuration.screenHeightDp.toFloat())) {
+                            if (com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.shouldUpdateSavedBaseline(imeAboveNavDpVal, lastKeyboardHeightDp.value, configuration.screenHeightDp.toFloat())) {
+                                lastKeyboardHeightDp = imeAboveNavDpVal.dp
+                                scope.launch {
+                                    dataStore.setLastKeyboardHeight(imeAboveNavDpVal)
+                                }
+                            }
+                            unifiedCanvasRef?.updateRetainedBottomScrollClearance(
+                                actualObstructionAboveNavPx = imeAboveNavPx.toFloat(),
+                                shortcutBarHeightPx = barHeightPx
+                            )
+                        }
                         unifiedCanvasRef?.endExpansionTransition()
                     } else {
                         if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN ||
@@ -1597,7 +1600,7 @@ fun MainEditorScreen(
                             startingObstructionDp = handoffStartingObstructionDp,
                             startingImeAboveNavDp = handoffStartingImeDp,
                             currentImeAboveNavDp = imeAboveNavDp.value,
-                            targetImeAboveNavDp = targetImeAboveNavDp,
+                            targetImeAboveNavDp = targetImeAboveNavDp.coerceAtLeast(compactHeightDp.value),
                             explicitProgress = if (handoffExplicitProgress != null) handoffAnim.value else null
                         )
                     } else {
@@ -1608,13 +1611,13 @@ fun MainEditorScreen(
                         presentationState,
                         shortcuts.isNotEmpty()
                     )
+                    val fixedShortcutBarClearance = if (isShortcutBarTargetVisible && shortcuts.isNotEmpty()) 36f else 0f
 
                     val shortcutBarProgress by animateFloatAsState(
                         targetValue = if (isShortcutBarTargetVisible) 1f else 0f,
                         animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
                         label = "shortcutBarProgress"
                     )
-                    val animatedShortcutBarHeightDp = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.calculateShortcutBarClearanceDp(shortcutBarProgress).dp
 
                     val isKeyboardDismissing = presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_DISMISSAL
                     val isKeyboardSettled = presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED
@@ -1625,7 +1628,7 @@ fun MainEditorScreen(
                         presentationState = presentationState,
                         displayedDrawerHeightDp = currentDrawerHeightDp.value,
                         handoffObstructionDp = handoffBottomSurfaceHeightDp,
-                        shortcutBarClearanceDp = animatedShortcutBarHeightDp.value
+                        shortcutBarClearanceDp = fixedShortcutBarClearance
                     )
 
                     val effectiveBottomSurfaceHeightDp = bottomGeometry.effectiveBottomSurfaceHeightDp.dp
@@ -1663,6 +1666,7 @@ fun MainEditorScreen(
                             UnifiedCanvasLayout(ctx).apply {
                                 horizontalPaddingDp = initialPadH
                                 setBackgroundColor(bgArgb)
+                                this.estimatedKeyboardHeightPx = (compactHeightDp.value + (if (shortcuts.isNotEmpty()) 36f else 0f)) * density.density
                                 this.activeEditingTarget = lastActiveTarget
                                 this.isKeyboardVisible = isKeyboardVisible
                                 this.isBottomSurfaceActive = (activeAccessoryDrawer != null || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF)
@@ -1893,6 +1897,7 @@ fun MainEditorScreen(
                                     returnFromDrawerToKeyboard()
                                 }
                             }
+                            layout.estimatedKeyboardHeightPx = (compactHeightDp.value + (if (shortcuts.isNotEmpty()) 36f else 0f)) * density.density
                             layout.isKeyboardVisible = isKeyboardVisible
                             layout.isBottomSurfaceActive = (activeAccessoryDrawer != null || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF)
                             layout.isKeyboardDismissing = isKeyboardDismissing
@@ -2179,7 +2184,7 @@ fun MainEditorScreen(
                                     presentationState = presentationState,
                                     displayedDrawerHeightDp = currentDrawerHeightDp.value,
                                     handoffObstructionDp = handoffBottomSurfaceHeightDp,
-                                    shortcutBarClearanceDp = animatedShortcutBarHeightDp.value
+                                    shortcutBarClearanceDp = fixedShortcutBarClearance
                                 )
                                 val topPaddingPx = docTopInset.roundToPx()
                                 val bottomPaddingPx = geometry.editorBottomPaddingDp.dp.roundToPx()
@@ -2229,7 +2234,7 @@ fun MainEditorScreen(
                                     Surface(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(animatedShortcutBarHeightDp)
+                                        .height(36.dp)
                                         .graphicsLayer {
                                             alpha = shortcutBarProgress
                                             clip = true

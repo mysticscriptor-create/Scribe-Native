@@ -1369,8 +1369,37 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     expansionHadSelection = curC.isSelected
                 }
 
-                val isTitleTargetActive = activeEditingTarget == EditingTarget.PRIMARY_TITLE ||
-                    activeEditingTarget == EditingTarget.SECONDARY_TITLE
+                if (isKeyboardTransactionActive) {
+                    val cur = try { editor.cursor } catch (_: Throwable) { null }
+                    val lay = try { editor.layout } catch (_: Throwable) { null }
+                    if (cur != null && lay != null) {
+                        val selGeom = getSelectionGeometry(cur, lay)
+                        val caretDocTop = selGeom?.topDocY ?: ((cur.leftLine) * editor.rowHeight.toFloat())
+                        val caretDocBottom = selGeom?.bottomDocY ?: ((cur.leftLine + 1) * editor.rowHeight.toFloat())
+                        val currentScroll = (scrollD + editor.offsetY).toFloat()
+                        val decision = ScribeScrollPolicy.resolveCursorSafety(
+                            rectTop = caretDocTop,
+                            rectBottom = caretDocBottom,
+                            headerHeight = headerHeight.toFloat(),
+                            currentTotalScroll = currentScroll,
+                            usableViewportHeight = h.toFloat(),
+                            density = resources.displayMetrics.density,
+                            maxCanvasScroll = maxCanvasScroll.toFloat(),
+                            allowDownwardForTopUnderflow = false
+                        )
+                        if (!decision.isSafe && decision.neededUpwardDisplacement > (ScribeScrollPolicy.CURSOR_DEADBAND_DP * resources.displayMetrics.density)) {
+                            startAuthoritativeScrollAnimation(
+                                targetTotalScroll = decision.targetTotalScroll,
+                                reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+                                durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS,
+                                forceRetarget = true
+                            )
+                        }
+                    }
+                    checkKeyboardTransactionSettled()
+                } else {
+                    val isTitleTargetActive = activeEditingTarget == EditingTarget.PRIMARY_TITLE ||
+                        activeEditingTarget == EditingTarget.SECONDARY_TITLE
                 if (!isTitleTargetActive && (editor.isFocused || isBottomSurfaceActive || isKeyboardVisible)) {
                     val cur = try { editor.cursor } catch (_: Throwable) { null }
                     val lay = try { editor.layout } catch (_: Throwable) { null }
@@ -1421,17 +1450,75 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                         }
                     }
                 }
-            } else if (dh < 0) {
-                // Viewport expanding (keyboard dismissed or accessory drawer closed).
-                // Pure Writer Stationary Invariant:
-                // Total document scroll (scrollD + editor.offsetY) remains 100% stationary throughout dismissal.
-                if (preservedDismissalScroll == null) {
-                    preservedDismissalScroll = scrollD + editor.offsetY
                 }
-                cancelRestoration()
-                cancelViewportSafetyAnimation()
+            } else if (dh < 0) {
+                // Viewport expanding (accessory drawer contracting, emoji keyboard closing, or keyboard dismissing)
                 isExpansionTransitionActive = false
-                checkAndClearPreservedDismissalScroll()
+                resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
+
+                val density = resources.displayMetrics.density
+                val rootH = rootView?.height ?: resources.displayMetrics.heightPixels
+                val hasBottomObstruction = (rootH - h) >= (140 * density).roundToInt()
+                val cur = try { editor.cursor } catch (_: Throwable) { null }
+                val lineCount = try { editor.text.lineCount } catch (_: Throwable) { 1 }
+                val isAtLastLine = try {
+                    (cur != null && cur.leftLine >= (lineCount - 1)) || (lineCount <= 1)
+                } catch (_: Throwable) { false }
+                val hasActiveScroll = scrollD > 0 || editor.offsetY > 0
+
+                val shouldFollow = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+                    isKeyboardDismissing = isKeyboardDismissing,
+                    isBottomSurfaceActive = isBottomSurfaceActive,
+                    isKeyboardVisible = isKeyboardVisible,
+                    hasPhysicalBottomObstruction = hasBottomObstruction,
+                    isAtLastLine = isAtLastLine,
+                    hasActiveScroll = hasActiveScroll,
+                    temporaryDisplacement = temporaryExpansionDisplacement
+                )
+
+                if (!shouldFollow) {
+                    // Pure Writer Stationary Invariant:
+                    // When keyboard is dismissed or closing, the document MUST remain
+                    // 100% completely stationary at the saved margin.
+                    if (preservedDismissalScroll == null) {
+                        preservedDismissalScroll = scrollD + editor.offsetY
+                    }
+                    cancelRestoration()
+                    cancelViewportSafetyAnimation()
+                    invalidateCompensation("Keyboard dismissing or bottom surface inactive")
+                    return
+                }
+
+                // Downward Following Invariant:
+                // When bottom surface remains active (e.g. emoji keyboard returned to standard,
+                // or accessory drawer collapsed to compact), safely restore temporary upward displacement.
+                pendingRestorationRunnable?.let { removeCallbacks(it) }
+                val rRestoration = Runnable {
+                    pendingRestorationRunnable = null
+                    val lay = editor.layout ?: return@Runnable
+                    val geom = getSelectionGeometry(cur, lay) ?: return@Runnable
+                    val caretDocBottom = geom.bottomDocY
+                    val currentScroll = (scrollD + editor.offsetY).toFloat()
+                    val req = ScribeScrollPolicy.ContractionRestorationRequest(
+                        caretScreenBottom = headerHeight + caretDocBottom - currentScroll,
+                        caretScreenTop = headerHeight + geom.topDocY - currentScroll,
+                        viewportHeight = h,
+                        density = density,
+                        totalScroll = currentScroll,
+                        temporaryDisplacement = temporaryExpansionDisplacement,
+                        isAtLastLine = isAtLastLine,
+                        isKeyboardDismissing = isKeyboardDismissing,
+                        isBottomSurfaceActive = isBottomSurfaceActive
+                    )
+                    val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
+                    if (result.shouldScroll && result.deltaY != 0f) {
+                        val target = (currentScroll + result.deltaY).coerceIn(0f, maxCanvasScroll.toFloat())
+                        startOrRetargetContractionRestoration(target)
+                        temporaryExpansionDisplacement = result.remainingCompensation
+                    }
+                }
+                pendingRestorationRunnable = rRestoration
+                post(rRestoration)
             }
         }
     }
