@@ -1277,7 +1277,8 @@ object ScribeScrollPolicy {
         offsetY: Int,
         viewportHeight: Int,
         density: Float,
-        isAtLastLine: Boolean
+        isAtLastLine: Boolean,
+        temporaryDisplacement: Float = 0f
     ): Float {
         if (!isAtLastLine || viewportHeight <= 0) return 0f
         val totalScroll = (scrollD + offsetY).toFloat()
@@ -1291,7 +1292,7 @@ object ScribeScrollPolicy {
                 viewportHeight = viewportHeight,
                 density = density,
                 totalScroll = totalScroll,
-                temporaryDisplacement = 0f,
+                temporaryDisplacement = temporaryDisplacement,
                 isAtLastLine = isAtLastLine,
                 isKeyboardDismissing = false,
                 isBottomSurfaceActive = true

@@ -555,7 +555,8 @@ class CursorAndCanvasGeometryTest {
             offsetY = offsetY,
             viewportHeight = newExpandedViewport,
             density = density,
-            isAtLastLine = true
+            isAtLastLine = true,
+            temporaryDisplacement = 700f
         )
 
         // The last line was at 440px, but target is 1140px.
@@ -673,7 +674,8 @@ class CursorAndCanvasGeometryTest {
             offsetY = offsetY,
             viewportHeight = standardKbViewport,
             density = density,
-            isAtLastLine = true
+            isAtLastLine = true,
+            temporaryDisplacement = 1150f
         )
 
         // Target line bottom is 1650 - 60 = 1590px. Last line is at 440px.
@@ -1495,8 +1497,8 @@ class CursorAndCanvasGeometryTest {
     }
 
     @Test
-    fun testContractionRestoration_LastLine_AnchorsToBreathingMarginWhenZeroDisplacement() {
-        // Caret on last line with 0 displacement: smoothly anchors document end to 24dp breathing margin
+    fun testContractionRestoration_LastLine_ZeroDeltaWhenZeroDisplacement() {
+        // Last line with 0 recorded displacement must produce 0 delta (Phase 2 invariant)
         val visibleHeight = 1100
         val density = 2.5f
         val marginPx = ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density // 60px
@@ -1518,8 +1520,8 @@ class CursorAndCanvasGeometryTest {
             )
         )
 
-        assertTrue(result.shouldScroll)
-        assertEquals(-240f, result.deltaY, 0.001f) // 800 - 1040 = -240
+        assertFalse("Last line with zero recorded displacement must NOT scroll downwards", result.shouldScroll)
+        assertEquals(0f, result.deltaY, 0.001f)
     }
 
     @Test
