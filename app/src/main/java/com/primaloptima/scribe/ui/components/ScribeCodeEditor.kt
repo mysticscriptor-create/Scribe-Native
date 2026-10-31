@@ -107,11 +107,19 @@ class ScribeCodeEditor @JvmOverloads constructor(
             val density = context.resources.displayMetrics.density
             val breathingMargin = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
             val activeGlideTarget = 0
+            val parentPreserved = pCanvas?.preservedDismissalScroll
+            val safeOffsetTarget = if (parentPreserved != null) {
+                (parentPreserved - pCanvas.headerHeight).coerceAtLeast(0)
+            } else {
+                offsetY
+            }
+            val effectiveOffsetY = maxOf(offsetY, safeOffsetTarget)
+
             ScribeScrollPolicy.calculateSafeScrollMaxY(
                 layoutHeight = layoutH,
                 viewportHeight = height,
                 persistentBottomSpacePx = persistentBottomSpacePx,
-                currentOffsetY = offsetY,
+                currentOffsetY = effectiveOffsetY,
                 isFocused = isFocused,
                 baseSoraMaxY = baseSora,
                 isKeyboardVisible = isKeyboardVisible,

@@ -52,6 +52,87 @@ object ScribeScrollPolicy {
         val recommendedDurationMs: Long = DURATION_ENSURE_CURSOR_MS
     )
 
+    data class CursorSafetyDecision(
+        val isSafe: Boolean,
+        val screenTop: Float,
+        val screenBottom: Float,
+        val neededUpwardDisplacement: Float,
+        val targetTotalScroll: Float
+    )
+
+    /**
+     * Authoritative resolver for cursor/selection safety across all visibility paths.
+     * Uses canonical coordinate conversion:
+     * screenTop = headerHeight + rectTop - currentTotalScroll
+     * screenBottom = headerHeight + rectBottom - currentTotalScroll
+     *
+     * Invariants:
+     * - If cursor bottom is at or above safeBottomBoundary (usableViewportHeight - breathingMarginPx + deadbandPx),
+     *   it is completely safe: returns isSafe = true, neededUpwardDisplacement = 0f, targetTotalScroll = currentTotalScroll.
+     *   Tapping an already-visible last line produces ZERO movement.
+     * - If cursor bottom is below safeBottomBoundary, calculates the exact minimum upward displacement.
+     * - Respects maxCanvasScroll and 1-DOF invariant. Never forces downward movement on keyboard transitions.
+     */
+    fun resolveCursorSafety(
+        rectTop: Float,
+        rectBottom: Float,
+        headerHeight: Float,
+        currentTotalScroll: Float,
+        usableViewportHeight: Float,
+        density: Float,
+        maxCanvasScroll: Float,
+        allowDownwardForTopUnderflow: Boolean = false
+    ): CursorSafetyDecision {
+        val screenTop = headerHeight + rectTop - currentTotalScroll
+        val screenBottom = headerHeight + rectBottom - currentTotalScroll
+
+        if (usableViewportHeight <= 0f) {
+            return CursorSafetyDecision(
+                isSafe = true,
+                screenTop = screenTop,
+                screenBottom = screenBottom,
+                neededUpwardDisplacement = 0f,
+                targetTotalScroll = currentTotalScroll
+            )
+        }
+
+        val marginPx = CURSOR_BOTTOM_MARGIN_DP * density
+        val deadbandPx = CURSOR_DEADBAND_DP * density
+        val safeBottomBoundary = usableViewportHeight - marginPx
+
+        if (screenBottom > (safeBottomBoundary + deadbandPx)) {
+            val overflow = screenBottom - safeBottomBoundary
+            val target = (currentTotalScroll + overflow).coerceIn(0f, maxCanvasScroll)
+            return CursorSafetyDecision(
+                isSafe = false,
+                screenTop = screenTop,
+                screenBottom = screenBottom,
+                neededUpwardDisplacement = overflow,
+                targetTotalScroll = target
+            )
+        }
+
+        if (allowDownwardForTopUnderflow && screenTop < -deadbandPx && currentTotalScroll > 0f) {
+            val underflow = screenTop
+            val target = (currentTotalScroll + underflow).coerceAtLeast(0f)
+            return CursorSafetyDecision(
+                isSafe = false,
+                screenTop = screenTop,
+                screenBottom = screenBottom,
+                neededUpwardDisplacement = underflow,
+                targetTotalScroll = target
+            )
+        }
+
+        return CursorSafetyDecision(
+            isSafe = true,
+            screenTop = screenTop,
+            screenBottom = screenBottom,
+            neededUpwardDisplacement = 0f,
+            targetTotalScroll = currentTotalScroll
+        )
+    }
+
     /**
      * Authoritative calculation for cursor visibility adjustments.
      *
@@ -1164,20 +1245,20 @@ object ScribeScrollPolicy {
         if (isTextEmpty || layoutHeight <= 0 || viewportHeight <= 0) return 0
 
         // Dual-State Geometry:
-        // When keyboard is visible, viewport is already padded by Compose.
-        // Therefore, space is strictly breathingMarginPx (24dp) so last line sits
-        // comfortably above shortcut bar without double-counting keyboard height or scrolling empty space.
-        // When keyboard is dismissed, persistentBottomSpacePx is used to retain stationary document offset.
-        val space = if (isKeyboardVisible) {
-            breathingMarginPx
-        } else if (persistentBottomSpacePx > 0) {
+        // When persistentBottomSpacePx is provided (> 0), it retains stationary document offset.
+        // Otherwise, when keyboard is visible, space is strictly breathingMarginPx (24dp).
+        // When keyboard is dismissed without retained space, default to generous 45% clearance.
+        val space = if (persistentBottomSpacePx > 0) {
             persistentBottomSpacePx
+        } else if (isKeyboardVisible) {
+            breathingMarginPx
         } else {
             (viewportHeight * 0.45f).toInt()
         }
 
         val maxScrollWithBottomSpace = (layoutHeight + space - viewportHeight).coerceAtLeast(0)
-        val retainedOffset = if (currentOffsetY > 0 && isFocused) currentOffsetY else 0
+        // Invariant: Unconditionally retain positive offset so focus loss during dismissal never clamps
+        val retainedOffset = if (currentOffsetY > 0) currentOffsetY else 0
         val glideTarget = if (activeGlideTargetY > 0) activeGlideTargetY else 0
 
         return maxOf(maxOf(baseSoraMaxY.coerceAtLeast(0), maxScrollWithBottomSpace), maxOf(retainedOffset, glideTarget))

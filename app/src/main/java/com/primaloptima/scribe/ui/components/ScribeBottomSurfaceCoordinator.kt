@@ -62,6 +62,15 @@ object ScribeBottomSurfaceCoordinator {
     }
 
     /**
+     * Explicit tolerance for comparing physical inset measurements against animated target insets.
+     */
+    const val IME_TARGET_TOLERANCE_PX = 4
+
+    private fun isImeAtTarget(currentPx: Int, targetPx: Int): Boolean {
+        return kotlin.math.abs(currentPx - targetPx) <= IME_TARGET_TOLERANCE_PX
+    }
+
+    /**
      * Authoritative pure transition reducer governing the bottom surface presentation lifecycle.
      */
     fun reduce(currentState: PresentationState, event: PresentationEvent): PresentationState {
@@ -130,21 +139,21 @@ object ScribeBottomSurfaceCoordinator {
                     when (currentState) {
                         PresentationState.HIDDEN,
                         PresentationState.KEYBOARD_DISMISSAL -> {
-                            if (event.currentBottomPx >= event.targetBottomPx) {
+                            if (isImeAtTarget(event.currentBottomPx, event.targetBottomPx) || event.currentBottomPx >= event.targetBottomPx) {
                                 PresentationState.KEYBOARD_SETTLED
                             } else {
                                 PresentationState.KEYBOARD_ENTRANCE
                             }
                         }
                         PresentationState.DRAWER_TO_KEYBOARD_HANDOFF -> {
-                            if (event.currentBottomPx >= event.targetBottomPx) {
+                            if (isImeAtTarget(event.currentBottomPx, event.targetBottomPx) || event.currentBottomPx >= event.targetBottomPx) {
                                 PresentationState.KEYBOARD_SETTLED
                             } else {
                                 currentState
                             }
                         }
                         PresentationState.KEYBOARD_ENTRANCE -> {
-                            if (event.currentBottomPx >= event.targetBottomPx) {
+                            if (isImeAtTarget(event.currentBottomPx, event.targetBottomPx) || event.currentBottomPx >= event.targetBottomPx) {
                                 PresentationState.KEYBOARD_SETTLED
                             } else {
                                 currentState
@@ -157,7 +166,7 @@ object ScribeBottomSurfaceCoordinator {
                     when (currentState) {
                         PresentationState.KEYBOARD_SETTLED,
                         PresentationState.KEYBOARD_ENTRANCE -> {
-                            if (event.currentBottomPx <= 0) {
+                            if (event.currentBottomPx <= IME_TARGET_TOLERANCE_PX) {
                                 PresentationState.HIDDEN
                             } else {
                                 PresentationState.KEYBOARD_DISMISSAL
@@ -174,14 +183,14 @@ object ScribeBottomSurfaceCoordinator {
                 when (currentState) {
                     PresentationState.KEYBOARD_ENTRANCE,
                     PresentationState.DRAWER_TO_KEYBOARD_HANDOFF -> {
-                        if (event.targetBottomPx > 0 && event.currentBottomPx >= event.targetBottomPx) {
+                        if (event.targetBottomPx > 0 && (isImeAtTarget(event.currentBottomPx, event.targetBottomPx) || event.currentBottomPx >= event.targetBottomPx)) {
                             PresentationState.KEYBOARD_SETTLED
                         } else {
                             currentState
                         }
                     }
                     PresentationState.KEYBOARD_DISMISSAL -> {
-                        if (event.currentBottomPx <= 0) {
+                        if (event.currentBottomPx <= IME_TARGET_TOLERANCE_PX) {
                             PresentationState.HIDDEN
                         } else {
                             currentState
@@ -196,7 +205,8 @@ object ScribeBottomSurfaceCoordinator {
             is PresentationEvent.ScreenRestored -> {
                 if (event.hasActiveDrawer) {
                     PresentationState.ACCESSORY_DRAWER_OPEN
-                } else if (event.isImeVisible && event.targetImeBottomPx > 0 && event.currentImeBottomPx >= event.targetImeBottomPx) {
+                } else if (event.isImeVisible && event.targetImeBottomPx > 0 &&
+                    (isImeAtTarget(event.currentImeBottomPx, event.targetImeBottomPx) || event.currentImeBottomPx >= event.targetImeBottomPx)) {
                     PresentationState.KEYBOARD_SETTLED
                 } else if (event.isImeVisible || event.targetImeBottomPx > 0) {
                     PresentationState.KEYBOARD_ENTRANCE
@@ -247,19 +257,27 @@ object ScribeBottomSurfaceCoordinator {
 
     /**
      * Computes the authoritative bottom padding to apply to the editor layout.
-     * Combines physical IME insets and accessory drawer height, accounting for
-     * the shared shortcut bar height.
+     * In Scribe, the accessory drawer replaces the keyboard rather than stacking above it.
+     * During transitions (keyboard entrance/dismissal or drawer handoff), accounts for the
+     * actual effective bottom obstruction above the navigation baseline without double counting.
      */
     fun calculateEditorBottomPaddingDp(
         imeBottomDp: Float,
         navBarBottomDp: Float,
         drawerHeightDp: Float,
-        shortcutBarClearanceDp: Float
+        shortcutBarClearanceDp: Float,
+        stacksWithKeyboard: Boolean = false
     ): Float {
-        val baseObstruction = if (drawerHeightDp > 0f) {
-            maxOf(imeBottomDp, navBarBottomDp) + drawerHeightDp
+        val baseObstruction = if (stacksWithKeyboard) {
+            if (drawerHeightDp > 0f) {
+                maxOf(imeBottomDp, navBarBottomDp) + drawerHeightDp
+            } else {
+                maxOf(imeBottomDp, navBarBottomDp)
+            }
         } else {
-            maxOf(imeBottomDp, navBarBottomDp)
+            val imeAboveNav = (imeBottomDp - navBarBottomDp).coerceAtLeast(0f)
+            val effectiveBottomSurface = maxOf(imeAboveNav, drawerHeightDp)
+            navBarBottomDp + effectiveBottomSurface
         }
         return baseObstruction + shortcutBarClearanceDp
     }

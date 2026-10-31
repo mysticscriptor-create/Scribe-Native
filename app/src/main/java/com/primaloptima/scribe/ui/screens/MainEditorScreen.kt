@@ -1324,7 +1324,7 @@ fun MainEditorScreen(
             }
 
             if (targetImePx > 0) {
-                if (curImePx >= targetImePx) {
+                if (com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isImeAtTarget(targetImePx, curImePx)) {
                     val oldState = presentationState
                     if (oldState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
                         presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.reduce(
@@ -1355,7 +1355,7 @@ fun MainEditorScreen(
                     }
                 }
             } else {
-                if (curImePx > 0) {
+                if (curImePx > com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX) {
                     if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED ||
                         presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE ||
                         presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
@@ -1512,14 +1512,22 @@ fun MainEditorScreen(
                         }
                     }
 
+                    val imeAboveNavDp = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
+
                     val currentDrawerHeightDp = if (activeAccessoryDrawer != null) {
                         if (isDrawerDragging) dragLiveHeightDp.dp.coerceIn(compactHeightDp, fullHeightDp)
                         else if (drawerState == AccessoryDrawerState.COMPACT) compactHeightDp
                         else drawerHeightDpAnim.value.dp.coerceIn(compactHeightDp, fullHeightDp)
-                    } else if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
-                        (transitionalSpacerDp - imeBottomDp).coerceAtLeast(0.dp)
                     } else {
                         0.dp
+                    }
+
+                    val effectiveBottomSurfaceHeightDp = when {
+                        activeAccessoryDrawer != null -> currentDrawerHeightDp
+                        presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF -> {
+                            maxOf(transitionalSpacerDp, imeAboveNavDp)
+                        }
+                        else -> imeAboveNavDp
                     }
 
                     val isShortcutBarTargetVisible = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isShortcutBarVisible(
@@ -1537,12 +1545,7 @@ fun MainEditorScreen(
                     val isKeyboardDismissing = presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_DISMISSAL
                     val isKeyboardSettled = presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED
 
-                    val docBottomPadding = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.calculateEditorBottomPaddingDp(
-                        imeBottomDp = imeBottomDp.value,
-                        navBarBottomDp = docBottomNavInset.value,
-                        drawerHeightDp = currentDrawerHeightDp.value,
-                        shortcutBarClearanceDp = animatedShortcutBarHeightDp.value
-                    ).dp
+                    val docBottomPadding = docBottomNavInset + effectiveBottomSurfaceHeightDp + animatedShortcutBarHeightDp
 
                     var lastAppliedPadding by remember { mutableFloatStateOf(-1f) }
                     var lastAppliedTextSize by remember { mutableFloatStateOf(-1f) }
@@ -2114,7 +2117,6 @@ fun MainEditorScreen(
                                     .fillMaxWidth()
                                     .align(Alignment.BottomCenter)
                                     .navigationBarsPadding()
-                                    .imePadding()
                             ) {
                                 if (shortcutBarProgress > 0.001f) {
                                     Surface(
@@ -2578,17 +2580,16 @@ fun MainEditorScreen(
                                 }
 
                                 // ── Persistent Bottom Surface Container (Zero Unmounting) ──
-                                val drawerPanelHeight = currentDrawerHeightDp
-                                if (drawerPanelHeight > 0.dp) {
+                                if (effectiveBottomSurfaceHeightDp > 0.dp) {
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(drawerPanelHeight)
+                                            .height(effectiveBottomSurfaceHeightDp)
                                     ) {
                                         if (activeAccessoryDrawer != null) {
                                             AccessoryDrawer(
                                                 mode = activeAccessoryDrawer!!,
-                                                currentHeightDp = drawerPanelHeight,
+                                                currentHeightDp = effectiveBottomSurfaceHeightDp,
                                             activePreviewItemId = activeCardPreview?.item?.id,
                                             drawerState = drawerState,
                                             onDrawerStateChange = {

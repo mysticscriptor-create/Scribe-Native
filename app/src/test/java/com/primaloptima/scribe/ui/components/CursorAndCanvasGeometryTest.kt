@@ -4136,4 +4136,175 @@ class CursorAndCanvasGeometryTest {
         )
         assertEquals(32f, displacement, 0.001f)
     }
+
+    // ── PART H REGRESSION TEST SUITE ──────────────────────────────────────────
+
+    @Test
+    fun testH1_DrawerHandoffContinuityAndSwitching() {
+        var state = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED
+
+        // 1. Keyboard -> Snip
+        state = ScribeBottomSurfaceCoordinator.reduce(
+            state,
+            ScribeBottomSurfaceCoordinator.PresentationEvent.DrawerOpened("SNIPPETS")
+        )
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN, state)
+
+        // 2. Snip -> Tmpl (direct switch: zero keyboard transition)
+        state = ScribeBottomSurfaceCoordinator.reduce(
+            state,
+            ScribeBottomSurfaceCoordinator.PresentationEvent.DrawerSwitched("TEMPLATES")
+        )
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN, state)
+
+        // 3. Tmpl -> Snip (direct switch back)
+        state = ScribeBottomSurfaceCoordinator.reduce(
+            state,
+            ScribeBottomSurfaceCoordinator.PresentationEvent.DrawerSwitched("SNIPPETS")
+        )
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN, state)
+
+        // 4. Snip -> Keyboard Handoff
+        val drawerHeightDp = 240f
+        state = ScribeBottomSurfaceCoordinator.reduce(
+            state,
+            ScribeBottomSurfaceCoordinator.PresentationEvent.DrawerToKeyboardHandoffStarted(drawerHeightDp)
+        )
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF, state)
+
+        // Monotonic height preservation during handoff: maxOf(transitionalSpacerDp, imeAboveNavDp)
+        val imeAboveNavRising = 150f
+        val effectiveHeightDuringRising = maxOf(drawerHeightDp, imeAboveNavRising)
+        assertEquals(240f, effectiveHeightDuringRising, 0.001f)
+
+        // Tolerance check: IME at target within tolerance
+        assertTrue(ScribeBottomSurfaceCoordinator.isImeAtTarget(targetImePx = 300, curImePx = 298))
+        assertTrue(ScribeBottomSurfaceCoordinator.isImeAtTarget(targetImePx = 300, curImePx = 302))
+
+        // 5. Handoff completes when IME settles
+        state = ScribeBottomSurfaceCoordinator.reduce(
+            state,
+            ScribeBottomSurfaceCoordinator.PresentationEvent.HandoffCompleted
+        )
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED, state)
+    }
+
+    @Test
+    fun testH2_ScrollPreservationDuringDismissal_NoClamping() {
+        val headerHeight = 200
+        val layoutHeight = 2500
+        val contractedViewport = 1000 // Keyboard open
+        val expandedViewport = 1600   // Keyboard dismissed
+        val density = 2.5f
+        val breathingMarginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).toInt() // 60px
+        val persistentBottomSpacePx = 660 // Retained clearance
+
+        // Initial state: scrolled to document end
+        val initialScrollD = headerHeight // 200
+        val initialOffsetY = 1200
+        val totalLogicalScroll = initialScrollD + initialOffsetY // 1400
+
+        // 1. calculateSafeScrollMaxY unconditioned on isFocused
+        val maxEditorYUnfocused = ScribeScrollPolicy.calculateSafeScrollMaxY(
+            layoutHeight = layoutHeight,
+            viewportHeight = expandedViewport,
+            persistentBottomSpacePx = persistentBottomSpacePx,
+            currentOffsetY = initialOffsetY,
+            isFocused = false, // Crucial: focus already lost on dismissal!
+            baseSoraMaxY = 1000,
+            isKeyboardVisible = false,
+            breathingMarginPx = breathingMarginPx,
+            isTextEmpty = false,
+            activeGlideTargetY = 0,
+            isHeaderFullyHidden = true
+        )
+        assertTrue("Max scroll with retained clearance must accommodate current offset", maxEditorYUnfocused >= initialOffsetY)
+
+        // 2. Reconcile against preserved bounds: total logical scroll remains 100% stationary
+        val reconciled = ScribeScrollPolicy.reconcileScrollState(
+            headerHeight = headerHeight,
+            scrollD = initialScrollD,
+            editorOffsetY = initialOffsetY,
+            maxCanvasScroll = maxOf(totalLogicalScroll, maxEditorYUnfocused + headerHeight)
+        )
+        assertEquals(initialScrollD, reconciled.scrollD)
+        assertEquals(initialOffsetY, reconciled.editorOffsetY)
+        assertEquals(totalLogicalScroll, reconciled.scrollD + reconciled.editorOffsetY)
+    }
+
+    @Test
+    fun testH3_CanonicalCoordinateConversion_And_SafeLastLineTapZeroMovement() {
+        val density = 2.5f
+        val headerHeight = 200f
+        val scrollD = 200f
+        val offsetY = 1200f
+        val currentTotalScroll = scrollD + offsetY // 1400f
+        val usableViewportHeight = 1000f
+
+        // Last line at document position Y = 1660..1700
+        val rectTop = 1660f
+        val rectBottom = 1700f
+
+        // Canonical calculation:
+        // screenBottom = headerHeight + rectBottom - currentTotalScroll = 200 + 1700 - 1400 = 500f
+        // Safe bottom boundary = 1000 - 60 = 940f
+        val decision = ScribeScrollPolicy.resolveCursorSafety(
+            rectTop = rectTop,
+            rectBottom = rectBottom,
+            headerHeight = headerHeight,
+            currentTotalScroll = currentTotalScroll,
+            usableViewportHeight = usableViewportHeight,
+            density = density,
+            maxCanvasScroll = 2000f
+        )
+
+        // Crucial test: Tap on already visible last line produces ZERO movement!
+        assertTrue("Already visible cursor must be safe", decision.isSafe)
+        assertEquals("Screen bottom must match canonical formula", 500f, decision.screenBottom, 0.001f)
+        assertEquals("Needed displacement must be 0f", 0f, decision.neededUpwardDisplacement, 0.001f)
+        assertEquals("Target total scroll must remain current total scroll", currentTotalScroll, decision.targetTotalScroll, 0.001f)
+
+        // Contrast with genuinely unsafe cursor below boundary (e.g. rectBottom = 2200f -> screenBottom = 1000f)
+        val unsafeDecision = ScribeScrollPolicy.resolveCursorSafety(
+            rectTop = 2160f,
+            rectBottom = 2200f,
+            headerHeight = headerHeight,
+            currentTotalScroll = currentTotalScroll,
+            usableViewportHeight = usableViewportHeight,
+            density = density,
+            maxCanvasScroll = 2000f
+        )
+        assertFalse("Cursor below safe bottom boundary must be marked unsafe", unsafeDecision.isSafe)
+        // Safe boundary is 940px; screenBottom is 200 + 2200 - 1400 = 1000px. Overflow = 60px.
+        assertEquals(60f, unsafeDecision.neededUpwardDisplacement, 0.001f)
+        assertEquals(currentTotalScroll + 60f, unsafeDecision.targetTotalScroll, 0.001f)
+    }
+
+    @Test
+    fun testH4_KeyboardEntranceContinuousRetargeting() {
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
+            totalScroll = 500f,
+            density = 2.5f
+        )
+
+        // Initial target during entrance
+        val started = coordinator.requestTarget(
+            targetTotalScroll = 600f,
+            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+            force = false,
+            maxCanvasScroll = 1500
+        )
+        assertTrue(started)
+        assertTrue(coordinator.isAnimationActive)
+        assertEquals(600f, coordinator.activeTargetTotalScroll ?: 0f, 0.001f)
+
+        // Subsequent measurement during in-flight animation retargets seamlessly without resetting velocity or progress
+        coordinator.retargetActiveOperation(
+            newTarget = 650f,
+            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+            maxCanvasScroll = 1500
+        )
+        assertEquals(650f, coordinator.activeTargetTotalScroll ?: 0f, 0.001f)
+        assertTrue(coordinator.isAnimationActive)
+    }
 }

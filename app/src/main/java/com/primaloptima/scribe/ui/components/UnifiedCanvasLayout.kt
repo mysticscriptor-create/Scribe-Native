@@ -65,7 +65,19 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         id = View.generateViewId()
     }
 
+    var preservedDismissalScroll: Int? = null
+
     var isKeyboardDismissing: Boolean = false
+        set(value) {
+            field = value
+            if (value) {
+                if (preservedDismissalScroll == null) {
+                    preservedDismissalScroll = scrollD + editor.offsetY
+                }
+            } else {
+                checkAndClearPreservedDismissalScroll()
+            }
+        }
 
     var horizontalPaddingDp: Float = 28f
         set(value) {
@@ -149,7 +161,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
     }
 
-    val maxCanvasScroll: Int
+    val naturalMaxCanvasScroll: Int
         get() {
             val layoutH = editor.layout?.layoutHeight ?: 0
             val breathingMargin = breathingMarginPx.roundToInt()
@@ -167,6 +179,21 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             )
         }
 
+    val maxCanvasScroll: Int
+        get() {
+            val naturalMax = naturalMaxCanvasScroll
+            return preservedDismissalScroll?.let { maxOf(naturalMax, it) } ?: naturalMax
+        }
+
+    fun checkAndClearPreservedDismissalScroll() {
+        val preserved = preservedDismissalScroll ?: return
+        if (!isKeyboardDismissing && !isKeyboardVisible && !isBottomSurfaceActive) {
+            if (naturalMaxCanvasScroll >= preserved) {
+                preservedDismissalScroll = null
+            }
+        }
+    }
+
     val maxHeaderScrollD: Int
         get() = ScribeScrollPolicy.calculateMaxHeaderScroll(headerHeight, maxCanvasScroll)
 
@@ -174,9 +201,18 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         set(value) {
             field = value
             editor.isKeyboardVisible = value
+            if (!value) {
+                checkAndClearPreservedDismissalScroll()
+            }
         }
 
     var isBottomSurfaceActive: Boolean = false
+        set(value) {
+            field = value
+            if (!value) {
+                checkAndClearPreservedDismissalScroll()
+            }
+        }
 
     init {
         addView(headerView)
@@ -1178,45 +1214,37 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 (line + 1) * rowHeight.toFloat()
             }
         }
-        val headerRemaining = headerHeight - scrollD
-        val screenBottom = headerRemaining + yOffset - editor.offsetY
-        val screenTop = screenBottom - rowHeight
+        val yOffsetBottom = yOffset
+        val yOffsetTop = yOffsetBottom - rowHeight
+        val currentScroll = (scrollD + editor.offsetY).toFloat()
 
-        val visibleHeight = height
-        val density = resources.displayMetrics.density
-        val isLastLine = line >= (editor.text.lineCount - 1)
-        val hasScroll = scrollD > 0 || editor.offsetY > 0
-
-        val resolution = ScribeScrollPolicy.resolveCursorScrollDelta(
-            screenBottom = screenBottom,
-            screenTop = screenTop,
-            visibleHeight = visibleHeight,
-            density = density,
-            isLastLine = isLastLine,
-            isDeletionActive = isLastLineDeletionActive,
-            hasScrollOffset = hasScroll
+        val decision = ScribeScrollPolicy.resolveCursorSafety(
+            rectTop = yOffsetTop,
+            rectBottom = yOffsetBottom,
+            headerHeight = headerHeight.toFloat(),
+            currentTotalScroll = currentScroll,
+            usableViewportHeight = height.toFloat(),
+            density = resources.displayMetrics.density,
+            maxCanvasScroll = maxCanvasScroll.toFloat(),
+            allowDownwardForTopUnderflow = true
         )
 
-        if (resolution.shouldScroll) {
+        if (!decision.isSafe) {
             lastEnsureCursorTime = now
-            val duration = if (resolution.isAnchorDownward) {
-                ScribeScrollPolicy.DURATION_DELETION_ANCHOR_MS
-            } else {
-                customDurationMs
-            }
-            if (resolution.deltaY > 0f && isExpansionTransitionActive) {
-                recordExpansionDisplacement(resolution.deltaY, line, col, cursor.isSelected)
+            val duration = customDurationMs
+            if (decision.neededUpwardDisplacement > 0f && isExpansionTransitionActive) {
+                recordExpansionDisplacement(decision.neededUpwardDisplacement, line, col, cursor.isSelected)
             }
             if (smooth) {
-                smoothScrollCanvasBy(
-                    dy = resolution.deltaY,
+                startAuthoritativeScrollAnimation(
+                    targetTotalScroll = decision.targetTotalScroll,
                     reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
                     durationMs = duration,
                     interpolator = FastOutSlowInInterpolator
                 )
             } else {
                 val beforeScroll = (scrollD + editor.offsetY).toFloat()
-                scrollCanvasBy(resolution.deltaY)
+                scrollCanvasBy(decision.neededUpwardDisplacement)
                 val afterScroll = (scrollD + editor.offsetY).toFloat()
                 val actualMoved = afterScroll - beforeScroll
                 if (isExpansionTransitionActive && actualMoved > 0f) {
@@ -1339,9 +1367,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val isTitleTargetActive = activeEditingTarget == EditingTarget.PRIMARY_TITLE ||
                     activeEditingTarget == EditingTarget.SECONDARY_TITLE
                 if (!isTitleTargetActive && (editor.isFocused || isBottomSurfaceActive || isKeyboardVisible)) {
-                    val density = resources.displayMetrics.density
-                    val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density)
-                    val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density)
                     val cur = try { editor.cursor } catch (_: Throwable) { null }
                     val lay = try { editor.layout } catch (_: Throwable) { null }
                     if (cur != null && lay != null) {
@@ -1357,38 +1382,35 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
                         if (!(isAllSelected && editor.selectAllScrollMode == ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION)) {
                             val selGeom = getSelectionGeometry(cur, lay)
+                            val caretDocTop = selGeom?.topDocY ?: run {
+                                val targetLine = if (isAllSelected) cur.rightLine else cur.leftLine
+                                val targetCol = if (isAllSelected) cur.rightColumn else cur.leftColumn
+                                getCharGeometry(lay, targetLine, targetCol, editor.rowHeight.toFloat()).topDocY
+                            }
                             val caretDocBottom = selGeom?.bottomDocY ?: run {
                                 val targetLine = if (isAllSelected) cur.rightLine else cur.leftLine
                                 val targetCol = if (isAllSelected) cur.rightColumn else cur.leftColumn
                                 getCharGeometry(lay, targetLine, targetCol, editor.rowHeight.toFloat()).bottomDocY
                             }
 
-                            val headerRemaining = (headerHeight - scrollD).coerceAtLeast(0)
-                            val screenBottom = headerRemaining + caretDocBottom - editor.offsetY
-
-                            val isCurrentlySafe = ScribeBottomSurfaceCoordinator.isCursorSafeInViewport(
-                                screenBottom = screenBottom,
-                                viewportHeight = h.toFloat(),
-                                breathingMarginPx = marginPx,
-                                deadbandPx = deadbandPx
+                            val currentScroll = (scrollD + editor.offsetY).toFloat()
+                            val decision = ScribeScrollPolicy.resolveCursorSafety(
+                                rectTop = caretDocTop,
+                                rectBottom = caretDocBottom,
+                                headerHeight = headerHeight.toFloat(),
+                                currentTotalScroll = currentScroll,
+                                usableViewportHeight = h.toFloat(),
+                                density = resources.displayMetrics.density,
+                                maxCanvasScroll = maxCanvasScroll.toFloat(),
+                                allowDownwardForTopUnderflow = false
                             )
 
-                            if (!isCurrentlySafe) {
-                                val neededDelta = ScribeBottomSurfaceCoordinator.calculateRequiredUpwardDisplacement(
-                                    screenBottom = screenBottom,
-                                    viewportHeight = h.toFloat(),
-                                    breathingMarginPx = marginPx,
-                                    deadbandPx = deadbandPx
+                            if (!decision.isSafe && decision.neededUpwardDisplacement > (ScribeScrollPolicy.CURSOR_DEADBAND_DP * resources.displayMetrics.density)) {
+                                startAuthoritativeScrollAnimation(
+                                    targetTotalScroll = decision.targetTotalScroll,
+                                    reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+                                    durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
                                 )
-                                if (neededDelta > deadbandPx) {
-                                    val currentScroll = (scrollD + editor.offsetY).toFloat()
-                                    val desiredTarget = (currentScroll + neededDelta).coerceIn(0f, maxCanvasScroll.toFloat())
-                                    startAuthoritativeScrollAnimation(
-                                        targetTotalScroll = desiredTarget,
-                                        reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
-                                        durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
-                                    )
-                                }
                             }
                             // Strict Invariant: If isCurrentlySafe, do ABSOLUTELY NOTHING. Safe cursor never moves!
                         }
@@ -1398,10 +1420,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 // Viewport expanding (keyboard dismissed or accessory drawer closed).
                 // Pure Writer Stationary Invariant:
                 // Total document scroll (scrollD + editor.offsetY) remains 100% stationary throughout dismissal.
-                // Downward follow or contraction restoration is strictly suppressed.
+                if (preservedDismissalScroll == null) {
+                    preservedDismissalScroll = scrollD + editor.offsetY
+                }
                 cancelRestoration()
                 cancelViewportSafetyAnimation()
                 isExpansionTransitionActive = false
+                checkAndClearPreservedDismissalScroll()
             }
         }
     }
@@ -1452,46 +1477,37 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             ) {
                 return false
             }
-            val screenTop = (headerHeight - scrollD) + rectangle.top
-            val screenBottom = (headerHeight - scrollD) + rectangle.bottom
-            val density = resources.displayMetrics.density
-            val visibleHeight = height
-            val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
-            val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
-            val targetLineBottom = visibleHeight - marginPx
-            if (screenBottom > (targetLineBottom + deadbandPx)) {
-                if (isDeletionTransactionActive) {
-                    return true
-                }
-                val delta = (screenBottom - targetLineBottom).toFloat()
-                val currentScroll = (scrollD + editor.offsetY).toFloat()
-                val desiredTarget = (currentScroll + delta).coerceIn(0f, maxCanvasScroll.toFloat())
-
-                if (!immediate) {
-                    smoothScrollCanvasBy(
-                        dy = delta,
-                        reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
-                        durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
-                    )
-                } else {
-                    scrollCanvasBy(delta)
-                }
-                return true
-            } else if (screenTop < -deadbandPx && (scrollD > 0 || editor.offsetY > 0) && (isKeyboardVisible || isBottomSurfaceActive || isUserTouching)) {
-                val delta = screenTop.toFloat()
-                val currentScroll = (scrollD + editor.offsetY).toFloat()
-                val desiredTarget = (currentScroll + delta).coerceAtLeast(0f)
-                if (isGlideRunning && scrollCoordinator.isAnimationActive) {
-                    startAuthoritativeScrollAnimation(
-                        targetTotalScroll = desiredTarget,
-                        reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
-                        durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
-                    )
-                } else {
-                    scrollCanvasBy(delta)
-                }
+            if (isDeletionTransactionActive) {
                 return true
             }
+
+            val currentScroll = (scrollD + editor.offsetY).toFloat()
+            val decision = ScribeScrollPolicy.resolveCursorSafety(
+                rectTop = rectangle.top.toFloat(),
+                rectBottom = rectangle.bottom.toFloat(),
+                headerHeight = headerHeight.toFloat(),
+                currentTotalScroll = currentScroll,
+                usableViewportHeight = height.toFloat(),
+                density = resources.displayMetrics.density,
+                maxCanvasScroll = maxCanvasScroll.toFloat(),
+                allowDownwardForTopUnderflow = (isKeyboardVisible || isBottomSurfaceActive || isUserTouching)
+            )
+
+            if (decision.isSafe) {
+                // Invariant: Already safe in viewport — zero movement!
+                return true
+            }
+
+            if (!immediate) {
+                startAuthoritativeScrollAnimation(
+                    targetTotalScroll = decision.targetTotalScroll,
+                    reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+                    durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
+                )
+            } else {
+                scrollCanvasBy(decision.neededUpwardDisplacement)
+            }
+            return true
         }
         return false
     }
@@ -1606,6 +1622,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> {
                 isMultiTouchLatched = false
                 isUserTouching = true
+                preservedDismissalScroll = null
                 onUserTouchDown?.invoke()
                 cancelCanvasAnimation()
                 invalidateCompensation()
