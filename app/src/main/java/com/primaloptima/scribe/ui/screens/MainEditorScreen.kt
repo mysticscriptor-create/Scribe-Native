@@ -278,6 +278,7 @@ fun MainEditorScreen(
     onOpenExportStudio: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val dataStore = remember { (context.applicationContext as? ScribeApp)?.dataStore ?: ScribeDataStore(context) }
     val haptic  = LocalHapticFeedback.current
     val scope   = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
@@ -471,7 +472,6 @@ fun MainEditorScreen(
     var activeSheetPage      by remember { mutableStateOf<EditorSheetPage?>(null) }
     var wasSheetOpen         by remember { mutableStateOf(false) }
 
-    val dataStore = remember { (context.applicationContext as? ScribeApp)?.dataStore ?: ScribeDataStore(context) }
     val selectedOrnamentId by dataStore.manuscriptOrnamentIdFlow.collectAsStateWithLifecycle("classic_diamond")
     var showOrnamentPicker by remember { mutableStateOf(false) }
 
@@ -1666,7 +1666,7 @@ fun MainEditorScreen(
                             UnifiedCanvasLayout(ctx).apply {
                                 horizontalPaddingDp = initialPadH
                                 setBackgroundColor(bgArgb)
-                                this.estimatedKeyboardHeightPx = (compactHeightDp.value + (if (shortcuts.isNotEmpty()) 36f else 0f)) * density.density
+                                this.estimatedKeyboardHeightPx = (compactHeightDp.value + (if (shortcuts.isNotEmpty()) 36f else 0f)) * density
                                 this.activeEditingTarget = lastActiveTarget
                                 this.isKeyboardVisible = isKeyboardVisible
                                 this.isBottomSurfaceActive = (activeAccessoryDrawer != null || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF)
