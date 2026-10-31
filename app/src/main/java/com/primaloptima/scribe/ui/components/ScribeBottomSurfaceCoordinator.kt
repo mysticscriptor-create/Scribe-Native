@@ -56,6 +56,7 @@ object ScribeBottomSurfaceCoordinator {
         data object ImeSettledAtTarget : PresentationEvent
         data object ImeDismissalStarted : PresentationEvent
         data object ImeDismissalFinished : PresentationEvent
+        data object KeyboardEntranceStarted : PresentationEvent
         data class DrawerOpened(val mode: String) : PresentationEvent
         data object DrawerClosed : PresentationEvent
         data class DrawerSwitched(val mode: String) : PresentationEvent
@@ -119,6 +120,14 @@ object ScribeBottomSurfaceCoordinator {
             is PresentationEvent.HandoffFailed -> {
                 if (currentState == PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
                     PresentationState.HIDDEN
+                } else {
+                    currentState
+                }
+            }
+            is PresentationEvent.KeyboardEntranceStarted -> {
+                if (currentState == PresentationState.HIDDEN ||
+                    currentState == PresentationState.KEYBOARD_DISMISSAL) {
+                    PresentationState.KEYBOARD_ENTRANCE
                 } else {
                     currentState
                 }
@@ -232,7 +241,8 @@ object ScribeBottomSurfaceCoordinator {
     }
 
     /**
-     * Determines whether the shortcut bar should be visible based on presentation state.
+     * Determines whether the shortcut bar should be visually visible based on presentation state.
+     * Note: Visual visibility controls drawing/opacity, NOT viewport layout geometry.
      */
     fun isShortcutBarVisible(state: PresentationState, hasShortcuts: Boolean = true): Boolean {
         if (!hasShortcuts) return false
@@ -244,6 +254,33 @@ object ScribeBottomSurfaceCoordinator {
             PresentationState.ACCESSORY_DRAWER_OPEN,
             PresentationState.DRAWER_TO_KEYBOARD_HANDOFF -> true
         }
+    }
+
+    /**
+     * Authoritative check for shortcut-bar geometry reservation:
+     * Determines whether the editor layout must reserve the fixed 36dp layout slot.
+     * Begins when pre-IME entrance is initiated (KEYBOARD_ENTRANCE), stays stable through
+     * entrance and settled phases, and remains reserved during dismissal until the transition
+     * cleanly finishes into HIDDEN.
+     * When hasShortcuts is false, no slot is reserved.
+     */
+    fun isShortcutBarGeometryReserved(state: PresentationState, hasShortcuts: Boolean = true): Boolean {
+        if (!hasShortcuts) return false
+        return when (state) {
+            PresentationState.HIDDEN -> false
+            PresentationState.KEYBOARD_ENTRANCE,
+            PresentationState.KEYBOARD_SETTLED,
+            PresentationState.KEYBOARD_DISMISSAL,
+            PresentationState.ACCESSORY_DRAWER_OPEN,
+            PresentationState.DRAWER_TO_KEYBOARD_HANDOFF -> true
+        }
+    }
+
+    /**
+     * Computes the reserved shortcut-bar clearance in dp based on geometry reservation state.
+     */
+    fun calculateReservedShortcutBarClearanceDp(state: PresentationState, hasShortcuts: Boolean = true): Float {
+        return if (isShortcutBarGeometryReserved(state, hasShortcuts)) SHORTCUT_BAR_HEIGHT_DP else 0f
     }
 
     /**

@@ -79,6 +79,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
     private var pendingCopyAction: (() -> Unit)? = null
 
     /**
+     * Scoped correction origin for the current user interaction event (e.g. TAP_PLACEMENT).
+     * Synchronously forwarded to ensurePositionVisible and reset immediately in finally.
+     */
+    var pendingCorrectionOrigin: ScribeScrollPolicy.CursorCorrectionOrigin? = null
+
+    /**
      * Pure Writer persistent bottom space architecture:
      * Extra virtual height equal to the shortcut bar + keyboard height.
      * Allows the document to scroll freely with the keyboard appearing on top of it,
@@ -466,7 +472,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 parentCanvas?.ensureCursorVisibleAboveKeyboard(
                     smooth = true,
                     customDurationMs = 380L,
-                    force = true
+                    force = true,
+                    origin = ScribeScrollPolicy.CursorCorrectionOrigin.TEXT_EDIT
                 )
             }
         }
@@ -489,7 +496,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 parentCanvas?.ensureCursorVisibleAboveKeyboard(
                     smooth = true,
                     customDurationMs = 380L,
-                    force = true
+                    force = true,
+                    origin = ScribeScrollPolicy.CursorCorrectionOrigin.TEXT_EDIT
                 )
             }
         }
@@ -1284,7 +1292,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
                         } else if (totalScroll > maxScroll || text.isEmpty()) {
                             pCanvas.clampCanvasScrollToMax(smooth = true)
                         } else if (isFocused) {
-                            pCanvas.ensureCursorVisibleAboveKeyboard(smooth = true, force = false)
+                            pCanvas.ensureCursorVisibleAboveKeyboard(
+                                smooth = true,
+                                force = false,
+                                origin = ScribeScrollPolicy.CursorCorrectionOrigin.TEXT_EDIT
+                            )
                         }
                     }
                 }
@@ -1454,7 +1466,16 @@ class ScribeCodeEditor @JvmOverloads constructor(
             }
         }
         val wasScaling = eventHandler?.isScaling == true
-        val result = super.onTouchEvent(event)
+        val isTapActionUp = event.actionMasked == MotionEvent.ACTION_UP && !isTouchMoved && (System.currentTimeMillis() - touchDownTime < 450L)
+        val prevOrigin = pendingCorrectionOrigin
+        if (isTapActionUp) {
+            pendingCorrectionOrigin = ScribeScrollPolicy.CursorCorrectionOrigin.TAP_PLACEMENT
+        }
+        val result = try {
+            super.onTouchEvent(event)
+        } finally {
+            pendingCorrectionOrigin = prevOrigin
+        }
         val isScalingNow = eventHandler?.isScaling == true
 
         if (!wasScaling && isScalingNow) {
@@ -1477,8 +1498,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
             if (wasTap && !isPinchScaling && !isHandleDragging && !isInteractingWithImage) {
                 val pCanvas = parentCanvas
                 if (pCanvas != null && (pCanvas.isKeyboardVisible || pCanvas.isBottomSurfaceActive)) {
-                    // Viewport is already contracted: perform ordinary caret visibility check
-                    pCanvas.ensureCursorVisibleAboveKeyboard(smooth = true)
+                    // Viewport is already contracted: perform ordinary caret visibility check with TAP_PLACEMENT origin
+                    pCanvas.ensureCursorVisibleAboveKeyboard(
+                        smooth = true,
+                        origin = ScribeScrollPolicy.CursorCorrectionOrigin.TAP_PLACEMENT
+                    )
                 }
             }
             if (isInteractingWithImage) {
@@ -1661,7 +1685,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 targetLine = cur.rightLine,
                 targetCol = cur.rightColumn,
                 smooth = true,
-                force = true
+                force = true,
+                origin = ScribeScrollPolicy.CursorCorrectionOrigin.SELECTION_CHANGE
             )
         }
     }
@@ -1692,13 +1717,18 @@ class ScribeCodeEditor @JvmOverloads constructor(
                             targetLine = cur.rightLine,
                             targetCol = cur.rightColumn,
                             smooth = true,
-                            force = true
+                            force = true,
+                            origin = ScribeScrollPolicy.CursorCorrectionOrigin.SELECTION_CHANGE
                         )
                         return
                     }
                 }
             }
-            parentCanvas.ensureCursorVisibleAboveKeyboard(smooth = true, force = true)
+            parentCanvas.ensureCursorVisibleAboveKeyboard(
+                smooth = true,
+                force = true,
+                origin = ScribeScrollPolicy.CursorCorrectionOrigin.SELECTION_CHANGE
+            )
             return
         }
         super.ensureSelectionVisible()
@@ -1741,7 +1771,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
         super.showSoftInput()
     }
 
-    override fun ensurePositionVisible(line: Int, column: Int, noAnimation: Boolean) {
+    fun ensurePositionVisible(
+        line: Int,
+        column: Int,
+        noAnimation: Boolean,
+        origin: ScribeScrollPolicy.CursorCorrectionOrigin
+    ) {
         if (isInteractingWithImage) return
         val scroller = scroller ?: return
         val layout = layout ?: return
@@ -1778,7 +1813,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
             // If viewport has not laid out yet, defer to next frame
             if (parentCanvas.height <= 0) {
                 parentCanvas.post {
-                    ensurePositionVisible(line, column, noAnimation)
+                    ensurePositionVisible(line, column, noAnimation, origin)
                 }
                 return
             }
@@ -1791,7 +1826,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 targetLine = line,
                 targetCol = column,
                 smooth = !noAnimation,
-                force = true
+                force = true,
+                origin = origin
             )
             invalidate()
             return
@@ -1830,6 +1866,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
         }
         dispatchEvent(ScrollEvent(this, offsetX, offsetY, targetX.toInt(), targetY.toInt(), ScrollEvent.CAUSE_MAKE_POSITION_VISIBLE))
         invalidate()
+    }
+
+    override fun ensurePositionVisible(line: Int, column: Int, noAnimation: Boolean) {
+        val origin = pendingCorrectionOrigin ?: ScribeScrollPolicy.CursorCorrectionOrigin.PROGRAMMATIC_NAVIGATION
+        ensurePositionVisible(line, column, noAnimation, origin)
     }
 
     /**

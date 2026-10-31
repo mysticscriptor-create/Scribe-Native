@@ -1299,45 +1299,33 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
         val currentScroll = (scrollD + editor.offsetY).toFloat()
 
-        // Phase 1b: Check if the user initiated this via a recent tap on the canvas.
-        // If the tap location is already above the breathing margin / shortcut bar in the future viewport,
-        // or if the canvas is at the top (scrollD == 0) and the tap is within the future viewport,
-        // suppress any predictive glide and prevent false scroll-and-return bouncing.
+        // Phase 1b: Check if the caret (or tapped position) is already safe in the future viewport.
+        // If the caret is already above the breathing margin in the future viewport,
+        // or if canvas is at top (scrollD == 0) and caret is within future viewport,
+        // suppress any predictive glide and prevent false downward scroll-and-return bouncing.
         val now = System.currentTimeMillis()
         val recentTouchY = if (now - lastTouchDownTime < 500L) lastTouchDownY else null
 
-        if (targetLine == null && recentTouchY != null) {
-            val isTapAboveMargin = recentTouchY <= (targetLineBottom + deadbandPx)
-            val isTitleSafe = (scrollD == 0 && recentTouchY <= futureViewportHeight)
-            if (isTapAboveMargin || isTitleSafe) {
-                // Tapped position is already safe! Suppress glide completely.
-                beginKeyboardTransaction(currentScroll)
-                targetPredictedScrollTotal = currentScroll
-                onKeyboardEntranceStarted?.invoke()
-                return
-            }
+        val isCaretSafeInFuture = screenBottom <= (targetLineBottom + deadbandPx)
+        val isTitleSafe = (scrollD == 0 && recentTouchY != null && recentTouchY <= futureViewportHeight)
+        if (isCaretSafeInFuture || isTitleSafe) {
+            // Tapped / current position is already safe in predicted final viewport!
+            // Suppress glide completely — zero document movement!
+            beginKeyboardTransaction(currentScroll)
+            targetPredictedScrollTotal = currentScroll
+            onKeyboardEntranceStarted?.invoke()
+            return
         }
 
-        val desiredTarget = if (targetLine == null && recentTouchY != null) {
-            val touchOverflow = recentTouchY - targetLineBottom
-            (currentScroll + touchOverflow).coerceIn(0f, maxScrollFuture)
-        } else {
-            (headerHeight + yOffset - targetLineBottom).coerceIn(0f, maxScrollFuture)
-        }
-
+        val overflow = (screenBottom - targetLineBottom).coerceAtLeast(0f)
+        val desiredTarget = (currentScroll + overflow).coerceIn(0f, maxScrollFuture)
         val deltaY = desiredTarget - currentScroll
 
-        // Always initiate keyboard transaction and notify Compose to lock bottom spacer and show shortcut bar
+        // Initiate keyboard transaction and notify Compose to reserve shortcut bar geometry
         beginKeyboardTransaction(desiredTarget)
         onKeyboardEntranceStarted?.invoke()
 
-        val isTargetOccluded = if (targetLine == null && recentTouchY != null) {
-            recentTouchY > (targetLineBottom + deadbandPx)
-        } else {
-            screenBottom > (targetLineBottom + deadbandPx)
-        }
-
-        if (deltaY > ScribeScrollPolicy.DRAG_THRESHOLD_DP && isTargetOccluded) {
+        if (deltaY > ScribeScrollPolicy.DRAG_THRESHOLD_DP) {
             isExpansionTransitionActive = true
             resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
             val rReset = Runnable {
@@ -1371,7 +1359,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         targetCol: Int? = null,
         smooth: Boolean = true,
         customDurationMs: Long = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS,
-        force: Boolean = false
+        force: Boolean = false,
+        origin: ScribeScrollPolicy.CursorCorrectionOrigin = ScribeScrollPolicy.CursorCorrectionOrigin.PROGRAMMATIC_NAVIGATION
     ) {
         if (activeEditingTarget == EditingTarget.PRIMARY_TITLE ||
             activeEditingTarget == EditingTarget.SECONDARY_TITLE
@@ -1382,8 +1371,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (!force && editor.isPasteTransactionActive) return
         val now = System.currentTimeMillis()
         if (!force && now - lastEnsureCursorTime < 16L) return
-
-
 
         val cursor = try { editor.cursor } catch (_: Throwable) { null } ?: return
 
@@ -1449,8 +1436,29 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             }
             val finalScreenBottom = (headerHeight + yOffsetBottom - plannedTarget)
             if (finalScreenBottom <= targetLineBottom + deadbandPx) {
+                // Caret is already safe against the predicted viewport — apply NO correction!
                 return
             }
+
+            // Caret would be unsafe at bottom against predicted viewport: apply ONLY minimum upward correction
+            val overflow = finalScreenBottom - targetLineBottom
+            val maxBound = maxCanvasScroll.toFloat()
+            val correctedTarget = (plannedTarget + overflow).coerceIn(0f, maxBound)
+            if (correctedTarget > currentScroll + 1f) {
+                activeKeyboardTransaction = activeKeyboardTransaction?.copy(targetScroll = correctedTarget)
+                targetPredictedScrollTotal = correctedTarget
+                startAuthoritativeScrollAnimation(
+                    targetTotalScroll = correctedTarget,
+                    reason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE,
+                    durationMs = ScribeScrollPolicy.DURATION_PREDICTIVE_GLIDE_MS
+                ) {
+                    isPredictiveGlideRunning = false
+                    targetPredictedScrollTotal = -1f
+                    checkKeyboardTransactionSettled()
+                }
+            }
+            // Strict Invariant: NEVER fall through to generic resolveCursorSafety while keyboard transaction is active!
+            return
         }
 
         val decision = ScribeScrollPolicy.resolveCursorSafety(
@@ -1461,7 +1469,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             usableViewportHeight = height.toFloat(),
             density = resources.displayMetrics.density,
             maxCanvasScroll = maxCanvasScroll.toFloat(),
-            allowDownwardForTopUnderflow = true
+            origin = origin
         )
 
         if (!decision.isSafe) {
@@ -1813,7 +1821,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 usableViewportHeight = height.toFloat(),
                 density = resources.displayMetrics.density,
                 maxCanvasScroll = maxCanvasScroll.toFloat(),
-                allowDownwardForTopUnderflow = (isKeyboardVisible || isBottomSurfaceActive || isUserTouching)
+                allowDownwardForTopUnderflow = false
             )
 
             if (decision.isSafe) {

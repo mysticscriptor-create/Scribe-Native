@@ -1480,7 +1480,10 @@ fun MainEditorScreen(
                         }
                     } else {
                         unifiedCanvasRef?.liveImeHeightPx = 0f
-                        if (presentationState != com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN &&
+                        val isEntering = (unifiedCanvasRef?.isKeyboardTransactionActive == true) &&
+                            presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE
+                        if (!isEntering &&
+                            presentationState != com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN &&
                             presentationState != com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN) {
                             presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.reduce(
                                 presentationState,
@@ -1627,11 +1630,16 @@ fun MainEditorScreen(
                         0f
                     }
 
+                    val isShortcutBarReserved = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isShortcutBarGeometryReserved(
+                        presentationState,
+                        shortcuts.isNotEmpty()
+                    )
+                    val fixedShortcutBarClearance = if (isShortcutBarReserved && shortcuts.isNotEmpty()) 36f else 0f
+
                     val isShortcutBarTargetVisible = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isShortcutBarVisible(
                         presentationState,
                         shortcuts.isNotEmpty()
                     )
-                    val fixedShortcutBarClearance = if (isShortcutBarTargetVisible && shortcuts.isNotEmpty()) 36f else 0f
 
                     val shortcutBarProgress by animateFloatAsState(
                         targetValue = if (isShortcutBarTargetVisible) 1f else 0f,
@@ -1698,6 +1706,15 @@ fun MainEditorScreen(
                                     updateEditingTarget(EditingTarget.EDITOR_BODY)
                                     if (activeAccessoryDrawer != null) {
                                         returnFromDrawerToKeyboard()
+                                    }
+                                }
+                                onKeyboardEntranceStarted = {
+                                    if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN ||
+                                        presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_DISMISSAL) {
+                                        presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.reduce(
+                                            presentationState,
+                                            com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationEvent.KeyboardEntranceStarted
+                                        )
                                     }
                                 }
                                 onScrollDelta = { dy ->
@@ -1844,7 +1861,9 @@ fun MainEditorScreen(
                                         if (current.isEmpty()) {
                                             unifiedCanvasRef?.resetDocumentToTop(smooth = true)
                                         } else if (event.action != ContentChangeEvent.ACTION_DELETE) {
-                                            unifiedCanvasRef?.ensureCursorVisibleAboveKeyboard()
+                                            unifiedCanvasRef?.ensureCursorVisibleAboveKeyboard(
+                                                origin = com.primaloptima.scribe.ui.components.ScribeScrollPolicy.CursorCorrectionOrigin.TEXT_EDIT
+                                            )
                                         }
                                     }
                                     setOnFocusChangeListener { _, hasFocus ->
@@ -1918,6 +1937,15 @@ fun MainEditorScreen(
                                 updateEditingTarget(EditingTarget.EDITOR_BODY)
                                 if (activeAccessoryDrawer != null) {
                                     returnFromDrawerToKeyboard()
+                                }
+                            }
+                            layout.onKeyboardEntranceStarted = {
+                                if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN ||
+                                    presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_DISMISSAL) {
+                                    presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.reduce(
+                                        presentationState,
+                                        com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationEvent.KeyboardEntranceStarted
+                                    )
                                 }
                             }
                             layout.standardKeyboardHeightPx = lastKeyboardHeightDp.value * density.density

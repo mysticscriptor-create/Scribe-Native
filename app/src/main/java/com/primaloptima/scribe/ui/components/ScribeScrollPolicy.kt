@@ -61,6 +61,19 @@ object ScribeScrollPolicy {
     )
 
     /**
+     * Explicit reason/origin model for cursor-visibility requests.
+     */
+    enum class CursorCorrectionOrigin {
+        TAP_PLACEMENT,
+        PROGRAMMATIC_NAVIGATION,
+        KEYBOARD_ENTRANCE,
+        TEMPORARY_SURFACE_CONTRACTION,
+        KEYBOARD_DISMISSAL,
+        TEXT_EDIT,
+        SELECTION_CHANGE
+    }
+
+    /**
      * Authoritative resolver for cursor/selection safety across all visibility paths.
      * Uses canonical coordinate conversion:
      * screenTop = headerHeight + rectTop - currentTotalScroll
@@ -73,6 +86,37 @@ object ScribeScrollPolicy {
      * - If cursor bottom is below safeBottomBoundary, calculates the exact minimum upward displacement.
      * - Respects maxCanvasScroll and 1-DOF invariant. Never forces downward movement on keyboard transitions.
      */
+    fun resolveCursorSafety(
+        rectTop: Float,
+        rectBottom: Float,
+        headerHeight: Float,
+        currentTotalScroll: Float,
+        usableViewportHeight: Float,
+        density: Float,
+        maxCanvasScroll: Float,
+        origin: CursorCorrectionOrigin
+    ): CursorSafetyDecision {
+        val allowDownward = when (origin) {
+            CursorCorrectionOrigin.PROGRAMMATIC_NAVIGATION -> true
+            CursorCorrectionOrigin.TEXT_EDIT -> true
+            CursorCorrectionOrigin.SELECTION_CHANGE -> true
+            CursorCorrectionOrigin.TAP_PLACEMENT -> false
+            CursorCorrectionOrigin.KEYBOARD_ENTRANCE -> false
+            CursorCorrectionOrigin.TEMPORARY_SURFACE_CONTRACTION -> false
+            CursorCorrectionOrigin.KEYBOARD_DISMISSAL -> false
+        }
+        return resolveCursorSafety(
+            rectTop = rectTop,
+            rectBottom = rectBottom,
+            headerHeight = headerHeight,
+            currentTotalScroll = currentTotalScroll,
+            usableViewportHeight = usableViewportHeight,
+            density = density,
+            maxCanvasScroll = maxCanvasScroll,
+            allowDownwardForTopUnderflow = allowDownward
+        )
+    }
+
     fun resolveCursorSafety(
         rectTop: Float,
         rectBottom: Float,

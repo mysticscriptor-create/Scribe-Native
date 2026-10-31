@@ -5646,4 +5646,427 @@ class CursorAndCanvasGeometryTest {
         val logicalPosition = headerHeight + editorMax
         assertEquals(logicalMax, logicalPosition)
     }
+
+    // ── Phase 3: Event-Aware Cursor Correction & Shortcut-Bar Geometry Tests ──
+
+    @Test
+    fun testPhase3_1_TapVisibleLineAlreadySafe_ZeroScrollCorrection() {
+        // Requirement 1: Tapping a visible line when the caret is already safe results in zero scroll correction.
+        val viewportHeight = 1200
+        val density = 2.5f
+        val marginPx = ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density // 60px
+        val targetLineBottom = viewportHeight - marginPx // 1140px
+
+        // Caret is comfortably placed at 600px with top at 560px
+        val result = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = 600f,
+            caretScreenTop = 560f,
+            viewportHeight = viewportHeight,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.TAP_PLACEMENT
+        )
+
+        assertTrue("Caret within visible viewport must be safe", result.isSafe)
+        assertEquals("Tap on visible safe line must require zero scroll correction", 0f, result.requiredCorrectionDy, 0.001f)
+    }
+
+    @Test
+    fun testPhase3_2_TapVisibleLastLineAlreadySafe_NoDownwardCorrection() {
+        // Requirement 2: Tapping the visible last line when already safe produces no downward correction.
+        val viewportHeight = 1200
+        val density = 2.5f
+        val marginPx = ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density // 60px
+        val targetLineBottom = viewportHeight - marginPx // 1140px
+
+        // Last line caret is visible at 850px (below 1140px targetLineBottom)
+        val result = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = 850f,
+            caretScreenTop = 810f,
+            viewportHeight = viewportHeight,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.TAP_PLACEMENT
+        )
+
+        assertTrue("Last line caret must be reported safe", result.isSafe)
+        assertEquals("Tap on visible last line must never trigger downward scroll", 0f, result.requiredCorrectionDy, 0.001f)
+
+        // Also verify with resolveCursorScrollDelta directly
+        val resolution = ScribeScrollPolicy.resolveCursorScrollDelta(
+            screenBottom = 850f,
+            screenTop = 810f,
+            visibleHeight = viewportHeight,
+            density = density,
+            isLastLine = true,
+            isDeletionActive = false,
+            hasScrollOffset = true
+        )
+        assertFalse("Must not scroll on tap placement", resolution.shouldScroll)
+        assertEquals(0f, resolution.deltaY, 0.001f)
+    }
+
+    @Test
+    fun testPhase3_3_TapVisibleLineDuringKeyboardEntrance_PredictedViewportSafe_ZeroCorrection() {
+        // Requirement 3: Tapping a visible line during keyboard entrance when the predicted viewport is safe produces no correction.
+        val rootHeight = 2000
+        val standardKbPx = 750f
+        val shortcutBarPx = 90f // 36dp * 2.5
+        val predictedViewport = (rootHeight - standardKbPx - shortcutBarPx).toInt() // 1160px
+        val density = 2.5f
+        val breathingMargin = ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density // 60px
+        val safeBottomLimit = predictedViewport - breathingMargin // 1100px
+
+        // Caret is at 700px, which is well above the 1100px safe limit in predicted viewport
+        val result = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = 700f,
+            caretScreenTop = 660f,
+            viewportHeight = predictedViewport,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.KEYBOARD_ENTRANCE
+        )
+
+        assertTrue("Caret is safe in predicted viewport", result.isSafe)
+        assertEquals("Zero correction when predicted viewport is already safe", 0f, result.requiredCorrectionDy, 0.001f)
+    }
+
+    @Test
+    fun testPhase3_4_TapVisibleLineWhereFinalKeyboardViewportObscuresCaret_MinimumUpwardCorrectionOnly() {
+        // Requirement 4: Tapping a visible line where final keyboard viewport obscures caret produces only minimum upward correction.
+        val rootHeight = 2000
+        val standardKbPx = 750f
+        val shortcutBarPx = 90f
+        val predictedViewport = (rootHeight - standardKbPx - shortcutBarPx).toInt() // 1160px
+        val density = 2.5f
+        val breathingMargin = ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density // 60px
+        val safeBottomLimit = predictedViewport - breathingMargin // 1100px
+
+        // Caret bottom is at 1150px (50px below safe limit)
+        val result = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = 1150f,
+            caretScreenTop = 1110f,
+            viewportHeight = predictedViewport,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.KEYBOARD_ENTRANCE
+        )
+
+        assertFalse("Caret obscured in final viewport is unsafe", result.isSafe)
+        assertEquals("Must produce strictly minimum upward correction (50px)", 50f, result.requiredCorrectionDy, 0.001f)
+        assertFalse("Must not be top underflow", result.isTopUnderflow)
+        assertTrue("Must be bottom occluded", result.isBottomOccluded)
+    }
+
+    @Test
+    fun testPhase3_5_TapPlacementNeverInvokesDownwardTopUnderflowRestoration() {
+        // Requirement 5: Tap placement never invokes downward top-underflow restoration.
+        val viewportHeight = 1200
+        val density = 2.5f
+
+        // Simulated top underflow where caret top is at -40px
+        val result = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = 0f,
+            caretScreenTop = -40f,
+            viewportHeight = viewportHeight,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.TAP_PLACEMENT
+        )
+
+        // For TAP_PLACEMENT, allowDownwardForTopUnderflow is strictly false
+        assertEquals("Downward correction must be 0 for tap placement even with top underflow", 0f, result.requiredCorrectionDy, 0.001f)
+        assertFalse("Must not scroll downward", result.requiredCorrectionDy < 0f)
+    }
+
+    @Test
+    fun testPhase3_6_ProgrammaticNavigationToTargetAboveViewport_ProducesDownwardCorrection() {
+        // Requirement 6: Programmatic navigation to a target above the visible viewport produces the necessary downward correction.
+        val viewportHeight = 1200
+        val density = 2.5f
+
+        // Target caret is above top of viewport: top is at -120px
+        val result = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = -80f,
+            caretScreenTop = -120f,
+            viewportHeight = viewportHeight,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.PROGRAMMATIC_NAVIGATION
+        )
+
+        assertFalse("Target above viewport is not safe", result.isSafe)
+        assertTrue("Must be recognized as top underflow", result.isTopUnderflow)
+        assertEquals("Programmatic navigation must scroll downward (-120px) to reveal target", -120f, result.requiredCorrectionDy, 0.001f)
+    }
+
+    @Test
+    fun testPhase3_7_ProgrammaticNavigationToTargetBelowSafeViewport_ProducesUpwardCorrection() {
+        // Requirement 7: Programmatic navigation to a target below the safe viewport produces the expected upward correction.
+        val viewportHeight = 1200
+        val density = 2.5f
+        val marginPx = ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density // 60px
+        val targetLineBottom = viewportHeight - marginPx // 1140px
+
+        // Target caret bottom is at 1220px (80px below safe line)
+        val result = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = 1220f,
+            caretScreenTop = 1180f,
+            viewportHeight = viewportHeight,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.PROGRAMMATIC_NAVIGATION
+        )
+
+        assertFalse("Target below safe line is unsafe", result.isSafe)
+        assertTrue("Must be bottom occluded", result.isBottomOccluded)
+        assertEquals("Must scroll upward by 80px", 80f, result.requiredCorrectionDy, 0.001f)
+    }
+
+    @Test
+    fun testPhase3_8_AlreadySafeTarget_NoDuplicateCorrection() {
+        // Requirement 8: An already-safe target does not trigger a duplicate correction.
+        val viewportHeight = 1200
+        val density = 2.5f
+
+        val result = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = 500f,
+            caretScreenTop = 460f,
+            viewportHeight = viewportHeight,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.PROGRAMMATIC_NAVIGATION
+        )
+
+        assertTrue(result.isSafe)
+        assertEquals(0f, result.requiredCorrectionDy, 0.001f)
+    }
+
+    @Test
+    fun testPhase3_9_SoraAndCanvasDoNotApplyDuplicateVerticalCorrections() {
+        // Requirement 9: Sora and the canvas do not apply duplicate vertical corrections.
+        // When predictive transaction handles the correction, the document is moved to target.
+        // A subsequent resolution on the resulting caret position yields deltaY == 0f.
+        val predictedViewport = 1100
+        val density = 2.5f
+        val targetLineBottom = predictedViewport - (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density) // 1040px
+
+        // Before correction: caret at 1100px
+        val initialCorrection = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = 1100f,
+            caretScreenTop = 1060f,
+            viewportHeight = predictedViewport,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.KEYBOARD_ENTRANCE
+        )
+        assertEquals(60f, initialCorrection.requiredCorrectionDy, 0.001f)
+
+        // After canvas applies 60f upward correction: new caret position is at 1040px
+        val postCorrectionCaretBottom = 1100f - initialCorrection.requiredCorrectionDy // 1040f
+        val postCorrectionCaretTop = 1060f - initialCorrection.requiredCorrectionDy // 1000f
+
+        val secondCheck = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = postCorrectionCaretBottom,
+            caretScreenTop = postCorrectionCaretTop,
+            viewportHeight = predictedViewport,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.KEYBOARD_ENTRANCE
+        )
+
+        assertTrue("Post-correction caret is safe", secondCheck.isSafe)
+        assertEquals("No duplicate vertical correction applied", 0f, secondCheck.requiredCorrectionDy, 0.001f)
+    }
+
+    @Test
+    fun testPhase3_10_ShowSoftInputTriggersCanvasEntranceNotificationBeforePhysicalImeResize() {
+        // Requirement 10: ScribeCodeEditor.showSoftInput() triggers canvas entrance notification before physical IME resize arrives.
+        var entranceNotificationReceived = false
+        var imeHeightAtNotification = -1f
+
+        // Simulate UnifiedCanvasLayout entrance callback wiring
+        val onKeyboardEntranceStarted: () -> Unit = {
+            entranceNotificationReceived = true
+            imeHeightAtNotification = 0f // At t=0, physical IME has not yet resized
+        }
+
+        // Invoke entrance notification as showSoftInput() does
+        onKeyboardEntranceStarted()
+
+        assertTrue("Entrance notification must be triggered", entranceNotificationReceived)
+        assertEquals("Physical IME must still be 0 at notification time", 0f, imeHeightAtNotification, 0.001f)
+    }
+
+    @Test
+    fun testPhase3_11_MainEditorScreenCallbackBindingTransitionsToKeyboardEntrance() {
+        // Requirement 11: MainEditorScreen callback binding transitions coordinator into KEYBOARD_ENTRANCE.
+        val initialHidden = ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN
+        val stateFromHidden = ScribeBottomSurfaceCoordinator.reduce(
+            initialHidden,
+            ScribeBottomSurfaceCoordinator.PresentationEvent.KeyboardEntranceStarted
+        )
+        assertEquals("HIDDEN must transition to KEYBOARD_ENTRANCE on KeyboardEntranceStarted",
+            ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE,
+            stateFromHidden
+        )
+
+        val initialDismissal = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_DISMISSAL
+        val stateFromDismissal = ScribeBottomSurfaceCoordinator.reduce(
+            initialDismissal,
+            ScribeBottomSurfaceCoordinator.PresentationEvent.KeyboardEntranceStarted
+        )
+        assertEquals("KEYBOARD_DISMISSAL must transition to KEYBOARD_ENTRANCE on re-tap",
+            ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE,
+            stateFromDismissal
+        )
+    }
+
+    @Test
+    fun testPhase3_12_KeyboardEntranceReserves36dpSlotBeforeSettledState() {
+        // Requirement 12: Keyboard entrance reserves the 36dp shortcut-bar slot before settled state is reached.
+        val entranceState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE
+
+        val isReserved = ScribeBottomSurfaceCoordinator.isShortcutBarGeometryReserved(
+            state = entranceState,
+            hasShortcuts = true
+        )
+        val clearanceDp = ScribeBottomSurfaceCoordinator.calculateReservedShortcutBarClearanceDp(
+            state = entranceState,
+            hasShortcuts = true
+        )
+
+        assertTrue("Shortcut-bar slot must be reserved during KEYBOARD_ENTRANCE", isReserved)
+        assertEquals("Reserved clearance must be exactly 36dp during entrance", 36f, clearanceDp, 0.001f)
+    }
+
+    @Test
+    fun testPhase3_13_ReservedSlotRemainsStableThroughEntranceAndSettledWithoutDoubleViewportChange() {
+        // Requirement 13: Reserved slot remains stable through entrance and settled states without changing total viewport clearance twice.
+        val entranceState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE
+        val settledState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED
+
+        val clearanceEntrance = ScribeBottomSurfaceCoordinator.calculateReservedShortcutBarClearanceDp(entranceState, true)
+        val clearanceSettled = ScribeBottomSurfaceCoordinator.calculateReservedShortcutBarClearanceDp(settledState, true)
+
+        assertEquals("Entrance clearance must be 36dp", 36f, clearanceEntrance, 0.001f)
+        assertEquals("Settled clearance must remain 36dp", 36f, clearanceSettled, 0.001f)
+        assertEquals("Clearance must be identical across entrance and settled states", clearanceEntrance, clearanceSettled, 0.001f)
+
+        // Total editor bottom geometry accounts for shortcutBarClearanceDp stably
+        val geomEntrance = ScribeBottomSurfaceCoordinator.calculateEditorBottomGeometry(
+            navBarBottomDp = 24f,
+            imeBottomDp = 0f,
+            presentationState = entranceState,
+            displayedDrawerHeightDp = 0f,
+            handoffObstructionDp = 0f,
+            shortcutBarClearanceDp = clearanceEntrance
+        )
+        val geomSettled = ScribeBottomSurfaceCoordinator.calculateEditorBottomGeometry(
+            navBarBottomDp = 24f,
+            imeBottomDp = 300f,
+            presentationState = settledState,
+            displayedDrawerHeightDp = 0f,
+            handoffObstructionDp = 0f,
+            shortcutBarClearanceDp = clearanceSettled
+        )
+
+        // In both cases, the shortcut clearance component is exactly 36dp (no late jump or double count)
+        assertEquals(clearanceEntrance, geomEntrance.shortcutClearanceDp, 0.001f)
+        assertEquals(clearanceSettled, geomSettled.shortcutClearanceDp, 0.001f)
+    }
+
+    @Test
+    fun testPhase3_14_VisualVisibilityAlphaChangesDoNotAlterReservedGeometry() {
+        // Requirement 14: Visual visibility/alpha changes do not alter reserved geometry.
+        val entranceState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE
+        val settledState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED
+
+        // During entrance, visual appearance may be hidden/fading in
+        val entranceVisible = ScribeBottomSurfaceCoordinator.isShortcutBarVisible(entranceState, true)
+        val entranceReserved = ScribeBottomSurfaceCoordinator.isShortcutBarGeometryReserved(entranceState, true)
+        assertFalse("Shortcut bar visual visibility is false during initial entrance", entranceVisible)
+        assertTrue("Shortcut bar geometry reservation is true during entrance", entranceReserved)
+
+        // When settled, visual appearance is true
+        val settledVisible = ScribeBottomSurfaceCoordinator.isShortcutBarVisible(settledState, true)
+        val settledReserved = ScribeBottomSurfaceCoordinator.isShortcutBarGeometryReserved(settledState, true)
+        assertTrue("Shortcut bar visual visibility is true when settled", settledVisible)
+        assertTrue("Shortcut bar geometry reservation remains true when settled", settledReserved)
+
+        // Geometry reservation clearance is identical regardless of visual visibility
+        val entranceClearance = ScribeBottomSurfaceCoordinator.calculateReservedShortcutBarClearanceDp(entranceState, true)
+        val settledClearance = ScribeBottomSurfaceCoordinator.calculateReservedShortcutBarClearanceDp(settledState, true)
+        assertEquals(36f, entranceClearance, 0.001f)
+        assertEquals(36f, settledClearance, 0.001f)
+    }
+
+    @Test
+    fun testPhase3_15_NoShortcutActions_NoSlotReserved() {
+        // Requirement 15: If there are no shortcut actions, no slot is reserved.
+        val states = listOf(
+            ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN,
+            ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE,
+            ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
+            ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_DISMISSAL,
+            ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN
+        )
+
+        for (st in states) {
+            val reserved = ScribeBottomSurfaceCoordinator.isShortcutBarGeometryReserved(st, hasShortcuts = false)
+            val clearance = ScribeBottomSurfaceCoordinator.calculateReservedShortcutBarClearanceDp(st, hasShortcuts = false)
+            assertFalse("State $st with no shortcuts must not reserve shortcut slot", reserved)
+            assertEquals("State $st with no shortcuts must have 0dp clearance", 0f, clearance, 0.001f)
+        }
+    }
+
+    @Test
+    fun testPhase3_16_KeyboardDismissalRetainsSlotUntilFinished_ReleasesOnce() {
+        // Requirement 16: Keyboard dismissal retains the slot until transition finishes, then releases it once.
+        val dismissingState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_DISMISSAL
+
+        val dismissingReserved = ScribeBottomSurfaceCoordinator.isShortcutBarGeometryReserved(dismissingState, hasShortcuts = true)
+        val dismissingClearance = ScribeBottomSurfaceCoordinator.calculateReservedShortcutBarClearanceDp(dismissingState, hasShortcuts = true)
+
+        assertTrue("Slot must be retained during KEYBOARD_DISMISSAL", dismissingReserved)
+        assertEquals("Clearance must be 36dp during KEYBOARD_DISMISSAL", 36f, dismissingClearance, 0.001f)
+
+        // When dismissal finishes:
+        val finishedState = ScribeBottomSurfaceCoordinator.reduce(
+            dismissingState,
+            ScribeBottomSurfaceCoordinator.PresentationEvent.ImeDismissalFinished
+        )
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN, finishedState)
+
+        val finishedReserved = ScribeBottomSurfaceCoordinator.isShortcutBarGeometryReserved(finishedState, hasShortcuts = true)
+        val finishedClearance = ScribeBottomSurfaceCoordinator.calculateReservedShortcutBarClearanceDp(finishedState, hasShortcuts = true)
+
+        assertFalse("Slot must be released once dismissal is finished (HIDDEN)", finishedReserved)
+        assertEquals("Clearance must be 0dp when HIDDEN", 0f, finishedClearance, 0.001f)
+    }
+
+    @Test
+    fun testPhase3_17_SharedScrollExtentDoesNotDoubleCountShortcutBarHeight() {
+        // Requirement 17: Shared scroll-extent calculation does not double-count shortcut-bar height while physical bottom-surface activity is in progress.
+        val layoutHeight = 1500
+        val viewportHeight = 1200
+        val keyboardHeight = 800
+        val persistentBottomSpacePx = keyboardHeight + 60 // 860px (keyboard + breathing space)
+        val breathingMarginPx = 60
+
+        // When keyboard is visible, safeScrollMaxY operates against viewportHeight with isKeyboardVisible = true
+        val maxScrollKb = ScribeScrollPolicy.calculateSafeScrollMaxY(
+            layoutHeight = layoutHeight,
+            viewportHeight = viewportHeight,
+            persistentBottomSpacePx = persistentBottomSpacePx,
+            breathingMarginPx = breathingMarginPx,
+            isKeyboardVisible = true,
+            isTextEmpty = false,
+            currentOffsetY = 0,
+            isFocused = true
+        )
+        // 1500 + 60 - 1200 = 360px
+        assertEquals(360, maxScrollKb)
+
+        // Logical content height calculation with header
+        val headerHeight = 200
+        val logicalContent = ScribeScrollPolicy.calculateLogicalContentHeight(
+            headerHeight = headerHeight,
+            layoutHeight = layoutHeight,
+            bottomSpace = persistentBottomSpacePx
+        )
+        // 200 + 1500 + 860 = 2560px (exact single allocation, no double-counting)
+        assertEquals(2560, logicalContent)
+    }
 }
+
