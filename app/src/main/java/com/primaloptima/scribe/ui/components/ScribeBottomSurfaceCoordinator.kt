@@ -265,19 +265,12 @@ object ScribeBottomSurfaceCoordinator {
         imeBottomDp: Float,
         navBarBottomDp: Float,
         drawerHeightDp: Float,
-        shortcutBarClearanceDp: Float,
-        stacksWithKeyboard: Boolean = false
+        shortcutBarClearanceDp: Float
     ): Float {
-        val baseObstruction = if (stacksWithKeyboard) {
-            if (drawerHeightDp > 0f) {
-                maxOf(imeBottomDp, navBarBottomDp) + drawerHeightDp
-            } else {
-                maxOf(imeBottomDp, navBarBottomDp)
-            }
+        val baseObstruction = if (drawerHeightDp > 0f) {
+            maxOf(imeBottomDp, navBarBottomDp) + drawerHeightDp
         } else {
-            val imeAboveNav = (imeBottomDp - navBarBottomDp).coerceAtLeast(0f)
-            val effectiveBottomSurface = maxOf(imeAboveNav, drawerHeightDp)
-            navBarBottomDp + effectiveBottomSurface
+            maxOf(imeBottomDp, navBarBottomDp)
         }
         return baseObstruction + shortcutBarClearanceDp
     }

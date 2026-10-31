@@ -1245,20 +1245,20 @@ object ScribeScrollPolicy {
         if (isTextEmpty || layoutHeight <= 0 || viewportHeight <= 0) return 0
 
         // Dual-State Geometry:
-        // When persistentBottomSpacePx is provided (> 0), it retains stationary document offset.
-        // Otherwise, when keyboard is visible, space is strictly breathingMarginPx (24dp).
-        // When keyboard is dismissed without retained space, default to generous 45% clearance.
-        val space = if (persistentBottomSpacePx > 0) {
-            persistentBottomSpacePx
-        } else if (isKeyboardVisible) {
+        // When keyboard is visible, viewport is already padded by Compose.
+        // Therefore, space is strictly breathingMarginPx (24dp) so last line sits
+        // comfortably above shortcut bar without double-counting keyboard height or scrolling empty space.
+        // When keyboard is dismissed, persistentBottomSpacePx is used to retain stationary document offset.
+        val space = if (isKeyboardVisible) {
             breathingMarginPx
+        } else if (persistentBottomSpacePx > 0) {
+            persistentBottomSpacePx
         } else {
             (viewportHeight * 0.45f).toInt()
         }
 
         val maxScrollWithBottomSpace = (layoutHeight + space - viewportHeight).coerceAtLeast(0)
-        // Invariant: Unconditionally retain positive offset so focus loss during dismissal never clamps
-        val retainedOffset = if (currentOffsetY > 0) currentOffsetY else 0
+        val retainedOffset = if (currentOffsetY > 0 && isFocused) currentOffsetY else 0
         val glideTarget = if (activeGlideTargetY > 0) activeGlideTargetY else 0
 
         return maxOf(maxOf(baseSoraMaxY.coerceAtLeast(0), maxScrollWithBottomSpace), maxOf(retainedOffset, glideTarget))
