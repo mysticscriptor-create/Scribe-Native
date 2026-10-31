@@ -4936,6 +4936,39 @@ class CursorAndCanvasGeometryTest {
             temporaryDisplacement = 120f
         )
         assertTrue("Temporary displacement during keyboard contraction must allow downward restoration", shouldFollowOnContraction)
+
+        // Verify authoritative restoration delta calculation with recorded displacement
+        val req = ScribeScrollPolicy.ContractionRestorationRequest(
+            caretScreenBottom = 500f,
+            caretScreenTop = 460f,
+            viewportHeight = 1000,
+            density = 2.5f,
+            totalScroll = 500f,
+            temporaryDisplacement = 120f,
+            isAtLastLine = false,
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true
+        )
+        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
+        assertTrue("Must scroll downwards to restore recorded displacement", result.shouldScroll)
+        assertEquals(-120f, result.deltaY, 0.001f)
+        assertEquals(0f, result.remainingCompensation, 0.001f)
+
+        // Regression check: Last line without temporary displacement MUST NOT restore downwards
+        val lastLineZeroReq = ScribeScrollPolicy.ContractionRestorationRequest(
+            caretScreenBottom = 500f,
+            caretScreenTop = 460f,
+            viewportHeight = 1000,
+            density = 2.5f,
+            totalScroll = 500f,
+            temporaryDisplacement = 0f,
+            isAtLastLine = true,
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true
+        )
+        val lastLineResult = ScribeScrollPolicy.resolveContractionRestorationDelta(lastLineZeroReq)
+        assertEquals("Last line fallback must be removed: returns 0 delta", 0f, lastLineResult.deltaY, 0.001f)
+        assertFalse("Must not scroll", lastLineResult.shouldScroll)
     }
 
     @Test
@@ -5179,5 +5212,350 @@ class CursorAndCanvasGeometryTest {
         // Only breathing margin is virtual in this state:
         assertEquals(breathingMarginPx, activeVirtualSpace, 0.001f)
         assertEquals(60f, activeVirtualSpace, 0.001f)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Phase 2 — Unify Editor's Scroll Extent & Correct Contraction Restoration
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun testSharedPolicyIncludesStandardKeyboardShortcutBarAndBreathingMarginWhenNoBottomSurfaceActive() {
+        val density = 2.5f
+        val standardKb = 280f * density // 700px
+        val shortcutBar = 36f * density // 90px
+        val breathing = 24f * density // 60px
+        val trailingExtent = ScribeScrollPolicy.calculateVirtualTrailingExtentPx(
+            isPhysicalBottomSurfaceActive = false,
+            standardKeyboardHeightPx = standardKb,
+            shortcutBarHeightPx = shortcutBar,
+            breathingMarginPx = breathing
+        )
+        assertEquals(850f, trailingExtent, 0.001f)
+    }
+
+    @Test
+    fun testSharedPolicyAccountsForPhysicalKeyboardAndVirtualTailIsOnlyBreathingMargin() {
+        val density = 2.5f
+        val standardKb = 280f * density
+        val shortcutBar = 36f * density
+        val breathing = 24f * density
+        val trailingExtent = ScribeScrollPolicy.calculateVirtualTrailingExtentPx(
+            isPhysicalBottomSurfaceActive = true,
+            standardKeyboardHeightPx = standardKb,
+            shortcutBarHeightPx = shortcutBar,
+            breathingMarginPx = breathing
+        )
+        assertEquals(breathing, trailingExtent, 0.001f)
+    }
+
+    @Test
+    fun testDrawerActiveWithKeyboardHiddenTreatedAsPhysicalBottomObstruction() {
+        val density = 2.5f
+        val standardKb = 280f * density
+        val shortcutBar = 36f * density
+        val breathing = 24f * density
+        // Drawer active (isPhysicalBottomSurfaceActive = true) even though keyboard is hidden
+        val trailingExtent = ScribeScrollPolicy.calculateVirtualTrailingExtentPx(
+            isPhysicalBottomSurfaceActive = true,
+            standardKeyboardHeightPx = standardKb,
+            shortcutBarHeightPx = shortcutBar,
+            breathingMarginPx = breathing
+        )
+        assertEquals(breathing, trailingExtent, 0.001f)
+    }
+
+    @Test
+    fun testParentAndEditorMaxScrollLimitsDescribeSameLogicalTrailingEdge() {
+        val headerHeight = 150
+        val layoutHeight = 2000
+        val viewportHeight = 1000
+        val bottomSpace = 850 // standard keyboard + shortcut bar + breathing margin
+
+        val logicalContent = ScribeScrollPolicy.calculateLogicalContentHeight(
+            headerHeight = headerHeight,
+            editorContentHeight = layoutHeight,
+            virtualTrailingExtentPx = bottomSpace
+        )
+        val logicalMax = ScribeScrollPolicy.calculateLogicalMaxScroll(
+            logicalContentHeight = logicalContent,
+            viewportHeight = viewportHeight
+        )
+        val editorMax = ScribeScrollPolicy.calculateEditorMaxScroll(
+            logicalMaxScroll = logicalMax,
+            headerHeight = headerHeight
+        )
+
+        assertEquals(3000, logicalContent)
+        assertEquals(2000, logicalMax)
+        assertEquals(1850, editorMax)
+
+        // Coordinate conversion: when header is scrolled by headerHeight and editor by editorMax,
+        // final logical position matches logicalMax exactly.
+        val finalLogicalPosition = headerHeight + editorMax
+        assertEquals(logicalMax, finalLogicalPosition)
+    }
+
+    @Test
+    fun testVirtualTrailingPaddingIsFullyReachable() {
+        val headerHeight = 100
+        val layoutHeight = 1500
+        val viewportHeight = 800
+        val bottomSpace = 850
+
+        val maxCanvasScroll = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = layoutHeight,
+            viewportHeight = viewportHeight,
+            bottomSpace = bottomSpace
+        )
+        val editorMax = ScribeScrollPolicy.calculateEditorMaxScroll(
+            logicalMaxScroll = maxCanvasScroll,
+            headerHeight = headerHeight
+        )
+
+        assertEquals(1650, maxCanvasScroll)
+        assertEquals(1550, editorMax)
+
+        // At maximum scroll, the document end plus the full bottomSpace is visible within viewport:
+        val reachedContentBottom = headerHeight + layoutHeight + bottomSpace - maxCanvasScroll
+        assertEquals(viewportHeight, reachedContentBottom)
+    }
+
+    @Test
+    fun testNoExtraEditorOnlyScrollRangeExistsBeyondParentAuthorizedRange() {
+        val headerHeight = 120
+        val layoutHeight = 1000
+        val viewportHeight = 900
+        val bottomSpace = 600
+
+        val logicalContent = ScribeScrollPolicy.calculateLogicalContentHeight(headerHeight, layoutHeight, bottomSpace)
+        val logicalMax = ScribeScrollPolicy.calculateLogicalMaxScroll(logicalContent, viewportHeight)
+        val editorMax = ScribeScrollPolicy.calculateEditorMaxScroll(logicalMax, headerHeight)
+
+        // Invariant: editorMax must never exceed (logicalMax - headerHeight)
+        assertTrue(editorMax <= (logicalMax - headerHeight))
+        assertEquals(logicalMax - headerHeight, editorMax)
+    }
+
+    @Test
+    fun testCrossingFromHeaderScrollingIntoEditorScrollingDoesNotDiscardResidualDelta() {
+        val headerHeight = 100
+        val scrollD = 70f
+        val editorOffsetY = 0
+        val maxCanvasScroll = 1000
+        val deltaY = 80f // 30f goes to header, 50f goes to editor
+
+        val alloc = ScribeScrollPolicy.allocateScrollDelta(
+            deltaY = deltaY,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            editorOffsetY = editorOffsetY,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        assertEquals(30f, alloc.outerDelta, 0.001f)
+        assertEquals(50f, alloc.innerDelta, 0.001f)
+        assertEquals(0f, alloc.unconsumedDelta, 0.001f)
+        assertEquals(deltaY, alloc.outerDelta + alloc.innerDelta, 0.001f)
+    }
+
+    @Test
+    fun testSingleContinuousGestureCanTraverseHeaderBoundaryAndContinueThroughEditor() {
+        // Reverse scroll from editor back across header boundary in one single continuous gesture
+        val headerHeight = 100
+        val scrollD = 100f
+        val editorOffsetY = 40
+        val maxCanvasScroll = 1000
+        val deltaY = -90f // 40f pulls editor to 0, remaining 50f pulls header down to 50
+
+        val alloc = ScribeScrollPolicy.allocateScrollDelta(
+            deltaY = deltaY,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            editorOffsetY = editorOffsetY,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        assertEquals(-40f, alloc.innerDelta, 0.001f)
+        assertEquals(-50f, alloc.outerDelta, 0.001f)
+        assertEquals(0f, alloc.unconsumedDelta, 0.001f)
+        assertEquals(deltaY, alloc.innerDelta + alloc.outerDelta, 0.001f)
+    }
+
+    @Test
+    fun testLastLineWithNoRecordedTemporaryDisplacementProducesZeroDownwardRestoration() {
+        val req = ScribeScrollPolicy.ContractionRestorationRequest(
+            caretScreenBottom = 600f,
+            caretScreenTop = 560f,
+            viewportHeight = 1000,
+            density = 2.5f,
+            totalScroll = 400f,
+            temporaryDisplacement = 0f,
+            isAtLastLine = true,
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true
+        )
+        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
+        assertEquals("Last line without recorded displacement must produce 0 delta", 0f, result.deltaY, 0.001f)
+        assertFalse("Must not scroll", result.shouldScroll)
+    }
+
+    @Test
+    fun testLastLineWithOrdinaryViewportExpansionProducesZeroDownwardRestoration() {
+        val req = ScribeScrollPolicy.ContractionRestorationRequest(
+            caretScreenBottom = 400f,
+            caretScreenTop = 360f,
+            viewportHeight = 1200,
+            density = 2.5f,
+            totalScroll = 500f,
+            temporaryDisplacement = 0f,
+            isAtLastLine = true,
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true
+        )
+        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
+        assertEquals(0f, result.deltaY, 0.001f)
+        assertFalse(result.shouldScroll)
+    }
+
+    @Test
+    fun testNonLastLineWithOrdinaryViewportExpansionProducesNoDownwardRestoration() {
+        val req = ScribeScrollPolicy.ContractionRestorationRequest(
+            caretScreenBottom = 400f,
+            caretScreenTop = 360f,
+            viewportHeight = 1200,
+            density = 2.5f,
+            totalScroll = 500f,
+            temporaryDisplacement = 0f,
+            isAtLastLine = false,
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true
+        )
+        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
+        assertEquals(0f, result.deltaY, 0.001f)
+        assertFalse(result.shouldScroll)
+    }
+
+    @Test
+    fun testConfirmedTemporaryContractionWithRecordedDisplacementRestoresNoMoreThanActualDisplacement() {
+        val density = 2.5f
+        val marginPx = 24f * density // 60px
+        val viewportHeight = 1000
+        val targetLineBottom = viewportHeight - marginPx // 940f
+
+        // Case A: Ample slack (slack = 940 - 500 = 440f), displacement = 120f
+        val reqA = ScribeScrollPolicy.ContractionRestorationRequest(
+            caretScreenBottom = 500f,
+            caretScreenTop = 460f,
+            viewportHeight = viewportHeight,
+            density = density,
+            totalScroll = 500f,
+            temporaryDisplacement = 120f,
+            isAtLastLine = false,
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true
+        )
+        val resultA = ScribeScrollPolicy.resolveContractionRestorationDelta(reqA)
+        assertTrue(resultA.shouldScroll)
+        assertEquals(-120f, resultA.deltaY, 0.001f)
+        assertEquals(0f, resultA.remainingCompensation, 0.001f)
+
+        // Case B: Constrained slack (caret at 880f, targetLineBottom is 940f, slack is only 60f)
+        val reqB = ScribeScrollPolicy.ContractionRestorationRequest(
+            caretScreenBottom = 880f,
+            caretScreenTop = 840f,
+            viewportHeight = viewportHeight,
+            density = density,
+            totalScroll = 500f,
+            temporaryDisplacement = 120f,
+            isAtLastLine = false,
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true
+        )
+        val resultB = ScribeScrollPolicy.resolveContractionRestorationDelta(reqB)
+        assertTrue(resultB.shouldScroll)
+        // Must clamp to available slack (-60f) so caret never settles below target line
+        assertEquals(-60f, resultB.deltaY, 0.001f)
+        assertEquals(60f, resultB.remainingCompensation, 0.001f)
+    }
+
+    @Test
+    fun testConfirmedContractionWithZeroRecordedDisplacementRestoresZero() {
+        val req = ScribeScrollPolicy.ContractionRestorationRequest(
+            caretScreenBottom = 500f,
+            caretScreenTop = 460f,
+            viewportHeight = 1000,
+            density = 2.5f,
+            totalScroll = 500f,
+            temporaryDisplacement = 0f,
+            isAtLastLine = false,
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true
+        )
+        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
+        assertEquals(0f, result.deltaY, 0.001f)
+        assertFalse(result.shouldScroll)
+    }
+
+    @Test
+    fun testKeyboardEntranceAndDismissalDoNotTriggerTemporaryContractionRestoration() {
+        // Keyboard dismissing: must strictly reject downward restoration
+        val reqDismissing = ScribeScrollPolicy.ContractionRestorationRequest(
+            caretScreenBottom = 500f,
+            caretScreenTop = 460f,
+            viewportHeight = 1000,
+            density = 2.5f,
+            totalScroll = 500f,
+            temporaryDisplacement = 150f,
+            isAtLastLine = false,
+            isKeyboardDismissing = true,
+            isBottomSurfaceActive = false
+        )
+        val resultDismissing = ScribeScrollPolicy.resolveContractionRestorationDelta(reqDismissing)
+        assertEquals(0f, resultDismissing.deltaY, 0.001f)
+        assertFalse(resultDismissing.shouldScroll)
+
+        // Bottom surface inactive: must strictly reject downward restoration
+        val reqInactive = ScribeScrollPolicy.ContractionRestorationRequest(
+            caretScreenBottom = 500f,
+            caretScreenTop = 460f,
+            viewportHeight = 1000,
+            density = 2.5f,
+            totalScroll = 500f,
+            temporaryDisplacement = 150f,
+            isAtLastLine = false,
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = false
+        )
+        val resultInactive = ScribeScrollPolicy.resolveContractionRestorationDelta(reqInactive)
+        assertEquals(0f, resultInactive.deltaY, 0.001f)
+        assertFalse(resultInactive.shouldScroll)
+    }
+
+    @Test
+    fun testKeyboardDismissalContinuesToPreserveExistingDocumentPosition() {
+        val currentScroll = 350
+        val preservedDismissalScroll = currentScroll
+        val naturalMax = 200
+
+        // maxCanvasScroll preserves the exact document offset upon dismissal
+        val effectiveMax = maxOf(naturalMax, preservedDismissalScroll)
+        assertEquals(350, effectiveMax)
+
+        // Contraction restoration must return 0 delta so document stays stationary
+        val req = ScribeScrollPolicy.ContractionRestorationRequest(
+            caretScreenBottom = 400f,
+            caretScreenTop = 360f,
+            viewportHeight = 1200,
+            density = 2.5f,
+            totalScroll = currentScroll.toFloat(),
+            temporaryDisplacement = 100f,
+            isAtLastLine = true,
+            isKeyboardDismissing = true,
+            isBottomSurfaceActive = false
+        )
+        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
+        assertEquals(0f, result.deltaY, 0.001f)
+        assertFalse(result.shouldScroll)
     }
 }

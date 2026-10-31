@@ -258,6 +258,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         set(value) {
             val wasActive = field
             field = value
+            editor.isBottomSurfaceActive = value
             updatePersistentBottomClearance()
             if (wasActive && !value) {
                 if (preservedDismissalScroll == null) {
@@ -355,6 +356,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * Records upward canvas displacement caused by an expanded bottom surface (e.g. emoji keyboard,
      * accessory drawer) so that it can be safely and smoothly restored when the surface contracts.
      */
+    /**
+     * Tracks the previous physical bottom obstruction to accurately confirm real contractions.
+     */
+    private var previousBottomObstructionPx: Float = 0f
+
     var temporaryExpansionDisplacement: Float
         get() = scrollCoordinator.temporaryDisplacement
         internal set(value) { scrollCoordinator.temporaryDisplacement = value }
@@ -1581,8 +1587,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         topEdgeEffect?.setSize(w, h)
         if (oldh > 0 && kotlin.math.abs(h - oldh) > 2) {
             val dh = oldh - h
+            val currentObstruction = maxOf(liveImeHeightPx, liveDrawerHeightPx)
             if (dh > 0) {
                 // Viewport shrinking (keyboard appearing or accessory drawer opening)
+                previousBottomObstructionPx = currentObstruction
                 isExpansionTransitionActive = true
                 isKeyboardDismissing = false
 
@@ -1681,44 +1689,37 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
 
                 val density = resources.displayMetrics.density
-                val rootH = rootView?.height ?: resources.displayMetrics.heightPixels
-                val hasBottomObstruction = (rootH - h) >= (140 * density).roundToInt()
-                val cur = try { editor.cursor } catch (_: Throwable) { null }
-                val lineCount = try { editor.text.lineCount } catch (_: Throwable) { 1 }
-                val isAtLastLine = try {
-                    (cur != null && cur.leftLine >= (lineCount - 1)) || (lineCount <= 1)
-                } catch (_: Throwable) { false }
-                val hasActiveScroll = scrollD > 0 || editor.offsetY > 0
+                val curObstruction = maxOf(liveImeHeightPx, liveDrawerHeightPx)
+                val wasLargerObstructionActive = previousBottomObstructionPx > (curObstruction + 2f)
+                val isConfirmedContraction = wasLargerObstructionActive && (isBottomSurfaceActive || isKeyboardVisible)
+                val hasRecordedDisplacement = temporaryExpansionDisplacement > 0f
+                val isTransactionPermitted = !isKeyboardDismissing && !isKeyboardTransactionActive
 
-                val shouldFollow = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
-                    isKeyboardDismissing = isKeyboardDismissing,
-                    isBottomSurfaceActive = isBottomSurfaceActive,
-                    isKeyboardVisible = isKeyboardVisible,
-                    hasPhysicalBottomObstruction = hasBottomObstruction,
-                    isAtLastLine = isAtLastLine,
-                    hasActiveScroll = hasActiveScroll,
-                    temporaryDisplacement = temporaryExpansionDisplacement
-                )
-
-                if (!shouldFollow) {
-                    // Pure Writer Stationary Invariant:
-                    // When keyboard is dismissed or closing, the document MUST remain
-                    // 100% completely stationary at the saved margin.
-                    if (preservedDismissalScroll == null) {
-                        preservedDismissalScroll = scrollD + editor.offsetY
+                // Strict Invariant: Downward restoration is ONLY permitted for a confirmed contraction
+                // of an active bottom surface where real temporary upward displacement was recorded!
+                // Generic viewport expansion, keyboard dismissal, and last-line state NEVER independently authorize restoration.
+                if (!isTransactionPermitted || !isConfirmedContraction || !hasRecordedDisplacement) {
+                    if (isKeyboardDismissing || (!isKeyboardVisible && !isBottomSurfaceActive)) {
+                        // Pure Writer Stationary Invariant:
+                        // When keyboard is dismissed or closing, the document MUST remain
+                        // 100% completely stationary at the saved margin.
+                        if (preservedDismissalScroll == null) {
+                            preservedDismissalScroll = scrollD + editor.offsetY
+                        }
                     }
                     cancelRestoration()
                     cancelViewportSafetyAnimation()
-                    invalidateCompensation("Keyboard dismissing or bottom surface inactive")
+                    invalidateCompensation("Not a confirmed contraction with recorded displacement")
+                    previousBottomObstructionPx = curObstruction
                     return
                 }
 
                 // Downward Following Invariant:
-                // When bottom surface remains active (e.g. emoji keyboard returned to standard,
-                // or accessory drawer collapsed to compact), safely restore temporary upward displacement.
+                // Only confirmed contraction of an active bottom surface with recorded temporary displacement
                 pendingRestorationRunnable?.let { removeCallbacks(it) }
                 val rRestoration = Runnable {
                     pendingRestorationRunnable = null
+                    val cur = try { editor.cursor } catch (_: Throwable) { null }
                     val lay = editor.layout ?: return@Runnable
                     val geom = getSelectionGeometry(cur, lay) ?: return@Runnable
                     val caretDocBottom = geom.bottomDocY
@@ -1730,9 +1731,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                         density = density,
                         totalScroll = currentScroll,
                         temporaryDisplacement = temporaryExpansionDisplacement,
-                        isAtLastLine = isAtLastLine,
+                        isAtLastLine = false,
                         isKeyboardDismissing = isKeyboardDismissing,
-                        isBottomSurfaceActive = isBottomSurfaceActive
+                        isBottomSurfaceActive = isBottomSurfaceActive || isKeyboardVisible
                     )
                     val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
                     if (result.shouldScroll && result.deltaY != 0f) {
@@ -1743,6 +1744,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 }
                 pendingRestorationRunnable = rRestoration
                 post(rRestoration)
+                previousBottomObstructionPx = curObstruction
             }
         }
     }
@@ -1874,16 +1876,30 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             maxCanvasScroll = maxCanvasScroll
         )
 
-        if (allocation.outerDelta != 0f) {
-            scrollDFloat += allocation.outerDelta
-            val maxD = minOf(headerHeight, maxCanvasScroll)
-            scrollD = scrollDFloat.roundToInt().coerceIn(0, maxD)
-            applyTranslations()
-            onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
-        }
-
-        if (allocation.innerDelta != 0f) {
-            dispatchScrollToEditor(allocation.innerDelta)
+        if (dy > 0f) {
+            // Forward scroll: outer canvas moves towards headerHeight first
+            if (allocation.outerDelta != 0f) {
+                scrollDFloat += allocation.outerDelta
+                val maxD = minOf(headerHeight, maxCanvasScroll)
+                scrollD = scrollDFloat.roundToInt().coerceIn(0, maxD)
+                applyTranslations()
+                onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
+            }
+            if (allocation.innerDelta != 0f) {
+                dispatchScrollToEditor(allocation.innerDelta)
+            }
+        } else {
+            // Reverse scroll: inner editor returns towards 0 FIRST, then outer canvas pulls header down
+            if (allocation.innerDelta != 0f) {
+                dispatchScrollToEditor(allocation.innerDelta)
+            }
+            if (allocation.outerDelta != 0f) {
+                scrollDFloat += allocation.outerDelta
+                val maxD = minOf(headerHeight, maxCanvasScroll)
+                scrollD = scrollDFloat.roundToInt().coerceIn(0, maxD)
+                applyTranslations()
+                onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
+            }
         }
 
         if (allocation.outerDelta != 0f || allocation.innerDelta != 0f) {
@@ -1914,8 +1930,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * ensuring lines render smoothly at 120Hz without blank screens during fast scrolling.
      */
     private fun dispatchScrollToEditor(dy: Float) {
-        // Invariant A: Editor MUST NOT scroll if header is visible
-        if (scrollD < headerHeight) return
+        // Safe dispatch: allocateScrollDelta is the authoritative arbiter of innerDelta
         try {
             val scroller = editor.scroller ?: return
             val currY = editor.offsetY
@@ -2049,18 +2064,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
                 if (abs(totalDy) > touchSlop && abs(totalDy) > abs(totalDx)) {
                     // Central touch interception invariant:
-                    // 1. If header is visible (scrollD < headerHeight), UnifiedCanvasLayout MUST intercept
-                    //    all vertical dragging because the outer canvas owns all movement before handoff.
-                    // 2. If editor is at top (editor.offsetY <= 0) and user drags down (totalDy < 0),
-                    //    UnifiedCanvasLayout MUST intercept to pull header back into view.
-                    // 3. If maxCanvasScroll <= 0, UnifiedCanvasLayout intercepts so editor cannot scroll short documents.
-                    if (scrollD < headerHeight || editor.offsetY <= 0 || maxCanvasScroll <= 0) {
-                        isDraggingCanvas = true
-                        lastTouchX = ev.x
-                        lastTouchY = ev.y
-                        parent?.requestDisallowInterceptTouchEvent(true)
-                        return true
-                    }
+                    // All vertical drag gestures across the document (header, editor body, and trailing space)
+                    // are owned by UnifiedCanvasLayout to provide one uninterrupted, continuous scroll gesture.
+                    isDraggingCanvas = true
+                    lastTouchX = ev.x
+                    lastTouchY = ev.y
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    return true
                 }
             }
 

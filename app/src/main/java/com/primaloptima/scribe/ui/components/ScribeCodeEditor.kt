@@ -86,6 +86,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
      */
     var persistentBottomSpacePx: Int = 0
     var isKeyboardVisible: Boolean = false
+    var isBottomSurfaceActive: Boolean = false
     var selectAllScrollMode: ScribeScrollPolicy.SelectAllScrollMode = ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION
     private var isExplicitSelectAllInProgress = false
 
@@ -101,32 +102,42 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 return 0
             }
 
+            // Centralized ownership: when embedded in UnifiedCanvasLayout, derive directly
+            // from the parent's authoritative logical maximum scroll to guarantee 100% mathematical consistency.
+            if (pCanvas != null) {
+                val editorMax = ScribeScrollPolicy.calculateEditorMaxScroll(
+                    logicalMaxScroll = pCanvas.maxCanvasScroll,
+                    headerHeight = pCanvas.headerHeight
+                )
+                val parentPreserved = pCanvas.preservedDismissalScroll
+                val safeOffsetTarget = if (parentPreserved != null) {
+                    (parentPreserved - pCanvas.headerHeight).coerceAtLeast(0)
+                } else {
+                    offsetY
+                }
+                return maxOf(editorMax, safeOffsetTarget)
+            }
+
+            // Standalone editor fallback (unit tests or detached view)
             val layout = this.layout ?: return super.getScrollMaxY()
             val layoutH = layout.layoutHeight
-            val baseSora = super.getScrollMaxY()
             val density = context.resources.displayMetrics.density
             val breathingMargin = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
-            val activeGlideTarget = 0
-            val parentPreserved = pCanvas?.preservedDismissalScroll
-            val safeOffsetTarget = if (parentPreserved != null) {
-                (parentPreserved - pCanvas.headerHeight).coerceAtLeast(0)
-            } else {
-                offsetY
-            }
-            val effectiveOffsetY = maxOf(offsetY, safeOffsetTarget)
 
             ScribeScrollPolicy.calculateSafeScrollMaxY(
                 layoutHeight = layoutH,
                 viewportHeight = height,
                 persistentBottomSpacePx = persistentBottomSpacePx,
-                currentOffsetY = effectiveOffsetY,
+                currentOffsetY = offsetY,
                 isFocused = isFocused,
-                baseSoraMaxY = baseSora,
+                baseSoraMaxY = super.getScrollMaxY(),
                 isKeyboardVisible = isKeyboardVisible,
+                isBottomSurfaceActive = isBottomSurfaceActive,
                 breathingMarginPx = breathingMargin,
                 isTextEmpty = text.isEmpty(),
-                activeGlideTargetY = activeGlideTarget,
-                isHeaderFullyHidden = true
+                activeGlideTargetY = 0,
+                isHeaderFullyHidden = true,
+                headerHeight = 0
             )
         } catch (_: Throwable) {
             super.getScrollMaxY()

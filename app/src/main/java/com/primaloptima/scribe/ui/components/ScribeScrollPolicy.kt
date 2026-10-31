@@ -203,6 +203,65 @@ object ScribeScrollPolicy {
      * @param isTextEmpty Whether the editor text is completely empty (no text in body)
      * @return Total allowable vertical scroll distance across header and editor
      */
+    /**
+     * Calculates the shared virtual trailing extent in pixels from the stable standard keyboard baseline
+     * or active physical bottom surface geometry.
+     */
+    fun calculateVirtualTrailingExtentPx(
+        isPhysicalBottomSurfaceActive: Boolean,
+        standardKeyboardHeightPx: Float,
+        shortcutBarHeightPx: Float,
+        breathingMarginPx: Float,
+        retainedClearancePx: Float = 0f
+    ): Float {
+        return ScribeBottomSurfaceCoordinator.calculateVirtualBottomSpacePx(
+            isPhysicalBottomSurfaceActive = isPhysicalBottomSurfaceActive,
+            standardKeyboardHeightPx = standardKeyboardHeightPx,
+            shortcutBarHeightPx = shortcutBarHeightPx,
+            breathingMarginPx = breathingMarginPx,
+            retainedClearancePx = retainedClearancePx
+        )
+    }
+
+    /**
+     * Calculates the complete logical content height across all layers:
+     * logical content = header contribution + editor content + virtual trailing extent
+     */
+    fun calculateLogicalContentHeight(
+        headerHeight: Int,
+        editorContentHeight: Int,
+        virtualTrailingExtentPx: Int
+    ): Int {
+        return (headerHeight.coerceAtLeast(0) +
+                editorContentHeight.coerceAtLeast(0) +
+                virtualTrailingExtentPx.coerceAtLeast(0))
+    }
+
+    /**
+     * Calculates the logical maximum scroll range:
+     * logical maximum scroll = max(0, logical content - effective viewport)
+     */
+    fun calculateLogicalMaxScroll(
+        logicalContentHeight: Int,
+        viewportHeight: Int,
+        isTextEmpty: Boolean = false
+    ): Int {
+        if (isTextEmpty || viewportHeight <= 0) return 0
+        return (logicalContentHeight - viewportHeight).coerceAtLeast(0)
+    }
+
+    /**
+     * Derives the editor-local maximum scroll limit from the shared logical maximum scroll
+     * by accounting for the header contribution and coordinate conversion:
+     * editor-local max scroll = max(0, logical maximum scroll - headerHeight)
+     */
+    fun calculateEditorMaxScroll(
+        logicalMaxScroll: Int,
+        headerHeight: Int
+    ): Int {
+        return (logicalMaxScroll - headerHeight.coerceAtLeast(0)).coerceAtLeast(0)
+    }
+
     fun calculateMaxCanvasScroll(
         headerHeight: Int,
         layoutHeight: Int,
@@ -210,9 +269,16 @@ object ScribeScrollPolicy {
         bottomSpace: Int = 0,
         isTextEmpty: Boolean = false
     ): Int {
-        if (isTextEmpty || viewportHeight <= 0) return 0
-        val totalContentHeight = headerHeight + layoutHeight + bottomSpace
-        return (totalContentHeight - viewportHeight).coerceAtLeast(0)
+        val logicalContent = calculateLogicalContentHeight(
+            headerHeight = headerHeight,
+            editorContentHeight = layoutHeight,
+            virtualTrailingExtentPx = bottomSpace
+        )
+        return calculateLogicalMaxScroll(
+            logicalContentHeight = logicalContent,
+            viewportHeight = viewportHeight,
+            isTextEmpty = isTextEmpty
+        )
     }
 
     // ── 1-DOF Scroll Ownership & Coordination Model ────────────────────────────
@@ -258,8 +324,24 @@ object ScribeScrollPolicy {
         editorOffsetY: Int,
         maxCanvasScroll: Int
     ): ScrollAllocation {
-        if (deltaY == 0f || headerHeight <= 0) {
-            return ScrollAllocation(0f, 0f, deltaY)
+        if (deltaY == 0f) {
+            return ScrollAllocation(0f, 0f, 0f)
+        }
+
+        val safeHeaderHeight = headerHeight.coerceAtLeast(0)
+        if (safeHeaderHeight <= 0) {
+            val maxTotal = maxCanvasScroll.toFloat().coerceAtLeast(0f)
+            val currentTotal = editorOffsetY.toFloat()
+            if (deltaY > 0f) {
+                val available = (maxTotal - currentTotal).coerceAtLeast(0f)
+                val innerDelta = minOf(deltaY, available)
+                val unconsumed = deltaY - innerDelta
+                return ScrollAllocation(0f, innerDelta, unconsumed)
+            } else {
+                val allowedDelta = maxOf(deltaY, -currentTotal)
+                val unconsumed = deltaY - allowedDelta
+                return ScrollAllocation(0f, allowedDelta, unconsumed)
+            }
         }
 
         if (deltaY > 0f) {
@@ -651,9 +733,10 @@ object ScribeScrollPolicy {
         }
 
         // Determine intended downward delta (negative deltaY moves canvas down)
+        // STRICT INVARIANT: Downward restoration ONLY restores an actual recorded temporary displacement!
+        // Being on the last line must NEVER independently trigger downward movement.
         val intendedDown = when {
             request.temporaryDisplacement > 0f -> -request.temporaryDisplacement
-            request.isAtLastLine -> -slack
             else -> 0f
         }
 
@@ -1235,33 +1318,48 @@ object ScribeScrollPolicy {
         isFocused: Boolean = false,
         baseSoraMaxY: Int = 0,
         isKeyboardVisible: Boolean = false,
+        isBottomSurfaceActive: Boolean = false,
         breathingMarginPx: Int = 0,
         isTextEmpty: Boolean = false,
         activeGlideTargetY: Int = 0,
-        isHeaderFullyHidden: Boolean = true
+        isHeaderFullyHidden: Boolean = true,
+        headerHeight: Int = 0
     ): Int {
         // Invariant A: Editor CANNOT have positive scroll bounds while title header is visible
         if (!isHeaderFullyHidden) return 0
         if (isTextEmpty || layoutHeight <= 0 || viewportHeight <= 0) return 0
 
-        // Dual-State Geometry:
-        // When keyboard is visible, viewport is already padded by Compose.
-        // Therefore, space is strictly breathingMarginPx (24dp) so last line sits
-        // comfortably above shortcut bar without double-counting keyboard height or scrolling empty space.
-        // When keyboard is dismissed, persistentBottomSpacePx is used to retain stationary document offset.
-        val space = if (isKeyboardVisible) {
+        // Shared physical-obstruction extent policy:
+        // When a physical bottom surface (keyboard or accessory drawer) is active,
+        // it is already reducing the measured viewport. Virtual trailing extent is strictly breathingMarginPx.
+        // When no physical bottom surface is active, persistentBottomSpacePx is used.
+        val space = if (isKeyboardVisible || isBottomSurfaceActive) {
             breathingMarginPx
         } else if (persistentBottomSpacePx > 0) {
             persistentBottomSpacePx
         } else {
-            (viewportHeight * 0.45f).toInt()
+            breathingMarginPx
         }
 
-        val maxScrollWithBottomSpace = (layoutHeight + space - viewportHeight).coerceAtLeast(0)
+        val logicalContent = calculateLogicalContentHeight(
+            headerHeight = headerHeight,
+            editorContentHeight = layoutHeight,
+            virtualTrailingExtentPx = space
+        )
+        val logicalMax = calculateLogicalMaxScroll(
+            logicalContentHeight = logicalContent,
+            viewportHeight = viewportHeight,
+            isTextEmpty = isTextEmpty
+        )
+        val editorMax = calculateEditorMaxScroll(
+            logicalMaxScroll = logicalMax,
+            headerHeight = headerHeight
+        )
+
         val retainedOffset = if (currentOffsetY > 0 && isFocused) currentOffsetY else 0
         val glideTarget = if (activeGlideTargetY > 0) activeGlideTargetY else 0
 
-        return maxOf(maxOf(baseSoraMaxY.coerceAtLeast(0), maxScrollWithBottomSpace), maxOf(retainedOffset, glideTarget))
+        return maxOf(editorMax, maxOf(retainedOffset, glideTarget))
     }
 
     /**
