@@ -4765,7 +4765,7 @@ class CursorAndCanvasGeometryTest {
         val headerHeight = 200
         val scrollD = 200f
         val editorOffsetY = 400
-        val maxCanvasScroll = 600
+        val maxCanvasScroll = 1000
 
         // Zero scroll consumed
         val zeroAllocation = ScribeScrollPolicy.allocateScrollDelta(
