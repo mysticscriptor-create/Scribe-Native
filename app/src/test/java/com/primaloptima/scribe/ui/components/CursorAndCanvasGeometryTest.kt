@@ -4974,4 +4974,210 @@ class CursorAndCanvasGeometryTest {
         // Legitimate standard keyboard height change (e.g. 280dp -> 295dp) is accepted
         assertTrue(ScribeBottomSurfaceCoordinator.shouldUpdateSavedBaseline(295f, 280f, screenHeightDp))
     }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Phase 1 — Separate Standard Keyboard Baseline from Transient IME/Drawer Geometry
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun testValidStoredStandardKeyboardHeightIsAccepted() {
+        val screenHeightDp = 800f
+        // Stored height of 290dp is within the valid standard range for 800dp screen (200..330dp)
+        val storedHeight = 290f
+        val resolved = ScribeBottomSurfaceCoordinator.resolveStandardKeyboardBaselineDp(
+            rawHeightDp = storedHeight,
+            screenHeightDp = screenHeightDp
+        )
+        assertEquals(290f, resolved, 0.001f)
+    }
+
+    @Test
+    fun testInvalidOrImplausiblyLargeStoredValueIsRejectedAndFallsBackToDefault() {
+        val screenHeightDp = 800f
+        // 450dp or 600dp (e.g. from an old emoji keyboard session or corrupted setting)
+        val oversizedStored = 450f
+        val resolvedOversized = ScribeBottomSurfaceCoordinator.resolveStandardKeyboardBaselineDp(
+            rawHeightDp = oversizedStored,
+            screenHeightDp = screenHeightDp
+        )
+        assertEquals(ScribeBottomSurfaceCoordinator.DEFAULT_KEYBOARD_DP, resolvedOversized, 0.001f)
+
+        // Negative or absurdly small value (< 200dp)
+        val tinyStored = 50f
+        val resolvedTiny = ScribeBottomSurfaceCoordinator.resolveStandardKeyboardBaselineDp(
+            rawHeightDp = tinyStored,
+            screenHeightDp = screenHeightDp
+        )
+        assertEquals(ScribeBottomSurfaceCoordinator.DEFAULT_KEYBOARD_DP, resolvedTiny, 0.001f)
+
+        // Null value
+        val resolvedNull = ScribeBottomSurfaceCoordinator.resolveStandardKeyboardBaselineDp(
+            rawHeightDp = null,
+            screenHeightDp = screenHeightDp
+        )
+        assertEquals(ScribeBottomSurfaceCoordinator.DEFAULT_KEYBOARD_DP, resolvedNull, 0.001f)
+    }
+
+    @Test
+    fun testLoadingAndSavingUseIdenticalValidationPolicy() {
+        val screenHeightDp = 800f
+        val testValues = listOf(150f, 199f, 200f, 260f, 280f, 320f, 330f, 331f, 450f, 600f)
+
+        for (v in testValues) {
+            val isValid = ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(v, screenHeightDp)
+            val loadResolutionMatches = (ScribeBottomSurfaceCoordinator.resolveStandardKeyboardBaselineDp(v, screenHeightDp) == v)
+            val saveAllowed = ScribeBottomSurfaceCoordinator.shouldUpdateSavedBaseline(
+                settledHeightDp = v,
+                currentBaselineDp = 280f,
+                screenHeightDp = screenHeightDp
+            )
+
+            // At read boundary: if valid, accepted as is; if invalid, rejected to default
+            assertEquals(
+                "Read boundary validation must strictly match isValidStandardKeyboardHeight for $v",
+                isValid,
+                loadResolutionMatches
+            )
+
+            // At write boundary: if invalid, must never be allowed to save
+            if (!isValid) {
+                assertFalse("Write boundary must strictly reject invalid height $v", saveAllowed)
+            }
+        }
+    }
+
+    @Test
+    fun testTemporaryExpandedDrawerMeasurementCannotChangeStandardBaseline() {
+        val screenHeightDp = 800f
+        val currentBaseline = 280f
+        val expandedDrawerHeightDp = 480f
+
+        val canUpdateFromDrawer = ScribeBottomSurfaceCoordinator.canUpdateSavedStandardBaseline(
+            presentationState = ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN,
+            hasActiveDrawer = true,
+            isImeSettled = true,
+            measuredHeightDp = expandedDrawerHeightDp,
+            currentBaselineDp = currentBaseline,
+            screenHeightDp = screenHeightDp
+        )
+        assertFalse("Expanded accessory drawer must never update standard keyboard baseline", canUpdateFromDrawer)
+    }
+
+    @Test
+    fun testTemporaryOversizedImeMeasurementCannotReplaceSavedStandardHeight() {
+        val screenHeightDp = 800f
+        val currentBaseline = 280f
+        val emojiKeyboardHeightDp = 450f
+
+        val canUpdateFromEmoji = ScribeBottomSurfaceCoordinator.canUpdateSavedStandardBaseline(
+            presentationState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
+            hasActiveDrawer = false,
+            isImeSettled = true,
+            measuredHeightDp = emojiKeyboardHeightDp,
+            currentBaselineDp = currentBaseline,
+            screenHeightDp = screenHeightDp
+        )
+        assertFalse("Oversized IME expansion (emoji/GIF/stickers) must not replace standard baseline", canUpdateFromEmoji)
+    }
+
+    @Test
+    fun testSettledValidStandardKeyboardMeasurementCanUpdateBaseline() {
+        val screenHeightDp = 800f
+        val currentBaseline = 280f
+        val newStandardKeyboardHeightDp = 295f // Legitimate standard keyboard height change
+
+        val canUpdate = ScribeBottomSurfaceCoordinator.canUpdateSavedStandardBaseline(
+            presentationState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
+            hasActiveDrawer = false,
+            isImeSettled = true,
+            measuredHeightDp = newStandardKeyboardHeightDp,
+            currentBaselineDp = currentBaseline,
+            screenHeightDp = screenHeightDp
+        )
+        assertTrue("Genuine settled standard keyboard height change must update baseline", canUpdate)
+    }
+
+    @Test
+    fun testClosingExpandedDrawerDoesNotContaminateRetainedClearance() {
+        val density = 2.5f
+        val baselinePx = 280f * density
+        val shortcutBarPx = 36f * density
+        val breathingMarginPx = 24f * density
+
+        // While drawer is open at 480dp: live drawer obstruction is active, but virtual space is strictly breathingMargin
+        val activeDrawerVirtualSpace = ScribeBottomSurfaceCoordinator.calculateVirtualBottomSpacePx(
+            isPhysicalBottomSurfaceActive = true,
+            standardKeyboardHeightPx = baselinePx,
+            shortcutBarHeightPx = shortcutBarPx,
+            breathingMarginPx = breathingMarginPx,
+            retainedClearancePx = 0f
+        )
+        assertEquals(breathingMarginPx, activeDrawerVirtualSpace, 0.001f)
+
+        // When drawer closes: physical bottom surface becomes inactive.
+        // Virtual clearance returns strictly to standard keyboard + shortcut bar + breathing margin (850px)
+        val closedDrawerVirtualSpace = ScribeBottomSurfaceCoordinator.calculateVirtualBottomSpacePx(
+            isPhysicalBottomSurfaceActive = false,
+            standardKeyboardHeightPx = baselinePx,
+            shortcutBarHeightPx = shortcutBarPx,
+            breathingMarginPx = breathingMarginPx,
+            retainedClearancePx = 0f
+        )
+        val expectedStandardClearance = baselinePx + shortcutBarPx + breathingMarginPx
+        assertEquals(expectedStandardClearance, closedDrawerVirtualSpace, 0.001f)
+        assertEquals(850f, closedDrawerVirtualSpace, 0.001f)
+    }
+
+    @Test
+    fun testShortcutBarAndBreathingMarginAreExcludedFromKeyboardHeightBaseline() {
+        val screenHeightDp = 800f
+        val rawPhysicalImeDp = 280f // Pure physical IME height above navigation bar
+        val shortcutBarDp = 36f
+        val breathingMarginDp = 24f
+
+        // Baseline represents ONLY the keyboard height itself
+        val validatedBaseline = ScribeBottomSurfaceCoordinator.resolveStandardKeyboardBaselineDp(
+            rawHeightDp = rawPhysicalImeDp,
+            screenHeightDp = screenHeightDp
+        )
+        assertEquals(280f, validatedBaseline, 0.001f)
+
+        // If a caller mistakenly passed (keyboard + shortcutBar + breathingMargin = 340dp) to baseline validator,
+        // it must not be silently accepted as the keyboard height if it exceeds max baseline (330dp)
+        val pollutedBaseline = rawPhysicalImeDp + shortcutBarDp + breathingMarginDp // 340dp
+        assertFalse(
+            "Shortcut bar and breathing margin must not be stored as part of keyboard baseline",
+            ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(pollutedBaseline, screenHeightDp)
+        )
+    }
+
+    @Test
+    fun testPhysicallyActiveBottomSurfaceUsesLiveViewportWithoutDoubleCountingVirtualClearance() {
+        val density = 2.5f
+        val standardKbPx = 280f * density // 700px
+        val shortcutBarPx = 36f * density // 90px
+        val breathingMarginPx = 24f * density // 60px
+
+        // State A: Keyboard is hidden (no physical bottom surface)
+        // Usable viewport is full window (e.g. 2000px). Virtual trailing space gives 850px clearance.
+        val hiddenVirtualSpace = ScribeBottomSurfaceCoordinator.calculateVirtualBottomSpacePx(
+            isPhysicalBottomSurfaceActive = false,
+            standardKeyboardHeightPx = standardKbPx,
+            shortcutBarHeightPx = shortcutBarPx,
+            breathingMarginPx = breathingMarginPx
+        )
+        assertEquals(850f, hiddenVirtualSpace, 0.001f)
+
+        // State B: Keyboard or drawer is physically active
+        // Viewport is already reduced by live obstruction. Virtual space must NOT add standardKbPx again!
+        val activeVirtualSpace = ScribeBottomSurfaceCoordinator.calculateVirtualBottomSpacePx(
+            isPhysicalBottomSurfaceActive = true,
+            standardKeyboardHeightPx = standardKbPx,
+            shortcutBarHeightPx = shortcutBarPx,
+            breathingMarginPx = breathingMarginPx
+        )
+        // Only breathing margin is virtual in this state:
+        assertEquals(breathingMarginPx, activeVirtualSpace, 0.001f)
+        assertEquals(60f, activeVirtualSpace, 0.001f)
+    }
 }

@@ -377,14 +377,20 @@ fun MainEditorScreen(
         )
     }
     val configuration = LocalConfiguration.current
-    val savedKeyboardHeightFloat by dataStore.lastKeyboardHeightFlow.collectAsStateWithLifecycle(initialValue = 280f)
-    var lastKeyboardHeightDp by remember {
-        mutableStateOf(savedKeyboardHeightFloat.dp)
+    val savedKeyboardHeightFloat by dataStore.lastKeyboardHeightFlow.collectAsStateWithLifecycle(
+        initialValue = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.DEFAULT_KEYBOARD_DP
+    )
+    val validatedBaselineDp = remember(savedKeyboardHeightFloat, configuration.screenHeightDp) {
+        com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.resolveStandardKeyboardBaselineDp(
+            rawHeightDp = savedKeyboardHeightFloat,
+            screenHeightDp = configuration.screenHeightDp.toFloat()
+        ).dp
     }
-    LaunchedEffect(savedKeyboardHeightFloat) {
-        if (savedKeyboardHeightFloat in 160f..600f) {
-            lastKeyboardHeightDp = savedKeyboardHeightFloat.dp
-        }
+    var lastKeyboardHeightDp by remember {
+        mutableStateOf(validatedBaselineDp)
+    }
+    LaunchedEffect(validatedBaselineDp) {
+        lastKeyboardHeightDp = validatedBaselineDp
     }
     val compactHeightDp = lastKeyboardHeightDp.coerceIn(160.dp, (configuration.screenHeightDp.dp * 0.60f))
     val expandedHeightDp = (configuration.screenHeightDp.dp * 0.48f).coerceIn(360.dp, 480.dp)
@@ -1365,17 +1371,10 @@ fun MainEditorScreen(
                         com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationEvent.DrawerOpened(drawerMode ?: "")
                     )
                 }
-                // Capture actual displayed drawer obstruction into retained scroll clearance
+                // Live drawer height only affects current live viewport obstruction;
+                // NEVER write transient drawer measurements into retained standard clearance!
                 val drawerHeightPx = displayedDrawerH * density.density
-                val isBarVisible = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isShortcutBarVisible(
-                    presentationState,
-                    shortcuts.isNotEmpty()
-                )
-                val barHeightPx = if (isBarVisible) 36f * density.density else 0f
-                unifiedCanvasRef?.updateRetainedBottomScrollClearance(
-                    actualObstructionAboveNavPx = drawerHeightPx,
-                    shortcutBarHeightPx = barHeightPx
-                )
+                unifiedCanvasRef?.liveDrawerHeightPx = drawerHeightPx
 
                 if (isPhysicallyDismissed) {
                     unifiedCanvasRef?.isKeyboardDismissing = false
@@ -1407,11 +1406,17 @@ fun MainEditorScreen(
                     handoffExplicitProgress = null
 
                     val imeAboveNavPx = (curImePx - navBottomPx).coerceAtLeast(0)
-                    val barHeightPx = 36f * density.density
-                    unifiedCanvasRef?.updateRetainedBottomScrollClearance(
-                        actualObstructionAboveNavPx = imeAboveNavPx.toFloat(),
-                        shortcutBarHeightPx = barHeightPx
-                    )
+                    val imeAboveNavDpVal = imeAboveNavPx / density.density
+                    val barHeightPx = if (shortcuts.isNotEmpty()) 36f * density.density else 0f
+                    val screenHeight = configuration.screenHeightDp.toFloat()
+                    if (com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(imeAboveNavDpVal, screenHeight)) {
+                        unifiedCanvasRef?.updateRetainedBottomScrollClearance(
+                            actualObstructionAboveNavPx = imeAboveNavPx.toFloat(),
+                            shortcutBarHeightPx = barHeightPx
+                        )
+                    }
+                    unifiedCanvasRef?.liveImeHeightPx = imeAboveNavPx.toFloat()
+                    unifiedCanvasRef?.liveDrawerHeightPx = 0f
                     unifiedCanvasRef?.endExpansionTransition()
                 }
             } else {
@@ -1426,8 +1431,16 @@ fun MainEditorScreen(
                         val imeAboveNavPx = (curImePx - navBottomPx).coerceAtLeast(0)
                         val imeAboveNavDpVal = imeAboveNavPx / density.density
                         val barHeightPx = if (shortcuts.isNotEmpty()) 36f * density.density else 0f
-                        if (com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(imeAboveNavDpVal, configuration.screenHeightDp.toFloat())) {
-                            if (com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.shouldUpdateSavedBaseline(imeAboveNavDpVal, lastKeyboardHeightDp.value, configuration.screenHeightDp.toFloat())) {
+                        val screenHeight = configuration.screenHeightDp.toFloat()
+                        if (com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(imeAboveNavDpVal, screenHeight)) {
+                            if (com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.canUpdateSavedStandardBaseline(
+                                    presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
+                                    hasActiveDrawer = activeAccessoryDrawer != null,
+                                    isImeSettled = isPhysicallySettled,
+                                    measuredHeightDp = imeAboveNavDpVal,
+                                    currentBaselineDp = lastKeyboardHeightDp.value,
+                                    screenHeightDp = screenHeight
+                                )) {
                                 lastKeyboardHeightDp = imeAboveNavDpVal.dp
                                 scope.launch {
                                     dataStore.setLastKeyboardHeight(imeAboveNavDpVal)
@@ -1438,6 +1451,8 @@ fun MainEditorScreen(
                                 shortcutBarHeightPx = barHeightPx
                             )
                         }
+                        unifiedCanvasRef?.liveImeHeightPx = imeAboveNavPx.toFloat()
+                        unifiedCanvasRef?.liveDrawerHeightPx = 0f
                         unifiedCanvasRef?.endExpansionTransition()
                     } else {
                         if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN ||
@@ -1666,7 +1681,8 @@ fun MainEditorScreen(
                             UnifiedCanvasLayout(ctx).apply {
                                 horizontalPaddingDp = initialPadH
                                 setBackgroundColor(bgArgb)
-                                this.estimatedKeyboardHeightPx = (compactHeightDp.value + (if (shortcuts.isNotEmpty()) 36f else 0f)) * density
+                                this.standardKeyboardHeightPx = lastKeyboardHeightDp.value * density
+                                this.shortcutBarHeightPx = if (shortcuts.isNotEmpty()) 36f * density else 0f
                                 this.activeEditingTarget = lastActiveTarget
                                 this.isKeyboardVisible = isKeyboardVisible
                                 this.isBottomSurfaceActive = (activeAccessoryDrawer != null || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF)
@@ -1897,7 +1913,10 @@ fun MainEditorScreen(
                                     returnFromDrawerToKeyboard()
                                 }
                             }
-                            layout.estimatedKeyboardHeightPx = (compactHeightDp.value + (if (shortcuts.isNotEmpty()) 36f else 0f)) * density.density
+                            layout.standardKeyboardHeightPx = lastKeyboardHeightDp.value * density.density
+                            layout.shortcutBarHeightPx = if (shortcuts.isNotEmpty()) 36f * density.density else 0f
+                            layout.liveImeHeightPx = imeAboveNavPx.toFloat()
+                            layout.liveDrawerHeightPx = if (activeAccessoryDrawer != null) drawerHeightController.currentDisplayedHeightDp * density.density else 0f
                             layout.isKeyboardVisible = isKeyboardVisible
                             layout.isBottomSurfaceActive = (activeAccessoryDrawer != null || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF)
                             layout.isKeyboardDismissing = isKeyboardDismissing

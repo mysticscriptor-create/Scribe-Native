@@ -94,32 +94,73 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         get() = 24f * resources.displayMetrics.density
 
     /**
-     * Pure Writer persistent bottom space architecture:
-     * Equal to where our smooth scroll is gliding, according to the shortcut bar height.
-     * estimatedKeyboardHeightPx = (compactHeightDp + 36f) * density.
-     * Plus breathing margin (24dp) so that the line rests comfortably above the shortcut bar.
+     * Stable standard keyboard baseline in pixels, derived from the validated stored value or default (280dp).
+     * Represents the keyboard itself—does NOT include shortcut bar or breathing margin.
      */
-    var estimatedKeyboardHeightPx: Float = (280f + 36f) * context.resources.displayMetrics.density
+    var standardKeyboardHeightPx: Float = ScribeBottomSurfaceCoordinator.DEFAULT_KEYBOARD_DP * context.resources.displayMetrics.density
         set(value) {
-            field = value
-            editor.persistentBottomSpacePx = persistentBottomSpacePx.roundToInt()
+            field = value.coerceAtLeast(0f)
+            updatePersistentBottomClearance()
+        }
+
+    /**
+     * Fixed shortcut-bar slot height in pixels, currently 36dp when applicable (or 0f when no shortcuts).
+     */
+    var shortcutBarHeightPx: Float = 0f
+        set(value) {
+            field = value.coerceAtLeast(0f)
+            updatePersistentBottomClearance()
+        }
+
+    /**
+     * Current physical IME measurement in pixels above navigation bar.
+     */
+    var liveImeHeightPx: Float = 0f
+        set(value) {
+            field = value.coerceAtLeast(0f)
+        }
+
+    /**
+     * Actual displayed drawer obstruction in pixels, controlled by the drawer-height controller.
+     */
+    var liveDrawerHeightPx: Float = 0f
+        set(value) {
+            field = value.coerceAtLeast(0f)
+        }
+
+    /**
+     * Backward-compatible property representing standard keyboard + shortcut bar height.
+     */
+    var estimatedKeyboardHeightPx: Float
+        get() = standardKeyboardHeightPx + shortcutBarHeightPx
+        set(value) {
+            standardKeyboardHeightPx = (value - shortcutBarHeightPx).coerceAtLeast(0f)
         }
 
     /**
      * Authoritative retained bottom scroll clearance in pixels.
-     * Captures the complete three-part geometry:
-     * actual IME obstruction above navigation baseline + actual shortcut bar height + breathing margin.
+     * Captures the complete three-part geometry from settled standard keyboard.
      * When the physical bottom surface disappears upon dismissal, this clearance preserves the document's
      * complete previously available scroll range without clamping or creating visible blank space.
      */
     var retainedBottomScrollClearancePx: Float = 0f
         set(value) {
-            field = value
-            editor.persistentBottomSpacePx = persistentBottomSpacePx.roundToInt()
+            field = value.coerceAtLeast(0f)
+            updatePersistentBottomClearance()
         }
 
     val persistentBottomSpacePx: Float
-        get() = maxOf(retainedBottomScrollClearancePx, estimatedKeyboardHeightPx + breathingMarginPx)
+        get() = ScribeBottomSurfaceCoordinator.calculateVirtualBottomSpacePx(
+            isPhysicalBottomSurfaceActive = isKeyboardVisible || isBottomSurfaceActive,
+            standardKeyboardHeightPx = standardKeyboardHeightPx,
+            shortcutBarHeightPx = shortcutBarHeightPx,
+            breathingMarginPx = breathingMarginPx,
+            retainedClearancePx = retainedBottomScrollClearancePx
+        )
+
+    private fun updatePersistentBottomClearance() {
+        editor.persistentBottomSpacePx = persistentBottomSpacePx.roundToInt()
+    }
 
     var retainedScrollExtentPx: Float
         get() = retainedBottomScrollClearancePx
@@ -174,7 +215,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val bottomSpace = if (isKeyboardVisible || isBottomSurfaceActive) {
                 breathingMargin
             } else {
-                maxOf(retainedBottomScrollClearancePx.roundToInt(), breathingMargin)
+                persistentBottomSpacePx.roundToInt()
             }
             return ScribeScrollPolicy.calculateMaxCanvasScroll(
                 headerHeight = headerHeight,
@@ -207,6 +248,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         set(value) {
             field = value
             editor.isKeyboardVisible = value
+            updatePersistentBottomClearance()
             if (!value) {
                 checkAndClearPreservedDismissalScroll()
             }
@@ -216,6 +258,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         set(value) {
             val wasActive = field
             field = value
+            updatePersistentBottomClearance()
             if (wasActive && !value) {
                 if (preservedDismissalScroll == null) {
                     preservedDismissalScroll = scrollD + editor.offsetY

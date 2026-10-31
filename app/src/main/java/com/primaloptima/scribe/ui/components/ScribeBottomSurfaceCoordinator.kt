@@ -270,6 +270,54 @@ object ScribeBottomSurfaceCoordinator {
     }
 
     /**
+     * Computes the virtual trailing clearance in pixels for the keyboard-hidden state.
+     * Captures the three-part geometry:
+     * standard keyboard baseline + shortcut bar slot + breathing margin.
+     * Does NOT include transient drawer or oversized IME expansions.
+     */
+    fun calculateStandardVirtualBottomClearancePx(
+        standardKeyboardHeightPx: Float,
+        shortcutBarHeightPx: Float,
+        breathingMarginPx: Float
+    ): Float {
+        return (standardKeyboardHeightPx.coerceAtLeast(0f) +
+                shortcutBarHeightPx.coerceAtLeast(0f) +
+                breathingMarginPx.coerceAtLeast(0f))
+    }
+
+    /**
+     * Determines the virtual bottom clearance in pixels based on whether a physical
+     * bottom surface is currently active.
+     *
+     * Invariant:
+     * - When a physical bottom surface (IME or drawer) is active, it is already reducing
+     *   the measured viewport. Its height must NOT be double-counted in virtual scroll space.
+     *   Therefore, only [breathingMarginPx] is virtual.
+     * - When no physical bottom surface is active, the full standard clearance
+     *   (standard keyboard baseline + shortcut bar + breathing margin) is returned.
+     */
+    fun calculateVirtualBottomSpacePx(
+        isPhysicalBottomSurfaceActive: Boolean,
+        standardKeyboardHeightPx: Float,
+        shortcutBarHeightPx: Float,
+        breathingMarginPx: Float,
+        retainedClearancePx: Float = 0f
+    ): Float {
+        return if (isPhysicalBottomSurfaceActive) {
+            breathingMarginPx.coerceAtLeast(0f)
+        } else {
+            maxOf(
+                retainedClearancePx.coerceAtLeast(0f),
+                calculateStandardVirtualBottomClearancePx(
+                    standardKeyboardHeightPx = standardKeyboardHeightPx,
+                    shortcutBarHeightPx = shortcutBarHeightPx,
+                    breathingMarginPx = breathingMarginPx
+                )
+            )
+        }
+    }
+
+    /**
      * Authoritative bottom geometry model capturing every component of bottom obstruction.
      */
     data class EditorBottomGeometry(
@@ -557,5 +605,44 @@ object ScribeBottomSurfaceCoordinator {
     ): Boolean {
         if (!isValidStandardKeyboardHeight(settledHeightDp, screenHeightDp)) return false
         return kotlin.math.abs(settledHeightDp - currentBaselineDp) > 2f
+    }
+
+    /**
+     * Resolves a valid standard keyboard baseline in dp from stored or raw inputs.
+     * If the provided [rawHeightDp] passes [isValidStandardKeyboardHeight] against [screenHeightDp],
+     * it is returned. Otherwise, [DEFAULT_KEYBOARD_DP] (280dp) is returned as fallback.
+     * Never throws, never returns an oversized or negative height.
+     */
+    fun resolveStandardKeyboardBaselineDp(rawHeightDp: Float?, screenHeightDp: Float): Float {
+        if (rawHeightDp == null) return DEFAULT_KEYBOARD_DP
+        return if (isValidStandardKeyboardHeight(rawHeightDp, screenHeightDp)) {
+            rawHeightDp
+        } else {
+            DEFAULT_KEYBOARD_DP
+        }
+    }
+
+    /**
+     * Determines whether a measured settled keyboard height qualifies to update the stored standard baseline.
+     * All of the following must hold:
+     * 1. Physical keyboard is actually visible and settled at target inset.
+     * 2. Presentation state is KEYBOARD_SETTLED (not entrance, dismissal, drawer, or handoff).
+     * 3. Accessory drawer is NOT active.
+     * 4. Measured height passes the screen-aware standard keyboard validator (rejects temporary emoji/sticker/GIF/clipboard expansions).
+     * 5. Height change is significant (> 2dp difference from current baseline).
+     */
+    fun canUpdateSavedStandardBaseline(
+        presentationState: PresentationState,
+        hasActiveDrawer: Boolean,
+        isImeSettled: Boolean,
+        measuredHeightDp: Float,
+        currentBaselineDp: Float,
+        screenHeightDp: Float
+    ): Boolean {
+        if (hasActiveDrawer) return false
+        if (presentationState != PresentationState.KEYBOARD_SETTLED) return false
+        if (!isImeSettled) return false
+        if (!isValidStandardKeyboardHeight(measuredHeightDp, screenHeightDp)) return false
+        return shouldUpdateSavedBaseline(measuredHeightDp, currentBaselineDp, screenHeightDp)
     }
 }
