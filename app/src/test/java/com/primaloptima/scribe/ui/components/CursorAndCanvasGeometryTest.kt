@@ -5962,8 +5962,8 @@ class CursorAndCanvasGeometryTest {
         )
 
         // In both cases, the shortcut clearance component is exactly 36dp (no late jump or double count)
-        assertEquals(clearanceEntrance, geomEntrance.shortcutClearanceDp, 0.001f)
-        assertEquals(clearanceSettled, geomSettled.shortcutClearanceDp, 0.001f)
+        assertEquals(clearanceEntrance, geomEntrance.shortcutBarClearanceDp, 0.001f)
+        assertEquals(clearanceSettled, geomSettled.shortcutBarClearanceDp, 0.001f)
     }
 
     @Test
@@ -6062,8 +6062,8 @@ class CursorAndCanvasGeometryTest {
         val headerHeight = 200
         val logicalContent = ScribeScrollPolicy.calculateLogicalContentHeight(
             headerHeight = headerHeight,
-            layoutHeight = layoutHeight,
-            bottomSpace = persistentBottomSpacePx
+            editorContentHeight = layoutHeight,
+            virtualTrailingExtentPx = persistentBottomSpacePx
         )
         // 200 + 1500 + 860 = 2560px (exact single allocation, no double-counting)
         assertEquals(2560, logicalContent)

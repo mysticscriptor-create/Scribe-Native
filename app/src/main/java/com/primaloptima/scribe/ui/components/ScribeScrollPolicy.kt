@@ -57,8 +57,12 @@ object ScribeScrollPolicy {
         val screenTop: Float,
         val screenBottom: Float,
         val neededUpwardDisplacement: Float,
-        val targetTotalScroll: Float
-    )
+        val targetTotalScroll: Float,
+        val isTopUnderflow: Boolean = (!isSafe && neededUpwardDisplacement < 0f),
+        val isBottomOccluded: Boolean = (!isSafe && neededUpwardDisplacement > 0f)
+    ) {
+        val requiredCorrectionDy: Float get() = neededUpwardDisplacement
+    }
 
     /**
      * Explicit reason/origin model for cursor-visibility requests.
@@ -114,6 +118,30 @@ object ScribeScrollPolicy {
             density = density,
             maxCanvasScroll = maxCanvasScroll,
             allowDownwardForTopUnderflow = allowDownward
+        )
+    }
+
+    /**
+     * Convenience overload for screen-relative coordinates and origin.
+     */
+    fun resolveCursorSafety(
+        caretScreenBottom: Float,
+        caretScreenTop: Float,
+        viewportHeight: Int,
+        density: Float,
+        origin: CursorCorrectionOrigin,
+        currentTotalScroll: Float = 500f,
+        maxCanvasScroll: Float = 2000f
+    ): CursorSafetyDecision {
+        return resolveCursorSafety(
+            rectTop = caretScreenTop + currentTotalScroll,
+            rectBottom = caretScreenBottom + currentTotalScroll,
+            headerHeight = 0f,
+            currentTotalScroll = currentTotalScroll,
+            usableViewportHeight = viewportHeight.toFloat(),
+            density = density,
+            maxCanvasScroll = maxCanvasScroll,
+            origin = origin
         )
     }
 
