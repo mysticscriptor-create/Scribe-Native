@@ -4289,9 +4289,9 @@ class CursorAndCanvasGeometryTest {
 
         // Initial target during entrance
         val started = coordinator.requestTarget(
-            targetTotalScroll = 600f,
+            targetScroll = 600f,
             reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
-            force = false,
+            forceRetarget = false,
             maxCanvasScroll = 1500
         )
         assertTrue(started)
