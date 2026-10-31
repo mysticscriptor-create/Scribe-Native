@@ -1410,6 +1410,7 @@ fun MainEditorScreen(
                     val barHeightPx = if (shortcuts.isNotEmpty()) 36f * density.density else 0f
                     val screenHeight = configuration.screenHeightDp.toFloat()
                     if (com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(imeAboveNavDpVal, screenHeight)) {
+                        unifiedCanvasRef?.standardKeyboardHeightPx = imeAboveNavPx.toFloat()
                         unifiedCanvasRef?.updateRetainedBottomScrollClearance(
                             actualObstructionAboveNavPx = imeAboveNavPx.toFloat(),
                             shortcutBarHeightPx = barHeightPx
@@ -1446,6 +1447,7 @@ fun MainEditorScreen(
                                     dataStore.setLastKeyboardHeight(imeAboveNavDpVal)
                                 }
                             }
+                            unifiedCanvasRef?.standardKeyboardHeightPx = imeAboveNavPx.toFloat()
                             unifiedCanvasRef?.updateRetainedBottomScrollClearance(
                                 actualObstructionAboveNavPx = imeAboveNavPx.toFloat(),
                                 shortcutBarHeightPx = barHeightPx
@@ -1686,6 +1688,8 @@ fun MainEditorScreen(
                                 setBackgroundColor(bgArgb)
                                 this.standardKeyboardHeightPx = lastKeyboardHeightDp.value * density
                                 this.shortcutBarHeightPx = if (shortcuts.isNotEmpty()) 36f * density else 0f
+                                this.liveImeHeightPx = 0f
+                                this.liveDrawerHeightPx = 0f
                                 this.activeEditingTarget = lastActiveTarget
                                 this.isKeyboardVisible = isKeyboardVisible
                                 this.isBottomSurfaceActive = (activeAccessoryDrawer != null || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF)

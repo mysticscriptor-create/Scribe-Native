@@ -93,15 +93,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
     override fun getScrollMaxY(): Int {
         return try {
             val pCanvas = parent as? UnifiedCanvasLayout
-            val isHeaderFullyHidden = if (pCanvas != null && pCanvas.headerHeight > 0) {
-                pCanvas.scrollD >= pCanvas.headerHeight
-            } else {
-                pCanvas == null
-            }
-            if (!isHeaderFullyHidden) {
-                return 0
-            }
-
             // Centralized ownership: when embedded in UnifiedCanvasLayout, derive directly
             // from the parent's authoritative logical maximum scroll to guarantee 100% mathematical consistency.
             if (pCanvas != null) {

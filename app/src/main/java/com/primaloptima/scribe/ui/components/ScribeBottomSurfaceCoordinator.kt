@@ -306,13 +306,10 @@ object ScribeBottomSurfaceCoordinator {
         return if (isPhysicalBottomSurfaceActive) {
             breathingMarginPx.coerceAtLeast(0f)
         } else {
-            maxOf(
-                retainedClearancePx.coerceAtLeast(0f),
-                calculateStandardVirtualBottomClearancePx(
-                    standardKeyboardHeightPx = standardKeyboardHeightPx,
-                    shortcutBarHeightPx = shortcutBarHeightPx,
-                    breathingMarginPx = breathingMarginPx
-                )
+            calculateStandardVirtualBottomClearancePx(
+                standardKeyboardHeightPx = standardKeyboardHeightPx,
+                shortcutBarHeightPx = shortcutBarHeightPx,
+                breathingMarginPx = breathingMarginPx
             )
         }
     }
@@ -530,7 +527,9 @@ object ScribeBottomSurfaceCoordinator {
         if (!isBottomActive || !hasActiveScroll) {
             return false
         }
-        return (temporaryDisplacement > 0f) || isAtLastLine
+        // Strict Invariant: Downward restoration strictly requires a recorded temporary displacement.
+        // Being on the last line must NEVER independently authorize downward restoration.
+        return temporaryDisplacement > 0f
     }
 
     /**

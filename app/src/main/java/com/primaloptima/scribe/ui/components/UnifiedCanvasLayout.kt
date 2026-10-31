@@ -150,7 +150,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
     val persistentBottomSpacePx: Float
-        get() = ScribeBottomSurfaceCoordinator.calculateVirtualBottomSpacePx(
+        get() = ScribeScrollPolicy.calculateVirtualTrailingExtentPx(
             isPhysicalBottomSurfaceActive = isKeyboardVisible || isBottomSurfaceActive,
             standardKeyboardHeightPx = standardKeyboardHeightPx,
             shortcutBarHeightPx = shortcutBarHeightPx,
@@ -1587,7 +1587,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         topEdgeEffect?.setSize(w, h)
         if (oldh > 0 && kotlin.math.abs(h - oldh) > 2) {
             val dh = oldh - h
-            val currentObstruction = maxOf(liveImeHeightPx, liveDrawerHeightPx)
+            val rootH = rootView?.height ?: resources.displayMetrics.heightPixels
+            val currentObstruction = (rootH - h).coerceAtLeast(0).toFloat()
             if (dh > 0) {
                 // Viewport shrinking (keyboard appearing or accessory drawer opening)
                 previousBottomObstructionPx = currentObstruction
@@ -1689,7 +1690,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
 
                 val density = resources.displayMetrics.density
-                val curObstruction = maxOf(liveImeHeightPx, liveDrawerHeightPx)
+                val curObstruction = currentObstruction
                 val wasLargerObstructionActive = previousBottomObstructionPx > (curObstruction + 2f)
                 val isConfirmedContraction = wasLargerObstructionActive && (isBottomSurfaceActive || isKeyboardVisible)
                 val hasRecordedDisplacement = temporaryExpansionDisplacement > 0f
@@ -1724,6 +1725,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     val geom = getSelectionGeometry(cur, lay) ?: return@Runnable
                     val caretDocBottom = geom.bottomDocY
                     val currentScroll = (scrollD + editor.offsetY).toFloat()
+                    val lineCount = try { editor.text.lineCount } catch (_: Throwable) { 1 }
+                    val isAtLastLine = try {
+                        (cur != null && cur.leftLine >= (lineCount - 1)) || (lineCount <= 1)
+                    } catch (_: Throwable) { false }
                     val req = ScribeScrollPolicy.ContractionRestorationRequest(
                         caretScreenBottom = headerHeight + caretDocBottom - currentScroll,
                         caretScreenTop = headerHeight + geom.topDocY - currentScroll,
@@ -1731,7 +1736,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                         density = density,
                         totalScroll = currentScroll,
                         temporaryDisplacement = temporaryExpansionDisplacement,
-                        isAtLastLine = false,
+                        isAtLastLine = isAtLastLine,
                         isKeyboardDismissing = isKeyboardDismissing,
                         isBottomSurfaceActive = isBottomSurfaceActive || isKeyboardVisible
                     )

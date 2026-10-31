@@ -808,27 +808,41 @@ class CursorAndCanvasGeometryTest {
         )
         assertEquals("Dismissal must never pull document down", false, dismissDecision)
 
-        // Emoji keyboard contracting to standard keyboard: SHOULD follow downward!
+        // Emoji keyboard contracting to standard keyboard with recorded temporary displacement: SHOULD follow downward!
         val emojiContractDecision = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
             isKeyboardDismissing = false,
             isBottomSurfaceActive = true,
             isKeyboardVisible = true,
             hasPhysicalBottomObstruction = true,
             isAtLastLine = true,
-            hasActiveScroll = true
+            hasActiveScroll = true,
+            temporaryDisplacement = 50f
         )
-        assertEquals("Emoji contract must smoothly track downward", true, emojiContractDecision)
+        assertEquals("Emoji contract with displacement must smoothly track downward", true, emojiContractDecision)
 
-        // Drawer collapsing: SHOULD follow downward!
+        // Contraction with NO recorded displacement: must strictly return FALSE (last line does NOT authorize downward follow)
+        val noDisplacementContractDecision = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true,
+            isKeyboardVisible = true,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = true,
+            hasActiveScroll = true,
+            temporaryDisplacement = 0f
+        )
+        assertEquals("Contraction without displacement must return false", false, noDisplacementContractDecision)
+
+        // Drawer collapsing with recorded temporary displacement: SHOULD follow downward!
         val drawerCollapseDecision = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
             isKeyboardDismissing = false,
             isBottomSurfaceActive = true,
             isKeyboardVisible = false,
             hasPhysicalBottomObstruction = true,
             isAtLastLine = true,
-            hasActiveScroll = true
+            hasActiveScroll = true,
+            temporaryDisplacement = 50f
         )
-        assertEquals("Drawer collapse must smoothly track downward", true, drawerCollapseDecision)
+        assertEquals("Drawer collapse with displacement must smoothly track downward", true, drawerCollapseDecision)
 
         // Mid-document editing (isAtLastLine = false): NEVER follow downward!
         val midDocDecision = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
@@ -5557,5 +5571,77 @@ class CursorAndCanvasGeometryTest {
         val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
         assertEquals(0f, result.deltaY, 0.001f)
         assertFalse(result.shouldScroll)
+    }
+    @Test
+    fun testVirtualBottomClearanceStrictlyUsesStandardBaselineWithoutRetainedPollution() {
+        val density = 2.5f
+        val standardKbPx = 280f * density // 700px
+        val shortcutBarPx = 36f * density // 90px
+        val breathingMarginPx = 24f * density // 60px
+        val pollutedRetainedPx = 1200f // Stale or oversized measurement
+
+        // When physical bottom surface is inactive, virtual clearance MUST derive strictly
+        // from standardKeyboardHeightPx + shortcutBarHeightPx + breathingMarginPx (850px).
+        // It must NEVER be overridden or polluted by a larger retainedClearancePx!
+        val virtualClearance = ScribeBottomSurfaceCoordinator.calculateVirtualBottomSpacePx(
+            isPhysicalBottomSurfaceActive = false,
+            standardKeyboardHeightPx = standardKbPx,
+            shortcutBarHeightPx = shortcutBarPx,
+            breathingMarginPx = breathingMarginPx,
+            retainedClearancePx = pollutedRetainedPx
+        )
+
+        val expected = standardKbPx + shortcutBarPx + breathingMarginPx
+        assertEquals(expected, virtualClearance, 0.001f)
+        assertEquals(850f, virtualClearance, 0.001f)
+    }
+
+    @Test
+    fun testShouldFollowDownwardRejectsLastLineWithoutDisplacement() {
+        // Being on the last line must NEVER independently authorize downward follow
+        val follow = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true,
+            isKeyboardVisible = true,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = true,
+            hasActiveScroll = true,
+            temporaryDisplacement = 0f
+        )
+        assertFalse("Last line without recorded displacement must reject downward follow", follow)
+
+        // With recorded displacement, downward follow is authorized
+        val followWithDisplacement = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true,
+            isKeyboardVisible = true,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = true,
+            hasActiveScroll = true,
+            temporaryDisplacement = 80f
+        )
+        assertTrue("Recorded displacement must authorize downward follow", followWithDisplacement)
+    }
+
+    @Test
+    fun testEditorMaxScrollRemainsStableRegardlessOfCurrentHeaderScrollD() {
+        val headerHeight = 150
+        val layoutHeight = 2500
+        val viewportHeight = 1000
+        val bottomSpace = 850
+
+        val logicalContent = ScribeScrollPolicy.calculateLogicalContentHeight(headerHeight, layoutHeight, bottomSpace)
+        val logicalMax = ScribeScrollPolicy.calculateLogicalMaxScroll(logicalContent, viewportHeight)
+        val editorMax = ScribeScrollPolicy.calculateEditorMaxScroll(logicalMax, headerHeight)
+
+        // Logical max = 3500 - 1000 = 2500
+        // Editor max = 2500 - 150 = 2350
+        assertEquals(2500, logicalMax)
+        assertEquals(2350, editorMax)
+
+        // Invariant: editorMax is an inherent content bound that does not collapse to 0
+        // when scrollD is 0 or less than headerHeight
+        val logicalPosition = headerHeight + editorMax
+        assertEquals(logicalMax, logicalPosition)
     }
 }
