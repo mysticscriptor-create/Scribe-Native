@@ -139,21 +139,21 @@ object ScribeBottomSurfaceCoordinator {
                     when (currentState) {
                         PresentationState.HIDDEN,
                         PresentationState.KEYBOARD_DISMISSAL -> {
-                            if (isImeAtTarget(event.currentBottomPx, event.targetBottomPx) || event.currentBottomPx >= event.targetBottomPx) {
+                            if (isImeAtTarget(targetImePx = event.targetBottomPx, curImePx = event.currentBottomPx)) {
                                 PresentationState.KEYBOARD_SETTLED
                             } else {
                                 PresentationState.KEYBOARD_ENTRANCE
                             }
                         }
                         PresentationState.DRAWER_TO_KEYBOARD_HANDOFF -> {
-                            if (isImeAtTarget(event.currentBottomPx, event.targetBottomPx) || event.currentBottomPx >= event.targetBottomPx) {
+                            if (isImeAtTarget(targetImePx = event.targetBottomPx, curImePx = event.currentBottomPx)) {
                                 PresentationState.KEYBOARD_SETTLED
                             } else {
                                 currentState
                             }
                         }
                         PresentationState.KEYBOARD_ENTRANCE -> {
-                            if (isImeAtTarget(event.currentBottomPx, event.targetBottomPx) || event.currentBottomPx >= event.targetBottomPx) {
+                            if (isImeAtTarget(targetImePx = event.targetBottomPx, curImePx = event.currentBottomPx)) {
                                 PresentationState.KEYBOARD_SETTLED
                             } else {
                                 currentState
@@ -183,7 +183,7 @@ object ScribeBottomSurfaceCoordinator {
                 when (currentState) {
                     PresentationState.KEYBOARD_ENTRANCE,
                     PresentationState.DRAWER_TO_KEYBOARD_HANDOFF -> {
-                        if (event.targetBottomPx > 0 && (isImeAtTarget(event.currentBottomPx, event.targetBottomPx) || event.currentBottomPx >= event.targetBottomPx)) {
+                        if (event.targetBottomPx > 0 && isImeAtTarget(targetImePx = event.targetBottomPx, curImePx = event.currentBottomPx)) {
                             PresentationState.KEYBOARD_SETTLED
                         } else {
                             currentState
@@ -206,7 +206,7 @@ object ScribeBottomSurfaceCoordinator {
                 if (event.hasActiveDrawer) {
                     PresentationState.ACCESSORY_DRAWER_OPEN
                 } else if (event.isImeVisible && event.targetImeBottomPx > 0 &&
-                    (isImeAtTarget(event.currentImeBottomPx, event.targetImeBottomPx) || event.currentImeBottomPx >= event.targetImeBottomPx)) {
+                    isImeAtTarget(targetImePx = event.targetImeBottomPx, curImePx = event.currentImeBottomPx)) {
                     PresentationState.KEYBOARD_SETTLED
                 } else if (event.isImeVisible || event.targetImeBottomPx > 0) {
                     PresentationState.KEYBOARD_ENTRANCE
@@ -256,6 +256,24 @@ object ScribeBottomSurfaceCoordinator {
     }
 
     /**
+     * Computes the continuous bottom surface height in dp during a drawer-to-keyboard handoff.
+     * Guarantees smooth, monotonic interpolation between captured drawer height and keyboard height
+     * without any one-frame jump or discontinuity regardless of whether the drawer is taller or
+     * shorter than the keyboard.
+     */
+    fun calculateHandoffBottomSurfaceHeightDp(
+        capturedDrawerHeightDp: Float,
+        currentImeAboveNavDp: Float,
+        targetImeAboveNavDp: Float
+    ): Float {
+        if (targetImeAboveNavDp <= 0f) {
+            return capturedDrawerHeightDp
+        }
+        val progress = (currentImeAboveNavDp / targetImeAboveNavDp).coerceIn(0f, 1f)
+        return capturedDrawerHeightDp + (targetImeAboveNavDp - capturedDrawerHeightDp) * progress
+    }
+
+    /**
      * Computes the authoritative bottom padding to apply to the editor layout.
      * In Scribe, the accessory drawer replaces the keyboard rather than stacking above it.
      * During transitions (keyboard entrance/dismissal or drawer handoff), accounts for the
@@ -265,12 +283,19 @@ object ScribeBottomSurfaceCoordinator {
         imeBottomDp: Float,
         navBarBottomDp: Float,
         drawerHeightDp: Float,
-        shortcutBarClearanceDp: Float
+        shortcutBarClearanceDp: Float,
+        stacksWithKeyboard: Boolean = true
     ): Float {
-        val baseObstruction = if (drawerHeightDp > 0f) {
-            maxOf(imeBottomDp, navBarBottomDp) + drawerHeightDp
+        val baseObstruction = if (stacksWithKeyboard) {
+            if (drawerHeightDp > 0f) {
+                maxOf(imeBottomDp, navBarBottomDp) + drawerHeightDp
+            } else {
+                maxOf(imeBottomDp, navBarBottomDp)
+            }
         } else {
-            maxOf(imeBottomDp, navBarBottomDp)
+            val imeAboveNav = (imeBottomDp - navBarBottomDp).coerceAtLeast(0f)
+            val effectiveBottomSurface = if (drawerHeightDp > 0f) drawerHeightDp else imeAboveNav
+            navBarBottomDp + effectiveBottomSurface
         }
         return baseObstruction + shortcutBarClearanceDp
     }

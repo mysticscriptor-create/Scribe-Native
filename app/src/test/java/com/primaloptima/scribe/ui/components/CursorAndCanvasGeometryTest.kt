@@ -4307,4 +4307,143 @@ class CursorAndCanvasGeometryTest {
         assertEquals(650f, coordinator.activeTargetTotalScroll ?: 0f, 0.001f)
         assertTrue(coordinator.isAnimationActive)
     }
+
+    @Test
+    fun testContinuousHandoffDrawerTallerThanKeyboard() {
+        // Drawer at 450dp, Keyboard target at 280dp
+        val drawerH = 450f
+        val keyboardTarget = 280f
+
+        val h0 = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            capturedDrawerHeightDp = drawerH,
+            currentImeAboveNavDp = 0f,
+            targetImeAboveNavDp = keyboardTarget
+        )
+        val h25 = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            capturedDrawerHeightDp = drawerH,
+            currentImeAboveNavDp = 70f,
+            targetImeAboveNavDp = keyboardTarget
+        )
+        val h50 = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            capturedDrawerHeightDp = drawerH,
+            currentImeAboveNavDp = 140f,
+            targetImeAboveNavDp = keyboardTarget
+        )
+        val h75 = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            capturedDrawerHeightDp = drawerH,
+            currentImeAboveNavDp = 210f,
+            targetImeAboveNavDp = keyboardTarget
+        )
+        val h100 = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            capturedDrawerHeightDp = drawerH,
+            currentImeAboveNavDp = 280f,
+            targetImeAboveNavDp = keyboardTarget
+        )
+
+        assertEquals("Frame 0 must equal captured drawer height exactly", 450f, h0, 0.001f)
+        assertEquals("Frame 25% must interpolate continuously", 407.5f, h25, 0.001f)
+        assertEquals("Frame 50% must interpolate continuously", 365.0f, h50, 0.001f)
+        assertEquals("Frame 75% must interpolate continuously", 322.5f, h75, 0.001f)
+        assertEquals("Frame 100% must equal final keyboard height exactly with 0 discontinuity", 280f, h100, 0.001f)
+
+        // Verify strictly monotonic decrease without jumps
+        assertTrue(h0 > h25)
+        assertTrue(h25 > h50)
+        assertTrue(h50 > h75)
+        assertTrue(h75 > h100)
+    }
+
+    @Test
+    fun testContinuousHandoffDrawerShorterThanKeyboard() {
+        // Drawer at 200dp, Keyboard target at 280dp
+        val drawerH = 200f
+        val keyboardTarget = 280f
+
+        val h0 = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            capturedDrawerHeightDp = drawerH,
+            currentImeAboveNavDp = 0f,
+            targetImeAboveNavDp = keyboardTarget
+        )
+        val h50 = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            capturedDrawerHeightDp = drawerH,
+            currentImeAboveNavDp = 140f,
+            targetImeAboveNavDp = keyboardTarget
+        )
+        val h100 = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            capturedDrawerHeightDp = drawerH,
+            currentImeAboveNavDp = 280f,
+            targetImeAboveNavDp = keyboardTarget
+        )
+
+        assertEquals("Frame 0 must equal captured drawer height", 200f, h0, 0.001f)
+        assertEquals("Frame 50% must equal midpoint", 240f, h50, 0.001f)
+        assertEquals("Frame 100% must equal final keyboard height with 0 discontinuity", 280f, h100, 0.001f)
+
+        // Verify strictly monotonic increase without jumps
+        assertTrue(h0 < h50)
+        assertTrue(h50 < h100)
+    }
+
+    @Test
+    fun testHandoffPendingOrZeroTargetDoesNotJump() {
+        val drawerH = 380f
+        val pendingTarget = 0f
+        val h = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            capturedDrawerHeightDp = drawerH,
+            currentImeAboveNavDp = 0f,
+            targetImeAboveNavDp = pendingTarget
+        )
+        assertEquals("Must remain at captured drawer height when target is pending", drawerH, h, 0.001f)
+    }
+
+    @Test
+    fun testReducerSettlingRejectsOvershootPrematurely() {
+        val initial = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE
+        // In-flight progress where current is not within tolerance of target
+        val event = ScribeBottomSurfaceCoordinator.PresentationEvent.ImeTargetChanged(
+            targetBottomPx = 800,
+            currentBottomPx = 400
+        )
+        val next = ScribeBottomSurfaceCoordinator.reduce(initial, event)
+        // Must stay in KEYBOARD_ENTRANCE, NOT prematurely transition to KEYBOARD_SETTLED
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE, next)
+
+        // When current is within tolerance (4px)
+        val settledEvent = ScribeBottomSurfaceCoordinator.PresentationEvent.ImeTargetChanged(
+            targetBottomPx = 800,
+            currentBottomPx = 798
+        )
+        val settledState = ScribeBottomSurfaceCoordinator.reduce(initial, settledEvent)
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED, settledState)
+    }
+
+    @Test
+    fun testScreenRestorationMidAnimation() {
+        // Screen restored while keyboard is animating in (target = 800, current = 400)
+        val restored = ScribeBottomSurfaceCoordinator.PresentationEvent.ScreenRestored(
+            isImeVisible = true,
+            currentImeBottomPx = 400,
+            targetImeBottomPx = 800,
+            hasActiveDrawer = false
+        )
+        val state = ScribeBottomSurfaceCoordinator.reduce(
+            ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN,
+            restored
+        )
+        assertEquals("Restoration mid-animation must enter KEYBOARD_ENTRANCE, not SETTLED",
+            ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE, state)
+
+        // Screen restored when already at target
+        val settledRestored = ScribeBottomSurfaceCoordinator.PresentationEvent.ScreenRestored(
+            isImeVisible = true,
+            currentImeBottomPx = 800,
+            targetImeBottomPx = 800,
+            hasActiveDrawer = false
+        )
+        val settledState = ScribeBottomSurfaceCoordinator.reduce(
+            ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN,
+            settledRestored
+        )
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED, settledState)
+    }
 }

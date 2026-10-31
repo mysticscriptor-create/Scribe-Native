@@ -1622,7 +1622,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             MotionEvent.ACTION_DOWN -> {
                 isMultiTouchLatched = false
                 isUserTouching = true
-                preservedDismissalScroll = null
                 onUserTouchDown?.invoke()
                 cancelCanvasAnimation()
                 invalidateCompensation()
@@ -1653,6 +1652,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val dy = lastTouchY - ev.y
                 lastTouchX = ev.x
                 lastTouchY = ev.y
+
+                if (abs(ev.y - initialDownY) > touchSlop) {
+                    preservedDismissalScroll = null
+                }
 
                 if (isDraggingCanvas) {
                     scrollCanvasBy(dy)
