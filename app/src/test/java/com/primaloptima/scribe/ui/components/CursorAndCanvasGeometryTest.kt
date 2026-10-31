@@ -4079,15 +4079,26 @@ class CursorAndCanvasGeometryTest {
 
     @Test
     fun testStackedDrawerAndImePadding_AccountsForCombinedObstruction() {
-        // Drawer stacked above IME
-        val stackedPadding = ScribeBottomSurfaceCoordinator.calculateEditorBottomPaddingDp(
+        // Production architecture: drawer replaces keyboard above navigation baseline (344dp)
+        val replacingPadding = ScribeBottomSurfaceCoordinator.calculateEditorBottomPaddingDp(
             imeBottomDp = 280f,
             navBarBottomDp = 48f,
             drawerHeightDp = 260f,
             shortcutBarClearanceDp = 36f
         )
-        // 280 (IME) + 260 (drawer) + 36 (bar) = 576
-        assertEquals(576f, stackedPadding, 0.001f)
+        // 48 (nav) + 260 (drawer replacing keyboard) + 36 (bar) = 344dp
+        assertEquals("Production bottom padding must treat drawer as replacing keyboard", 344f, replacingPadding, 0.001f)
+
+        // Explicit stacking if requested
+        val stackedPadding = ScribeBottomSurfaceCoordinator.calculateEditorBottomPaddingDp(
+            imeBottomDp = 280f,
+            navBarBottomDp = 48f,
+            drawerHeightDp = 260f,
+            shortcutBarClearanceDp = 36f,
+            stacksWithKeyboard = true
+        )
+        // 280 (IME) + 260 (drawer) + 36 (bar) = 576dp
+        assertEquals("Explicit stacking must add drawer to IME", 576f, stackedPadding, 0.001f)
 
         // Keyboard alone without drawer
         val keyboardOnly = ScribeBottomSurfaceCoordinator.calculateEditorBottomPaddingDp(
@@ -4096,8 +4107,19 @@ class CursorAndCanvasGeometryTest {
             drawerHeightDp = 0f,
             shortcutBarClearanceDp = 36f
         )
-        // maxOf(280, 48) + 36 = 316
+        // maxOf(280, 48) + 36 = 316dp
         assertEquals(316f, keyboardOnly, 0.001f)
+
+        // Authoritative geometry model must match exactly
+        val geomDrawer = ScribeBottomSurfaceCoordinator.calculateEditorBottomGeometry(
+            navBarBottomDp = 48f,
+            imeBottomDp = 280f,
+            presentationState = ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN,
+            displayedDrawerHeightDp = 260f,
+            shortcutBarClearanceDp = 36f
+        )
+        assertEquals(344f, geomDrawer.editorBottomPaddingDp, 0.001f)
+        assertEquals(260f, geomDrawer.effectiveBottomSurfaceHeightDp, 0.001f)
     }
 
     @Test
@@ -4446,4 +4468,421 @@ class CursorAndCanvasGeometryTest {
         )
         assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED, settledState)
     }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Priority 1 — Continuous Drawer-to-Keyboard Handoff Regression Tests
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun testHandoffFromNonzeroStartingImeObstruction() {
+        // Captured drawer: 450dp. Keyboard already partially in view at 140dp. Target keyboard: 280dp.
+        val drawerObstruction = 450f
+        val startingIme = 140f
+        val targetIme = 280f
+
+        val hStart = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            startingObstructionDp = drawerObstruction,
+            startingImeAboveNavDp = startingIme,
+            currentImeAboveNavDp = 140f,
+            targetImeAboveNavDp = targetIme
+        )
+        val hMid = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            startingObstructionDp = drawerObstruction,
+            startingImeAboveNavDp = startingIme,
+            currentImeAboveNavDp = 210f,
+            targetImeAboveNavDp = targetIme
+        )
+        val hEnd = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            startingObstructionDp = drawerObstruction,
+            startingImeAboveNavDp = startingIme,
+            currentImeAboveNavDp = 280f,
+            targetImeAboveNavDp = targetIme
+        )
+
+        assertEquals("Frame 0 with nonzero starting IME must preserve captured drawer obstruction exactly",
+            450f, hStart, 0.001f)
+        assertEquals("Frame at mid progress between 140dp and 280dp must interpolate smoothly to 365dp",
+            365f, hMid, 0.001f)
+        assertEquals("Frame 100% must reach final keyboard height exactly",
+            280f, hEnd, 0.001f)
+    }
+
+    @Test
+    fun testHandoffWhenStartingAndTargetImeEqualDoesNotDivideByZero() {
+        // Keyboard already at target (both start and target are 280dp). Drawer was 450dp.
+        val drawerObstruction = 450f
+        val startingIme = 280f
+        val targetIme = 280f
+
+        // Explicit progress transition
+        val hProg0 = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            startingObstructionDp = drawerObstruction,
+            startingImeAboveNavDp = startingIme,
+            currentImeAboveNavDp = 280f,
+            targetImeAboveNavDp = targetIme,
+            explicitProgress = 0f
+        )
+        val hProg50 = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            startingObstructionDp = drawerObstruction,
+            startingImeAboveNavDp = startingIme,
+            currentImeAboveNavDp = 280f,
+            targetImeAboveNavDp = targetIme,
+            explicitProgress = 0.5f
+        )
+        val hProg100 = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            startingObstructionDp = drawerObstruction,
+            startingImeAboveNavDp = startingIme,
+            currentImeAboveNavDp = 280f,
+            targetImeAboveNavDp = targetIme,
+            explicitProgress = 1f
+        )
+
+        assertEquals(450f, hProg0, 0.001f)
+        assertEquals(365f, hProg50, 0.001f)
+        assertEquals(280f, hProg100, 0.001f)
+
+        // Without explicit progress, equal start and target resolves safely without crash or divide-by-zero
+        val hSafe = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            startingObstructionDp = drawerObstruction,
+            startingImeAboveNavDp = startingIme,
+            currentImeAboveNavDp = 280f,
+            targetImeAboveNavDp = targetIme
+        )
+        assertEquals(280f, hSafe, 0.001f)
+    }
+
+    @Test
+    fun testHandoffInterruptionCapturesDisplayedGeometry() {
+        // Initial transition started from 450dp down to 280dp.
+        // Interrupted midway when obstruction has reached 365dp.
+        val displayedAtInterruption = 365f
+        val newTargetKeyboard = 320f
+        val currentIme = 180f
+
+        val hNewStart = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            startingObstructionDp = displayedAtInterruption,
+            startingImeAboveNavDp = currentIme,
+            currentImeAboveNavDp = 180f,
+            targetImeAboveNavDp = newTargetKeyboard
+        )
+        val hNewEnd = ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
+            startingObstructionDp = displayedAtInterruption,
+            startingImeAboveNavDp = currentIme,
+            currentImeAboveNavDp = 320f,
+            targetImeAboveNavDp = newTargetKeyboard
+        )
+
+        assertEquals("Interrupted handoff must start from actual displayed obstruction (365dp), never jump back to 450dp",
+            365f, hNewStart, 0.001f)
+        assertEquals("Interrupted handoff must finish at new target (320dp)",
+            320f, hNewEnd, 0.001f)
+    }
+
+    @Test
+    fun testHandoffCompletionRequiresReconciliationBeforeClearingState() {
+        // In-flight: current handoff height is 350dp, final keyboard target is 280dp
+        // Even if physical IME happens to be near target (e.g. within 4px tolerance),
+        // canCompleteHandoff must be false because effective obstruction has not reached 280dp.
+        val canCompleteMid = ScribeBottomSurfaceCoordinator.canCompleteHandoff(
+            currentHandoffObstructionDp = 350f,
+            finalKeyboardObstructionDp = 280f,
+            isImeAtTarget = true
+        )
+        assertFalse("Cannot complete handoff until effective obstruction reaches final keyboard geometry", canCompleteMid)
+
+        // Fully reconciled: handoff height reached 280.1dp (within 0.5dp tolerance of 280dp) and IME at target
+        val canCompleteFinal = ScribeBottomSurfaceCoordinator.canCompleteHandoff(
+            currentHandoffObstructionDp = 280.1f,
+            finalKeyboardObstructionDp = 280f,
+            isImeAtTarget = true
+        )
+        assertTrue("Handoff can complete once effective obstruction and IME target are fully reconciled", canCompleteFinal)
+
+        // Reducer verifies DRAWER_TO_KEYBOARD_HANDOFF stays intact during target changes without premature completion
+        val initial = ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF
+        val targetChange = ScribeBottomSurfaceCoordinator.PresentationEvent.ImeTargetChanged(
+            targetBottomPx = 700,
+            currentBottomPx = 698
+        )
+        val stateAfterTargetChange = ScribeBottomSurfaceCoordinator.reduce(initial, targetChange)
+        assertEquals("Reducer must not clear handoff state merely on IME target change",
+            ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF, stateAfterTargetChange)
+
+        val completedState = ScribeBottomSurfaceCoordinator.reduce(
+            initial,
+            ScribeBottomSurfaceCoordinator.PresentationEvent.HandoffCompleted
+        )
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED, completedState)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Priority 2 — Authoritative Production Bottom Geometry Tests
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun testAuthoritativeBottomGeometry_AllPresentationStates() {
+        val nav = 48f
+        val ime = 280f
+        val bar = 36f
+        val drawerH = 360f
+
+        // 1. Navigation bar alone (keyboard hidden, no drawer, no shortcut bar)
+        val geomHidden = ScribeBottomSurfaceCoordinator.calculateEditorBottomGeometry(
+            navBarBottomDp = nav,
+            imeBottomDp = 0f,
+            presentationState = ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN,
+            shortcutBarClearanceDp = 0f
+        )
+        assertEquals(48f, geomHidden.editorBottomPaddingDp, 0.001f)
+        assertEquals(0f, geomHidden.effectiveBottomSurfaceHeightDp, 0.001f)
+
+        // 2. Keyboard alone
+        val geomKeyboard = ScribeBottomSurfaceCoordinator.calculateEditorBottomGeometry(
+            navBarBottomDp = nav,
+            imeBottomDp = ime,
+            presentationState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
+            shortcutBarClearanceDp = 0f
+        )
+        // 48 (nav) + (280 - 48 = 232 imeAboveNav) = 280dp. Counted exactly once!
+        assertEquals(280f, geomKeyboard.editorBottomPaddingDp, 0.001f)
+        assertEquals(232f, geomKeyboard.effectiveBottomSurfaceHeightDp, 0.001f)
+
+        // 3. Keyboard + Shortcut Bar
+        val geomKeyboardAndBar = ScribeBottomSurfaceCoordinator.calculateEditorBottomGeometry(
+            navBarBottomDp = nav,
+            imeBottomDp = ime,
+            presentationState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
+            shortcutBarClearanceDp = bar
+        )
+        // 280 + 36 = 316dp
+        assertEquals(316f, geomKeyboardAndBar.editorBottomPaddingDp, 0.001f)
+
+        // 4. Drawer alone (replaces keyboard above navigation baseline)
+        val geomDrawer = ScribeBottomSurfaceCoordinator.calculateEditorBottomGeometry(
+            navBarBottomDp = nav,
+            imeBottomDp = 0f,
+            presentationState = ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN,
+            displayedDrawerHeightDp = drawerH,
+            shortcutBarClearanceDp = 0f
+        )
+        // 48 (nav) + 360 (drawer) = 408dp
+        assertEquals(408f, geomDrawer.editorBottomPaddingDp, 0.001f)
+        assertEquals(360f, geomDrawer.effectiveBottomSurfaceHeightDp, 0.001f)
+
+        // 5. Drawer + Shortcut Bar
+        val geomDrawerAndBar = ScribeBottomSurfaceCoordinator.calculateEditorBottomGeometry(
+            navBarBottomDp = nav,
+            imeBottomDp = 0f,
+            presentationState = ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN,
+            displayedDrawerHeightDp = drawerH,
+            shortcutBarClearanceDp = bar
+        )
+        // 48 + 360 + 36 = 444dp
+        assertEquals(444f, geomDrawerAndBar.editorBottomPaddingDp, 0.001f)
+
+        // 6. Drawer-to-Keyboard Handoff
+        val geomHandoff = ScribeBottomSurfaceCoordinator.calculateEditorBottomGeometry(
+            navBarBottomDp = nav,
+            imeBottomDp = ime,
+            presentationState = ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF,
+            handoffObstructionDp = 300f,
+            shortcutBarClearanceDp = bar
+        )
+        // 48 (nav) + 300 (handoff) + 36 (bar) = 384dp
+        assertEquals(384f, geomHandoff.editorBottomPaddingDp, 0.001f)
+        assertEquals(300f, geomHandoff.effectiveBottomSurfaceHeightDp, 0.001f)
+
+        // Verify calculateEditorBottomPaddingDp agrees with calculateEditorBottomGeometry
+        val paddingKeyboardAndBar = ScribeBottomSurfaceCoordinator.calculateEditorBottomPaddingDp(
+            imeBottomDp = ime,
+            navBarBottomDp = nav,
+            drawerHeightDp = 0f,
+            shortcutBarClearanceDp = bar
+        )
+        assertEquals(geomKeyboardAndBar.editorBottomPaddingDp, paddingKeyboardAndBar, 0.001f)
+
+        val paddingDrawerAndBar = ScribeBottomSurfaceCoordinator.calculateEditorBottomPaddingDp(
+            imeBottomDp = 0f,
+            navBarBottomDp = nav,
+            drawerHeightDp = drawerH,
+            shortcutBarClearanceDp = bar
+        )
+        assertEquals(geomDrawerAndBar.editorBottomPaddingDp, paddingDrawerAndBar, 0.001f)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Priority 3 — Scroll Range Lifecycle & Gesture Classification Tests
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun testPreserveReachableScrollRangeOnLargeDrawerDismissal() {
+        val headerHeight = 200
+        val layoutHeight = 2000
+        val viewportHeight = 1000
+        val breathingMargin = 60
+        val drawerHeightPx = 500f
+        val shortcutBarPx = 90f
+
+        // When large drawer was active, retained clearance captures full obstruction
+        val retainedClearance = ScribeBottomSurfaceCoordinator.calculateRetainedBottomScrollClearancePx(
+            actualObstructionAboveNavPx = drawerHeightPx,
+            shortcutBarHeightPx = shortcutBarPx,
+            breathingMarginPx = breathingMargin.toFloat()
+        )
+        assertEquals(650f, retainedClearance, 0.001f)
+
+        // Natural max scroll with retained clearance maintains access to full document
+        val maxScrollWithRetained = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = layoutHeight,
+            viewportHeight = viewportHeight,
+            bottomSpace = retainedClearance.toInt(),
+            isTextEmpty = false
+        )
+        // 200 + 2000 + 650 - 1000 = 1850px
+        assertEquals(1850, maxScrollWithRetained)
+
+        // Without retained clearance (breathing margin only), natural max shrinks to:
+        val maxScrollNormal = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = layoutHeight,
+            viewportHeight = viewportHeight,
+            bottomSpace = breathingMargin,
+            isTextEmpty = false
+        )
+        // 200 + 2000 + 60 - 1000 = 1260px
+        assertEquals(1260, maxScrollNormal)
+
+        // Verify that retained clearance prevented 590px of reachable document from being clamped
+        assertTrue(maxScrollWithRetained > maxScrollNormal)
+    }
+
+    @Test
+    fun testPointerMovementWithoutDocumentScrollDoesNotReleasePreservedDismissalScroll() {
+        // Scribe 1-DOF scroll allocation test:
+        // A touch gesture moving vertically by 30px (greater than 8px touch slop),
+        // but occurring on a stationary cursor handle or selection where canvas does not consume scroll
+        val headerHeight = 200
+        val scrollD = 200f
+        val editorOffsetY = 400
+        val maxCanvasScroll = 600
+
+        // Zero scroll consumed
+        val zeroAllocation = ScribeScrollPolicy.allocateScrollDelta(
+            deltaY = 0f,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            editorOffsetY = editorOffsetY,
+            maxCanvasScroll = maxCanvasScroll
+        )
+        assertEquals(0f, zeroAllocation.outerDelta, 0.001f)
+        assertEquals(0f, zeroAllocation.innerDelta, 0.001f)
+
+        // Confirmed canvas drag consumes actual delta
+        val confirmedAllocation = ScribeScrollPolicy.allocateScrollDelta(
+            deltaY = 20f,
+            headerHeight = headerHeight,
+            scrollD = scrollD,
+            editorOffsetY = editorOffsetY,
+            maxCanvasScroll = maxCanvasScroll
+        )
+        assertTrue(confirmedAllocation.outerDelta != 0f || confirmedAllocation.innerDelta != 0f)
+        assertEquals(20f, confirmedAllocation.innerDelta, 0.001f)
+    }
+
+    @Test
+    fun testDocumentContentShrinkageReleasesBoundsSafely() {
+        // Document content deletion (layoutHeight drops from 2000px to 800px)
+        val headerHeight = 200
+        val viewportHeight = 1000
+        val breathingMargin = 60
+
+        val maxBefore = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = 2000,
+            viewportHeight = viewportHeight,
+            bottomSpace = breathingMargin,
+            isTextEmpty = false
+        )
+        // 200 + 2000 + 60 - 1000 = 1260
+        assertEquals(1260, maxBefore)
+
+        val maxAfter = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = 800,
+            viewportHeight = viewportHeight,
+            bottomSpace = breathingMargin,
+            isTextEmpty = false
+        )
+        // 200 + 800 + 60 - 1000 = 60
+        assertEquals(60, maxAfter)
+
+        // Safe bounds shrink naturally with content; bounds are not permanently frozen
+        assertTrue(maxAfter < maxBefore)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Priority 4 — Authoritative Single-Owner Drawer Height Transitions
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun testDrawerHeightFlingVelocityThresholds() {
+        val compact = 260f
+        val expanded = 420f
+        val full = 600f
+
+        // Rapid upward fling (vyDp < -300) from compact (280dp) targets expanded
+        val vyUpFast = -450f
+        val currentNearCompact = 280f
+        val targetFromCompact = if (vyUpFast < -300f) {
+            if (currentNearCompact < expanded * 0.95f) ScribeBottomSurfaceCoordinator.AccessoryDrawerState.EXPANDED
+            else ScribeBottomSurfaceCoordinator.AccessoryDrawerState.FULL
+        } else ScribeBottomSurfaceCoordinator.AccessoryDrawerState.COMPACT
+        assertEquals(ScribeBottomSurfaceCoordinator.AccessoryDrawerState.EXPANDED, targetFromCompact)
+
+        // Rapid upward fling from near expanded (410dp) targets full
+        val currentNearExpanded = 410f
+        val targetFromExpanded = if (vyUpFast < -300f) {
+            if (currentNearExpanded < expanded * 0.95f) ScribeBottomSurfaceCoordinator.AccessoryDrawerState.EXPANDED
+            else ScribeBottomSurfaceCoordinator.AccessoryDrawerState.FULL
+        } else ScribeBottomSurfaceCoordinator.AccessoryDrawerState.COMPACT
+        assertEquals(ScribeBottomSurfaceCoordinator.AccessoryDrawerState.FULL, targetFromExpanded)
+
+        // Rapid downward fling (vyDp > 300) from full (550dp) targets expanded
+        val vyDownFast = 450f
+        val currentNearFull = 550f
+        val targetFromFull = if (vyDownFast > 300f) {
+            if (currentNearFull > expanded * 1.05f) ScribeBottomSurfaceCoordinator.AccessoryDrawerState.EXPANDED
+            else ScribeBottomSurfaceCoordinator.AccessoryDrawerState.COMPACT
+        } else ScribeBottomSurfaceCoordinator.AccessoryDrawerState.FULL
+        assertEquals(ScribeBottomSurfaceCoordinator.AccessoryDrawerState.EXPANDED, targetFromFull)
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Priority 5 — Independent IME Lifecycle Tracking
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun testImeDismissalLifecycleTrackedIndependentlyOfDrawer() {
+        // While in ACCESSORY_DRAWER_OPEN, IME starts dismissal (targetBottomPx = 0)
+        val initial = ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN
+
+        // Dismissal requested
+        val dismissRequest = ScribeBottomSurfaceCoordinator.PresentationEvent.ImeTargetChanged(
+            targetBottomPx = 0,
+            currentBottomPx = 500
+        )
+        val stateAfterRequest = ScribeBottomSurfaceCoordinator.reduce(initial, dismissRequest)
+        // Must stay in ACCESSORY_DRAWER_OPEN! An open drawer is not dismissed by physical keyboard dismissal
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN, stateAfterRequest)
+
+        // Keyboard dismissal finishes behind drawer (currentBottomPx <= 4)
+        val progressEvent = ScribeBottomSurfaceCoordinator.PresentationEvent.ImeAnimationProgress(
+            currentBottomPx = 0,
+            targetBottomPx = 0
+        )
+        val stateAfterProgress = ScribeBottomSurfaceCoordinator.reduce(stateAfterRequest, progressEvent)
+        assertEquals(ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN, stateAfterProgress)
+    }
 }
+

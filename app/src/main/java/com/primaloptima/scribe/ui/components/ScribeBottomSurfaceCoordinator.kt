@@ -28,6 +28,16 @@ object ScribeBottomSurfaceCoordinator {
      * Authoritative presentation state machine for keyboard, shortcut bar, and accessory drawers.
      * Controls presentation and visual coordination, completely decoupled from physical keyboard insets.
      */
+    enum class AccessoryDrawerState {
+        COMPACT,
+        EXPANDED,
+        FULL
+    }
+
+    /**
+     * Authoritative presentation state machine for keyboard, shortcut bar, and accessory drawers.
+     * Controls presentation and visual coordination, completely decoupled from physical keyboard insets.
+     */
     enum class PresentationState {
         HIDDEN,
         KEYBOARD_ENTRANCE,
@@ -49,7 +59,11 @@ object ScribeBottomSurfaceCoordinator {
         data class DrawerOpened(val mode: String) : PresentationEvent
         data object DrawerClosed : PresentationEvent
         data class DrawerSwitched(val mode: String) : PresentationEvent
-        data class DrawerToKeyboardHandoffStarted(val capturedDrawerHeightDp: Float) : PresentationEvent
+        data class DrawerToKeyboardHandoffStarted(
+            val capturedDrawerHeightDp: Float,
+            val startingImeAboveNavDp: Float = 0f,
+            val targetImeAboveNavDp: Float = 0f
+        ) : PresentationEvent
         data object HandoffCompleted : PresentationEvent
         data object HandoffFailed : PresentationEvent
         data object ShortcutsConfigurationChanged : PresentationEvent
@@ -88,7 +102,8 @@ object ScribeBottomSurfaceCoordinator {
                 PresentationState.ACCESSORY_DRAWER_OPEN
             }
             is PresentationEvent.DrawerToKeyboardHandoffStarted -> {
-                if (currentState == PresentationState.ACCESSORY_DRAWER_OPEN) {
+                if (currentState == PresentationState.ACCESSORY_DRAWER_OPEN ||
+                    currentState == PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
                     PresentationState.DRAWER_TO_KEYBOARD_HANDOFF
                 } else {
                     currentState
@@ -109,8 +124,7 @@ object ScribeBottomSurfaceCoordinator {
                 }
             }
             is PresentationEvent.ImeSettledAtTarget -> {
-                if (currentState == PresentationState.KEYBOARD_ENTRANCE ||
-                    currentState == PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
+                if (currentState == PresentationState.KEYBOARD_ENTRANCE) {
                     PresentationState.KEYBOARD_SETTLED
                 } else {
                     currentState
@@ -146,17 +160,14 @@ object ScribeBottomSurfaceCoordinator {
                             }
                         }
                         PresentationState.DRAWER_TO_KEYBOARD_HANDOFF -> {
-                            if (isImeAtTarget(targetImePx = event.targetBottomPx, curImePx = event.currentBottomPx)) {
-                                PresentationState.KEYBOARD_SETTLED
-                            } else {
-                                currentState
-                            }
+                            // Retain handoff state until full geometry reconciliation completes
+                            currentState
                         }
                         PresentationState.KEYBOARD_ENTRANCE -> {
                             if (isImeAtTarget(targetImePx = event.targetBottomPx, curImePx = event.currentBottomPx)) {
                                 PresentationState.KEYBOARD_SETTLED
                             } else {
-                                currentState
+                                PresentationState.KEYBOARD_ENTRANCE
                             }
                         }
                         else -> currentState
@@ -181,13 +192,16 @@ object ScribeBottomSurfaceCoordinator {
             }
             is PresentationEvent.ImeAnimationProgress -> {
                 when (currentState) {
-                    PresentationState.KEYBOARD_ENTRANCE,
-                    PresentationState.DRAWER_TO_KEYBOARD_HANDOFF -> {
+                    PresentationState.KEYBOARD_ENTRANCE -> {
                         if (event.targetBottomPx > 0 && isImeAtTarget(targetImePx = event.targetBottomPx, curImePx = event.currentBottomPx)) {
                             PresentationState.KEYBOARD_SETTLED
                         } else {
                             currentState
                         }
+                    }
+                    PresentationState.DRAWER_TO_KEYBOARD_HANDOFF -> {
+                        // In handoff, require explicit HandoffCompleted event after geometry verification
+                        currentState
                     }
                     PresentationState.KEYBOARD_DISMISSAL -> {
                         if (event.currentBottomPx <= IME_TARGET_TOLERANCE_PX) {
@@ -256,35 +270,129 @@ object ScribeBottomSurfaceCoordinator {
     }
 
     /**
-     * Computes the continuous bottom surface height in dp during a drawer-to-keyboard handoff.
-     * Guarantees smooth, monotonic interpolation between captured drawer height and keyboard height
-     * without any one-frame jump or discontinuity regardless of whether the drawer is taller or
-     * shorter than the keyboard.
+     * Authoritative bottom geometry model capturing every component of bottom obstruction.
+     */
+    data class EditorBottomGeometry(
+        val navBarBottomDp: Float,
+        val imeBottomDp: Float,
+        val imeAboveNavDp: Float,
+        val displayedDrawerHeightDp: Float,
+        val effectiveBottomSurfaceHeightDp: Float,
+        val shortcutBarClearanceDp: Float,
+        val editorBottomPaddingDp: Float
+    )
+
+    /**
+     * Computes the authoritative bottom geometry across navigation bar, physical keyboard,
+     * accessory drawer, drawer-to-keyboard handoff, and shortcut bar.
+     * Guarantees that:
+     * - Navigation inset is counted exactly once as the baseline.
+     * - Physical IME and drawer obstructions are reconciled according to presentation state.
+     * - Drawer replaces keyboard rather than stacking above it.
+     * - Shortcut bar clearance is added without double-counting.
+     */
+    fun calculateEditorBottomGeometry(
+        navBarBottomDp: Float,
+        imeBottomDp: Float,
+        presentationState: PresentationState,
+        displayedDrawerHeightDp: Float = 0f,
+        handoffObstructionDp: Float = 0f,
+        shortcutBarClearanceDp: Float = 0f
+    ): EditorBottomGeometry {
+        val imeAboveNav = (imeBottomDp - navBarBottomDp).coerceAtLeast(0f)
+        val effectiveBottomSurface = when (presentationState) {
+            PresentationState.ACCESSORY_DRAWER_OPEN -> displayedDrawerHeightDp
+            PresentationState.DRAWER_TO_KEYBOARD_HANDOFF -> handoffObstructionDp
+            else -> imeAboveNav
+        }
+        val totalPadding = navBarBottomDp + effectiveBottomSurface + shortcutBarClearanceDp
+        return EditorBottomGeometry(
+            navBarBottomDp = navBarBottomDp,
+            imeBottomDp = imeBottomDp,
+            imeAboveNavDp = imeAboveNav,
+            displayedDrawerHeightDp = displayedDrawerHeightDp,
+            effectiveBottomSurfaceHeightDp = effectiveBottomSurface,
+            shortcutBarClearanceDp = shortcutBarClearanceDp,
+            editorBottomPaddingDp = totalPadding
+        )
+    }
+
+    /**
+     * Computes continuous bottom surface height in dp during drawer-to-keyboard handoff.
+     * Starts from the actual captured starting obstruction and interpolates to target keyboard height
+     * using normalized progress between starting and target IME insets.
+     *
+     * Handles:
+     * - Keyboard starting at nonzero inset.
+     * - Drawer taller than keyboard.
+     * - Drawer shorter than keyboard.
+     * - Starting and target IME equal or nearly equal (prevents divide by zero).
+     * - Explicit transition progress override.
+     */
+    fun calculateHandoffBottomSurfaceHeightDp(
+        startingObstructionDp: Float,
+        startingImeAboveNavDp: Float,
+        currentImeAboveNavDp: Float,
+        targetImeAboveNavDp: Float,
+        explicitProgress: Float? = null
+    ): Float {
+        if (explicitProgress != null) {
+            val progress = explicitProgress.coerceIn(0f, 1f)
+            return startingObstructionDp + (targetImeAboveNavDp - startingObstructionDp) * progress
+        }
+        if (targetImeAboveNavDp <= 0f) {
+            return startingObstructionDp
+        }
+        val imeDelta = targetImeAboveNavDp - startingImeAboveNavDp
+        val progress = if (kotlin.math.abs(imeDelta) < 0.5f) {
+            if (currentImeAboveNavDp >= targetImeAboveNavDp - 1f) 1f else 0f
+        } else {
+            ((currentImeAboveNavDp - startingImeAboveNavDp) / imeDelta).coerceIn(0f, 1f)
+        }
+        return startingObstructionDp + (targetImeAboveNavDp - startingObstructionDp) * progress
+    }
+
+    /**
+     * Backward-compatible overload assuming IME starts at 0dp.
      */
     fun calculateHandoffBottomSurfaceHeightDp(
         capturedDrawerHeightDp: Float,
         currentImeAboveNavDp: Float,
         targetImeAboveNavDp: Float
-    ): Float {
-        if (targetImeAboveNavDp <= 0f) {
-            return capturedDrawerHeightDp
-        }
-        val progress = (currentImeAboveNavDp / targetImeAboveNavDp).coerceIn(0f, 1f)
-        return capturedDrawerHeightDp + (targetImeAboveNavDp - capturedDrawerHeightDp) * progress
+    ): Float = calculateHandoffBottomSurfaceHeightDp(
+        startingObstructionDp = capturedDrawerHeightDp,
+        startingImeAboveNavDp = 0f,
+        currentImeAboveNavDp = currentImeAboveNavDp,
+        targetImeAboveNavDp = targetImeAboveNavDp
+    )
+
+    /**
+     * Authoritative condition for completing drawer-to-keyboard handoff.
+     * Prevents clearing handoff state merely because physical IME is within tolerance;
+     * ensures effective obstruction has reached the intended final keyboard geometry and
+     * the switch from handoff to normal keyboard geometry is completely continuous.
+     */
+    fun canCompleteHandoff(
+        currentHandoffObstructionDp: Float,
+        finalKeyboardObstructionDp: Float,
+        isImeAtTarget: Boolean,
+        toleranceDp: Float = 0.5f
+    ): Boolean {
+        return isImeAtTarget && kotlin.math.abs(currentHandoffObstructionDp - finalKeyboardObstructionDp) <= toleranceDp
     }
 
     /**
      * Computes the authoritative bottom padding to apply to the editor layout.
-     * In Scribe, the accessory drawer replaces the keyboard rather than stacking above it.
-     * During transitions (keyboard entrance/dismissal or drawer handoff), accounts for the
-     * actual effective bottom obstruction above the navigation baseline without double counting.
+     * In Scribe production architecture, the accessory drawer replaces the keyboard rather than stacking above it.
+     * If [stacksWithKeyboard] is explicitly enabled, it stacks above maxOf(imeBottomDp, navBarBottomDp).
+     * By default, [stacksWithKeyboard] is false to match production UI geometry.
      */
     fun calculateEditorBottomPaddingDp(
         imeBottomDp: Float,
         navBarBottomDp: Float,
         drawerHeightDp: Float,
         shortcutBarClearanceDp: Float,
-        stacksWithKeyboard: Boolean = true
+        stacksWithKeyboard: Boolean = false
     ): Float {
         val baseObstruction = if (stacksWithKeyboard) {
             if (drawerHeightDp > 0f) {

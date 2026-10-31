@@ -208,8 +208,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     var isBottomSurfaceActive: Boolean = false
         set(value) {
+            val wasActive = field
             field = value
-            if (!value) {
+            if (wasActive && !value) {
+                if (preservedDismissalScroll == null) {
+                    preservedDismissalScroll = scrollD + editor.offsetY
+                }
+                cancelViewportSafetyAnimation()
                 checkAndClearPreservedDismissalScroll()
             }
         }
@@ -1571,6 +1576,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
         if (allocation.outerDelta != 0f || allocation.innerDelta != 0f) {
+            if (isUserTouching && isDraggingCanvas && !isTouchOnHandleActive && !isAnyHandleActive) {
+                if (abs(allocation.outerDelta) > 1f || abs(allocation.innerDelta) > 1f) {
+                    preservedDismissalScroll = null
+                }
+            }
             notifyViewportScrollChanged()
         }
 
@@ -1652,10 +1662,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val dy = lastTouchY - ev.y
                 lastTouchX = ev.x
                 lastTouchY = ev.y
-
-                if (abs(ev.y - initialDownY) > touchSlop) {
-                    preservedDismissalScroll = null
-                }
 
                 if (isDraggingCanvas) {
                     scrollCanvasBy(dy)
