@@ -6675,7 +6675,10 @@ class CursorAndCanvasGeometryTest {
             topDocY = 400f,
             bottomDocY = 900f,
             leftDocX = 50f,
-            rightDocX = 250f
+            rightDocX = 250f,
+            isSelected = true,
+            anchorLine = 5,
+            focusLine = 12
         )
         assertEquals(400f, selGeom.topDocY, 0.001f)
         assertEquals(900f, selGeom.bottomDocY, 0.001f)

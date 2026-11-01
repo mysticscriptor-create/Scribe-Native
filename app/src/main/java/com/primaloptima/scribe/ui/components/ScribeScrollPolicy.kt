@@ -1038,9 +1038,9 @@ object ScribeScrollPolicy {
         val bottomDocY: Float,
         val leftDocX: Float,
         val rightDocX: Float,
-        val isSelected: Boolean,
-        val anchorLine: Int,
-        val focusLine: Int
+        val isSelected: Boolean = true,
+        val anchorLine: Int = 0,
+        val focusLine: Int = 0
     )
 
     data class SafeTargetValidationResult(
