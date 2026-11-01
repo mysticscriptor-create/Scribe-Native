@@ -1542,8 +1542,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             isTextEmpty = editor.text.isEmpty()
         ).toFloat()
 
-        val currentScroll = (scrollD + editor.offsetY).toFloat()
-
         // Two-sided safety check in predicted future viewport
         val now = System.currentTimeMillis()
         val recentTouchY = if (now - lastTouchDownTime < 500L) lastTouchDownY else null
