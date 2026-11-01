@@ -592,6 +592,13 @@ object ScribeScrollPolicy {
         }
     }
 
+    // ── Tap Target Lifecycle Model ───────────────────────────────────────────
+    sealed interface TapTargetState {
+        object None : TapTargetState
+        object Unresolved : TapTargetState
+        data class Resolved(val line: Int, val column: Int) : TapTargetState
+    }
+
     // ── Keyboard Viewport Transaction Model ──────────────────────────────────
     data class KeyboardTransaction(
         val transactionId: Long,
@@ -601,8 +608,13 @@ object ScribeScrollPolicy {
         val targetCol: Int? = null,
         val preTransactionScroll: Float = 0f,
         val initialScreenY: Float? = null,
-        val isPhysicallySettled: Boolean = false
+        val isPhysicallySettled: Boolean = false,
+        val isUnresolvedTap: Boolean = false,
+        val isImeInsetSettled: Boolean = false,
+        val isLayoutMeasurementSettled: Boolean = false
     ) {
+        val isFullySettled: Boolean get() = isImeInsetSettled && isLayoutMeasurementSettled
+
         fun calculateRetargetedDestination(
             caretDocBottom: Float,
             headerHeight: Float,
@@ -640,6 +652,144 @@ object ScribeScrollPolicy {
                 return false
             }
             return kotlin.math.abs(desiredTarget - currentScroll) > 1f
+        }
+    }
+
+    // ── Settled Reconciliation Model ─────────────────────────────────────────
+    sealed interface SettledReconciliationResult {
+        object NoOp : SettledReconciliationResult
+        object CancelOvershoot : SettledReconciliationResult
+        data class Retarget(val targetScrollY: Int) : SettledReconciliationResult
+    }
+
+    /**
+     * Reconciles settled viewport with planned target:
+     * - If caret is already safe at currentScrollY, cancels any overshooting in-flight glide.
+     * - If caret is unsafe at currentScrollY, computes the minimal retargeted destination.
+     * - Otherwise returns NoOp.
+     */
+    fun evaluateSettledReconciliation(
+        currentScrollY: Float,
+        plannedTargetScrollY: Float,
+        caretDocTop: Float,
+        caretDocBottom: Float,
+        headerHeight: Float,
+        settledViewportHeight: Float,
+        density: Float,
+        maxCanvasScroll: Float
+    ): SettledReconciliationResult {
+        val marginPx = (CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
+        val deadbandPx = (CURSOR_DEADBAND_DP * density).roundToInt()
+        val targetLineBottom = (settledViewportHeight - marginPx).coerceAtLeast(0f)
+
+        val screenBottom = headerHeight + caretDocBottom - currentScrollY
+        val screenTop = headerHeight + caretDocTop - currentScrollY
+        val isSafeAtCurrent = screenTop >= -deadbandPx && screenBottom <= (targetLineBottom + deadbandPx)
+
+        if (isSafeAtCurrent) {
+            return if (plannedTargetScrollY >= 0f && kotlin.math.abs(plannedTargetScrollY - currentScrollY) > 1f) {
+                SettledReconciliationResult.CancelOvershoot
+            } else {
+                SettledReconciliationResult.NoOp
+            }
+        }
+
+        val neededDisplacement = if (screenBottom > targetLineBottom + deadbandPx) {
+            screenBottom - targetLineBottom
+        } else if (screenTop < -deadbandPx) {
+            screenTop
+        } else {
+            0f
+        }
+
+        if (kotlin.math.abs(neededDisplacement) > deadbandPx) {
+            val retargeted = (currentScrollY + neededDisplacement).coerceIn(0f, maxCanvasScroll)
+            return SettledReconciliationResult.Retarget(retargeted.roundToInt())
+        }
+
+        return SettledReconciliationResult.NoOp
+    }
+
+    // ── Pure Keyboard Transaction Coordinator ────────────────────────────────
+    class KeyboardTransactionCoordinator {
+        var currentTransaction: KeyboardTransaction? = null
+            private set
+        var currentEpoch: Long = 0L
+            private set
+
+        val isActive: Boolean get() = currentTransaction?.isActive == true
+        val isUnresolved: Boolean get() = currentTransaction?.isUnresolvedTap == true
+        val isFullySettled: Boolean get() = currentTransaction?.isFullySettled == true
+
+        fun startTransaction(
+            transactionId: Long = System.currentTimeMillis(),
+            preTransactionScroll: Float,
+            targetScroll: Float = -1f,
+            targetLine: Int? = null,
+            targetCol: Int? = null,
+            initialScreenY: Float? = null,
+            isUnresolvedTap: Boolean = false
+        ): KeyboardTransaction {
+            currentEpoch++
+            val transaction = KeyboardTransaction(
+                transactionId = transactionId,
+                isActive = true,
+                targetScroll = targetScroll,
+                targetLine = targetLine,
+                targetCol = targetCol,
+                preTransactionScroll = preTransactionScroll,
+                initialScreenY = initialScreenY,
+                isPhysicallySettled = false,
+                isUnresolvedTap = isUnresolvedTap,
+                isImeInsetSettled = false,
+                isLayoutMeasurementSettled = false
+            )
+            currentTransaction = transaction
+            return transaction
+        }
+
+        fun onImeInsetSettled(): KeyboardTransaction? {
+            val tx = currentTransaction ?: return null
+            val updated = tx.copy(
+                isImeInsetSettled = true,
+                isPhysicallySettled = tx.isLayoutMeasurementSettled
+            )
+            currentTransaction = updated
+            return updated
+        }
+
+        fun onLayoutMeasurementSettled(): KeyboardTransaction? {
+            val tx = currentTransaction ?: return null
+            val updated = tx.copy(
+                isLayoutMeasurementSettled = true,
+                isPhysicallySettled = tx.isImeInsetSettled
+            )
+            currentTransaction = updated
+            return updated
+        }
+
+        fun reconcileTarget(line: Int, column: Int, targetScroll: Float = -1f): KeyboardTransaction? {
+            val tx = currentTransaction ?: return null
+            val updated = tx.copy(
+                targetLine = line,
+                targetCol = column,
+                targetScroll = if (targetScroll >= 0f) targetScroll else tx.targetScroll,
+                isUnresolvedTap = false
+            )
+            currentTransaction = updated
+            return updated
+        }
+
+        fun cancel(reason: String = ""): Long {
+            currentEpoch++
+            currentTransaction = null
+            return currentEpoch
+        }
+
+        fun finish(): KeyboardTransaction? {
+            val tx = currentTransaction
+            currentTransaction = null
+            return tx
         }
     }
 

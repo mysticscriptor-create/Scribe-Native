@@ -1382,6 +1382,7 @@ fun MainEditorScreen(
                 } else if (targetImePx <= 0) {
                     unifiedCanvasRef?.isKeyboardDismissing = true
                     unifiedCanvasRef?.cancelViewportSafetyAnimation()
+                    unifiedCanvasRef?.cancelKeyboardTransaction("IME dismissal started")
                 }
             } else if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
                 val currentHandoffH = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
@@ -1479,7 +1480,7 @@ fun MainEditorScreen(
                             )
                             unifiedCanvasRef?.isKeyboardDismissing = true
                             unifiedCanvasRef?.cancelViewportSafetyAnimation()
-                            unifiedCanvasRef?.cancelKeyboardTransaction()
+                            unifiedCanvasRef?.cancelKeyboardTransaction("IME dismissal started")
                         }
                     } else {
                         unifiedCanvasRef?.liveImeHeightPx = 0f
@@ -1950,6 +1951,9 @@ fun MainEditorScreen(
                                         com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationEvent.KeyboardEntranceStarted
                                     )
                                 }
+                            }
+                            layout.onKeyboardEntranceFailed = {
+                                presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN
                             }
                             layout.standardKeyboardHeightPx = lastKeyboardHeightDp.value * density.density
                             layout.shortcutBarHeightPx = if (shortcuts.isNotEmpty()) 36f * density.density else 0f

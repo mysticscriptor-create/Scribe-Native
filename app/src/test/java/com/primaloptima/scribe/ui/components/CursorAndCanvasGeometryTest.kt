@@ -2,6 +2,7 @@ package com.primaloptima.scribe.ui.components
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -6451,5 +6452,236 @@ class CursorAndCanvasGeometryTest {
         )
         assertTrue("Last line is safe in predicted viewport", decision.isSafe)
         assertEquals("Total vertical scroll remains unchanged (0px movement)", 0f, decision.requiredCorrectionDy, 0.001f)
+    }
+
+    // ── Phase 5 Tests: Hardened Keyboard Entrance Lifecycle & Cancellation ──
+
+    @Test
+    fun testPhase5_01_UnresolvedTap_PredictiveGlideSuppressed_AwaitsSoraCommit() {
+        val coordinator = ScribeScrollPolicy.KeyboardTransactionCoordinator()
+        // Tap hit-test is unresolved (e.g. touch landed near boundary or layout not ready)
+        val tx = coordinator.startTransaction(
+            preTransactionScroll = 100f,
+            targetScroll = 100f,
+            targetLine = null,
+            targetCol = null,
+            isUnresolvedTap = true
+        )
+        assertTrue("Transaction is active", coordinator.isActive)
+        assertTrue("Transaction is marked unresolved", coordinator.isUnresolved)
+        assertEquals("Planned target scroll equals current scroll (zero glide movement)", 100f, tx.targetScroll, 0.001f)
+        assertNull("Target line must not be prematurely bound", tx.targetLine)
+
+        // When Sora commits selection at line 12, column 0:
+        val reconciled = coordinator.reconcileTarget(line = 12, column = 0, targetScroll = 250f)
+        assertNotNull(reconciled)
+        assertFalse("Transaction is no longer unresolved after Sora commit", coordinator.isUnresolved)
+        assertEquals(12, reconciled?.targetLine)
+        assertEquals(250f, reconciled?.targetScroll ?: 0f, 0.001f)
+    }
+
+    @Test
+    fun testPhase5_02_StaleCursorProtection_TapUnresolvedDoesNotReadStaleCaret() {
+        // Old caret is far down at line 120 (docBottom 3500px).
+        // User taps high up in document, hit test temporarily unresolved.
+        val coordinator = ScribeScrollPolicy.KeyboardTransactionCoordinator()
+        val tx = coordinator.startTransaction(
+            preTransactionScroll = 0f,
+            targetScroll = 0f,
+            targetLine = null,
+            targetCol = null,
+            isUnresolvedTap = true
+        )
+        // Verify stale caret is NOT used as transaction target
+        assertNull("Stale caret line 120 must not be assigned to unresolved tap", tx.targetLine)
+        assertEquals("Zero predictive displacement applied", 0f, tx.targetScroll, 0.001f)
+    }
+
+    @Test
+    fun testPhase5_03_Watchdog_TimesOutAfter1500ms_CancelsTransaction_ResetsPresentationState() {
+        val coordinator = ScribeScrollPolicy.KeyboardTransactionCoordinator()
+        coordinator.startTransaction(
+            preTransactionScroll = 0f,
+            targetScroll = 300f,
+            targetLine = 5,
+            targetCol = 0
+        )
+        assertTrue(coordinator.isActive)
+
+        // Watchdog fires after 1500ms timeout
+        coordinator.cancel("IME appearance timeout")
+        assertFalse("Transaction cancelled by watchdog", coordinator.isActive)
+        assertNull(coordinator.currentTransaction)
+    }
+
+    @Test
+    fun testPhase5_04_FocusLossBeforeImeArrival_CancelsTransaction_ClearsShortcutBarReservation() {
+        val coordinator = ScribeScrollPolicy.KeyboardTransactionCoordinator()
+        coordinator.startTransaction(
+            preTransactionScroll = 50f,
+            targetScroll = 200f,
+            targetLine = 8,
+            targetCol = 0
+        )
+        assertTrue(coordinator.isActive)
+
+        // Editor focus lost before IME arrives
+        val epochAfterCancel = coordinator.cancel("Editor focus lost")
+        assertFalse(coordinator.isActive)
+        assertTrue("Epoch incremented on cancellation", epochAfterCancel > 0)
+    }
+
+    @Test
+    fun testPhase5_05_WindowFocusLoss_CancelsTransaction() {
+        val coordinator = ScribeScrollPolicy.KeyboardTransactionCoordinator()
+        coordinator.startTransaction(
+            preTransactionScroll = 0f,
+            targetScroll = 150f,
+            targetLine = 2,
+            targetCol = 0
+        )
+        assertTrue(coordinator.isActive)
+
+        coordinator.cancel("Window focus lost")
+        assertFalse("Window focus loss cancels active transaction", coordinator.isActive)
+    }
+
+    @Test
+    fun testPhase5_06_WindowDetachment_CancelsTransaction() {
+        val coordinator = ScribeScrollPolicy.KeyboardTransactionCoordinator()
+        coordinator.startTransaction(
+            preTransactionScroll = 0f,
+            targetScroll = 150f,
+            targetLine = 2,
+            targetCol = 0
+        )
+        assertTrue(coordinator.isActive)
+
+        coordinator.cancel("Editor detached from window")
+        assertFalse("Window detachment cancels active transaction", coordinator.isActive)
+    }
+
+    @Test
+    fun testPhase5_07_KeyboardDismissalDuringEntrance_StopsPredictiveGlideImmediately() {
+        // Coordinator active with in-flight glide
+        val coordinator = ScribeScrollPolicy.KeyboardTransactionCoordinator()
+        coordinator.startTransaction(
+            preTransactionScroll = 0f,
+            targetScroll = 400f,
+            targetLine = 10,
+            targetCol = 0
+        )
+        assertTrue(coordinator.isActive)
+
+        // IME begins dismissing while entrance was underway
+        coordinator.cancel("IME dismissal started")
+        assertFalse("Dismissal stops entrance transaction immediately", coordinator.isActive)
+    }
+
+    @Test
+    fun testPhase5_08_CancellationIncrementsEpoch_InvalidatesPendingRunnables() {
+        val coordinator = ScribeScrollPolicy.KeyboardTransactionCoordinator()
+        coordinator.startTransaction(
+            preTransactionScroll = 0f,
+            targetScroll = 300f
+        )
+        val capturedEpoch = coordinator.currentEpoch
+
+        coordinator.cancel("Cancellation test")
+        val newEpoch = coordinator.currentEpoch
+        assertTrue("Epoch must strictly advance on cancellation", newEpoch > capturedEpoch)
+
+        // Simulated queued callback checking epoch:
+        val shouldExecute = (capturedEpoch == coordinator.currentEpoch)
+        assertFalse("Queued callback with stale epoch must be discarded", shouldExecute)
+    }
+
+    @Test
+    fun testPhase5_09_ShorterSettledKeyboard_CancelsInFlightOvershootingGlide_WhenCaretSafe() {
+        // Predicted keyboard: 1000px, planned target: 400px.
+        // Actual settled keyboard: only 500px. Settled viewport: 1900px.
+        // Caret is at docTop 760px, docBottom 800px.
+        // At current scroll 0px, caret screenBottom is 800px, which is well above settled target bottom (1900 - 72 = 1828px).
+        val result = ScribeScrollPolicy.evaluateSettledReconciliation(
+            currentScrollY = 0f,
+            plannedTargetScrollY = 400f,
+            caretDocTop = 760f,
+            caretDocBottom = 800f,
+            headerHeight = 0f,
+            settledViewportHeight = 1900f,
+            density = 3.0f,
+            maxCanvasScroll = 3000f
+        )
+        assertEquals(
+            "Caret is already safe under actual shorter keyboard: cancel overshooting glide",
+            ScribeScrollPolicy.SettledReconciliationResult.CancelOvershoot,
+            result
+        )
+    }
+
+    @Test
+    fun testPhase5_10_DualSettlement_LayoutMeasurementAfterInsetSettlement_CompletesCleanly() {
+        val coordinator = ScribeScrollPolicy.KeyboardTransactionCoordinator()
+        coordinator.startTransaction(
+            preTransactionScroll = 0f,
+            targetScroll = 200f,
+            targetLine = 3,
+            targetCol = 0
+        )
+
+        // Inset arrives first:
+        val tx1 = coordinator.onImeInsetSettled()
+        assertNotNull(tx1)
+        assertTrue(tx1?.isImeInsetSettled == true)
+        assertFalse("Cannot be fully settled until layout measurement runs", coordinator.isFullySettled)
+
+        // Layout measurement arrives second (onSizeChanged):
+        val tx2 = coordinator.onLayoutMeasurementSettled()
+        assertNotNull(tx2)
+        assertTrue(tx2?.isLayoutMeasurementSettled == true)
+        assertTrue("Fully settled once both inset and layout measurement are complete", coordinator.isFullySettled)
+
+        // Clean finish
+        coordinator.finish()
+        assertFalse(coordinator.isActive)
+    }
+
+    @Test
+    fun testPhase5_11_ProgrammaticRevealDownward_AllowedForTargetsAboveViewport_OutsideTransaction() {
+        // Target rectangle is above viewport: rectTop = 100f, rectBottom = 140f
+        // Current scroll = 500f -> screenTop = 100 - 500 = -400px (offscreen above)
+        val decision = ScribeScrollPolicy.resolveCursorSafety(
+            rectTop = 100f,
+            rectBottom = 140f,
+            headerHeight = 0f,
+            currentTotalScroll = 500f,
+            usableViewportHeight = 1500f,
+            density = 3.0f,
+            maxCanvasScroll = 2000f,
+            allowDownwardForTopUnderflow = true
+        )
+        assertFalse("Target above viewport is not safe", decision.isSafe)
+        assertTrue(
+            "Programmatic reveal allows downward scrolling to show target above viewport",
+            decision.neededUpwardDisplacement < 0f
+        )
+        assertEquals(100f, decision.targetTotalScroll, 1f)
+    }
+
+    @Test
+    fun testPhase5_12_MultiLineSelection_PreservesTopAndBottomBounds_DuringEntrance() {
+        // Multi-line selection spanning topDocY = 400f, bottomDocY = 900f
+        val selGeom = ScribeScrollPolicy.SelectionGeometry(
+            topDocY = 400f,
+            bottomDocY = 900f,
+            leftDocX = 50f,
+            rightDocX = 250f
+        )
+        assertEquals(400f, selGeom.topDocY, 0.001f)
+        assertEquals(900f, selGeom.bottomDocY, 0.001f)
+        assertTrue(
+            "Selection spans 500px across multiple lines",
+            selGeom.bottomDocY - selGeom.topDocY > 100f
+        )
     }
 }

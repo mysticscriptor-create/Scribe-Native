@@ -87,8 +87,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
     /**
      * Synchronously resolved tap coordinates prior to Sora's internal showSoftInput and cursor commit.
      */
-    var pendingTapTargetLine: Int? = null
-    var pendingTapTargetCol: Int? = null
+    var pendingTapTargetState: ScribeScrollPolicy.TapTargetState = ScribeScrollPolicy.TapTargetState.None
+    val pendingTapTargetLine: Int? get() = (pendingTapTargetState as? ScribeScrollPolicy.TapTargetState.Resolved)?.line
+    val pendingTapTargetCol: Int? get() = (pendingTapTargetState as? ScribeScrollPolicy.TapTargetState.Resolved)?.column
 
     /**
      * Pure Writer persistent bottom space architecture:
@@ -1481,8 +1482,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
             } catch (_: Throwable) {
                 null
             }
-            pendingTapTargetLine = visualPos?.line
-            pendingTapTargetCol = visualPos?.column
+            pendingTapTargetState = if (visualPos != null) {
+                ScribeScrollPolicy.TapTargetState.Resolved(visualPos.line, visualPos.column)
+            } else {
+                ScribeScrollPolicy.TapTargetState.Unresolved
+            }
         }
         val result = try {
             super.onTouchEvent(event)
@@ -1520,8 +1524,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     )
                 }
             }
-            pendingTapTargetLine = null
-            pendingTapTargetCol = null
+            pendingTapTargetState = ScribeScrollPolicy.TapTargetState.None
             if (isInteractingWithImage) {
                 post { isInteractingWithImage = false }
             }
@@ -1656,11 +1659,21 @@ class ScribeCodeEditor @JvmOverloads constructor(
     override fun onFocusChanged(gainFocus: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) {
         super.onFocusChanged(gainFocus, direction, previouslyFocusedRect)
         clearKeyMetaStates()
+        if (!gainFocus) {
+            pendingTapTargetState = ScribeScrollPolicy.TapTargetState.None
+            val parentCanvas = parent as? UnifiedCanvasLayout
+            parentCanvas?.cancelKeyboardTransaction("Editor focus lost")
+        }
     }
 
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)
         clearKeyMetaStates()
+        if (!hasWindowFocus) {
+            pendingTapTargetState = ScribeScrollPolicy.TapTargetState.None
+            val parentCanvas = parent as? UnifiedCanvasLayout
+            parentCanvas?.cancelKeyboardTransaction("Window focus lost")
+        }
     }
 
     override fun onAttachedToWindow() {
@@ -1673,6 +1686,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
         clearKeyMetaStates()
         isZoomGestureActive = false
         isZoomAwaitingSettlement = false
+        pendingTapTargetState = ScribeScrollPolicy.TapTargetState.None
+        val parentCanvas = parent as? UnifiedCanvasLayout
+        parentCanvas?.cancelKeyboardTransaction("Editor detached from window")
     }
 
     override fun selectAll() {
@@ -1785,7 +1801,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (pCanvas != null && !pCanvas.isKeyboardVisible && !pCanvas.isBottomSurfaceActive) {
             pCanvas.notifyKeyboardEntranceStarting(
                 targetLine = pendingTapTargetLine,
-                targetCol = pendingTapTargetCol
+                targetCol = pendingTapTargetCol,
+                isUnresolvedTap = pendingTapTargetState is ScribeScrollPolicy.TapTargetState.Unresolved
             )
         }
         super.showSoftInput()
@@ -1839,6 +1856,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
             }
             if (parentCanvas.isKeyboardTransactionActive) {
                 // Active keyboard transaction: reconcile target with Sora's committed caret
+                pendingTapTargetState = ScribeScrollPolicy.TapTargetState.Resolved(line, column)
                 parentCanvas.reconcileActiveTransactionTarget(line, column)
                 invalidate()
                 return
