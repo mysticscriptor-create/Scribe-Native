@@ -1419,6 +1419,7 @@ fun MainEditorScreen(
                     unifiedCanvasRef?.liveImeHeightPx = imeAboveNavPx.toFloat()
                     unifiedCanvasRef?.liveDrawerHeightPx = 0f
                     unifiedCanvasRef?.endExpansionTransition()
+                    unifiedCanvasRef?.notifyImeSettledAtTarget()
                 }
             } else {
                 if (targetImePx > 0) {
@@ -1456,6 +1457,7 @@ fun MainEditorScreen(
                         unifiedCanvasRef?.liveImeHeightPx = imeAboveNavPx.toFloat()
                         unifiedCanvasRef?.liveDrawerHeightPx = 0f
                         unifiedCanvasRef?.endExpansionTransition()
+                        unifiedCanvasRef?.notifyImeSettledAtTarget()
                     } else {
                         if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN ||
                             presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_DISMISSAL) {
@@ -1477,6 +1479,7 @@ fun MainEditorScreen(
                             )
                             unifiedCanvasRef?.isKeyboardDismissing = true
                             unifiedCanvasRef?.cancelViewportSafetyAnimation()
+                            unifiedCanvasRef?.cancelKeyboardTransaction()
                         }
                     } else {
                         unifiedCanvasRef?.liveImeHeightPx = 0f

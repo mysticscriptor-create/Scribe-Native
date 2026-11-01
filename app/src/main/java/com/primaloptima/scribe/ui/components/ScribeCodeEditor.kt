@@ -85,6 +85,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
     var pendingCorrectionOrigin: ScribeScrollPolicy.CursorCorrectionOrigin? = null
 
     /**
+     * Synchronously resolved tap coordinates prior to Sora's internal showSoftInput and cursor commit.
+     */
+    var pendingTapTargetLine: Int? = null
+    var pendingTapTargetCol: Int? = null
+
+    /**
      * Pure Writer persistent bottom space architecture:
      * Extra virtual height equal to the shortcut bar + keyboard height.
      * Allows the document to scroll freely with the keyboard appearing on top of it,
@@ -1470,6 +1476,13 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val prevOrigin = pendingCorrectionOrigin
         if (isTapActionUp) {
             pendingCorrectionOrigin = ScribeScrollPolicy.CursorCorrectionOrigin.TAP_PLACEMENT
+            val visualPos = try {
+                getPointVisualPositionOnScreen(event.x, event.y)
+            } catch (_: Throwable) {
+                null
+            }
+            pendingTapTargetLine = visualPos?.line
+            pendingTapTargetCol = visualPos?.column
         }
         val result = try {
             super.onTouchEvent(event)
@@ -1500,11 +1513,15 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 if (pCanvas != null && (pCanvas.isKeyboardVisible || pCanvas.isBottomSurfaceActive)) {
                     // Viewport is already contracted: perform ordinary caret visibility check with TAP_PLACEMENT origin
                     pCanvas.ensureCursorVisibleAboveKeyboard(
+                        targetLine = pendingTapTargetLine,
+                        targetCol = pendingTapTargetCol,
                         smooth = true,
                         origin = ScribeScrollPolicy.CursorCorrectionOrigin.TAP_PLACEMENT
                     )
                 }
             }
+            pendingTapTargetLine = null
+            pendingTapTargetCol = null
             if (isInteractingWithImage) {
                 post { isInteractingWithImage = false }
             }
@@ -1766,7 +1783,10 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (isInteractingWithImage) return
         val pCanvas = parentCanvas
         if (pCanvas != null && !pCanvas.isKeyboardVisible && !pCanvas.isBottomSurfaceActive) {
-            pCanvas.notifyKeyboardEntranceStarting()
+            pCanvas.notifyKeyboardEntranceStarting(
+                targetLine = pendingTapTargetLine,
+                targetCol = pendingTapTargetCol
+            )
         }
         super.showSoftInput()
     }
@@ -1818,7 +1838,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 return
             }
             if (parentCanvas.isKeyboardTransactionActive) {
-                // Active keyboard transaction is already handling viewport transition
+                // Active keyboard transaction: reconcile target with Sora's committed caret
+                parentCanvas.reconcileActiveTransactionTarget(line, column)
                 invalidate()
                 return
             }

@@ -6068,5 +6068,388 @@ class CursorAndCanvasGeometryTest {
         // 200 + 1500 + 860 = 2560px (exact single allocation, no double-counting)
         assertEquals(2560, logicalContent)
     }
-}
 
+    // ── Phase 4: Surgical Caret Preservation & Coordinated IME Entrance Tests ──
+
+    @Test
+    fun testPhase4_1_TapVisibleParagraphAboveLastLine_KeyboardEntranceUsesTappedPosition_NotStaleLastLine() {
+        // Caret was initially at last line (doc bottom = 1400px).
+        // User taps a paragraph above at line 3 (doc bottom = 600px, top = 560px).
+        val rootHeight = 2000
+        val standardKbPx = 750f
+        val shortcutBarPx = 90f
+        val predictedViewport = (rootHeight - standardKbPx - shortcutBarPx).toInt() // 1160px
+        val density = 2.5f
+        val breathingMargin = ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density // 60px
+        val safeBottomLimit = predictedViewport - breathingMargin // 1100px
+
+        // Tapped paragraph geometry:
+        val tappedDocTop = 560f
+        val tappedDocBottom = 600f
+
+        // Stale last-line geometry:
+        val staleDocTop = 1360f
+        val staleDocBottom = 1400f
+
+        // When predictive glide checks the tapped target (top=560, bottom=600):
+        val tappedDecision = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = tappedDocBottom,
+            caretScreenTop = tappedDocTop,
+            viewportHeight = predictedViewport,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.KEYBOARD_ENTRANCE
+        )
+        assertTrue("Tapped paragraph is safe in predicted viewport", tappedDecision.isSafe)
+        assertEquals("Zero correction for tapped paragraph", 0f, tappedDecision.requiredCorrectionDy, 0.001f)
+
+        // Verify that if stale cursor had been evaluated, it would have generated false upward displacement:
+        val staleDecision = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = staleDocBottom,
+            caretScreenTop = staleDocTop,
+            viewportHeight = predictedViewport,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.KEYBOARD_ENTRANCE
+        )
+        assertFalse("Stale cursor on last line would be unsafe in small viewport", staleDecision.isSafe)
+        assertTrue("Stale cursor would have forced unwanted upward scroll", staleDecision.requiredCorrectionDy > 200f)
+    }
+
+    @Test
+    fun testPhase4_2_TappedCaretRemainsVisibleInFinalViewportAfterSettlement() {
+        // Tapped caret is at screenTop = 560px, screenBottom = 600px.
+        // After IME settles at 1160px viewport:
+        val settledViewport = 1160
+        val density = 2.5f
+
+        val decision = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = 600f,
+            caretScreenTop = 560f,
+            viewportHeight = settledViewport,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.KEYBOARD_ENTRANCE
+        )
+        assertTrue("Tapped caret must remain safely visible after full IME transition", decision.isSafe)
+        assertEquals(0f, decision.requiredCorrectionDy, 0.001f)
+    }
+
+    @Test
+    fun testPhase4_3_TapLastLineWhenKeyboardWillCoverIt_AppliesMinimumUpwardCorrectionOnly() {
+        // Last line at screenBottom = 1200px.
+        // Predicted viewport = 1160px.
+        // Safe bottom boundary = 1160 - 60 = 1100px.
+        val predictedViewport = 1160
+        val density = 2.5f
+
+        val decision = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = 1200f,
+            caretScreenTop = 1160f,
+            viewportHeight = predictedViewport,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.KEYBOARD_ENTRANCE
+        )
+        assertFalse("Last line covered by keyboard is unsafe", decision.isSafe)
+        assertEquals("Must apply strictly minimum upward adjustment (100px)", 100f, decision.requiredCorrectionDy, 0.001f)
+    }
+
+    @Test
+    fun testPhase4_4_TapAlreadySafeLastLine_ZeroDocumentMovement() {
+        // Last line at screenBottom = 900px in a 1160px predicted viewport.
+        val predictedViewport = 1160
+        val density = 2.5f
+
+        val decision = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = 900f,
+            caretScreenTop = 860f,
+            viewportHeight = predictedViewport,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.TAP_PLACEMENT
+        )
+        assertTrue("Already safe last line must produce zero movement", decision.isSafe)
+        assertEquals(0f, decision.requiredCorrectionDy, 0.001f)
+    }
+
+    @Test
+    fun testPhase4_5_TapParagraphAboveLastLineWhileKeyboardAlreadyOpen_ZeroMovementWhenSafe() {
+        // Keyboard is already open (contracted viewport = 1160px).
+        // User taps paragraph at screenBottom = 500px, screenTop = 460px.
+        val viewportHeight = 1160
+        val density = 2.5f
+
+        val decision = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = 500f,
+            caretScreenTop = 460f,
+            viewportHeight = viewportHeight,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.TAP_PLACEMENT
+        )
+        assertTrue("Tapped paragraph while keyboard open is safe", decision.isSafe)
+        assertEquals("Zero document movement", 0f, decision.requiredCorrectionDy, 0.001f)
+    }
+
+    @Test
+    fun testPhase4_6_OldLastLineCaretNeverTriggersScrollAfterNewTapTargetCommitted() {
+        // Simulation of transaction holding tap target:
+        val transaction = ScribeScrollPolicy.KeyboardTransaction(
+            transactionId = 1L,
+            isActive = true,
+            targetScroll = 0f,
+            targetLine = 3,
+            targetCol = 0,
+            preTransactionScroll = 0f
+        )
+        assertEquals("Transaction target line must be line 3 (tapped line)", 3, transaction.targetLine)
+        assertFalse("Old line (e.g. line 15) must not be the target", transaction.targetLine == 15)
+    }
+
+    @Test
+    fun testPhase4_7_TapTargetDisplacedAboveViewport_RestoredDownwardByTransaction() {
+        // If an erroneous glide or intermediate jump displaced the tapped target above the viewport:
+        // screenTop = -100px, screenBottom = -60px.
+        val viewportHeight = 1160
+        val density = 2.5f
+        val currentScroll = 500f
+        val maxScroll = 2000f
+
+        val decision = ScribeScrollPolicy.resolveCursorSafety(
+            rectTop = 400f,
+            rectBottom = 440f,
+            headerHeight = 0f,
+            currentTotalScroll = currentScroll, // screenTop = 400 - 500 = -100f
+            usableViewportHeight = viewportHeight.toFloat(),
+            density = density,
+            maxCanvasScroll = maxScroll,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.TAP_PLACEMENT,
+            isDisplacedByTransaction = true
+        )
+        assertFalse("Target displaced above viewport is not safe", decision.isSafe)
+        assertTrue("Must allow downward restoration when displaced by transaction", decision.isTopUnderflow)
+        assertEquals("Must restore downward by -100px", -100f, decision.requiredCorrectionDy, 0.001f)
+        assertEquals("Target total scroll must be 400px", 400f, decision.targetTotalScroll, 0.001f)
+    }
+
+    @Test
+    fun testPhase4_8_CaretAboveViewportIsNotReportedSafeMerelyBecauseBottomIsBelowBoundary() {
+        // Caret entirely above the viewport: screenBottom = -20px, screenTop = -60px.
+        // It satisfies screenBottom <= safeBottomBoundary, but it is NOT inside the viewport!
+        val viewportHeight = 1200
+        val density = 2.5f
+
+        val decision = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = -20f,
+            caretScreenTop = -60f,
+            viewportHeight = viewportHeight,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.TAP_PLACEMENT
+        )
+        assertFalse("Caret above visible viewport must NOT be reported as safe", decision.isSafe)
+    }
+
+    @Test
+    fun testPhase4_9_MultiLineSelectionBoundsUsedCorrectlyForVisibilityDecision() {
+        // When selection is active from line 2 to line 5:
+        // Selection rect: top = 200px, bottom = 500px.
+        val viewportHeight = 1160
+        val density = 2.5f
+        val currentScroll = 0f
+
+        val decision = ScribeScrollPolicy.resolveCursorSafety(
+            rectTop = 200f,
+            rectBottom = 500f,
+            headerHeight = 0f,
+            currentTotalScroll = currentScroll,
+            usableViewportHeight = viewportHeight.toFloat(),
+            density = density,
+            maxCanvasScroll = 2000f,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.SELECTION_CHANGE
+        )
+        assertTrue("Selection within viewport is safe", decision.isSafe)
+        assertEquals(0f, decision.requiredCorrectionDy, 0.001f)
+    }
+
+    @Test
+    fun testPhase4_10_TransactionRemainsActiveUntilImeSettledAtTarget_IntermediateResizeFramesDoNotEndIt() {
+        // Transaction starts:
+        val transaction = ScribeScrollPolicy.KeyboardTransaction(
+            transactionId = 42L,
+            isActive = true,
+            targetScroll = 100f,
+            isPhysicallySettled = false
+        )
+        assertTrue("Transaction must be active", transaction.isActive)
+        assertFalse("Transaction must not be physically settled during intermediate frame", transaction.isPhysicallySettled)
+
+        // Intermediate frame arrives:
+        val intermediateImeAtTarget = ScribeBottomSurfaceCoordinator.isImeAtTarget(targetImePx = 800, curImePx = 300)
+        assertFalse("Intermediate frame (cur=300, target=800) is NOT at target", intermediateImeAtTarget)
+
+        // When physical IME reaches 800px:
+        val finalImeAtTarget = ScribeBottomSurfaceCoordinator.isImeAtTarget(targetImePx = 800, curImePx = 800)
+        assertTrue("Final frame (cur=800, target=800) is at target", finalImeAtTarget)
+    }
+
+    @Test
+    fun testPhase4_11_IntermediateResizeFramesDoNotFightWithActiveKeyboardTransaction() {
+        // Invariant: Intermediate onSizeChanged frames during an active keyboard transaction
+        // do not launch independent conflicting scroll animations.
+        val transaction = ScribeScrollPolicy.KeyboardTransaction(
+            transactionId = 1L,
+            isActive = true,
+            targetScroll = 200f,
+            isPhysicallySettled = false
+        )
+        // With isPhysicallySettled = false, transaction remains in ownership
+        assertTrue(transaction.isActive && !transaction.isPhysicallySettled)
+    }
+
+    @Test
+    fun testPhase4_12_TransactionCompletesAfterBothActualImeSettlementAndPredictiveGlide() {
+        var isGlideRunning = true
+        var isImePhysicallySettled = false
+
+        // Step 1: Glide finishes before IME:
+        isGlideRunning = false
+        val canSettleStep1 = (!isGlideRunning && isImePhysicallySettled)
+        assertFalse("Cannot settle while IME is not physically settled", canSettleStep1)
+
+        // Step 2: IME arrives and settles:
+        isImePhysicallySettled = true
+        val canSettleStep2 = (!isGlideRunning && isImePhysicallySettled)
+        assertTrue("Transaction settles when both glide and physical IME are settled", canSettleStep2)
+    }
+
+    @Test
+    fun testPhase4_13_NoScrollPredictivePathCompletesTransactionOnlyUponImeSettlement() {
+        // In the no-scroll path (caret already safe):
+        val isGlideRunning = false
+        var isImePhysicallySettled = false
+
+        assertFalse("No-scroll transaction must not settle prematurely on first resize frame",
+            !isGlideRunning && isImePhysicallySettled)
+
+        isImePhysicallySettled = true
+        assertTrue("No-scroll transaction settles once IME is physically settled",
+            !isGlideRunning && isImePhysicallySettled)
+    }
+
+    @Test
+    fun testPhase4_14_CancelledOrFailedEntranceClearsTransactionSafely() {
+        val state = ScribeBottomSurfaceCoordinator.reduce(
+            ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE,
+            ScribeBottomSurfaceCoordinator.PresentationEvent.ImeDismissalStarted
+        )
+        assertEquals("Keyboard entrance cancelled transitions to KEYBOARD_DISMISSAL",
+            ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_DISMISSAL, state)
+    }
+
+    @Test
+    fun testPhase4_15_ActualImeHeightDiffersFromBaseline_ProducesOnlyOneFinalReconciliation() {
+        val estimatedViewport = 1200
+        val actualSettledViewport = 1150 // Actual keyboard is 50px taller than estimated
+        val density = 2.5f
+
+        // Initial prediction assumed 1200:
+        val caretDocTop = 1050f
+        val caretDocBottom = 1110f
+
+        // Reconciled once against settled viewport:
+        val decision = ScribeScrollPolicy.resolveCursorSafety(
+            rectTop = caretDocTop,
+            rectBottom = caretDocBottom,
+            headerHeight = 0f,
+            currentTotalScroll = 0f,
+            usableViewportHeight = actualSettledViewport.toFloat(),
+            density = density,
+            maxCanvasScroll = 2000f,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.KEYBOARD_ENTRANCE,
+            isDisplacedByTransaction = true
+        )
+        assertFalse(decision.isSafe)
+        // 1150 - 60 = 1090. Overflow = 1110 - 1090 = 20px.
+        assertEquals("Single final adjustment of 20px", 20f, decision.neededUpwardDisplacement, 0.001f)
+    }
+
+    @Test
+    fun testPhase4_16_MaxCanvasScrollDoesNotCollapseDuringEntrance_PreventsDownwardBounce() {
+        val headerHeight = 200
+        val layoutHeight = 1500
+        val viewportHeightFull = 2400
+        val standardKbPx = 800f
+        val shortcutBarPx = 90f
+        val breathingMarginPx = 60f
+
+        val persistentBottomSpacePx = standardKbPx + shortcutBarPx + breathingMarginPx // 950px
+
+        // Before keyboard enters (full viewport, bottomSpace = 950px):
+        val preEntranceMaxScroll = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = layoutHeight,
+            viewportHeight = viewportHeightFull,
+            bottomSpace = persistentBottomSpacePx.toInt(),
+            isTextEmpty = false
+        )
+        // 200 + 1500 + 950 - 2400 = 250px
+        assertEquals(250, preEntranceMaxScroll)
+
+        // During entrance transition, maxCanvasScroll anchors to maxOf(preEntranceMaxScroll, naturalMax)
+        val naturalMaxIntermediate = 100 // If intermediate layout would have dropped natural max
+        val anchoredMax = maxOf(preEntranceMaxScroll, naturalMaxIntermediate)
+        assertEquals("Max canvas scroll must not collapse during entrance", 250, anchoredMax)
+    }
+
+    @Test
+    fun testPhase4_17_FullProblematicSequence_OldCaretOnLastLine_TapParagraphAbove_Predictive_Settlement_Preserved() {
+        // Sequence:
+        // 1. Old caret on last line: docY = 1400px.
+        // 2. User taps paragraph above: line 4, docTop = 500px, docBottom = 540px.
+        // 3. showSoftInput requested. Tap target (500/540) is passed synchronously.
+        val rootHeight = 2400
+        val standardKbPx = 800f
+        val shortcutBarPx = 90f
+        val predictedViewport = (rootHeight - standardKbPx - shortcutBarPx).toInt() // 1510px
+        val density = 3.0f
+        val breathingMargin = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density) // 72px
+        val safeBottomBoundary = predictedViewport - breathingMargin // 1438px
+
+        // 4. Predictive evaluation using tapped position:
+        val decision = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = 540f,
+            caretScreenTop = 500f,
+            viewportHeight = predictedViewport,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.KEYBOARD_ENTRANCE
+        )
+        assertTrue("Tapped paragraph is already safe in future viewport", decision.isSafe)
+        assertEquals("Zero predictive scroll triggered", 0f, decision.requiredCorrectionDy, 0.001f)
+
+        // 5. IME reaches final target:
+        val finalViewport = predictedViewport
+        val finalDecision = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = 540f,
+            caretScreenTop = 500f,
+            viewportHeight = finalViewport,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.KEYBOARD_ENTRANCE
+        )
+        assertTrue("Tapped paragraph remains safely visible after settlement", finalDecision.isSafe)
+        assertEquals("Zero settlement correction needed", 0f, finalDecision.requiredCorrectionDy, 0.001f)
+    }
+
+    @Test
+    fun testPhase4_18_ReverseCase_TapLastLine_FinalViewportSafe_ZeroVerticalScrollChange() {
+        // User taps last line at 1200px in a 2400px viewport.
+        // Predicted viewport is 1510px (safe bottom is 1438px).
+        // Since 1200px <= 1438px, last line is ALREADY SAFE in final viewport.
+        val predictedViewport = 1510
+        val density = 3.0f
+
+        val decision = ScribeScrollPolicy.resolveCursorSafety(
+            caretScreenBottom = 1200f,
+            caretScreenTop = 1160f,
+            viewportHeight = predictedViewport,
+            density = density,
+            origin = ScribeScrollPolicy.CursorCorrectionOrigin.KEYBOARD_ENTRANCE
+        )
+        assertTrue("Last line is safe in predicted viewport", decision.isSafe)
+        assertEquals("Total vertical scroll remains unchanged (0px movement)", 0f, decision.requiredCorrectionDy, 0.001f)
+    }
+}

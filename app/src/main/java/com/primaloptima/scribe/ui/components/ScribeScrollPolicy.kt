@@ -98,14 +98,15 @@ object ScribeScrollPolicy {
         usableViewportHeight: Float,
         density: Float,
         maxCanvasScroll: Float,
-        origin: CursorCorrectionOrigin
+        origin: CursorCorrectionOrigin,
+        isDisplacedByTransaction: Boolean = false
     ): CursorSafetyDecision {
         val allowDownward = when (origin) {
             CursorCorrectionOrigin.PROGRAMMATIC_NAVIGATION -> true
             CursorCorrectionOrigin.TEXT_EDIT -> true
             CursorCorrectionOrigin.SELECTION_CHANGE -> true
-            CursorCorrectionOrigin.TAP_PLACEMENT -> false
-            CursorCorrectionOrigin.KEYBOARD_ENTRANCE -> false
+            CursorCorrectionOrigin.TAP_PLACEMENT -> isDisplacedByTransaction
+            CursorCorrectionOrigin.KEYBOARD_ENTRANCE -> isDisplacedByTransaction
             CursorCorrectionOrigin.TEMPORARY_SURFACE_CONTRACTION -> false
             CursorCorrectionOrigin.KEYBOARD_DISMISSAL -> false
         }
@@ -184,15 +185,24 @@ object ScribeScrollPolicy {
             )
         }
 
-        if (allowDownwardForTopUnderflow && screenTop < -deadbandPx && currentTotalScroll > 0f) {
-            val underflow = screenTop
-            val target = (currentTotalScroll + underflow).coerceAtLeast(0f)
+        if (screenTop < -deadbandPx) {
+            if (allowDownwardForTopUnderflow && currentTotalScroll > 0f) {
+                val underflow = screenTop
+                val target = (currentTotalScroll + underflow).coerceAtLeast(0f)
+                return CursorSafetyDecision(
+                    isSafe = false,
+                    screenTop = screenTop,
+                    screenBottom = screenBottom,
+                    neededUpwardDisplacement = underflow,
+                    targetTotalScroll = target
+                )
+            }
             return CursorSafetyDecision(
                 isSafe = false,
                 screenTop = screenTop,
                 screenBottom = screenBottom,
-                neededUpwardDisplacement = underflow,
-                targetTotalScroll = target
+                neededUpwardDisplacement = 0f,
+                targetTotalScroll = currentTotalScroll
             )
         }
 
@@ -586,7 +596,12 @@ object ScribeScrollPolicy {
     data class KeyboardTransaction(
         val transactionId: Long,
         val isActive: Boolean,
-        val targetScroll: Float = -1f
+        val targetScroll: Float = -1f,
+        val targetLine: Int? = null,
+        val targetCol: Int? = null,
+        val preTransactionScroll: Float = 0f,
+        val initialScreenY: Float? = null,
+        val isPhysicallySettled: Boolean = false
     ) {
         fun calculateRetargetedDestination(
             caretDocBottom: Float,
@@ -606,11 +621,13 @@ object ScribeScrollPolicy {
             headerHeight: Float,
             usableViewportHeight: Float,
             breathingMarginPx: Float,
-            deadbandPx: Float
+            deadbandPx: Float,
+            caretDocTop: Float = caretDocBottom - 40f
         ): Boolean {
             val targetLineBottom = (usableViewportHeight - breathingMarginPx).coerceAtLeast(0f)
             val caretScreenBottom = headerHeight + caretDocBottom - currentScroll
-            return caretScreenBottom <= (targetLineBottom + deadbandPx)
+            val caretScreenTop = headerHeight + caretDocTop - currentScroll
+            return caretScreenTop >= -deadbandPx && caretScreenBottom <= (targetLineBottom + deadbandPx)
         }
 
         fun shouldRetarget(
