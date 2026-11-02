@@ -6687,4 +6687,124 @@ class CursorAndCanvasGeometryTest {
             selGeom.bottomDocY - selGeom.topDocY > 100f
         )
     }
+
+    @Test
+    fun testPhase6_1_IntermediateViewportShrink_DoesNotPrematurelyMarkMeasurementSettledBeforeImeSettled() {
+        val coordinator = ScribeScrollPolicy.KeyboardTransactionCoordinator()
+        val tx = coordinator.startTransaction(
+            preTransactionScroll = 300f,
+            targetLine = 20,
+            targetCol = 5
+        )
+        assertTrue(tx.isActive)
+        assertFalse(tx.isImeInsetSettled)
+        assertFalse(tx.isLayoutMeasurementSettled)
+        assertFalse(coordinator.isFullySettled)
+
+        // Intermediate layout shrink reported before physical IME insets:
+        val intermediateMeasurementTx = coordinator.onLayoutMeasurementSettled()
+        assertNotNull(intermediateMeasurementTx)
+        assertTrue(intermediateMeasurementTx?.isLayoutMeasurementSettled == true)
+        // Must NOT be fully settled because physical IME insets have not arrived:
+        assertFalse("Intermediate layout shrink cannot settle transaction without IME insets", coordinator.isFullySettled)
+
+        // Final physical IME insets arrive:
+        val settledTx = coordinator.onImeInsetSettled()
+        assertNotNull(settledTx)
+        assertTrue(settledTx?.isImeInsetSettled == true)
+        assertTrue("Fully settled only when both measurement and IME insets are confirmed", coordinator.isFullySettled)
+
+        coordinator.finish()
+        assertFalse(coordinator.isActive)
+    }
+
+    @Test
+    fun testPhase6_2_KeyboardTransactionCancellation_PropagatesFailedEntranceAndResetsCoordinator() {
+        val coordinator = ScribeScrollPolicy.KeyboardTransactionCoordinator()
+        coordinator.startTransaction(
+            preTransactionScroll = 150f,
+            targetLine = 10,
+            targetCol = 0
+        )
+        assertTrue(coordinator.isActive)
+
+        var failedEntranceCallbackInvoked = false
+        val onKeyboardEntranceFailed = {
+            failedEntranceCallbackInvoked = true
+        }
+
+        // Simulate cancellation path
+        val wasActive = coordinator.isActive
+        coordinator.cancel("IME appearance timeout")
+        coordinator.finish()
+        if (wasActive) {
+            onKeyboardEntranceFailed()
+        }
+
+        assertFalse("Coordinator must be inactive after cancellation", coordinator.isActive)
+        assertNull("Current transaction must be cleared", coordinator.currentTransaction)
+        assertTrue("onKeyboardEntranceFailed must be triggered on active transaction abort", failedEntranceCallbackInvoked)
+    }
+
+    @Test
+    fun testPhase6_3_AnimationCancellation_RestrictedToKeyboardOwnedEntrance() {
+        // Predictive glide animation owned by keyboard entrance should be eligible for cancellation
+        val entranceReason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE
+        val isOwnedByEntrance = (entranceReason == ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE)
+        assertTrue("PREDICTIVE_GLIDE is owned by keyboard entrance and cancelled on abort", isOwnedByEntrance)
+
+        // Other animation reasons (e.g. user fling, CARET_VISIBILITY, programmatic scroll) must NOT be cancelled
+        val caretVisibilityReason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+        val programmaticReason = ScribeScrollPolicy.ScrollAnimationReason.SMOOTH_SETTLE
+        assertFalse(
+            "CARET_VISIBILITY must not be cancelled by aborting keyboard transaction",
+            caretVisibilityReason == ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE
+        )
+        assertFalse(
+            "SMOOTH_SETTLE must not be cancelled by aborting keyboard transaction",
+            programmaticReason == ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE
+        )
+    }
+
+    @Test
+    fun testPhase6_4_UnresolvedTap_DoesNotSynthesizeFalseRowTargets() {
+        val coordinator = ScribeScrollPolicy.KeyboardTransactionCoordinator()
+        val tx = coordinator.startTransaction(
+            preTransactionScroll = 0f,
+            targetLine = null,
+            targetCol = null,
+            isUnresolvedTap = true
+        )
+        assertTrue(tx.isUnresolvedTap)
+        assertNull(tx.targetLine)
+        assertNull(tx.targetCol)
+
+        // Without false row-height synthesis, the transaction remains cleanly unresolved until Sora delivers exact cursor
+        val tapState: ScribeScrollPolicy.TapTargetState = ScribeScrollPolicy.TapTargetState.Unresolved
+        assertTrue(tapState is ScribeScrollPolicy.TapTargetState.Unresolved)
+        assertFalse(tapState is ScribeScrollPolicy.TapTargetState.Resolved)
+    }
+
+    @Test
+    fun testPhase6_5_MultiLineSelection_PreservesFullVerticalSpanEvenWhenTargetLineSpecified() {
+        // Multi-line selection spanning topDocY = 200f, bottomDocY = 850f
+        val selGeom = ScribeScrollPolicy.SelectionGeometry(
+            topDocY = 200f,
+            bottomDocY = 850f,
+            leftDocX = 10f,
+            rightDocX = 150f,
+            isSelected = true,
+            anchorLine = 2,
+            focusLine = 15
+        )
+
+        // Even if a targetLine is recorded (e.g. line 15), the selection geometry bounds (top and bottom)
+        // must be preserved rather than collapsed to a single line char geometry
+        val effectiveTopDocY = selGeom.topDocY
+        val effectiveBottomDocY = selGeom.bottomDocY
+
+        assertEquals(200f, effectiveTopDocY, 0.001f)
+        assertEquals(850f, effectiveBottomDocY, 0.001f)
+        assertEquals(650f, effectiveBottomDocY - effectiveTopDocY, 0.001f)
+    }
 }

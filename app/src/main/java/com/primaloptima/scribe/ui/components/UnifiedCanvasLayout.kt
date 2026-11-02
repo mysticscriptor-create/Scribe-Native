@@ -556,13 +556,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         private set
     var isImePhysicallySettled: Boolean = false
         internal set
+    internal var hasShrunkDuringTransaction: Boolean = false
 
     var onKeyboardEntranceFailed: (() -> Unit)? = null
 
     private val imeAppearanceWatchdogRunnable = Runnable {
         if (isKeyboardTransactionActive && !isImePhysicallySettled && liveImeHeightPx <= 0f) {
             cancelKeyboardTransaction("IME appearance timeout")
-            onKeyboardEntranceFailed?.invoke()
         }
     }
 
@@ -589,6 +589,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         keyboardTransactionEpoch++
         val currentScroll = (scrollDFloat + editor.offsetY)
         preEntranceMaxCanvasScroll = naturalMaxCanvasScroll
+        hasShrunkDuringTransaction = false
         val tx = transactionCoordinator.startTransaction(
             transactionId = keyboardTransactionId,
             preTransactionScroll = currentScroll,
@@ -622,32 +623,43 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         transactionCoordinator.finish()
         activeKeyboardTransaction = null
         preEntranceMaxCanvasScroll = 0
+        hasShrunkDuringTransaction = false
     }
 
     fun cancelKeyboardTransaction(reason: String = "Unknown") {
         cancelImeAppearanceWatchdog()
         keyboardTransactionEpoch++
+        val wasActive = isKeyboardTransactionActive
         transactionCoordinator.cancel(reason)
         endKeyboardTransaction()
+        isExpansionTransitionActive = false
+        if (wasActive) {
+            onKeyboardEntranceFailed?.invoke()
+        }
         isPredictiveGlideRunning = false
         targetPredictedScrollTotal = -1f
 
-        // Fully cancel in-flight animation machinery
-        removeCallbacks(glideFrameRunnable)
-        val oldAnimator = activeCanvasAnimator
-        activeCanvasAnimator = null
-        oldAnimator?.cancel()
-        isGlideRunning = false
-        activeGlideReason = null
-        activeGlideOnEnd = null
-        scrollCoordinator.cancelAnimation("Keyboard transaction cancelled: $reason")
+        // Fully cancel in-flight animation machinery ONLY if owned by keyboard entrance
+        if (activeGlideReason == ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE) {
+            removeCallbacks(glideFrameRunnable)
+            val oldAnimator = activeCanvasAnimator
+            activeCanvasAnimator = null
+            oldAnimator?.cancel()
+            isGlideRunning = false
+            activeGlideReason = null
+            activeGlideOnEnd = null
+            scrollCoordinator.cancelAnimation("Keyboard transaction cancelled: $reason")
+        }
     }
 
     fun notifyImeSettledAtTarget() {
         cancelImeAppearanceWatchdog()
         isImePhysicallySettled = true
         if (isKeyboardTransactionActive) {
-            val updated = transactionCoordinator.onImeInsetSettled()
+            var updated = transactionCoordinator.onImeInsetSettled()
+            if (hasShrunkDuringTransaction && updated?.isLayoutMeasurementSettled != true) {
+                updated = transactionCoordinator.onLayoutMeasurementSettled()
+            }
             activeKeyboardTransaction = updated
             if (updated?.isFullySettled == true) {
                 reconcileActiveTransactionSettledViewport()
@@ -751,7 +763,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val col = transaction.targetCol ?: editor.cursor?.leftColumn ?: 0
         val edLayout = editor.layout ?: return
         val cursor = try { editor.cursor } catch (_: Throwable) { null }
-        val selGeom = if (cursor?.isSelected == true && transaction.targetLine == null) getSelectionGeometry(cursor, edLayout) else null
+        val selGeom = if (cursor?.isSelected == true) getSelectionGeometry(cursor, edLayout) else null
         val geom = getCharGeometry(edLayout, line, col, editor.rowHeight.toFloat())
         val caretTop = selGeom?.topDocY ?: geom.topDocY
         val caretBottom = selGeom?.bottomDocY ?: geom.bottomDocY
@@ -1515,7 +1527,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val layout = try { editor.layout } catch (_: Throwable) { null } ?: return
         val geom = getCharGeometry(layout, line, col, editor.rowHeight.toFloat())
 
-        val selGeom = if (cursor?.isSelected == true && targetLine == null) getSelectionGeometry(cursor, layout) else null
+        val selGeom = if (cursor?.isSelected == true) getSelectionGeometry(cursor, layout) else null
         val yOffset = selGeom?.bottomDocY ?: geom.bottomDocY
         val yOffsetTop = selGeom?.topDocY ?: geom.topDocY
 
@@ -1649,7 +1661,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val layout = try { editor.layout } catch (_: Throwable) { null } ?: return
         val rowHeight = editor.rowHeight
         val layoutOffset = try { layout.getCharLayoutOffset(line, col) } catch (_: Throwable) { null }
-        val selGeom = if (cursor.isSelected && targetLine == null) getSelectionGeometry(cursor, layout) else null
+        val selGeom = if (cursor.isSelected) getSelectionGeometry(cursor, layout) else null
         val yOffset = selGeom?.bottomDocY ?: (layoutOffset?.let { getCharGeometry(layout, line, col, rowHeight.toFloat()).bottomDocY } ?: run {
             var anchorY = -1f
             var lineGap = 1
@@ -1869,14 +1881,16 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     expansionHadSelection = curC.isSelected
                 }
 
-                cancelImeAppearanceWatchdog()
                 if (isKeyboardTransactionActive) {
-                    val updated = transactionCoordinator.onLayoutMeasurementSettled()
-                    activeKeyboardTransaction = updated
-                    if (updated?.isFullySettled == true) {
-                        reconcileActiveTransactionSettledViewport()
+                    hasShrunkDuringTransaction = true
+                    if (isImePhysicallySettled) {
+                        val updated = transactionCoordinator.onLayoutMeasurementSettled()
+                        activeKeyboardTransaction = updated
+                        if (updated?.isFullySettled == true) {
+                            reconcileActiveTransactionSettledViewport()
+                        }
+                        checkKeyboardTransactionSettled()
                     }
-                    checkKeyboardTransactionSettled()
                 } else {
                     val isTitleTargetActive = activeEditingTarget == EditingTarget.PRIMARY_TITLE ||
                         activeEditingTarget == EditingTarget.SECONDARY_TITLE
@@ -2051,11 +2065,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 return true
             }
             if (isKeyboardTransactionActive) {
-                if (activeKeyboardTransaction?.isUnresolvedTap == true || activeKeyboardTransaction?.targetLine == null) {
-                    val rowHeight = editor.rowHeight.coerceAtLeast(1)
-                    val approxLine = (rectangle.top / rowHeight).coerceAtLeast(0)
-                    reconcileActiveTransactionTarget(approxLine, 0)
-                }
                 return true
             }
 

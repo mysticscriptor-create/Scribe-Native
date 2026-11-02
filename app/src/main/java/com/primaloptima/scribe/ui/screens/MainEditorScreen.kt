@@ -1721,6 +1721,9 @@ fun MainEditorScreen(
                                         )
                                     }
                                 }
+                                onKeyboardEntranceFailed = {
+                                    presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN
+                                }
                                 onScrollDelta = { dy ->
                                     if (dy > 2f) {
                                         if (lastScrollDirection != 1) {
