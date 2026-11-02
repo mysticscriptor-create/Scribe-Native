@@ -664,8 +664,9 @@ object ScribeBottomSurfaceCoordinator {
      * 1. Physical keyboard is actually visible and settled at target inset.
      * 2. Presentation state is KEYBOARD_SETTLED (not entrance, dismissal, drawer, or handoff).
      * 3. Accessory drawer is NOT active.
-     * 4. Measured height passes the screen-aware standard keyboard validator (rejects temporary emoji/sticker/GIF/clipboard expansions).
-     * 5. Height change is significant (> 2dp difference from current baseline).
+     * 4. Multi-window or split-screen mode is NOT active (prevents split-screen keyboard from poisoning full-screen baseline).
+     * 5. Measured height passes the screen-aware standard keyboard validator (rejects temporary emoji/sticker/GIF/clipboard expansions).
+     * 6. Height change is significant (> 2dp difference from current baseline).
      */
     fun canUpdateSavedStandardBaseline(
         presentationState: PresentationState,
@@ -673,12 +674,73 @@ object ScribeBottomSurfaceCoordinator {
         isImeSettled: Boolean,
         measuredHeightDp: Float,
         currentBaselineDp: Float,
-        screenHeightDp: Float
+        screenHeightDp: Float,
+        isInMultiWindowMode: Boolean = false
     ): Boolean {
+        if (isInMultiWindowMode) return false
         if (hasActiveDrawer) return false
         if (presentationState != PresentationState.KEYBOARD_SETTLED) return false
         if (!isImeSettled) return false
         if (!isValidStandardKeyboardHeight(measuredHeightDp, screenHeightDp)) return false
         return shouldUpdateSavedBaseline(measuredHeightDp, currentBaselineDp, screenHeightDp)
+    }
+
+    data class ResponsiveDrawerHeights(
+        val compactDp: Float,
+        val expandedDp: Float,
+        val fullDp: Float
+    )
+
+    /**
+     * Calculates authoritative, responsive accessory drawer heights for any window or container height.
+     * Enforces the strict invariant:
+     * 0f <= compactDp <= expandedDp <= fullDp <= maxOf(0f, availableHeightDp)
+     * Never throws IllegalArgumentException from inverted ranges.
+     * Fully preserves full-screen standard dimensions on larger displays.
+     */
+    fun calculateResponsiveDrawerHeights(
+        availableHeightDp: Float,
+        preferredBaselineDp: Float = DEFAULT_KEYBOARD_DP
+    ): ResponsiveDrawerHeights {
+        val maxAllowed = maxOf(0f, availableHeightDp)
+        if (maxAllowed <= 0f) {
+            return ResponsiveDrawerHeights(0f, 0f, 0f)
+        }
+
+        // Full mode: preserves standard full-screen range [480..650dp] when space permits,
+        // but gracefully scales down and clamps to available space when constrained.
+        val targetFull = minOf(650f, maxAllowed)
+        val full = if (maxAllowed >= 480f) {
+            (maxAllowed * 0.72f).coerceIn(480f, targetFull)
+        } else {
+            (maxAllowed * 0.88f).coerceIn(0f, targetFull)
+        }
+
+        // Expanded mode: preserves standard range [360..480dp] bounded by full height.
+        val maxExpanded = minOf(full, targetFull)
+        val expanded = if (maxAllowed >= 360f && maxExpanded >= 360f) {
+            (maxAllowed * 0.48f).coerceIn(360f, minOf(480f, maxExpanded))
+        } else {
+            (full * 0.65f).coerceIn(0f, maxExpanded)
+        }
+
+        // Compact mode: prefers stored keyboard baseline (e.g. 280dp) or 160dp min, bounded by expanded height.
+        val maxCompact = minOf(expanded, maxAllowed * 0.60f)
+        val compact = if (maxCompact >= 160f) {
+            preferredBaselineDp.coerceIn(160f, maxCompact)
+        } else {
+            maxCompact
+        }.coerceIn(0f, expanded)
+
+        // Ensure strict monotonic ordering: 0 <= compact <= expanded <= full <= maxAllowed
+        val safeCompact = compact.coerceIn(0f, maxAllowed)
+        val safeExpanded = maxOf(safeCompact, expanded).coerceIn(safeCompact, maxAllowed)
+        val safeFull = maxOf(safeExpanded, full).coerceIn(safeExpanded, maxAllowed)
+
+        return ResponsiveDrawerHeights(
+            compactDp = safeCompact,
+            expandedDp = safeExpanded,
+            fullDp = safeFull
+        )
     }
 }

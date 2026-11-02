@@ -6807,4 +6807,143 @@ class CursorAndCanvasGeometryTest {
         assertEquals(850f, effectiveBottomDocY, 0.001f)
         assertEquals(650f, effectiveBottomDocY - effectiveTopDocY, 0.001f)
     }
+
+    // =========================================================================
+    // Responsive Split-Screen & Resizable Window Tests (Problem A & Problem B)
+    // =========================================================================
+
+    @Test
+    fun testResponsiveDrawerHeights_StrictInvariantsAcrossAllHeights() {
+        val testHeights = listOf(-50f, 0f, 20f, 50f, 80f, 132f, 160f, 180f, 220f, 260f, 300f, 360f, 400f, 480f, 600f, 840f, 1000f)
+        val testBaselines = listOf(180f, 200f, 240f, 280f, 320f)
+
+        for (h in testHeights) {
+            for (baseline in testBaselines) {
+                val heights = ScribeBottomSurfaceCoordinator.calculateResponsiveDrawerHeights(
+                    availableHeightDp = h,
+                    preferredBaselineDp = baseline
+                )
+                val maxAllowed = maxOf(0f, h)
+
+                assertTrue("compactDp must be nonnegative for h=$h", heights.compactDp >= 0f)
+                assertTrue("compactDp must be <= expandedDp for h=$h", heights.compactDp <= heights.expandedDp + 0.001f)
+                assertTrue("expandedDp must be <= fullDp for h=$h", heights.expandedDp <= heights.fullDp + 0.001f)
+                assertTrue("fullDp must be <= maxAllowed ($maxAllowed) for h=$h", heights.fullDp <= maxAllowed + 0.001f)
+            }
+        }
+    }
+
+    @Test
+    fun testResponsiveDrawerHeights_ExactCrashScenarioFix() {
+        // Crash report: available window height = 220dp, where max was 132.0dp and min was 160.0dp.
+        // The old code threw IllegalArgumentException: Cannot coerce value to an empty range: maximum 132.0 is less than minimum 160.0.
+        val heights = ScribeBottomSurfaceCoordinator.calculateResponsiveDrawerHeights(
+            availableHeightDp = 220f,
+            preferredBaselineDp = 280f
+        )
+
+        assertTrue("Compact must not exceed available height", heights.compactDp <= 220f)
+        assertTrue("Expanded must not exceed available height", heights.expandedDp <= 220f)
+        assertTrue("Full must not exceed available height", heights.fullDp <= 220f)
+        assertTrue("Compact must be <= Expanded", heights.compactDp <= heights.expandedDp)
+        assertTrue("Expanded must be <= Full", heights.expandedDp <= heights.fullDp)
+        assertTrue("Heights must be strictly positive for 220dp window", heights.compactDp > 0f)
+    }
+
+    @Test
+    fun testResponsiveDrawerHeights_FullScreenStandardPreservation() {
+        // On a standard 840dp portrait device screen with standard 280dp baseline:
+        val heights = ScribeBottomSurfaceCoordinator.calculateResponsiveDrawerHeights(
+            availableHeightDp = 840f,
+            preferredBaselineDp = 280f
+        )
+
+        assertEquals(280f, heights.compactDp, 0.01f)
+        assertEquals(403.2f, heights.expandedDp, 0.1f)
+        assertEquals(604.8f, heights.fullDp, 0.1f)
+    }
+
+    @Test
+    fun testResponsiveDrawerHeights_UltraCompactWindowConvergence() {
+        // Very small window (e.g. 50dp or 80dp)
+        val heights80 = ScribeBottomSurfaceCoordinator.calculateResponsiveDrawerHeights(
+            availableHeightDp = 80f,
+            preferredBaselineDp = 280f
+        )
+
+        assertTrue(heights80.compactDp >= 0f)
+        assertTrue(heights80.fullDp <= 80f)
+        assertTrue(heights80.compactDp <= heights80.expandedDp)
+        assertTrue(heights80.expandedDp <= heights80.fullDp)
+
+        // Zero window
+        val heights0 = ScribeBottomSurfaceCoordinator.calculateResponsiveDrawerHeights(
+            availableHeightDp = 0f,
+            preferredBaselineDp = 280f
+        )
+        assertEquals(0f, heights0.compactDp, 0.001f)
+        assertEquals(0f, heights0.expandedDp, 0.001f)
+        assertEquals(0f, heights0.fullDp, 0.001f)
+    }
+
+    @Test
+    fun testMultiWindowBaselineProtection() {
+        // In multi-window / split-screen mode, measured keyboard height must NEVER update
+        // the persistent DataStore baseline, even if it looks like a valid keyboard height.
+        val canUpdateInMultiWindow = ScribeBottomSurfaceCoordinator.canUpdateSavedStandardBaseline(
+            presentationState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
+            hasActiveDrawer = false,
+            isImeSettled = true,
+            measuredHeightDp = 250f,
+            currentBaselineDp = 280f,
+            screenHeightDp = 600f,
+            isInMultiWindowMode = true
+        )
+        assertFalse("Must NOT update saved baseline in multi-window mode", canUpdateInMultiWindow)
+
+        val canUpdateInFullScreen = ScribeBottomSurfaceCoordinator.canUpdateSavedStandardBaseline(
+            presentationState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
+            hasActiveDrawer = false,
+            isImeSettled = true,
+            measuredHeightDp = 250f,
+            currentBaselineDp = 280f,
+            screenHeightDp = 600f,
+            isInMultiWindowMode = false
+        )
+        assertTrue("Must allow updating saved baseline in full-screen mode when valid", canUpdateInFullScreen)
+    }
+
+    @Test
+    fun testTargetEditorBottomGeometry_SingleSourceOfTruth() {
+        // Verify target bottom geometry calculation without double counting
+        val navBarBottomDp = 24f
+        val targetImeBottomDp = 280f
+        val shortcutBarClearanceDp = 36f
+
+        val targetGeom = ScribeBottomSurfaceCoordinator.calculateEditorBottomGeometry(
+            navBarBottomDp = navBarBottomDp,
+            imeBottomDp = targetImeBottomDp,
+            presentationState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
+            displayedDrawerHeightDp = 0f,
+            handoffObstructionDp = 0f,
+            shortcutBarClearanceDp = shortcutBarClearanceDp
+        )
+
+        // imeAboveNav = 280 - 24 = 256
+        assertEquals(256f, targetGeom.imeAboveNavDp, 0.001f)
+        // totalPadding = 24 (nav) + 256 (surface) + 36 (shortcut) = 316
+        assertEquals(316f, targetGeom.editorBottomPaddingDp, 0.001f)
+
+        // Top split-screen window scenario where IME bottom is 0:
+        val topWindowGeom = ScribeBottomSurfaceCoordinator.calculateEditorBottomGeometry(
+            navBarBottomDp = 0f,
+            imeBottomDp = 0f,
+            presentationState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
+            displayedDrawerHeightDp = 0f,
+            handoffObstructionDp = 0f,
+            shortcutBarClearanceDp = shortcutBarClearanceDp
+        )
+        assertEquals(0f, topWindowGeom.imeAboveNavDp, 0.001f)
+        assertEquals(36f, topWindowGeom.editorBottomPaddingDp, 0.001f)
+    }
 }

@@ -129,6 +129,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
     /**
+     * Authoritative expected final viewport height in pixels from target IME/navigation geometry.
+     * When supplied, predictive scrolling aligns to this exact target rather than blindly subtracting
+     * a full-screen keyboard estimate from a constrained split-screen or multi-window height.
+     */
+    var targetEditorViewportHeightPx: Float? = null
+
+    /**
      * Backward-compatible property representing standard keyboard + shortcut bar height.
      */
     var estimatedKeyboardHeightPx: Float
@@ -618,6 +625,74 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         )
     }
 
+    /**
+     * Authoritative update of target editor viewport from Compose layout coordination.
+     * Reconciles in-flight predictive glide or active keyboard transactions immediately.
+     */
+    fun updateTargetEditorViewport(targetViewportPx: Float) {
+        val safeTarget = targetViewportPx.coerceAtLeast(0f)
+        targetEditorViewportHeightPx = safeTarget
+        if (isKeyboardTransactionActive || (isPredictiveGlideRunning && targetPredictedScrollTotal > 0f)) {
+            val cursor = try { editor.cursor } catch (_: Throwable) { null } ?: return
+            val layout = try { editor.layout } catch (_: Throwable) { null } ?: return
+            val line = activeKeyboardTransaction?.targetLine ?: cursor.leftLine
+            val col = activeKeyboardTransaction?.targetCol ?: cursor.leftColumn
+            val geom = getCharGeometry(layout, line, col, editor.rowHeight.toFloat())
+            val density = resources.displayMetrics.density
+            val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
+            val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
+            val currentScroll = (scrollD + editor.offsetY).toFloat()
+            val targetLineBottom = (safeTarget - marginPx).toFloat()
+            val plannedTarget = if (targetPredictedScrollTotal > 0f) targetPredictedScrollTotal else currentScroll
+            val finalScreenTop = (headerHeight + geom.topDocY - plannedTarget)
+            val finalScreenBottom = (headerHeight + geom.bottomDocY - plannedTarget)
+
+            if (finalScreenTop >= -deadbandPx && finalScreenBottom <= (targetLineBottom + deadbandPx)) {
+                if (isPredictiveGlideRunning) {
+                    cancelViewportSafetyAnimation()
+                    isPredictiveGlideRunning = false
+                    targetPredictedScrollTotal = currentScroll
+                }
+                return
+            }
+
+            val overflow = if (finalScreenBottom > targetLineBottom + deadbandPx) {
+                finalScreenBottom - targetLineBottom
+            } else if (finalScreenTop < -deadbandPx) {
+                finalScreenTop
+            } else 0f
+
+            val maxScrollFuture = ScribeScrollPolicy.calculateMaxCanvasScroll(
+                headerHeight = headerHeight,
+                layoutHeight = layout.layoutHeight,
+                viewportHeight = safeTarget.toInt(),
+                bottomSpace = marginPx,
+                isTextEmpty = editor.text.isEmpty()
+            ).toFloat()
+
+            val newTarget = (currentScroll + overflow).coerceIn(0f, maxScrollFuture)
+            activeKeyboardTransaction = activeKeyboardTransaction?.copy(targetScroll = newTarget)
+            if (kotlin.math.abs(newTarget - currentScroll) > ScribeScrollPolicy.DRAG_THRESHOLD_DP) {
+                targetPredictedScrollTotal = newTarget
+                startAuthoritativeScrollAnimation(
+                    targetTotalScroll = newTarget,
+                    reason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE,
+                    durationMs = ScribeScrollPolicy.DURATION_PREDICTIVE_GLIDE_MS
+                ) {
+                    isPredictiveGlideRunning = false
+                    targetPredictedScrollTotal = -1f
+                    checkKeyboardTransactionSettled()
+                }
+            } else {
+                if (isPredictiveGlideRunning) {
+                    cancelViewportSafetyAnimation()
+                    isPredictiveGlideRunning = false
+                }
+                targetPredictedScrollTotal = currentScroll
+            }
+        }
+    }
+
     fun endKeyboardTransaction() {
         cancelImeAppearanceWatchdog()
         transactionCoordinator.finish()
@@ -690,8 +765,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
         val futureViewportHeight = if (isKeyboardVisible || isBottomSurfaceActive) {
             height.toFloat()
+        } else if (targetEditorViewportHeightPx != null && targetEditorViewportHeightPx!! > 0f) {
+            targetEditorViewportHeightPx!!
         } else {
-            (height - estimatedKeyboardHeightPx).coerceAtLeast(editor.rowHeight * 3f)
+            val availableH = height.toFloat()
+            val maxObstruction = if (availableH > 0f) minOf(estimatedKeyboardHeightPx, availableH * 0.55f) else estimatedKeyboardHeightPx
+            (availableH - maxObstruction).coerceAtLeast(editor.rowHeight * 3f)
         }
         val targetLineBottom = futureViewportHeight - marginPx
 
@@ -1537,8 +1616,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
         val futureViewportHeight = if (isKeyboardOrDrawerActive && height > 0) {
             height.toFloat()
+        } else if (targetEditorViewportHeightPx != null && targetEditorViewportHeightPx!! > 0f) {
+            targetEditorViewportHeightPx!!
         } else {
-            (height - estimatedKeyboardHeightPx).coerceAtLeast(editor.rowHeight * 3f)
+            val availableH = height.toFloat()
+            val maxObstruction = if (availableH > 0f) minOf(estimatedKeyboardHeightPx, availableH * 0.55f) else estimatedKeyboardHeightPx
+            (availableH - maxObstruction).coerceAtLeast(editor.rowHeight * 3f)
         }
 
         val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
@@ -1689,7 +1772,15 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val density = resources.displayMetrics.density
             val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
             val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
-            val targetViewportH = if (isKeyboardVisible || isBottomSurfaceActive) height.toFloat() else (height - estimatedKeyboardHeightPx).coerceAtLeast(editor.rowHeight * 3f)
+            val targetViewportH = if (isKeyboardVisible || isBottomSurfaceActive) {
+                height.toFloat()
+            } else if (targetEditorViewportHeightPx != null && targetEditorViewportHeightPx!! > 0f) {
+                targetEditorViewportHeightPx!!
+            } else {
+                val availableH = height.toFloat()
+                val maxObstruction = if (availableH > 0f) minOf(estimatedKeyboardHeightPx, availableH * 0.55f) else estimatedKeyboardHeightPx
+                (availableH - maxObstruction).coerceAtLeast(editor.rowHeight * 3f)
+            }
             val targetLineBottom = (targetViewportH - marginPx).toFloat()
             val plannedTarget = if (targetPredictedScrollTotal > 0f) {
                 targetPredictedScrollTotal
@@ -1864,10 +1955,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         topEdgeEffect?.setSize(w, h)
+        if (oldw > 0 && kotlin.math.abs(w - oldw) > 2) {
+            post { if (isAttachedToWindow) updatePersistentBottomClearance() }
+        }
         if (oldh > 0 && kotlin.math.abs(h - oldh) > 2) {
             val dh = oldh - h
-            val rootH = rootView?.height ?: resources.displayMetrics.heightPixels
-            val currentObstruction = (rootH - h).coerceAtLeast(0).toFloat()
+            val currentObstruction = (liveImeHeightPx + liveDrawerHeightPx + (if (isKeyboardVisible || isBottomSurfaceActive) shortcutBarHeightPx else 0f)).coerceAtLeast(0f)
             if (dh > 0) {
                 // Viewport shrinking (keyboard appearing or accessory drawer opening)
                 previousBottomObstructionPx = currentObstruction

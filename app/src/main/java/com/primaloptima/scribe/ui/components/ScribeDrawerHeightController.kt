@@ -27,11 +27,18 @@ import kotlinx.coroutines.launch
  *    - Handoff logic, layout padding, and visible drawer container always observe this identical value.
  */
 class ScribeDrawerHeightController(
-    val compactHeightDp: Float,
-    val expandedHeightDp: Float,
-    val fullHeightDp: Float,
+    compactHeightDp: Float,
+    expandedHeightDp: Float,
+    fullHeightDp: Float,
     private val scope: CoroutineScope
 ) {
+    var compactHeightDp by mutableFloatStateOf(compactHeightDp)
+        private set
+    var expandedHeightDp by mutableFloatStateOf(expandedHeightDp)
+        private set
+    var fullHeightDp by mutableFloatStateOf(fullHeightDp)
+        private set
+
     val animatable = Animatable(compactHeightDp)
 
     var logicalState by mutableStateOf(ScribeBottomSurfaceCoordinator.AccessoryDrawerState.COMPACT)
@@ -46,6 +53,12 @@ class ScribeDrawerHeightController(
     private var liveDragHeightDp by mutableFloatStateOf(compactHeightDp)
     private var activeAnimationJob: Job? = null
 
+    private fun clampToDrawerBounds(value: Float): Float {
+        val minH = minOf(compactHeightDp, fullHeightDp)
+        val maxH = maxOf(compactHeightDp, fullHeightDp)
+        return value.coerceIn(minH, maxH)
+    }
+
     /**
      * Authoritative currently displayed height in dp.
      * When dragging, returns the live drag height coerced in [compactHeightDp, fullHeightDp].
@@ -53,15 +66,46 @@ class ScribeDrawerHeightController(
      */
     val currentDisplayedHeightDp: Float
         get() = if (isDragging) {
-            liveDragHeightDp.coerceIn(compactHeightDp, fullHeightDp)
+            clampToDrawerBounds(liveDragHeightDp)
         } else {
-            animatable.value.coerceIn(compactHeightDp, fullHeightDp)
+            clampToDrawerBounds(animatable.value)
         }
 
     fun targetHeightForState(state: ScribeBottomSurfaceCoordinator.AccessoryDrawerState): Float = when (state) {
         ScribeBottomSurfaceCoordinator.AccessoryDrawerState.COMPACT -> compactHeightDp
         ScribeBottomSurfaceCoordinator.AccessoryDrawerState.EXPANDED -> expandedHeightDp
         ScribeBottomSurfaceCoordinator.AccessoryDrawerState.FULL -> fullHeightDp
+    }
+
+    /**
+     * Authoritative responsive update when application window dimensions change
+     * (e.g. split-screen divider dragging, display rotation, or window resizing).
+     * Preserves logicalState, clamps in-flight drag or displayed values safely,
+     * and retargets active animations without losing state.
+     */
+    fun updateTargetHeights(compact: Float, expanded: Float, full: Float) {
+        val safeCompact = maxOf(0f, compact)
+        val safeExpanded = maxOf(safeCompact, expanded)
+        val safeFull = maxOf(safeExpanded, full)
+
+        compactHeightDp = safeCompact
+        expandedHeightDp = safeExpanded
+        fullHeightDp = safeFull
+
+        if (isDragging) {
+            liveDragHeightDp = clampToDrawerBounds(liveDragHeightDp)
+        } else if (isAnimating) {
+            animateToState(logicalState, forceSnap = false)
+        } else {
+            val targetHeight = targetHeightForState(logicalState)
+            activeAnimationJob?.cancel()
+            activeAnimationJob = scope.launch {
+                try {
+                    animatable.snapTo(targetHeight)
+                } catch (_: Throwable) {}
+                liveDragHeightDp = targetHeight
+            }
+        }
     }
 
     /**
@@ -110,7 +154,7 @@ class ScribeDrawerHeightController(
         activeAnimationJob = null
         isAnimating = false
         isDragging = true
-        liveDragHeightDp = animatable.value.coerceIn(compactHeightDp, fullHeightDp)
+        liveDragHeightDp = clampToDrawerBounds(animatable.value)
     }
 
     /**
@@ -120,7 +164,7 @@ class ScribeDrawerHeightController(
         if (!isDragging) {
             onDragStart()
         }
-        liveDragHeightDp = (liveDragHeightDp - deltaDp).coerceIn(compactHeightDp, fullHeightDp)
+        liveDragHeightDp = clampToDrawerBounds(liveDragHeightDp - deltaDp)
     }
 
     /**
@@ -133,7 +177,7 @@ class ScribeDrawerHeightController(
     ) {
         activeAnimationJob?.cancel()
         isDragging = false
-        val currentH = liveDragHeightDp.coerceIn(compactHeightDp, fullHeightDp)
+        val currentH = clampToDrawerBounds(liveDragHeightDp)
 
         val targetState = when {
             // Rapid upward fling (vyDp < -300)
