@@ -6755,13 +6755,13 @@ class CursorAndCanvasGeometryTest {
 
         // Other animation reasons (e.g. user fling, CARET_VISIBILITY, programmatic scroll) must NOT be cancelled
         val caretVisibilityReason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
-        val programmaticReason = ScribeScrollPolicy.ScrollAnimationReason.SMOOTH_SETTLE
+        val programmaticReason = ScribeScrollPolicy.ScrollAnimationReason.PROGRAMMATIC
         assertFalse(
             "CARET_VISIBILITY must not be cancelled by aborting keyboard transaction",
             caretVisibilityReason == ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE
         )
         assertFalse(
-            "SMOOTH_SETTLE must not be cancelled by aborting keyboard transaction",
+            "PROGRAMMATIC must not be cancelled by aborting keyboard transaction",
             programmaticReason == ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE
         )
     }
