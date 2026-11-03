@@ -2046,7 +2046,7 @@ fun MainEditorScreen(
                                 )
                                 val isScribeOwnedIme = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isScribeImeOwner(
                                     hasWindowFocus = hasWindowFocus,
-                                    isEditorFocused = scribeEditor?.isFocused == true,
+                                    isEditorFocused = layout.editor.isFocused,
                                     presentationState = presentationState,
                                     isKeyboardTransactionActive = layout.isKeyboardTransactionActive
                                 )
