@@ -2370,6 +2370,19 @@ fun MainEditorScreen(
                                 )
                                 val bottomPaddingPx = geometry.editorBottomPaddingDp.dp.roundToPx()
                                 val adjustedHeight = (constraints.maxHeight - topPaddingPx - bottomPaddingPx).coerceAtLeast(0)
+
+                                // Synchronous Frame-0 Dismissal Guard:
+                                // If soft keyboard is collapsing to 0, immediately notify the canvas layout
+                                // before measurement and layout passes execute, establishing preservedDismissalScroll
+                                // and isKeyboardDismissing = true synchronously on frame 0.
+                                val targetImePx = imeAnimTarget.getBottom(this)
+                                val curImePx = imeInsets.getBottom(this)
+                                if (hasWindowFocus && curImePx > 0 && targetImePx <= com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX &&
+                                    (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED ||
+                                     presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE)) {
+                                    unifiedCanvasRef?.notifyBottomSurfaceDismissalStarting()
+                                }
+
                                 val placeable = measurable.measure(
                                     constraints.copy(
                                         minHeight = adjustedHeight,

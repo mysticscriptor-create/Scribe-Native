@@ -358,7 +358,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
         } catch (_: Throwable) { }
         try {
             subscribeEvent(io.github.rosemoe.sora.event.ContentChangeEvent::class.java) { event, _ ->
-                (parent as? UnifiedCanvasLayout)?.invalidateCompensation("Content edited")
+                // Note: Same-line text typing or emoji insertion preserves temporary displacement
+                // in AuthoritativeScrollCoordinator. Caret line movement is safely caught by SelectionChangeEvent.
                 if (!isBatchApplyingIndent) {
                     documentVersion++
                 }

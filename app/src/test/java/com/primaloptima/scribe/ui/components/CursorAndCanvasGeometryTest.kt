@@ -5000,8 +5000,8 @@ class CursorAndCanvasGeometryTest {
             isBottomSurfaceActive = true
         )
         val lastLineResult = ScribeScrollPolicy.resolveContractionRestorationDelta(lastLineZeroReq)
-        assertTrue("Last line with active bottom surface contraction must restore downwards", lastLineResult.shouldScroll)
-        assertTrue("Delta must be negative", lastLineResult.deltaY < 0f)
+        assertFalse("Last line with zero displacement must produce zero downward delta", lastLineResult.shouldScroll)
+        assertEquals("Delta must be 0", 0f, lastLineResult.deltaY, 0.001f)
 
         // But during keyboard dismissal, must return 0 delta
         val lastLineDismissReq = lastLineZeroReq.copy(isKeyboardDismissing = true, isBottomSurfaceActive = false)

@@ -2130,25 +2130,18 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 // Viewport expanding (accessory drawer contracting, emoji keyboard closing, or keyboard dismissing)
                 isExpansionTransitionActive = false
                 resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
-
                 val density = resources.displayMetrics.density
                 val curObstruction = currentObstruction
-                val wasLargerObstructionActive = previousBottomObstructionPx > (curObstruction + 2f)
-                val isConfirmedContraction = wasLargerObstructionActive && (isBottomSurfaceActive || isKeyboardVisible) && hasWindowFocus()
-                val cur = try { editor.cursor } catch (_: Throwable) { null }
-                val lineCount = try { editor.text.lineCount } catch (_: Throwable) { 1 }
-                val isAtLastLine = try {
-                    (cur != null && cur.leftLine >= (lineCount - 1)) || (lineCount <= 1)
-                } catch (_: Throwable) { false }
+                val isTerminalDismissal = isKeyboardDismissing || (!isKeyboardVisible && !isBottomSurfaceActive)
                 val hasRecordedDisplacement = temporaryExpansionDisplacement > 0f
-                val isTransactionPermitted = !isKeyboardDismissing && !isKeyboardTransactionActive
+                val isTransactionPermitted = !isKeyboardDismissing && !isKeyboardTransactionActive && hasWindowFocus()
 
                 // Pure Writer Invariant:
                 // Downward restoration is strictly permitted ONLY for a confirmed contraction
                 // of an active bottom surface where real temporary upward displacement was recorded (temporaryExpansionDisplacement > 0f).
                 // Terminal keyboard dismissal, unexpanded keyboards, or zero-displacement states must NEVER scroll down.
-                if (!isTransactionPermitted || !isConfirmedContraction || !hasRecordedDisplacement) {
-                    if (isKeyboardDismissing || (!isKeyboardVisible && !isBottomSurfaceActive)) {
+                if (isTerminalDismissal || !isTransactionPermitted || !hasRecordedDisplacement) {
+                    if (isTerminalDismissal) {
                         // Pure Writer Stationary Invariant:
                         // When keyboard is dismissed or closing, the document MUST remain
                         // 100% completely stationary at the saved margin.
@@ -2158,13 +2151,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     }
                     cancelRestoration()
                     cancelViewportSafetyAnimation()
-                    invalidateCompensation("Not a confirmed contraction with recorded displacement")
+                    invalidateCompensation("Terminal dismissal or no recorded displacement")
                     previousBottomObstructionPx = curObstruction
                     return
                 }
-
-                // Downward Following Invariant:
-                // Only confirmed contraction of an active bottom surface with recorded temporary displacement
                 pendingRestorationRunnable?.let { removeCallbacks(it) }
                 val performRestoration: () -> Unit = {
                     pendingRestorationRunnable = null
