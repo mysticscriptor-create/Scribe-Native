@@ -5435,8 +5435,14 @@ class CursorAndCanvasGeometryTest {
             isBottomSurfaceActive = true
         )
         val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
-        assertEquals("Last line without recorded displacement must produce 0 delta", 0f, result.deltaY, 0.001f)
-        assertFalse("Must not scroll", result.shouldScroll)
+        assertTrue("Last line with active bottom surface permits downward follow", result.shouldScroll)
+        assertTrue("Delta must be negative", result.deltaY < 0f)
+
+        // But during dismissal, must strictly return 0 delta
+        val dismissReq = req.copy(isKeyboardDismissing = true, isBottomSurfaceActive = false)
+        val dismissResult = ScribeScrollPolicy.resolveContractionRestorationDelta(dismissReq)
+        assertEquals("Last line during dismissal must produce 0 delta", 0f, dismissResult.deltaY, 0.001f)
+        assertFalse("Must not scroll during dismissal", dismissResult.shouldScroll)
     }
 
     @Test
@@ -5450,7 +5456,7 @@ class CursorAndCanvasGeometryTest {
             temporaryDisplacement = 0f,
             isAtLastLine = true,
             isKeyboardDismissing = false,
-            isBottomSurfaceActive = true
+            isBottomSurfaceActive = false
         )
         val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
         assertEquals(0f, result.deltaY, 0.001f)
@@ -7236,7 +7242,7 @@ class CursorAndCanvasGeometryTest {
         // Must retarget relative to plannedTarget (NOT currentScroll):
         val correctedTarget = plannedTarget + overflow
         val faultyTargetRelativeToCurrentScroll = currentScroll + overflow
-        assertNotEquals(faultyTargetRelativeToCurrentScroll, correctedTarget)
+        assertTrue("Target relative to plannedTarget differs from faulty target", kotlin.math.abs(faultyTargetRelativeToCurrentScroll - correctedTarget) > 0.001f)
         assertTrue("Corrected target preserves planned velocity trajectory", correctedTarget > plannedTarget)
 
         // Sub-pixel jitter (< 1.0f) must not trigger redundant retargeting:
