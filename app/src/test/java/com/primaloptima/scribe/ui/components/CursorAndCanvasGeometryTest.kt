@@ -7027,14 +7027,14 @@ class CursorAndCanvasGeometryTest {
         assertFalse(
             "Unrealistic keyboard height rejected",
             ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(
-                measuredHeightDp = 50f,
+                heightDp = 50f,
                 screenHeightDp = 600f
             )
         )
         assertFalse(
             "Excessive keyboard height (>65% screen) rejected",
             ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(
-                measuredHeightDp = 420f,
+                heightDp = 420f,
                 screenHeightDp = 600f
             )
         )

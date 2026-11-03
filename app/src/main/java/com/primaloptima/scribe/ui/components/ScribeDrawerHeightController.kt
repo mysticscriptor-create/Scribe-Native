@@ -30,7 +30,7 @@ class ScribeDrawerHeightController(
     compactHeightDp: Float,
     expandedHeightDp: Float,
     fullHeightDp: Float,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope = CoroutineScope(kotlin.coroutines.EmptyCoroutineContext)
 ) {
     var compactHeightDp by mutableFloatStateOf(compactHeightDp)
         private set
@@ -52,7 +52,8 @@ class ScribeDrawerHeightController(
 
     private var liveDragHeightDp by mutableFloatStateOf(compactHeightDp)
     private var activeAnimationJob: Job? = null
-    private var currentAnimationToken: Long = 0L
+    var currentAnimationToken: Long = 0L
+        internal set
 
     private fun clampToDrawerBounds(value: Float): Float {
         val minH = minOf(compactHeightDp, fullHeightDp)
