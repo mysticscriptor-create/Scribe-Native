@@ -972,13 +972,14 @@ object ScribeScrollPolicy {
         }
 
         // Determine intended downward delta (negative deltaY moves canvas down)
-        // STRICT INVARIANT: Downward restoration restores recorded temporary displacement,
-        // or safely anchors the last line to the breathing margin ONLY during a confirmed
-        // contraction of an active bottom surface (never during terminal dismissal!).
-        val intendedDown = when {
-            request.temporaryDisplacement > 0f -> -request.temporaryDisplacement
-            request.isAtLastLine && request.isBottomSurfaceActive && !request.isKeyboardDismissing -> -slack
-            else -> 0f
+        // STRICT INVARIANT: Downward restoration ONLY restores recorded temporary displacement
+        // from a confirmed expanded bottom surface (e.g. emoji picker or accessory drawer).
+        // Standard keyboards, unexpanded surfaces, and terminal dismissal must NEVER scroll
+        // the document downward, preserving the Pure Writer stationary baseline.
+        val intendedDown = if (request.temporaryDisplacement > 0f && !request.isKeyboardDismissing && request.isBottomSurfaceActive) {
+            -request.temporaryDisplacement
+        } else {
+            0f
         }
 
         if (intendedDown >= 0f) {
@@ -1257,8 +1258,13 @@ object ScribeScrollPolicy {
         }
 
         fun invalidateIfCaretChanged(newLine: Int, newCol: Int, newSelected: Boolean) {
-            if (caretLine != -1 && (caretLine != newLine || caretCol != newCol || isSelected != newSelected)) {
-                invalidateCompensation("Caret changed to $newLine:$newCol")
+            // Invariant: Typing text or inserting emojis advances the cursor column on the same line (newLine == caretLine).
+            // This MUST NOT invalidate temporary displacement. Only moving to a different line (caretLine != newLine)
+            // or making an active text selection change invalidates compensation.
+            if (caretLine != -1 && (caretLine != newLine || isSelected != newSelected)) {
+                invalidateCompensation("Caret line changed to $newLine")
+            } else if (caretLine == newLine) {
+                caretCol = newCol
             }
         }
 

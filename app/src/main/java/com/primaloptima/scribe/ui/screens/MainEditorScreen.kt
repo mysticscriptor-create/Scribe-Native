@@ -1518,6 +1518,11 @@ fun MainEditorScreen(
                         val imeAboveNavPx = (curImePx - navBottomPx).coerceAtLeast(0)
                         unifiedCanvasRef?.liveImeHeightPx = imeAboveNavPx.toFloat()
                         
+                        // Terminal dismissal initiated: immediately notify canvas on frame 0
+                        if (targetImePx <= com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX) {
+                            unifiedCanvasRef?.notifyBottomSurfaceDismissalStarting()
+                        }
+                        
                         if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED ||
                             presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE ||
                             presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN) {

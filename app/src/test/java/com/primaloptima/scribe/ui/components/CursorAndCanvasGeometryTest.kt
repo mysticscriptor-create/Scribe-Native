@@ -823,8 +823,8 @@ class CursorAndCanvasGeometryTest {
         )
         assertEquals("Emoji contract with displacement must smoothly track downward", true, emojiContractDecision)
 
-        // Contraction on last line with active bottom surface: permits downward follow to anchor to breathing margin
-        val lastLineContractDecision = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+        // Contraction on last line without recorded displacement: MUST NOT pull document down! (Pure Writer stationary invariant)
+        val lastLineContractNoDisp = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
             isKeyboardDismissing = false,
             isBottomSurfaceActive = true,
             isKeyboardVisible = true,
@@ -833,7 +833,7 @@ class CursorAndCanvasGeometryTest {
             hasActiveScroll = true,
             temporaryDisplacement = 0f
         )
-        assertEquals("Contraction on last line with active bottom surface permits downward follow", true, lastLineContractDecision)
+        assertEquals("Contraction without recorded displacement must reject downward follow", false, lastLineContractNoDisp)
 
         // Drawer collapsing with recorded temporary displacement: SHOULD follow downward!
         val drawerCollapseDecision = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
@@ -5435,8 +5435,8 @@ class CursorAndCanvasGeometryTest {
             isBottomSurfaceActive = true
         )
         val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
-        assertTrue("Last line with active bottom surface permits downward follow", result.shouldScroll)
-        assertTrue("Delta must be negative", result.deltaY < 0f)
+        assertFalse("Last line with zero displacement must produce zero downward delta", result.shouldScroll)
+        assertEquals("Delta must be 0", 0f, result.deltaY, 0.001f)
 
         // But during dismissal, must strictly return 0 delta
         val dismissReq = req.copy(isKeyboardDismissing = true, isBottomSurfaceActive = false)
@@ -5629,8 +5629,8 @@ class CursorAndCanvasGeometryTest {
 
     @Test
     fun testShouldFollowDownwardPermitsLastLineWithActiveBottomSurface_RejectsOnDismissal() {
-        // Last line with active bottom surface permits downward follow
-        val follow = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+        // Without recorded displacement, contraction must not follow downward
+        val followNoDisp = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
             isKeyboardDismissing = false,
             isBottomSurfaceActive = true,
             isKeyboardVisible = true,
@@ -5639,7 +5639,7 @@ class CursorAndCanvasGeometryTest {
             hasActiveScroll = true,
             temporaryDisplacement = 0f
         )
-        assertTrue("Last line with active bottom surface permits downward follow", follow)
+        assertFalse("Contraction without recorded displacement must reject downward follow", followNoDisp)
 
         // On dismissal, must strictly reject downward follow even for last line
         val followDismiss = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
@@ -7330,5 +7330,42 @@ class CursorAndCanvasGeometryTest {
         val highVelocity = 150f
         val shouldSoftDecelerate = kotlin.math.abs(highVelocity) > 20f
         assertTrue("High in-flight velocity authorizes soft deceleration over hard stop", shouldSoftDecelerate)
+    }
+
+    @Test
+    fun testSameLineTypingWhileExpandedPreservesTemporaryDisplacement() {
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator()
+        coordinator.temporaryDisplacement = 120f
+        coordinator.caretLine = 10
+        coordinator.caretCol = 5
+        
+        // Typing characters or inserting emojis on the same line advances column from 5 to 7
+        coordinator.invalidateIfCaretChanged(newLine = 10, newCol = 7, newSelected = false)
+        assertEquals("Same-line typing must preserve temporary displacement", 120f, coordinator.temporaryDisplacement, 0.001f)
+        assertEquals("Caret column must update to latest typing position", 7, coordinator.caretCol)
+
+        // Moving to a different line invalidates compensation
+        coordinator.invalidateIfCaretChanged(newLine = 11, newCol = 0, newSelected = false)
+        assertEquals("Different line move must invalidate displacement", 0f, coordinator.temporaryDisplacement, 0.001f)
+    }
+
+    @Test
+    fun testTerminalKeyboardDismissalNeverFollowsDownwardAcrossAllParagraphs() {
+        for (isAtLast in listOf(true, false)) {
+            val req = ScribeScrollPolicy.ContractionRestorationRequest(
+                caretScreenBottom = 750f,
+                caretScreenTop = 710f,
+                viewportHeight = 1200,
+                density = 2.5f,
+                totalScroll = 500f,
+                temporaryDisplacement = 100f,
+                isAtLastLine = isAtLast,
+                isKeyboardDismissing = true,
+                isBottomSurfaceActive = false
+            )
+            val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
+            assertEquals("Dismissal must produce 0 delta regardless of paragraph position", 0f, result.deltaY, 0.001f)
+            assertFalse("Dismissal must never scroll", result.shouldScroll)
+        }
     }
 }

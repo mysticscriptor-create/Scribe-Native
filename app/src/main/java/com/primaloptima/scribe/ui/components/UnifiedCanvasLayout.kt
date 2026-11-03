@@ -2141,13 +2141,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     (cur != null && cur.leftLine >= (lineCount - 1)) || (lineCount <= 1)
                 } catch (_: Throwable) { false }
                 val hasRecordedDisplacement = temporaryExpansionDisplacement > 0f
-                val isAtLastLineContraction = isAtLastLine && (isBottomSurfaceActive || isKeyboardVisible) && !isKeyboardDismissing
                 val isTransactionPermitted = !isKeyboardDismissing && !isKeyboardTransactionActive
 
-                // Strict Invariant: Downward restoration is permitted for a confirmed contraction
-                // of an active bottom surface where either real temporary upward displacement was recorded,
-                // or the cursor is at the last line following an active bottom surface contraction.
-                if (!isTransactionPermitted || !isConfirmedContraction || (!hasRecordedDisplacement && !isAtLastLineContraction)) {
+                // Pure Writer Invariant:
+                // Downward restoration is strictly permitted ONLY for a confirmed contraction
+                // of an active bottom surface where real temporary upward displacement was recorded (temporaryExpansionDisplacement > 0f).
+                // Terminal keyboard dismissal, unexpanded keyboards, or zero-displacement states must NEVER scroll down.
+                if (!isTransactionPermitted || !isConfirmedContraction || !hasRecordedDisplacement) {
                     if (isKeyboardDismissing || (!isKeyboardVisible && !isBottomSurfaceActive)) {
                         // Pure Writer Stationary Invariant:
                         // When keyboard is dismissed or closing, the document MUST remain
@@ -2434,7 +2434,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 lastTouchDownTime = System.currentTimeMillis()
                 onUserTouchDown?.invoke()
                 cancelCanvasAnimation()
-                invalidateCompensation()
+                if (!isBottomSurfaceActive && temporaryExpansionDisplacement <= 0f) {
+                    invalidateCompensation()
+                }
                 editor.stopFling()
                 initialDownX = ev.x
                 initialDownY = ev.y
