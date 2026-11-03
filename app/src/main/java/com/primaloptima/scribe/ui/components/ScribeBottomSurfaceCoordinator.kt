@@ -142,6 +142,7 @@ object ScribeBottomSurfaceCoordinator {
             is PresentationEvent.ImeDismissalStarted -> {
                 if (currentState == PresentationState.KEYBOARD_SETTLED ||
                     currentState == PresentationState.KEYBOARD_ENTRANCE ||
+                    currentState == PresentationState.ACCESSORY_DRAWER_OPEN ||
                     currentState == PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
                     PresentationState.KEYBOARD_DISMISSAL
                 } else {

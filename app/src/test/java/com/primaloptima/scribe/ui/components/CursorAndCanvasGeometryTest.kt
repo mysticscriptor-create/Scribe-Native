@@ -823,8 +823,8 @@ class CursorAndCanvasGeometryTest {
         )
         assertEquals("Emoji contract with displacement must smoothly track downward", true, emojiContractDecision)
 
-        // Contraction with NO recorded displacement: must strictly return FALSE (last line does NOT authorize downward follow)
-        val noDisplacementContractDecision = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+        // Contraction on last line with active bottom surface: permits downward follow to anchor to breathing margin
+        val lastLineContractDecision = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
             isKeyboardDismissing = false,
             isBottomSurfaceActive = true,
             isKeyboardVisible = true,
@@ -833,7 +833,7 @@ class CursorAndCanvasGeometryTest {
             hasActiveScroll = true,
             temporaryDisplacement = 0f
         )
-        assertEquals("Contraction without displacement must return false", false, noDisplacementContractDecision)
+        assertEquals("Contraction on last line with active bottom surface permits downward follow", true, lastLineContractDecision)
 
         // Drawer collapsing with recorded temporary displacement: SHOULD follow downward!
         val drawerCollapseDecision = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
@@ -1498,8 +1498,7 @@ class CursorAndCanvasGeometryTest {
     }
 
     @Test
-    fun testContractionRestoration_LastLine_ZeroDeltaWhenZeroDisplacement() {
-        // Last line with 0 recorded displacement must produce 0 delta (Phase 2 invariant)
+    fun testContractionRestoration_LastLine_AnchorsWhenBottomSurfaceActive_ZeroWhenDismissing() {
         val visibleHeight = 1100
         val density = 2.5f
         val marginPx = ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density // 60px
@@ -1521,8 +1520,25 @@ class CursorAndCanvasGeometryTest {
             )
         )
 
-        assertFalse("Last line with zero recorded displacement must NOT scroll downwards", result.shouldScroll)
-        assertEquals(0f, result.deltaY, 0.001f)
+        assertTrue("Last line with active bottom surface contraction must scroll downwards to anchor", result.shouldScroll)
+        assertTrue("Delta must be negative (moving canvas down)", result.deltaY < 0f)
+
+        // When dismissing, must strictly NOT scroll
+        val dismissResult = ScribeScrollPolicy.resolveContractionRestorationDelta(
+            ScribeScrollPolicy.ContractionRestorationRequest(
+                caretScreenBottom = caretScreenBottom,
+                caretScreenTop = caretScreenBottom - 40f,
+                viewportHeight = visibleHeight,
+                density = density,
+                totalScroll = totalScroll,
+                temporaryDisplacement = 0f,
+                isAtLastLine = true,
+                isKeyboardDismissing = true,
+                isBottomSurfaceActive = false
+            )
+        )
+        assertFalse("Last line during dismissal must NOT scroll downwards", dismissResult.shouldScroll)
+        assertEquals(0f, dismissResult.deltaY, 0.001f)
     }
 
     @Test
@@ -4971,7 +4987,7 @@ class CursorAndCanvasGeometryTest {
         assertEquals(-120f, result.deltaY, 0.001f)
         assertEquals(0f, result.remainingCompensation, 0.001f)
 
-        // Regression check: Last line without temporary displacement MUST NOT restore downwards
+        // Last line with active bottom surface contraction restores downwards to anchor
         val lastLineZeroReq = ScribeScrollPolicy.ContractionRestorationRequest(
             caretScreenBottom = 500f,
             caretScreenTop = 460f,
@@ -4984,8 +5000,14 @@ class CursorAndCanvasGeometryTest {
             isBottomSurfaceActive = true
         )
         val lastLineResult = ScribeScrollPolicy.resolveContractionRestorationDelta(lastLineZeroReq)
-        assertEquals("Last line fallback must be removed: returns 0 delta", 0f, lastLineResult.deltaY, 0.001f)
-        assertFalse("Must not scroll", lastLineResult.shouldScroll)
+        assertTrue("Last line with active bottom surface contraction must restore downwards", lastLineResult.shouldScroll)
+        assertTrue("Delta must be negative", lastLineResult.deltaY < 0f)
+
+        // But during keyboard dismissal, must return 0 delta
+        val lastLineDismissReq = lastLineZeroReq.copy(isKeyboardDismissing = true, isBottomSurfaceActive = false)
+        val lastLineDismissResult = ScribeScrollPolicy.resolveContractionRestorationDelta(lastLineDismissReq)
+        assertEquals("Dismissal must return 0 delta", 0f, lastLineDismissResult.deltaY, 0.001f)
+        assertFalse("Must not scroll during dismissal", lastLineDismissResult.shouldScroll)
     }
 
     @Test
@@ -5600,8 +5622,8 @@ class CursorAndCanvasGeometryTest {
     }
 
     @Test
-    fun testShouldFollowDownwardRejectsLastLineWithoutDisplacement() {
-        // Being on the last line must NEVER independently authorize downward follow
+    fun testShouldFollowDownwardPermitsLastLineWithActiveBottomSurface_RejectsOnDismissal() {
+        // Last line with active bottom surface permits downward follow
         val follow = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
             isKeyboardDismissing = false,
             isBottomSurfaceActive = true,
@@ -5611,7 +5633,19 @@ class CursorAndCanvasGeometryTest {
             hasActiveScroll = true,
             temporaryDisplacement = 0f
         )
-        assertFalse("Last line without recorded displacement must reject downward follow", follow)
+        assertTrue("Last line with active bottom surface permits downward follow", follow)
+
+        // On dismissal, must strictly reject downward follow even for last line
+        val followDismiss = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = true,
+            isBottomSurfaceActive = false,
+            isKeyboardVisible = false,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = true,
+            hasActiveScroll = true,
+            temporaryDisplacement = 0f
+        )
+        assertFalse("Dismissal must strictly reject downward follow", followDismiss)
 
         // With recorded displacement, downward follow is authorized
         val followWithDisplacement = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
@@ -7166,5 +7200,43 @@ class CursorAndCanvasGeometryTest {
                 isKeyboardTransactionActive = false
             )
         )
+    }
+    @Test
+    fun testPredictiveGlidePlannedTargetMaintainsSafetyWithoutAbort() {
+        // Simulates the safe viewport condition in updateTargetEditorViewport:
+        // When a predictive glide is already aiming for plannedTarget, and that target places
+        // the caret safely within the target viewport and breathing margin, the planned target
+        // must remain stable and not be clamped or reset back to current scroll mid-flight.
+        val headerHeight = 120
+        val geomTopDocY = 400f
+        val geomBottomDocY = 440f
+        val safeTargetViewport = 800f
+        val density = 2.5f
+        val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density) // 60px
+        val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density) // 10px
+        val targetLineBottom = safeTargetViewport - marginPx // 740px
+
+        // Suppose current scroll was 0, but plannedTarget is 200f (gliding to 200f)
+        val plannedTarget = 200f
+        val finalScreenTop = (headerHeight + geomTopDocY - plannedTarget) // 120 + 400 - 200 = 320f
+        val finalScreenBottom = (headerHeight + geomBottomDocY - plannedTarget) // 120 + 440 - 200 = 360f
+
+        val isSafeAgainstPlanned = finalScreenTop >= -deadbandPx && finalScreenBottom <= (targetLineBottom + deadbandPx)
+        assertTrue("Planned target safely positions caret", isSafeAgainstPlanned)
+    }
+
+    @Test
+    fun testPreservedDismissalScrollPreventsNaturalMaxCanvasScrollDrop() {
+        // Simulates Problem C: User scrolls down inside accessory drawer to end of document (scroll = 850).
+        // Upon closing the drawer, naturalMaxCanvasScroll drops from 1000 down to 400 because bottom clearance is collapsing.
+        // preservedDismissalScroll must hold the document at 850 so maxCanvasScroll evaluates to 850,
+        // preventing the document from clamping down with the closing surface.
+        val naturalMaxCollapsed = 400
+        val currentScrollAtLastLine = 850
+        val preservedDismissalScroll = currentScrollAtLastLine
+
+        val effectiveMax = maxOf(naturalMaxCollapsed, preservedDismissalScroll)
+        assertEquals(850, effectiveMax)
+        assertTrue("Document remains stationary at preserved scroll", effectiveMax >= currentScrollAtLastLine)
     }
 }

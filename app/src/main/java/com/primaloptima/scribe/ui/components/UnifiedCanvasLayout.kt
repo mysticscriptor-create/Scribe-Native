@@ -201,6 +201,15 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     /**
      * Cancels any active viewport-owned safety animation when keyboard dismissal starts.
      */
+    fun notifyBottomSurfaceDismissalStarting() {
+        val currentScroll = scrollD + editor.offsetY
+        preservedDismissalScroll = currentScroll
+        isKeyboardDismissing = true
+        cancelRestoration()
+        cancelViewportSafetyAnimation()
+        invalidateCompensation("Bottom surface dismissal starting")
+    }
+
     fun cancelViewportSafetyAnimation() {
         if (isGlideRunning && (activeGlideReason == ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY ||
                     activeGlideReason == ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION ||
@@ -2311,7 +2320,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (allocation.outerDelta != 0f || allocation.innerDelta != 0f) {
             if (isUserTouching && isDraggingCanvas && !isTouchOnHandleActive && !isAnyHandleActive) {
                 if (abs(allocation.outerDelta) > 1f || abs(allocation.innerDelta) > 1f) {
-                    preservedDismissalScroll = null
+                    if (!isKeyboardDismissing && !isRestoringViewport) {
+                        preservedDismissalScroll = null
+                    }
                 }
             }
             notifyViewportScrollChanged()
