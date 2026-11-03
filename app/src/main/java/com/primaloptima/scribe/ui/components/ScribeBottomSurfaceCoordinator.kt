@@ -705,6 +705,19 @@ object ScribeBottomSurfaceCoordinator {
             presentationState == PresentationState.ACCESSORY_DRAWER_OPEN
     }
 
+    /**
+     * Calculates the predicted authoritative target editor viewport height in pixels.
+     * Enforces single subtraction: containerHeightPx - topPaddingPx - targetBottomPaddingPx.
+     * NEVER double-subtracts padding from an already constrained layout height.
+     */
+    fun calculateTargetEditorViewportPx(
+        containerHeightPx: Int,
+        topPaddingPx: Int,
+        targetBottomPaddingPx: Int
+    ): Int {
+        return (containerHeightPx - topPaddingPx - targetBottomPaddingPx).coerceAtLeast(0)
+    }
+
     data class ResponsiveDrawerHeights(
         val compactDp: Float,
         val expandedDp: Float,

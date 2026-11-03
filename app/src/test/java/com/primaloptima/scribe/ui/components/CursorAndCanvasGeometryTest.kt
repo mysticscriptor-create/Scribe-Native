@@ -7103,4 +7103,68 @@ class CursorAndCanvasGeometryTest {
         assertEquals("Resize within scrollable bounds leaves document stationary", currentScroll, clampedScroll)
         assertTrue("New max scroll increases to accommodate smaller viewport", newMaxScroll > oldMaxScroll)
     }
+
+    @Test
+    fun testPredictedTargetViewportSingleSubtraction() {
+        val containerHeightPx = 2200
+        val topPaddingPx = 100
+        val targetBottomPaddingPx = 900
+
+        val targetViewport = ScribeBottomSurfaceCoordinator.calculateTargetEditorViewportPx(
+            containerHeightPx = containerHeightPx,
+            topPaddingPx = topPaddingPx,
+            targetBottomPaddingPx = targetBottomPaddingPx
+        )
+
+        // Single subtraction must equal: 2200 - 100 - 900 = 1200px
+        assertEquals(1200, targetViewport)
+
+        // Regression guard: Verify that double subtraction (which erroneously subtracted
+        // top and bottom padding from an already adjusted height e.g. 1200 - 100 - 900 = 200) is prevented!
+        val doubleSubtractedFaulty = (targetViewport - topPaddingPx - targetBottomPaddingPx).coerceAtLeast(0)
+        assertEquals(200, doubleSubtractedFaulty)
+        assertTrue("Target viewport must NOT be crushed by double subtraction", targetViewport > doubleSubtractedFaulty)
+    }
+
+    @Test
+    fun testSafeCursorInUpperDocumentProducesZeroDisplacement() {
+        // Document cursor is at screen Y = 450px.
+        // Settled target viewport is 1200px.
+        val caretTop = 425f
+        val caretBottom = 450f
+        val headerHeight = 0f
+        val currentScroll = 0f
+        val usableViewportHeight = 1200f
+        val density = 2.75f
+        val maxCanvasScroll = 3000f
+
+        val decision = ScribeScrollPolicy.resolveCursorSafety(
+            rectTop = caretTop,
+            rectBottom = caretBottom,
+            headerHeight = headerHeight,
+            currentTotalScroll = currentScroll,
+            usableViewportHeight = usableViewportHeight,
+            density = density,
+            maxCanvasScroll = maxCanvasScroll,
+            allowDownwardForTopUnderflow = false
+        )
+
+        assertTrue("Cursor in upper half of predicted viewport is already safe", decision.isSafe)
+        assertEquals("No upward displacement required for safe cursor", 0f, decision.neededUpwardDisplacement, 0.001f)
+        assertEquals("Document scroll remains stationary", currentScroll, decision.targetTotalScroll, 0.001f)
+    }
+
+    @Test
+    fun testForeignImeDoesNotContaminateScribeWhenFocusLost() {
+        // Scribe was idle without keyboard:
+        assertFalse(
+            "Foreign IME without window focus is never Scribe owned",
+            ScribeBottomSurfaceCoordinator.isScribeImeOwner(
+                hasWindowFocus = false,
+                isEditorFocused = false,
+                presentationState = ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN,
+                isKeyboardTransactionActive = false
+            )
+        )
+    }
 }

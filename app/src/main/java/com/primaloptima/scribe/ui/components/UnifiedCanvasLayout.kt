@@ -696,12 +696,17 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
     }
 
+    fun clearTargetEditorViewport() {
+        targetEditorViewportHeightPx = null
+    }
+
     fun endKeyboardTransaction() {
         cancelImeAppearanceWatchdog()
         transactionCoordinator.finish()
         activeKeyboardTransaction = null
         preEntranceMaxCanvasScroll = 0
         hasShrunkDuringTransaction = false
+        targetEditorViewportHeightPx = null
     }
 
     fun cancelKeyboardTransaction(reason: String = "Unknown") {
@@ -1958,8 +1963,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)
         if (!hasWindowFocus) {
-            cancelKeyboardTransaction("Window focus lost")
             cancelViewportSafetyAnimation()
+            if (isKeyboardTransactionActive && !isImePhysicallySettled) {
+                cancelKeyboardTransaction("Window focus lost during unconfirmed transaction")
+            }
         }
     }
 

@@ -1390,12 +1390,12 @@ fun MainEditorScreen(
             // in split-screen/multi-window mode. Scribe must ignore foreign IME insets unless
             // an accessory drawer is actively open (which maintains its own Scribe-internal geometry).
             if (!windowFocused && !hasDrawer) {
-                unifiedCanvasRef?.liveImeHeightPx = 0f
-                if (presentationState != com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN) {
+                if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE) {
                     presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN
                     unifiedCanvasRef?.isKeyboardDismissing = false
                     unifiedCanvasRef?.cancelViewportSafetyAnimation()
                     unifiedCanvasRef?.cancelKeyboardTransaction("Foreign window gained focus")
+                    unifiedCanvasRef?.liveImeHeightPx = 0f
                 }
                 return@collect
             }
@@ -1590,7 +1590,7 @@ fun MainEditorScreen(
                 containerColor      = Color.Transparent,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0)
             ) { padding ->
-                Box(
+                BoxWithConstraints(
                     Modifier
                         .fillMaxSize()
                         .padding(padding)
@@ -1685,21 +1685,14 @@ fun MainEditorScreen(
                         shortcuts.isNotEmpty()
                     )
                     val fixedShortcutBarClearance = if (isShortcutBarReserved && shortcuts.isNotEmpty()) 36f else 0f
-
-                    LaunchedEffect(
-                        configuration.screenHeightDp,
-                        configuration.screenWidthDp,
-                        docTopInset,
-                        docBottomNavInset,
-                        fixedShortcutBarClearance,
-                        lastKeyboardHeightDp
-                    ) {
-                        val curNavBottomDp = navInsets.getBottom(density) / density.density
-                        val availableForDrawerDp = (configuration.screenHeightDp.toFloat() - docTopInset.value - curNavBottomDp - fixedShortcutBarClearance).coerceAtLeast(0f)
-                        val responsiveHeights = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.calculateResponsiveDrawerHeights(
-                            availableHeightDp = availableForDrawerDp,
-                            preferredBaselineDp = lastKeyboardHeightDp.value
-                        )
+                    val curNavBottomDpVal = navInsets.getBottom(density) / density.density
+                    val containerHeightPx = with(density) { maxHeight.roundToPx() }
+                    val availableForDrawerDp = (maxHeight.value - docTopInset.value - curNavBottomDpVal - fixedShortcutBarClearance).coerceAtLeast(0f)
+                    val responsiveHeights = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.calculateResponsiveDrawerHeights(
+                        availableHeightDp = availableForDrawerDp,
+                        preferredBaselineDp = lastKeyboardHeightDp.value
+                    )
+                    SideEffect {
                         if (compactHeightDp.value != responsiveHeights.compactDp ||
                             expandedHeightDp.value != responsiveHeights.expandedDp ||
                             fullHeightDp.value != responsiveHeights.fullDp
@@ -2033,7 +2026,7 @@ fun MainEditorScreen(
                             layout.onKeyboardEntranceFailed = {
                                 presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN
                             }
-                            if (hasWindowFocus && layout.height > 0) {
+                            if (hasWindowFocus && containerHeightPx > 0) {
                                 val targetImeBottomDp = imeAnimTarget.getBottom(density) / density.density
                                 val curNavBottomDp = navInsets.getBottom(density) / density.density
                                 val targetGeometry = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.calculateEditorBottomGeometry(
@@ -2046,8 +2039,24 @@ fun MainEditorScreen(
                                 )
                                 val topPaddingPx = with(density) { docTopInset.roundToPx() }
                                 val targetBottomPaddingPx = with(density) { targetGeometry.editorBottomPaddingDp.dp.roundToPx() }
-                                val targetViewportPx = (layout.height - topPaddingPx - targetBottomPaddingPx).coerceAtLeast(0)
-                                layout.updateTargetEditorViewport(targetViewportPx.toFloat())
+                                val targetViewportPx = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.calculateTargetEditorViewportPx(
+                                    containerHeightPx = containerHeightPx,
+                                    topPaddingPx = topPaddingPx,
+                                    targetBottomPaddingPx = targetBottomPaddingPx
+                                )
+                                val isScribeOwnedIme = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isScribeImeOwner(
+                                    hasWindowFocus = hasWindowFocus,
+                                    isEditorFocused = scribeEditor?.isFocused == true,
+                                    presentationState = presentationState,
+                                    isKeyboardTransactionActive = layout.isKeyboardTransactionActive
+                                )
+                                if (isScribeOwnedIme && (layout.isKeyboardTransactionActive ||
+                                        presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE ||
+                                        presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF)) {
+                                    layout.updateTargetEditorViewport(targetViewportPx.toFloat())
+                                } else if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN && !layout.isKeyboardTransactionActive) {
+                                    layout.clearTargetEditorViewport()
+                                }
                             }
                             layout.standardKeyboardHeightPx = lastKeyboardHeightDp.value * density.density
                             layout.shortcutBarHeightPx = if (shortcuts.isNotEmpty()) 36f * density.density else 0f
@@ -2332,7 +2341,11 @@ fun MainEditorScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .layout { measurable, constraints ->
-                                val curImeBottomDp = if (hasWindowFocus) imeInsets.getBottom(this).toDp().value else 0f
+                                val isScribeClaimingIme = hasWindowFocus ||
+                                    presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED ||
+                                    presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE ||
+                                    presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_DISMISSAL
+                                val curImeBottomDp = if (isScribeClaimingIme) imeInsets.getBottom(this).toDp().value else 0f
                                 val curNavBottomDp = navInsets.getBottom(this).toDp().value
                                 val topPaddingPx = docTopInset.roundToPx()
 

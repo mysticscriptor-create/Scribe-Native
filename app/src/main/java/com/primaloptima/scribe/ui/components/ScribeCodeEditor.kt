@@ -1326,9 +1326,28 @@ class ScribeCodeEditor @JvmOverloads constructor(
         createLayout(shouldClear)
     }
 
+    private var pendingResizeTargetWidth: Int = -1
+    private var isCoalescingResizeLayout: Boolean = false
+    private val resizeCoalesceRunnable = Runnable {
+        isCoalescingResizeLayout = false
+        if (pendingResizeTargetWidth > 0 && pendingResizeTargetWidth == width && layout != null) {
+            pendingResizeTargetWidth = -1
+            createLayout(false)
+        }
+    }
+
     override fun createLayout(clearWordwrapCache: Boolean) {
         val shouldClear = clearWordwrapCache || isAwaitingLayoutReady || layout == null || forceNextLayoutClear
         forceNextLayoutClear = false
+
+        // Coalesce rapid intermediate width changes during split-screen divider dragging:
+        if (!shouldClear && isCoalescingResizeLayout && layout != null) {
+            removeCallbacks(resizeCoalesceRunnable)
+            pendingResizeTargetWidth = width
+            postDelayed(resizeCoalesceRunnable, 60L)
+            return
+        }
+
         isInsideWordwrapLayoutCreation = true
         isLayoutBusyState = true
         try {
@@ -1598,7 +1617,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         // drawing bounds for selection teardrop handles into the margins.
         val density = context.resources.displayMetrics.density
         val rightLimit = width.toFloat() - (horizontalPaddingDp * density)
-        val shouldClipMargin = isLayoutComputing && isWordwrap && rightLimit > 0f
+        val shouldClipMargin = (isLayoutComputing || pendingResizeTargetWidth > 0) && isWordwrap && rightLimit > 0f
 
         if (shouldClipMargin) {
             canvas.save()
@@ -1640,7 +1659,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        if (oldw > 0 && w != oldw && layout != null && !isAwaitingLayoutReady) {
+            isCoalescingResizeLayout = true
+        }
         super.onSizeChanged(w, h, oldw, oldh)
+        isCoalescingResizeLayout = false
 
         if (w > 0 && isAwaitingLayoutReady) {
             post {
@@ -1677,6 +1700,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
 
     override fun onDetachedFromWindow() {
+        removeCallbacks(resizeCoalesceRunnable)
+        pendingResizeTargetWidth = -1
+        isCoalescingResizeLayout = false
         super.onDetachedFromWindow()
         clearKeyMetaStates()
         isZoomGestureActive = false
