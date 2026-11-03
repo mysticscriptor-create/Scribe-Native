@@ -631,6 +631,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      */
     fun updateTargetEditorViewport(targetViewportPx: Float) {
         val safeTarget = targetViewportPx.coerceAtLeast(0f)
+        val prevTarget = targetEditorViewportHeightPx
+        if (prevTarget != null && kotlin.math.abs(safeTarget - prevTarget) < 1f) {
+            return
+        }
         targetEditorViewportHeightPx = safeTarget
         if (!hasWindowFocus()) {
             return
@@ -651,11 +655,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val finalScreenBottom = (headerHeight + geom.bottomDocY - plannedTarget)
 
             if (finalScreenTop >= -deadbandPx && finalScreenBottom <= (targetLineBottom + deadbandPx)) {
-                if (isPredictiveGlideRunning) {
-                    cancelViewportSafetyAnimation()
-                    isPredictiveGlideRunning = false
-                    targetPredictedScrollTotal = currentScroll
-                }
+                // In-flight predictive glide is heading towards a safe target; do NOT cancel in-flight glide!
                 return
             }
 
@@ -673,9 +673,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 isTextEmpty = editor.text.isEmpty()
             ).toFloat()
 
-            val newTarget = (currentScroll + overflow).coerceIn(0f, maxScrollFuture)
+            val newTarget = (plannedTarget + overflow).coerceIn(0f, maxScrollFuture)
             activeKeyboardTransaction = activeKeyboardTransaction?.copy(targetScroll = newTarget)
-            if (kotlin.math.abs(newTarget - currentScroll) > ScribeScrollPolicy.DRAG_THRESHOLD_DP) {
+            if (kotlin.math.abs(newTarget - plannedTarget) > ScribeScrollPolicy.DRAG_THRESHOLD_DP ||
+                (!isPredictiveGlideRunning && kotlin.math.abs(newTarget - currentScroll) > ScribeScrollPolicy.DRAG_THRESHOLD_DP)) {
                 targetPredictedScrollTotal = newTarget
                 startAuthoritativeScrollAnimation(
                     targetTotalScroll = newTarget,
@@ -687,11 +688,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     checkKeyboardTransactionSettled()
                 }
             } else {
-                if (isPredictiveGlideRunning) {
-                    cancelViewportSafetyAnimation()
-                    isPredictiveGlideRunning = false
+                if (!isPredictiveGlideRunning) {
+                    targetPredictedScrollTotal = currentScroll
                 }
-                targetPredictedScrollTotal = currentScroll
             }
         }
     }
