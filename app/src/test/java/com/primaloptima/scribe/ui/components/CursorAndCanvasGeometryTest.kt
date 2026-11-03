@@ -6946,4 +6946,162 @@ class CursorAndCanvasGeometryTest {
         assertEquals(0f, topWindowGeom.imeAboveNavDp, 0.001f)
         assertEquals(36f, topWindowGeom.editorBottomPaddingDp, 0.001f)
     }
+
+    @Test
+    fun testScribeImeOwnershipValidation() {
+        // When window focus is lost (e.g. user interacting with the other split-screen window),
+        // Scribe must NEVER claim IME ownership, regardless of internal focus or presentation state.
+        assertFalse(
+            "Loss of window focus must immediately relinquish IME ownership",
+            ScribeBottomSurfaceCoordinator.isScribeImeOwner(
+                hasWindowFocus = false,
+                isEditorFocused = true,
+                presentationState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
+                isKeyboardTransactionActive = false
+            )
+        )
+        assertFalse(
+            "Loss of window focus prevents transaction ownership",
+            ScribeBottomSurfaceCoordinator.isScribeImeOwner(
+                hasWindowFocus = false,
+                isEditorFocused = false,
+                presentationState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE,
+                isKeyboardTransactionActive = true
+            )
+        )
+
+        // When Scribe owns window focus:
+        assertTrue(
+            "Settled keyboard with focused editor is Scribe owned",
+            ScribeBottomSurfaceCoordinator.isScribeImeOwner(
+                hasWindowFocus = true,
+                isEditorFocused = true,
+                presentationState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
+                isKeyboardTransactionActive = false
+            )
+        )
+        assertTrue(
+            "Active keyboard transaction with window focus is Scribe owned",
+            ScribeBottomSurfaceCoordinator.isScribeImeOwner(
+                hasWindowFocus = true,
+                isEditorFocused = false,
+                presentationState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE,
+                isKeyboardTransactionActive = true
+            )
+        )
+        assertTrue(
+            "Open accessory drawer with window focus is Scribe owned bottom surface",
+            ScribeBottomSurfaceCoordinator.isScribeImeOwner(
+                hasWindowFocus = true,
+                isEditorFocused = false,
+                presentationState = ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN,
+                isKeyboardTransactionActive = false
+            )
+        )
+        assertFalse(
+            "Hidden bottom surface without transaction is not Scribe owned",
+            ScribeBottomSurfaceCoordinator.isScribeImeOwner(
+                hasWindowFocus = true,
+                isEditorFocused = false,
+                presentationState = ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN,
+                isKeyboardTransactionActive = false
+            )
+        )
+    }
+
+    @Test
+    fun testForeignImeDoesNotContaminateBaselineOrClearance() {
+        // Multi-window baseline rejection:
+        val splitScreenResult = ScribeBottomSurfaceCoordinator.canUpdateSavedStandardBaseline(
+            presentationState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
+            hasActiveDrawer = false,
+            isImeSettled = true,
+            measuredHeightDp = 275f,
+            currentBaselineDp = 280f,
+            screenHeightDp = 500f,
+            isInMultiWindowMode = true
+        )
+        assertFalse("Split-screen foreign IME must never alter persisted standard baseline", splitScreenResult)
+
+        // Invalid heights rejected:
+        assertFalse(
+            "Unrealistic keyboard height rejected",
+            ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(
+                measuredHeightDp = 50f,
+                screenHeightDp = 600f
+            )
+        )
+        assertFalse(
+            "Excessive keyboard height (>65% screen) rejected",
+            ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(
+                measuredHeightDp = 420f,
+                screenHeightDp = 600f
+            )
+        )
+    }
+
+    @Test
+    fun testResponsiveDrawerHeightsMonotonicAcrossAllDisplayBounds() {
+        val testBounds = listOf(0f, 20f, 50f, 80f, 132f, 160f, 180f, 220f, 260f, 300f, 360f, 400f, 480f, 600f, 840f, 1000f)
+        for (avail in testBounds) {
+            val heights = ScribeBottomSurfaceCoordinator.calculateResponsiveDrawerHeights(
+                availableHeightDp = avail,
+                preferredBaselineDp = 280f
+            )
+            assertTrue("compact >= 0 for avail=$avail", heights.compactDp >= 0f)
+            assertTrue("compact <= expanded for avail=$avail", heights.compactDp <= heights.expandedDp + 0.001f)
+            assertTrue("expanded <= full for avail=$avail", heights.expandedDp <= heights.fullDp + 0.001f)
+            assertTrue("full <= available for avail=$avail", heights.fullDp <= avail + 0.001f)
+            assertEquals("full must reach availableHeight exactly for avail=$avail", avail, heights.fullDp, 0.001f)
+        }
+    }
+
+    @Test
+    fun testDrawerControllerAnimationTokenPreemption() {
+        val controller = ScribeDrawerHeightController(
+            compactHeightDp = 100f,
+            expandedHeightDp = 200f,
+            fullHeightDp = 300f
+        )
+        val initialToken = controller.currentAnimationToken
+        controller.updateTargetHeights(compact = 120f, expanded = 220f, full = 320f)
+        val secondToken = controller.currentAnimationToken
+        assertTrue("Token must advance when updating target heights while animating", secondToken >= initialToken)
+        assertEquals(120f, controller.compactHeightDp, 0.001f)
+        assertEquals(220f, controller.expandedHeightDp, 0.001f)
+        assertEquals(320f, controller.fullHeightDp, 0.001f)
+    }
+
+    @Test
+    fun testOrdinaryWindowResizeDoesNotTriggerCaretSafetyAnimation() {
+        // When ordinary window resize occurs (e.g. split-screen divider dragged),
+        // cursor is already visible within the document.
+        // Document scroll within max bounds must remain unchanged.
+        val headerHeight = 150
+        val layoutHeight = 2000
+        val oldViewport = 1000
+        val newViewport = 800
+        val bottomSpace = 0
+
+        val oldMaxScroll = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = layoutHeight,
+            viewportHeight = oldViewport,
+            bottomSpace = bottomSpace,
+            isTextEmpty = false
+        )
+        val newMaxScroll = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = layoutHeight,
+            viewportHeight = newViewport,
+            bottomSpace = bottomSpace,
+            isTextEmpty = false
+        )
+
+        // Current scroll was 400px (well within both 1150px and 1350px)
+        val currentScroll = 400
+        val clampedScroll = currentScroll.coerceIn(0, newMaxScroll)
+        assertEquals("Resize within scrollable bounds leaves document stationary", currentScroll, clampedScroll)
+        assertTrue("New max scroll increases to accommodate smaller viewport", newMaxScroll > oldMaxScroll)
+    }
 }

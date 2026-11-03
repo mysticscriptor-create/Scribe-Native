@@ -1641,11 +1641,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        try {
-            renderContext.invalidateRenderNodes()
-        } catch (_: Throwable) {}
-        invalidate()
-        postInvalidateOnAnimation()
 
         if (w > 0 && isAwaitingLayoutReady) {
             post {

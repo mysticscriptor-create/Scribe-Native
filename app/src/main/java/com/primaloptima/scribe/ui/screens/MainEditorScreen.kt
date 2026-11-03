@@ -362,6 +362,25 @@ fun MainEditorScreen(
     val imeBottomDp = imeInsets.asPaddingValues().calculateBottomPadding()
     val docBottomNavInset = navInsets.asPaddingValues().calculateBottomPadding()
 
+    val currentView = androidx.compose.ui.platform.LocalView.current
+    var hasWindowFocus by remember { mutableStateOf(currentView.hasWindowFocus()) }
+    DisposableEffect(currentView) {
+        val listener = android.view.ViewTreeObserver.OnWindowFocusChangeListener { focused ->
+            hasWindowFocus = focused
+            if (!focused) {
+                unifiedCanvasRef?.cancelKeyboardTransaction("Window focus lost")
+                unifiedCanvasRef?.cancelViewportSafetyAnimation()
+            }
+        }
+        val observer = currentView.viewTreeObserver
+        observer.addOnWindowFocusChangeListener(listener)
+        onDispose {
+            if (observer.isAlive) {
+                observer.removeOnWindowFocusChangeListener(listener)
+            }
+        }
+    }
+
     var soraEditorRef by remember { mutableStateOf<com.primaloptima.scribe.ui.components.ScribeCodeEditor?>(null) }
     var presentationState by remember {
         mutableStateOf(
@@ -409,7 +428,35 @@ fun MainEditorScreen(
             scope = scope
         )
     }
-    var expectedTargetViewportPx by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(
+        configuration.screenHeightDp,
+        configuration.screenWidthDp,
+        docTopInset,
+        docBottomNavInset,
+        fixedShortcutBarClearance,
+        lastKeyboardHeightDp
+    ) {
+        val curNavBottomDp = navInsets.getBottom(density) / density.density
+        val availableForDrawerDp = (configuration.screenHeightDp.toFloat() - docTopInset.value - curNavBottomDp - fixedShortcutBarClearance).coerceAtLeast(0f)
+        val responsiveHeights = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.calculateResponsiveDrawerHeights(
+            availableHeightDp = availableForDrawerDp,
+            preferredBaselineDp = lastKeyboardHeightDp.value
+        )
+        if (compactHeightDp.value != responsiveHeights.compactDp ||
+            expandedHeightDp.value != responsiveHeights.expandedDp ||
+            fullHeightDp.value != responsiveHeights.fullDp
+        ) {
+            compactHeightDp = responsiveHeights.compactDp.dp
+            expandedHeightDp = responsiveHeights.expandedDp.dp
+            fullHeightDp = responsiveHeights.fullDp.dp
+            drawerHeightController.updateTargetHeights(
+                compact = responsiveHeights.compactDp,
+                expanded = responsiveHeights.expandedDp,
+                full = responsiveHeights.fullDp
+            )
+        }
+    }
 
     var transitionalSpacerDp by remember { mutableStateOf(0.dp) }
     var handoffStartingObstructionDp by remember { mutableFloatStateOf(0f) }
@@ -1310,7 +1357,7 @@ fun MainEditorScreen(
         noteListVm.connectExternalFolder(uri, name)
     }
 
-    val isKeyboardVisible = WindowInsets.isImeVisible
+    val isKeyboardVisible = hasWindowFocus && WindowInsets.isImeVisible
     val hazeState = LocalHazeState.current ?: dev.chrisbanes.haze.HazeState()
     var lastDrawerToggleTimestamp by remember { mutableLongStateOf(0L) }
 
@@ -1352,6 +1399,7 @@ fun MainEditorScreen(
 
     LaunchedEffect(density) {
         snapshotFlow {
+            val windowFocused = hasWindowFocus
             val curImePx = imeInsets.getBottom(density)
             val targetImePx = imeAnimTarget.getBottom(density)
             val isVisible = curImePx > 0 || targetImePx > 0
@@ -1359,11 +1407,25 @@ fun MainEditorScreen(
             val hasDrawer = activeAccessoryDrawer != null
             val currentDrawerMode = activeAccessoryDrawer?.name
             val displayedDrawerH = drawerHeightController.currentDisplayedHeightDp
-            Triple(isVisible, curImePx, targetImePx) to Triple(navBottomPx, hasDrawer, Pair(currentDrawerMode, displayedDrawerH))
-        }.collect { (imeInfo, drawerInfo) ->
-            val (isVisible, curImePx, targetImePx) = imeInfo
-            val (navBottomPx, hasDrawer, drawerData) = drawerInfo
-            val (drawerMode, displayedDrawerH) = drawerData
+            Triple(windowFocused, isVisible, curImePx) to Triple(targetImePx, navBottomPx, Triple(hasDrawer, currentDrawerMode, displayedDrawerH))
+        }.collect { (focusAndCur, targetAndDrawer) ->
+            val (windowFocused, isVisible, curImePx) = focusAndCur
+            val (targetImePx, navBottomPx, drawerTuple) = targetAndDrawer
+            val (hasDrawer, drawerMode, displayedDrawerH) = drawerTuple
+
+            // When Scribe does not have window focus, IME inset changes belong to another app
+            // in split-screen/multi-window mode. Scribe must ignore foreign IME insets unless
+            // an accessory drawer is actively open (which maintains its own Scribe-internal geometry).
+            if (!windowFocused && !hasDrawer) {
+                unifiedCanvasRef?.liveImeHeightPx = 0f
+                if (presentationState != com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN) {
+                    presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN
+                    unifiedCanvasRef?.isKeyboardDismissing = false
+                    unifiedCanvasRef?.cancelViewportSafetyAnimation()
+                    unifiedCanvasRef?.cancelKeyboardTransaction("Foreign window gained focus")
+                }
+                return@collect
+            }
 
             val curImeAboveNavDp = ((curImePx - navBottomPx).coerceAtLeast(0) / density.density)
             val targetImeAboveNavDp = ((targetImePx - navBottomPx).coerceAtLeast(0) / density.density)
@@ -1443,7 +1505,9 @@ fun MainEditorScreen(
                         val barHeightPx = if (shortcuts.isNotEmpty()) 36f * density.density else 0f
                         val screenHeight = configuration.screenHeightDp.toFloat()
                         if (com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(imeAboveNavDpVal, screenHeight)) {
-                            val isInMultiWindow = (context as? android.app.Activity)?.isInMultiWindowMode ?: false
+                            val isInMultiWindow = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                                (context as? android.app.Activity)?.isInMultiWindowMode ?: false
+                            } else false
                             if (com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.canUpdateSavedStandardBaseline(
                                     presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
                                     hasActiveDrawer = activeAccessoryDrawer != null,
@@ -1967,15 +2031,30 @@ fun MainEditorScreen(
                             layout.onKeyboardEntranceFailed = {
                                 presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN
                             }
-                            layout.updateTargetEditorViewport(expectedTargetViewportPx.toFloat())
+                            if (hasWindowFocus && layout.height > 0) {
+                                val targetImeBottomDp = imeAnimTarget.getBottom(density) / density.density
+                                val curNavBottomDp = navInsets.getBottom(density) / density.density
+                                val targetGeometry = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.calculateEditorBottomGeometry(
+                                    navBarBottomDp = curNavBottomDp,
+                                    imeBottomDp = targetImeBottomDp,
+                                    presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
+                                    displayedDrawerHeightDp = 0f,
+                                    handoffObstructionDp = 0f,
+                                    shortcutBarClearanceDp = fixedShortcutBarClearance
+                                )
+                                val topPaddingPx = with(density) { docTopInset.roundToPx() }
+                                val targetBottomPaddingPx = with(density) { targetGeometry.editorBottomPaddingDp.dp.roundToPx() }
+                                val targetViewportPx = (layout.height - topPaddingPx - targetBottomPaddingPx).coerceAtLeast(0)
+                                layout.updateTargetEditorViewport(targetViewportPx.toFloat())
+                            }
                             layout.standardKeyboardHeightPx = lastKeyboardHeightDp.value * density.density
                             layout.shortcutBarHeightPx = if (shortcuts.isNotEmpty()) 36f * density.density else 0f
                             val liveImeAboveNavPx = (imeInsets.getBottom(density) - navInsets.getBottom(density)).coerceAtLeast(0)
-                            layout.liveImeHeightPx = liveImeAboveNavPx.toFloat()
+                            layout.liveImeHeightPx = if (hasWindowFocus) liveImeAboveNavPx.toFloat() else 0f
                             layout.liveDrawerHeightPx = if (activeAccessoryDrawer != null) drawerHeightController.currentDisplayedHeightDp * density.density else 0f
-                            layout.isKeyboardVisible = isKeyboardVisible
+                            layout.isKeyboardVisible = isKeyboardVisible && hasWindowFocus
                             layout.isBottomSurfaceActive = (activeAccessoryDrawer != null || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF)
-                            layout.isKeyboardDismissing = isKeyboardDismissing
+                            layout.isKeyboardDismissing = isKeyboardDismissing && hasWindowFocus
                             layout.activeEditingTarget = lastActiveTarget
                             val editor = layout.editor
                             val scribeEditor = editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor
@@ -2251,42 +2330,9 @@ fun MainEditorScreen(
                         modifier = Modifier
                             .fillMaxSize()
                             .layout { measurable, constraints ->
-                                val curImeBottomDp = imeInsets.getBottom(this).toDp().value
+                                val curImeBottomDp = if (hasWindowFocus) imeInsets.getBottom(this).toDp().value else 0f
                                 val curNavBottomDp = navInsets.getBottom(this).toDp().value
-                                val hostHeightDpVal = constraints.maxHeight / this.density
-                                val availableForDrawerDp = (hostHeightDpVal - docTopInset.value - curNavBottomDp - fixedShortcutBarClearance).coerceAtLeast(0f)
-                                val responsiveHeights = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.calculateResponsiveDrawerHeights(
-                                    availableHeightDp = availableForDrawerDp,
-                                    preferredBaselineDp = lastKeyboardHeightDp.value
-                                )
-                                if (compactHeightDp.value != responsiveHeights.compactDp ||
-                                    expandedHeightDp.value != responsiveHeights.expandedDp ||
-                                    fullHeightDp.value != responsiveHeights.fullDp
-                                ) {
-                                    compactHeightDp = responsiveHeights.compactDp.dp
-                                    expandedHeightDp = responsiveHeights.expandedDp.dp
-                                    fullHeightDp = responsiveHeights.fullDp.dp
-                                    drawerHeightController.updateTargetHeights(
-                                        compact = responsiveHeights.compactDp,
-                                        expanded = responsiveHeights.expandedDp,
-                                        full = responsiveHeights.fullDp
-                                    )
-                                }
-
-                                val targetImeBottomDp = imeAnimTarget.getBottom(this).toDp().value
-                                val targetGeometry = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.calculateEditorBottomGeometry(
-                                    navBarBottomDp = curNavBottomDp,
-                                    imeBottomDp = targetImeBottomDp,
-                                    presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
-                                    displayedDrawerHeightDp = 0f,
-                                    handoffObstructionDp = 0f,
-                                    shortcutBarClearanceDp = fixedShortcutBarClearance
-                                )
                                 val topPaddingPx = docTopInset.roundToPx()
-                                val targetBottomPaddingPx = targetGeometry.editorBottomPaddingDp.dp.roundToPx()
-                                val targetViewportPx = (constraints.maxHeight - topPaddingPx - targetBottomPaddingPx).coerceAtLeast(0)
-                                expectedTargetViewportPx = targetViewportPx
-                                unifiedCanvasRef?.updateTargetEditorViewport(targetViewportPx.toFloat())
 
                                 val geometry = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.calculateEditorBottomGeometry(
                                     navBarBottomDp = curNavBottomDp,

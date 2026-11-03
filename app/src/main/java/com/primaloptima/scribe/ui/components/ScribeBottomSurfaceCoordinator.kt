@@ -685,6 +685,25 @@ object ScribeBottomSurfaceCoordinator {
         return shouldUpdateSavedBaseline(measuredHeightDp, currentBaselineDp, screenHeightDp)
     }
 
+    /**
+     * Determines whether Scribe owns the active soft-keyboard input session.
+     * All of the following must hold:
+     * 1. Scribe's window currently has window focus.
+     * 2. The editor is focused or Scribe is in an active keyboard entrance, settled, or handoff lifecycle.
+     */
+    fun isScribeImeOwner(
+        hasWindowFocus: Boolean,
+        isEditorFocused: Boolean,
+        presentationState: PresentationState,
+        isKeyboardTransactionActive: Boolean
+    ): Boolean {
+        if (!hasWindowFocus) return false
+        return isEditorFocused || isKeyboardTransactionActive ||
+            presentationState == PresentationState.KEYBOARD_ENTRANCE ||
+            presentationState == PresentationState.KEYBOARD_SETTLED ||
+            presentationState == PresentationState.DRAWER_TO_KEYBOARD_HANDOFF
+    }
+
     data class ResponsiveDrawerHeights(
         val compactDp: Float,
         val expandedDp: Float,

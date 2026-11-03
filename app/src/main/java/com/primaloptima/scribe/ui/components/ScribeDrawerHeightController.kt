@@ -52,6 +52,7 @@ class ScribeDrawerHeightController(
 
     private var liveDragHeightDp by mutableFloatStateOf(compactHeightDp)
     private var activeAnimationJob: Job? = null
+    private var currentAnimationToken: Long = 0L
 
     private fun clampToDrawerBounds(value: Float): Float {
         val minH = minOf(compactHeightDp, fullHeightDp)
@@ -98,12 +99,15 @@ class ScribeDrawerHeightController(
             animateToState(logicalState, forceSnap = false)
         } else {
             val targetHeight = targetHeightForState(logicalState)
+            val token = ++currentAnimationToken
             activeAnimationJob?.cancel()
             activeAnimationJob = scope.launch {
                 try {
                     animatable.snapTo(targetHeight)
                 } catch (_: Throwable) {}
-                liveDragHeightDp = targetHeight
+                if (token == currentAnimationToken) {
+                    liveDragHeightDp = targetHeight
+                }
             }
         }
     }
@@ -115,6 +119,7 @@ class ScribeDrawerHeightController(
         targetState: ScribeBottomSurfaceCoordinator.AccessoryDrawerState,
         forceSnap: Boolean = false
     ) {
+        val token = ++currentAnimationToken
         activeAnimationJob?.cancel()
         isDragging = false
         logicalState = targetState
@@ -123,8 +128,12 @@ class ScribeDrawerHeightController(
         if (forceSnap) {
             isAnimating = false
             activeAnimationJob = scope.launch {
-                animatable.snapTo(targetHeight)
-                liveDragHeightDp = targetHeight
+                try {
+                    animatable.snapTo(targetHeight)
+                } catch (_: Throwable) {}
+                if (token == currentAnimationToken) {
+                    liveDragHeightDp = targetHeight
+                }
             }
             return
         }
@@ -140,8 +149,10 @@ class ScribeDrawerHeightController(
                     )
                 )
             } finally {
-                isAnimating = false
-                liveDragHeightDp = animatable.value
+                if (token == currentAnimationToken) {
+                    isAnimating = false
+                    liveDragHeightDp = animatable.value
+                }
             }
         }
     }
@@ -150,6 +161,7 @@ class ScribeDrawerHeightController(
      * User begins dragging drawer handle: cancels active animation immediately and captures start height.
      */
     fun onDragStart() {
+        ++currentAnimationToken
         activeAnimationJob?.cancel()
         activeAnimationJob = null
         isAnimating = false
@@ -175,6 +187,7 @@ class ScribeDrawerHeightController(
         vyDp: Float,
         onStateChanged: ((ScribeBottomSurfaceCoordinator.AccessoryDrawerState) -> Unit)? = null
     ) {
+        val token = ++currentAnimationToken
         activeAnimationJob?.cancel()
         isDragging = false
         val currentH = clampToDrawerBounds(liveDragHeightDp)
@@ -220,8 +233,10 @@ class ScribeDrawerHeightController(
                     )
                 )
             } finally {
-                isAnimating = false
-                liveDragHeightDp = animatable.value
+                if (token == currentAnimationToken) {
+                    isAnimating = false
+                    liveDragHeightDp = animatable.value
+                }
             }
         }
     }
