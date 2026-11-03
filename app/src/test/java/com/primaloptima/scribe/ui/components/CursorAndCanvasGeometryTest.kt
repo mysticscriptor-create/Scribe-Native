@@ -1520,8 +1520,8 @@ class CursorAndCanvasGeometryTest {
             )
         )
 
-        assertTrue("Last line with active bottom surface contraction must scroll downwards to anchor", result.shouldScroll)
-        assertTrue("Delta must be negative (moving canvas down)", result.deltaY < 0f)
+        assertFalse("Last line without recorded displacement must produce zero downward delta", result.shouldScroll)
+        assertEquals("Delta must be 0", 0f, result.deltaY, 0.001f)
 
         // When dismissing, must strictly NOT scroll
         val dismissResult = ScribeScrollPolicy.resolveContractionRestorationDelta(
@@ -2243,9 +2243,9 @@ class CursorAndCanvasGeometryTest {
             isSelected = false
         )
 
-        // Caret moved to different column on same line
-        coordinator.invalidateIfCaretChanged(newLine = 15, newCol = 10, newSelected = false)
-        assertEquals("Displacement must be invalidated on column change", 0f, coordinator.temporaryDisplacement, 0.001f)
+        // Caret moved to different line
+        coordinator.invalidateIfCaretChanged(newLine = 16, newCol = 0, newSelected = false)
+        assertEquals("Displacement must be invalidated on line change", 0f, coordinator.temporaryDisplacement, 0.001f)
         assertEquals(-1, coordinator.caretLine)
     }
 
