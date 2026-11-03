@@ -433,17 +433,22 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             }
 
             val nowNs = System.nanoTime()
-            val dtSec = ((nowNs - glideLastTimeNs) / 1_000_000_000f).coerceIn(0.001f, 0.032f)
+            val realDtSec = ((nowNs - glideLastTimeNs) / 1_000_000_000f).coerceIn(0.001f, 0.064f)
             glideLastTimeNs = nowNs
 
             // Critically damped second-order spring:
             // Natural frequency omega = 13.5 rad/s gives ~300ms ultra-smooth gentle glide
             // Damping ratio zeta = 1.0 (critically damped: zero overshoot, perfectly smooth asymptotic settling)
+            // Sub-stepping for delta > 16ms to maintain physical accuracy on high-refresh/variable-rate displays
             val omega = 13.5f
-            val displacement = glidePosition - glideTarget
-            val accel = -omega * omega * displacement - 2f * omega * glideVelocity
-            glideVelocity += accel * dtSec
-            glidePosition += glideVelocity * dtSec
+            val steps = if (realDtSec > 0.016f) 2 else 1
+            val dtSec = realDtSec / steps
+            for (step in 0 until steps) {
+                val displacement = glidePosition - glideTarget
+                val accel = -omega * omega * displacement - 2f * omega * glideVelocity
+                glideVelocity += accel * dtSec
+                glidePosition += glideVelocity * dtSec
+            }
 
             // Hard boundary invariant: deletion glide must never cross the 24dp breathing margin
             if (activeGlideReason == ScribeScrollPolicy.ScrollAnimationReason.DELETION_ANCHOR) {
@@ -607,6 +612,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     ): Long {
         keyboardTransactionId++
         keyboardTransactionEpoch++
+        preservedDismissalScroll = null
         val currentScroll = (scrollDFloat + editor.offsetY)
         preEntranceMaxCanvasScroll = naturalMaxCanvasScroll
         hasShrunkDuringTransaction = false
@@ -883,10 +889,24 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
         when (reconciliationResult) {
             is ScribeScrollPolicy.SettledReconciliationResult.CancelOvershoot -> {
-                cancelViewportSafetyAnimation()
-                isPredictiveGlideRunning = false
-                targetPredictedScrollTotal = -1f
-                checkKeyboardTransactionSettled()
+                if (isGlideRunning && kotlin.math.abs(glideVelocity) > 20f) {
+                    // Soft deceleration: bleed remaining velocity to 0 at current position via critical damping
+                    startAuthoritativeScrollAnimation(
+                        targetTotalScroll = currentScroll,
+                        reason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE,
+                        durationMs = ScribeScrollPolicy.DURATION_PREDICTIVE_GLIDE_MS,
+                        forceRetarget = true
+                    ) {
+                        isPredictiveGlideRunning = false
+                        targetPredictedScrollTotal = -1f
+                        checkKeyboardTransactionSettled()
+                    }
+                } else {
+                    cancelViewportSafetyAnimation()
+                    isPredictiveGlideRunning = false
+                    targetPredictedScrollTotal = -1f
+                    checkKeyboardTransactionSettled()
+                }
             }
             is ScribeScrollPolicy.SettledReconciliationResult.Retarget -> {
                 val target = reconciliationResult.targetScrollY.toFloat()
@@ -2146,37 +2166,46 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 // Downward Following Invariant:
                 // Only confirmed contraction of an active bottom surface with recorded temporary displacement
                 pendingRestorationRunnable?.let { removeCallbacks(it) }
-                val rRestoration = Runnable {
+                val performRestoration: () -> Unit = {
                     pendingRestorationRunnable = null
                     val cur = try { editor.cursor } catch (_: Throwable) { null }
-                    val lay = editor.layout ?: return@Runnable
-                    val geom = getSelectionGeometry(cur, lay) ?: return@Runnable
-                    val caretDocBottom = geom.bottomDocY
-                    val currentScroll = (scrollD + editor.offsetY).toFloat()
-                    val lineCount = try { editor.text.lineCount } catch (_: Throwable) { 1 }
-                    val isAtLastLine = try {
-                        (cur != null && cur.leftLine >= (lineCount - 1)) || (lineCount <= 1)
-                    } catch (_: Throwable) { false }
-                    val req = ScribeScrollPolicy.ContractionRestorationRequest(
-                        caretScreenBottom = headerHeight + caretDocBottom - currentScroll,
-                        caretScreenTop = headerHeight + geom.topDocY - currentScroll,
-                        viewportHeight = h,
-                        density = density,
-                        totalScroll = currentScroll,
-                        temporaryDisplacement = temporaryExpansionDisplacement,
-                        isAtLastLine = isAtLastLine,
-                        isKeyboardDismissing = isKeyboardDismissing,
-                        isBottomSurfaceActive = isBottomSurfaceActive || isKeyboardVisible
-                    )
-                    val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
-                    if (result.shouldScroll && result.deltaY != 0f) {
-                        val target = (currentScroll + result.deltaY).coerceIn(0f, maxCanvasScroll.toFloat())
-                        startOrRetargetContractionRestoration(target)
-                        temporaryExpansionDisplacement = result.remainingCompensation
+                    val lay = editor.layout
+                    if (lay != null) {
+                        val geom = getSelectionGeometry(cur, lay)
+                        if (geom != null) {
+                            val caretDocBottom = geom.bottomDocY
+                            val currentScroll = (scrollD + editor.offsetY).toFloat()
+                            val lineCount = try { editor.text.lineCount } catch (_: Throwable) { 1 }
+                            val isAtLastLine = try {
+                                (cur != null && cur.leftLine >= (lineCount - 1)) || (lineCount <= 1)
+                            } catch (_: Throwable) { false }
+                            val req = ScribeScrollPolicy.ContractionRestorationRequest(
+                                caretScreenBottom = headerHeight + caretDocBottom - currentScroll,
+                                caretScreenTop = headerHeight + geom.topDocY - currentScroll,
+                                viewportHeight = h,
+                                density = density,
+                                totalScroll = currentScroll,
+                                temporaryDisplacement = temporaryExpansionDisplacement,
+                                isAtLastLine = isAtLastLine,
+                                isKeyboardDismissing = isKeyboardDismissing,
+                                isBottomSurfaceActive = isBottomSurfaceActive || isKeyboardVisible
+                            )
+                            val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
+                            if (result.shouldScroll && result.deltaY != 0f) {
+                                val target = (currentScroll + result.deltaY).coerceIn(0f, maxCanvasScroll.toFloat())
+                                startOrRetargetContractionRestoration(target)
+                                temporaryExpansionDisplacement = result.remainingCompensation
+                            }
+                        }
                     }
                 }
-                pendingRestorationRunnable = rRestoration
-                post(rRestoration)
+                if (editor.layout != null) {
+                    performRestoration()
+                } else {
+                    val rRestoration = Runnable { performRestoration() }
+                    pendingRestorationRunnable = rRestoration
+                    post(rRestoration)
+                }
                 previousBottomObstructionPx = curObstruction
             }
         }

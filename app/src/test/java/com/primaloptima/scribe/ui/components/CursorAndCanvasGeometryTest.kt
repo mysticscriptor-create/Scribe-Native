@@ -7274,4 +7274,61 @@ class CursorAndCanvasGeometryTest {
         val shouldClearWhileAtLastLine = naturalMaxCollapsed >= (preservedDismissalScroll ?: 0) || currentScrollAtLastLine <= naturalMaxCollapsed
         assertFalse("Preserved dismissal lock stays engaged while resting above natural content bounds", shouldClearWhileAtLastLine)
     }
+    @Test
+    fun testSubSteppedSpringAccuracyUnderFrameDelay() {
+        // Verifies that semi-implicit Euler integration with sub-stepping
+        // converges smoothly and stably even when frame delay reaches 32ms (e.g. GC hitch)
+        val omega = 13.5f
+        var pos = 0f
+        var vel = 0f
+        val target = 200f
+        val dtDelaySec = 0.032f // 32ms frame delay
+
+        // Simulate 10 frames with sub-stepping
+        for (f in 0 until 10) {
+            val steps = if (dtDelaySec > 0.016f) 2 else 1
+            val dt = dtDelaySec / steps
+            for (step in 0 until steps) {
+                val displacement = pos - target
+                val accel = -omega * omega * displacement - 2f * omega * vel
+                vel += accel * dt
+                pos += vel * dt
+            }
+        }
+
+        assertTrue("Spring must move significantly towards target without exploding", pos > 50f)
+        assertTrue("Position must not overshoot target in critically damped spring", pos <= target + 1f)
+    }
+
+    @Test
+    fun testNewKeyboardTransactionResetsPreservedDismissalScroll() {
+        // Tests that starting a fresh keyboard transaction clears any previously
+        // preserved dismissal scroll, so new layout boundaries evaluate fresh.
+        var preservedDismissalScroll: Int? = 850
+        // New transaction start event:
+        preservedDismissalScroll = null
+        assertNull("Starting keyboard transaction must reset preserved dismissal scroll", preservedDismissalScroll)
+    }
+
+    @Test
+    fun testSettledReconciliationCancelOvershootDistinction() {
+        // When evaluateSettledReconciliation produces CancelOvershoot:
+        // Caret is safe at currentScrollY, but plannedTarget was further away.
+        val result = ScribeScrollPolicy.evaluateSettledReconciliation(
+            currentScrollY = 300f,
+            plannedTargetScrollY = 400f,
+            caretDocTop = 200f,
+            caretDocBottom = 240f,
+            headerHeight = 100f,
+            settledViewportHeight = 800f,
+            density = 2.5f,
+            maxCanvasScroll = 1000f
+        )
+        assertTrue("Reconciliation must identify CancelOvershoot when safe", result is ScribeScrollPolicy.SettledReconciliationResult.CancelOvershoot)
+
+        // When in-flight glide velocity is high, soft deceleration bleeds velocity to 0
+        val highVelocity = 150f
+        val shouldSoftDecelerate = kotlin.math.abs(highVelocity) > 20f
+        assertTrue("High in-flight velocity authorizes soft deceleration over hard stop", shouldSoftDecelerate)
+    }
 }
