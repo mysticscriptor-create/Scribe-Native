@@ -256,8 +256,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     fun checkAndClearPreservedDismissalScroll() {
         val preserved = preservedDismissalScroll ?: return
+        val current = scrollD + editor.offsetY
         if (!isKeyboardDismissing && !isKeyboardVisible && !isBottomSurfaceActive) {
-            if (naturalMaxCanvasScroll >= preserved) {
+            if (naturalMaxCanvasScroll >= preserved || current <= naturalMaxCanvasScroll) {
                 preservedDismissalScroll = null
             }
         }
@@ -287,7 +288,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     preservedDismissalScroll = scrollD + editor.offsetY
                 }
                 cancelViewportSafetyAnimation()
-                checkAndClearPreservedDismissalScroll()
+                post {
+                    checkAndClearPreservedDismissalScroll()
+                }
             }
         }
 
@@ -685,8 +688,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
             val newTarget = (plannedTarget + overflow).coerceIn(0f, maxScrollFuture)
             activeKeyboardTransaction = activeKeyboardTransaction?.copy(targetScroll = newTarget)
-            if (kotlin.math.abs(newTarget - plannedTarget) > ScribeScrollPolicy.DRAG_THRESHOLD_DP ||
-                (!isPredictiveGlideRunning && kotlin.math.abs(newTarget - currentScroll) > ScribeScrollPolicy.DRAG_THRESHOLD_DP)) {
+            if (kotlin.math.abs(newTarget - plannedTarget) > 1.0f ||
+                (!isPredictiveGlideRunning && kotlin.math.abs(newTarget - currentScroll) > 1.0f)) {
                 targetPredictedScrollTotal = newTarget
                 startAuthoritativeScrollAnimation(
                     targetTotalScroll = newTarget,
@@ -1705,6 +1708,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
             isPredictiveGlideRunning = true
             targetPredictedScrollTotal = desiredTarget
+            val preAnimationScroll = currentScroll
             startAuthoritativeScrollAnimation(
                 targetTotalScroll = desiredTarget,
                 reason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE,
@@ -1712,6 +1716,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             ) {
                 isPredictiveGlideRunning = false
                 targetPredictedScrollTotal = -1f
+                val currentScrollNow = (scrollD + editor.offsetY).toFloat()
+                val actualConsumed = (currentScrollNow - preAnimationScroll).coerceAtLeast(0f)
+                if (actualConsumed > 0f) {
+                    recordExpansionDisplacement(actualConsumed, line, col, cursor?.isSelected == true)
+                }
                 checkKeyboardTransactionSettled()
             }
         } else {
@@ -1854,23 +1863,29 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (!decision.isSafe) {
             lastEnsureCursorTime = now
             val duration = customDurationMs
-            if (decision.neededUpwardDisplacement > 0f && isExpansionTransitionActive) {
-                recordExpansionDisplacement(decision.neededUpwardDisplacement, line, col, cursor.isSelected)
-            }
             if (smooth) {
+                val preAnimationScroll = (scrollD + editor.offsetY).toFloat()
                 startAuthoritativeScrollAnimation(
                     targetTotalScroll = decision.targetTotalScroll,
                     reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
                     durationMs = duration,
                     interpolator = FastOutSlowInInterpolator
-                )
+                ) {
+                    if (isExpansionTransitionActive) {
+                        val currentScrollNow = (scrollD + editor.offsetY).toFloat()
+                        val actualConsumed = (currentScrollNow - preAnimationScroll).coerceAtLeast(0f)
+                        if (actualConsumed > 0f) {
+                            recordExpansionDisplacement(actualConsumed, line, col, cursor.isSelected)
+                        }
+                    }
+                }
             } else {
                 val beforeScroll = (scrollD + editor.offsetY).toFloat()
                 scrollCanvasBy(decision.neededUpwardDisplacement)
                 val afterScroll = (scrollD + editor.offsetY).toFloat()
                 val actualMoved = afterScroll - beforeScroll
                 if (isExpansionTransitionActive && actualMoved > 0f) {
-                    temporaryExpansionDisplacement += actualMoved
+                    recordExpansionDisplacement(actualMoved, line, col, cursor.isSelected)
                 }
             }
         }
@@ -2063,12 +2078,18 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                                     if (!decision.isSafe && decision.neededUpwardDisplacement > (ScribeScrollPolicy.CURSOR_DEADBAND_DP * resources.displayMetrics.density)) {
                                         val targetLine = if (isAllSelected) cur.rightLine else cur.leftLine
                                         val targetCol = if (isAllSelected) cur.rightColumn else cur.leftColumn
-                                        recordExpansionDisplacement(decision.neededUpwardDisplacement, targetLine, targetCol, cur.isSelected)
+                                        val preAnimationScroll = (scrollD + editor.offsetY).toFloat()
                                         startAuthoritativeScrollAnimation(
                                             targetTotalScroll = decision.targetTotalScroll,
                                             reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
                                             durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
-                                        )
+                                        ) {
+                                            val currentScrollNow = (scrollD + editor.offsetY).toFloat()
+                                            val actualConsumed = (currentScrollNow - preAnimationScroll).coerceAtLeast(0f)
+                                            if (actualConsumed > 0f) {
+                                                recordExpansionDisplacement(actualConsumed, targetLine, targetCol, cur.isSelected)
+                                            }
+                                        }
                                     }
                                     // Strict Invariant: If isCurrentlySafe, do ABSOLUTELY NOTHING. Safe cursor never moves!
                                 }
@@ -2321,7 +2342,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             if (isUserTouching && isDraggingCanvas && !isTouchOnHandleActive && !isAnyHandleActive) {
                 if (abs(allocation.outerDelta) > 1f || abs(allocation.innerDelta) > 1f) {
                     if (!isKeyboardDismissing && !isRestoringViewport) {
-                        preservedDismissalScroll = null
+                        val current = scrollD + editor.offsetY
+                        if (current <= naturalMaxCanvasScroll) {
+                            preservedDismissalScroll = null
+                        } else if (allocation.outerDelta > 0f || allocation.innerDelta > 0f) {
+                            preservedDismissalScroll = current
+                        }
                     }
                 }
             }

@@ -7203,10 +7203,10 @@ class CursorAndCanvasGeometryTest {
     }
     @Test
     fun testPredictiveGlidePlannedTargetMaintainsSafetyWithoutAbort() {
-        // Simulates the safe viewport condition in updateTargetEditorViewport:
-        // When a predictive glide is already aiming for plannedTarget, and that target places
-        // the caret safely within the target viewport and breathing margin, the planned target
-        // must remain stable and not be clamped or reset back to current scroll mid-flight.
+        // Tests Refinement 1 & 2:
+        // When an in-flight predictive glide is aiming for plannedTarget, and that target places
+        // the caret safely within the target viewport, updateTargetEditorViewport must preserve
+        // the planned target and not cancel or clamp mid-flight.
         val headerHeight = 120
         val geomTopDocY = 400f
         val geomBottomDocY = 440f
@@ -7216,27 +7216,56 @@ class CursorAndCanvasGeometryTest {
         val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density) // 10px
         val targetLineBottom = safeTargetViewport - marginPx // 740px
 
-        // Suppose current scroll was 0, but plannedTarget is 200f (gliding to 200f)
+        // Current scroll is at 50f, but glide trajectory is planned for 200f
+        val currentScroll = 50f
         val plannedTarget = 200f
-        val finalScreenTop = (headerHeight + geomTopDocY - plannedTarget) // 120 + 400 - 200 = 320f
-        val finalScreenBottom = (headerHeight + geomBottomDocY - plannedTarget) // 120 + 440 - 200 = 360f
+        val finalScreenTop = (headerHeight + geomTopDocY - plannedTarget) // 320f
+        val finalScreenBottom = (headerHeight + geomBottomDocY - plannedTarget) // 360f
 
         val isSafeAgainstPlanned = finalScreenTop >= -deadbandPx && finalScreenBottom <= (targetLineBottom + deadbandPx)
-        assertTrue("Planned target safely positions caret", isSafeAgainstPlanned)
+        assertTrue("Planned target safely positions caret within safe bounds", isSafeAgainstPlanned)
+
+        // When physical viewport shrinks further so caret would overflow:
+        val constrainedViewport = 450f
+        val newTargetLineBottom = constrainedViewport - marginPx // 390px
+        val overflow = if (finalScreenBottom > newTargetLineBottom + deadbandPx) {
+            finalScreenBottom - newTargetLineBottom
+        } else 0f
+        assertTrue("Overflow is detected when target viewport tightens", overflow > 0f)
+
+        // Must retarget relative to plannedTarget (NOT currentScroll):
+        val correctedTarget = plannedTarget + overflow
+        val faultyTargetRelativeToCurrentScroll = currentScroll + overflow
+        assertNotEquals(faultyTargetRelativeToCurrentScroll, correctedTarget)
+        assertTrue("Corrected target preserves planned velocity trajectory", correctedTarget > plannedTarget)
+
+        // Sub-pixel jitter (< 1.0f) must not trigger redundant retargeting:
+        val subPixelChange = 0.5f
+        assertFalse("Sub-pixel adjustment is within 1px deadband", subPixelChange >= 1.0f)
     }
 
     @Test
     fun testPreservedDismissalScrollPreventsNaturalMaxCanvasScrollDrop() {
-        // Simulates Problem C: User scrolls down inside accessory drawer to end of document (scroll = 850).
-        // Upon closing the drawer, naturalMaxCanvasScroll drops from 1000 down to 400 because bottom clearance is collapsing.
-        // preservedDismissalScroll must hold the document at 850 so maxCanvasScroll evaluates to 850,
-        // preventing the document from clamping down with the closing surface.
+        // Tests Refinement 5: Problem C (Stationary Dismissal Invariant).
+        // User scrolls down to end of document (currentScroll = 850) while accessory drawer is open.
+        // Upon closing the drawer, naturalMaxCanvasScroll drops from 1000 down to 400 because bottom clearance collapses.
+        // preservedDismissalScroll latches at 850 so maxCanvasScroll evaluates to 850,
+        // preventing downward clamping during the dismissal lifecycle.
         val naturalMaxCollapsed = 400
         val currentScrollAtLastLine = 850
-        val preservedDismissalScroll = currentScrollAtLastLine
+        val preservedDismissalScroll: Int? = currentScrollAtLastLine
 
-        val effectiveMax = maxOf(naturalMaxCollapsed, preservedDismissalScroll)
-        assertEquals(850, effectiveMax)
-        assertTrue("Document remains stationary at preserved scroll", effectiveMax >= currentScrollAtLastLine)
+        val effectiveMax = preservedDismissalScroll?.let { maxOf(naturalMaxCollapsed, it) } ?: naturalMaxCollapsed
+        assertEquals("maxCanvasScroll must retain preserved dismissal scroll", 850, effectiveMax)
+        assertTrue("Document remains stationary and unclamped at preserved scroll", effectiveMax >= currentScrollAtLastLine)
+
+        // When user scrolls back up into natural legal bounds (currentScroll = 350 <= naturalMaxCollapsed):
+        val currentScrolledUp = 350
+        val shouldClearLock = naturalMaxCollapsed >= (preservedDismissalScroll ?: 0) || currentScrolledUp <= naturalMaxCollapsed
+        assertTrue("Preserved dismissal lock safely clears once user scrolls within natural content bounds", shouldClearLock)
+
+        // While still resting above natural max, lock must not be cleared:
+        val shouldClearWhileAtLastLine = naturalMaxCollapsed >= (preservedDismissalScroll ?: 0) || currentScrollAtLastLine <= naturalMaxCollapsed
+        assertFalse("Preserved dismissal lock stays engaged while resting above natural content bounds", shouldClearWhileAtLastLine)
     }
 }

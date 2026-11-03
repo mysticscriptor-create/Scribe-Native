@@ -1744,6 +1744,7 @@ fun MainEditorScreen(
                     var lastAppliedFirstLineIndent by remember { mutableIntStateOf(activeTheme?.firstLineIndent ?: 0) }
                     var isApplyingIndent by remember { mutableStateOf(false) }
                     var indentJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+                    var lastAppliedTargetViewportPx by remember { mutableFloatStateOf(-1f) }
 
                     AndroidView(
                         factory = { ctx ->
@@ -2052,8 +2053,13 @@ fun MainEditorScreen(
                                 if (isScribeOwnedIme && (layout.isKeyboardTransactionActive ||
                                         presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE ||
                                         presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF)) {
-                                    layout.updateTargetEditorViewport(targetViewportPx.toFloat())
+                                    val targetVp = targetViewportPx.toFloat()
+                                    if (kotlin.math.abs(targetVp - lastAppliedTargetViewportPx) >= 1.0f) {
+                                        lastAppliedTargetViewportPx = targetVp
+                                        layout.updateTargetEditorViewport(targetVp)
+                                    }
                                 } else if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN && !layout.isKeyboardTransactionActive) {
+                                    lastAppliedTargetViewportPx = -1f
                                     layout.clearTargetEditorViewport()
                                 }
                             }
