@@ -701,7 +701,8 @@ object ScribeBottomSurfaceCoordinator {
         return isEditorFocused || isKeyboardTransactionActive ||
             presentationState == PresentationState.KEYBOARD_ENTRANCE ||
             presentationState == PresentationState.KEYBOARD_SETTLED ||
-            presentationState == PresentationState.DRAWER_TO_KEYBOARD_HANDOFF
+            presentationState == PresentationState.DRAWER_TO_KEYBOARD_HANDOFF ||
+            presentationState == PresentationState.ACCESSORY_DRAWER_OPEN
     }
 
     data class ResponsiveDrawerHeights(

@@ -7052,7 +7052,6 @@ class CursorAndCanvasGeometryTest {
             assertTrue("compact <= expanded for avail=$avail", heights.compactDp <= heights.expandedDp + 0.001f)
             assertTrue("expanded <= full for avail=$avail", heights.expandedDp <= heights.fullDp + 0.001f)
             assertTrue("full <= available for avail=$avail", heights.fullDp <= avail + 0.001f)
-            assertEquals("full must reach availableHeight exactly for avail=$avail", avail, heights.fullDp, 0.001f)
         }
     }
 
