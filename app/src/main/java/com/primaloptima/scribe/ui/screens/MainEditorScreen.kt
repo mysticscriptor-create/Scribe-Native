@@ -1517,7 +1517,7 @@ fun MainEditorScreen(
                     if (curImePx > com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX) {
                         val imeAboveNavPx = (curImePx - navBottomPx).coerceAtLeast(0)
                         unifiedCanvasRef?.liveImeHeightPx = imeAboveNavPx.toFloat()
-                        unifiedCanvasRef?.isKeyboardDismissing = true
+                        
                         if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED ||
                             presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE ||
                             presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN) {
