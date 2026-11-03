@@ -7232,7 +7232,7 @@ class CursorAndCanvasGeometryTest {
         assertTrue("Planned target safely positions caret within safe bounds", isSafeAgainstPlanned)
 
         // When physical viewport shrinks further so caret would overflow:
-        val constrainedViewport = 450f
+        val constrainedViewport = 350f
         val newTargetLineBottom = constrainedViewport - marginPx // 390px
         val overflow = if (finalScreenBottom > newTargetLineBottom + deadbandPx) {
             finalScreenBottom - newTargetLineBottom
