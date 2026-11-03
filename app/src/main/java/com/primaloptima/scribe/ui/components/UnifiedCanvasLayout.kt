@@ -507,7 +507,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
     fun recordExpansionDisplacement(dy: Float, line: Int, col: Int = 0, isSelected: Boolean = false) {
-        if (dy > 0f && isExpansionTransitionActive) {
+        if (dy > 0f) {
+            temporaryExpansionDisplacement += dy
             expansionCaretLine = line
             expansionCaretCol = col
             expansionHadSelection = isSelected
@@ -2051,6 +2052,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                                     )
 
                                     if (!decision.isSafe && decision.neededUpwardDisplacement > (ScribeScrollPolicy.CURSOR_DEADBAND_DP * resources.displayMetrics.density)) {
+                                        val targetLine = if (isAllSelected) cur.rightLine else cur.leftLine
+                                        val targetCol = if (isAllSelected) cur.rightColumn else cur.leftColumn
+                                        recordExpansionDisplacement(decision.neededUpwardDisplacement, targetLine, targetCol, cur.isSelected)
                                         startAuthoritativeScrollAnimation(
                                             targetTotalScroll = decision.targetTotalScroll,
                                             reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
@@ -2081,13 +2085,19 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val curObstruction = currentObstruction
                 val wasLargerObstructionActive = previousBottomObstructionPx > (curObstruction + 2f)
                 val isConfirmedContraction = wasLargerObstructionActive && (isBottomSurfaceActive || isKeyboardVisible) && hasWindowFocus()
+                val cur = try { editor.cursor } catch (_: Throwable) { null }
+                val lineCount = try { editor.text.lineCount } catch (_: Throwable) { 1 }
+                val isAtLastLine = try {
+                    (cur != null && cur.leftLine >= (lineCount - 1)) || (lineCount <= 1)
+                } catch (_: Throwable) { false }
                 val hasRecordedDisplacement = temporaryExpansionDisplacement > 0f
+                val isAtLastLineContraction = isAtLastLine && (isBottomSurfaceActive || isKeyboardVisible) && !isKeyboardDismissing
                 val isTransactionPermitted = !isKeyboardDismissing && !isKeyboardTransactionActive
 
-                // Strict Invariant: Downward restoration is ONLY permitted for a confirmed contraction
-                // of an active bottom surface where real temporary upward displacement was recorded!
-                // Generic viewport expansion, keyboard dismissal, and last-line state NEVER independently authorize restoration.
-                if (!isTransactionPermitted || !isConfirmedContraction || !hasRecordedDisplacement) {
+                // Strict Invariant: Downward restoration is permitted for a confirmed contraction
+                // of an active bottom surface where either real temporary upward displacement was recorded,
+                // or the cursor is at the last line following an active bottom surface contraction.
+                if (!isTransactionPermitted || !isConfirmedContraction || (!hasRecordedDisplacement && !isAtLastLineContraction)) {
                     if (isKeyboardDismissing || (!isKeyboardVisible && !isBottomSurfaceActive)) {
                         // Pure Writer Stationary Invariant:
                         // When keyboard is dismissed or closing, the document MUST remain

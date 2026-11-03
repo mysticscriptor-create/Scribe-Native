@@ -972,10 +972,12 @@ object ScribeScrollPolicy {
         }
 
         // Determine intended downward delta (negative deltaY moves canvas down)
-        // STRICT INVARIANT: Downward restoration ONLY restores an actual recorded temporary displacement!
-        // Being on the last line must NEVER independently trigger downward movement.
+        // STRICT INVARIANT: Downward restoration restores recorded temporary displacement,
+        // or safely anchors the last line to the breathing margin ONLY during a confirmed
+        // contraction of an active bottom surface (never during terminal dismissal!).
         val intendedDown = when {
             request.temporaryDisplacement > 0f -> -request.temporaryDisplacement
+            request.isAtLastLine && request.isBottomSurfaceActive && !request.isKeyboardDismissing -> -slack
             else -> 0f
         }
 

@@ -564,9 +564,10 @@ object ScribeBottomSurfaceCoordinator {
         if (!isBottomActive || !hasActiveScroll) {
             return false
         }
-        // Strict Invariant: Downward restoration strictly requires a recorded temporary displacement.
-        // Being on the last line must NEVER independently authorize downward restoration.
-        return temporaryDisplacement > 0f
+        // Downward follow is permitted when:
+        // 1. A prior expansion displaced the canvas upward (temporaryDisplacement > 0f) across ANY caret position, OR
+        // 2. The cursor is at the last line of the document following an actively contracting bottom surface (never when keyboard is dismissing).
+        return (temporaryDisplacement > 0f) || (isAtLastLine && !isKeyboardDismissing)
     }
 
     /**
