@@ -565,10 +565,9 @@ object ScribeBottomSurfaceCoordinator {
         if (!isBottomActive || !hasActiveScroll) {
             return false
         }
-        // Downward follow is permitted when:
-        // 1. A prior expansion displaced the canvas upward (temporaryDisplacement > 0f) across ANY caret position, OR
-        // 2. The cursor is at the last line of the document following an actively contracting bottom surface (never when keyboard is dismissing).
-        return (temporaryDisplacement > 0f) || (isAtLastLine && !isKeyboardDismissing)
+        // Downward follow is permitted ONLY when a prior expansion displaced the canvas upward (temporaryDisplacement > 0f)
+        // and returns to normal state (never during terminal dismissal, and never without recorded displacement).
+        return temporaryDisplacement > 0f
     }
 
     /**
