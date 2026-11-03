@@ -362,6 +362,8 @@ fun MainEditorScreen(
     val imeBottomDp = imeInsets.asPaddingValues().calculateBottomPadding()
     val docBottomNavInset = navInsets.asPaddingValues().calculateBottomPadding()
 
+    var unifiedCanvasRef by remember { mutableStateOf<UnifiedCanvasLayout?>(null) }
+
     val currentView = androidx.compose.ui.platform.LocalView.current
     var hasWindowFocus by remember { mutableStateOf(currentView.hasWindowFocus()) }
     DisposableEffect(currentView) {
@@ -429,34 +431,7 @@ fun MainEditorScreen(
         )
     }
 
-    LaunchedEffect(
-        configuration.screenHeightDp,
-        configuration.screenWidthDp,
-        docTopInset,
-        docBottomNavInset,
-        fixedShortcutBarClearance,
-        lastKeyboardHeightDp
-    ) {
-        val curNavBottomDp = navInsets.getBottom(density) / density.density
-        val availableForDrawerDp = (configuration.screenHeightDp.toFloat() - docTopInset.value - curNavBottomDp - fixedShortcutBarClearance).coerceAtLeast(0f)
-        val responsiveHeights = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.calculateResponsiveDrawerHeights(
-            availableHeightDp = availableForDrawerDp,
-            preferredBaselineDp = lastKeyboardHeightDp.value
-        )
-        if (compactHeightDp.value != responsiveHeights.compactDp ||
-            expandedHeightDp.value != responsiveHeights.expandedDp ||
-            fullHeightDp.value != responsiveHeights.fullDp
-        ) {
-            compactHeightDp = responsiveHeights.compactDp.dp
-            expandedHeightDp = responsiveHeights.expandedDp.dp
-            fullHeightDp = responsiveHeights.fullDp.dp
-            drawerHeightController.updateTargetHeights(
-                compact = responsiveHeights.compactDp,
-                expanded = responsiveHeights.expandedDp,
-                full = responsiveHeights.fullDp
-            )
-        }
-    }
+
 
     var transitionalSpacerDp by remember { mutableStateOf(0.dp) }
     var handoffStartingObstructionDp by remember { mutableFloatStateOf(0f) }
@@ -545,8 +520,6 @@ fun MainEditorScreen(
     }
 
     // ── Sora CodeEditor & Unified Canvas state ──────────────────────────────────
-    var unifiedCanvasRef   by remember { mutableStateOf<UnifiedCanvasLayout?>(null) }
-
     val updateEditingTarget: (EditingTarget) -> Unit = { target ->
         lastActiveTarget = target
         unifiedCanvasRef?.activeEditingTarget = target
@@ -1712,6 +1685,35 @@ fun MainEditorScreen(
                         shortcuts.isNotEmpty()
                     )
                     val fixedShortcutBarClearance = if (isShortcutBarReserved && shortcuts.isNotEmpty()) 36f else 0f
+
+                    LaunchedEffect(
+                        configuration.screenHeightDp,
+                        configuration.screenWidthDp,
+                        docTopInset,
+                        docBottomNavInset,
+                        fixedShortcutBarClearance,
+                        lastKeyboardHeightDp
+                    ) {
+                        val curNavBottomDp = navInsets.getBottom(density) / density.density
+                        val availableForDrawerDp = (configuration.screenHeightDp.toFloat() - docTopInset.value - curNavBottomDp - fixedShortcutBarClearance).coerceAtLeast(0f)
+                        val responsiveHeights = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.calculateResponsiveDrawerHeights(
+                            availableHeightDp = availableForDrawerDp,
+                            preferredBaselineDp = lastKeyboardHeightDp.value
+                        )
+                        if (compactHeightDp.value != responsiveHeights.compactDp ||
+                            expandedHeightDp.value != responsiveHeights.expandedDp ||
+                            fullHeightDp.value != responsiveHeights.fullDp
+                        ) {
+                            compactHeightDp = responsiveHeights.compactDp.dp
+                            expandedHeightDp = responsiveHeights.expandedDp.dp
+                            fullHeightDp = responsiveHeights.fullDp.dp
+                            drawerHeightController.updateTargetHeights(
+                                compact = responsiveHeights.compactDp,
+                                expanded = responsiveHeights.expandedDp,
+                                full = responsiveHeights.fullDp
+                            )
+                        }
+                    }
 
                     val isShortcutBarTargetVisible = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isShortcutBarVisible(
                         presentationState,
