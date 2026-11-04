@@ -2519,9 +2519,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val scheduledGen = currentTx.generation
                 val performRestoration: () -> Unit = {
                     pendingRestorationRunnable = null
-                    if (transitionCoordinator.currentTransition.generation != scheduledGen) {
-                        return@performRestoration
-                    }
+                    if (transitionCoordinator.currentTransition.generation == scheduledGen) {
                     val cur = try { editor.cursor } catch (_: Throwable) { null }
                     val lay = editor.layout
                     if (lay != null) {
@@ -2554,6 +2552,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                                 // in AuthoritativeScrollCoordinator.applyStep(). Never mutate or assign projected remainder here!
                             }
                         }
+                    }
                     }
                 }
                 if (editor.layout != null) {
