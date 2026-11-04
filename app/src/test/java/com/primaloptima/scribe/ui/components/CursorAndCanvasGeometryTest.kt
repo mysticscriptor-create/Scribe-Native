@@ -7701,4 +7701,142 @@ class CursorAndCanvasGeometryTest {
         coordinator.completeTransition(gen)
         assertEquals("Phase completed", ScribeBottomSurfaceCoordinator.TransitionPhase.COMPLETED, coordinator.currentTransition.phase)
     }
+    @Test
+    fun testTransitionIdempotency_PreservesGenerationAndStartingObstruction() {
+        val coordinator = ScribeBottomSurfaceCoordinator.BottomSurfaceTransitionCoordinator()
+        val gen1 = coordinator.startTransition(
+            type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_EXPANDED,
+            startingObstructionPx = 600f,
+            targetObstructionPx = 1100f,
+            compactBaselinePx = 600f
+        )
+        assertEquals(600f, coordinator.currentTransition.geometry.startingObstructionPx, 0.001f)
+        assertEquals(1100f, coordinator.currentTransition.geometry.targetObstructionPx, 0.001f)
+
+        // Repeated notification during animation frames must be idempotent
+        val gen2 = coordinator.startTransition(
+            type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_EXPANDED,
+            startingObstructionPx = 750f,
+            targetObstructionPx = 1100f,
+            compactBaselinePx = 600f
+        )
+        assertEquals("Repeated expansion start must preserve generation", gen1, gen2)
+        assertEquals("Repeated expansion start must preserve original starting obstruction", 600f, coordinator.currentTransition.geometry.startingObstructionPx, 0.001f)
+    }
+
+    @Test
+    fun testKeyboardContractionZeroTarget_RoutesToTerminalDismissal() {
+        val coordinator = ScribeBottomSurfaceCoordinator.BottomSurfaceTransitionCoordinator()
+        val gen = coordinator.startTransition(
+            type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            startingObstructionPx = 600f,
+            targetObstructionPx = 0f,
+            preservedScroll = 450
+        )
+        assertEquals("Contraction targeting zero must be classified as terminal dismissal", ScribeBottomSurfaceCoordinator.TransitionType.TERMINAL_KEYBOARD_DISMISSAL, coordinator.currentTransition.type)
+        assertTrue("Terminal dismissal must be in flight", coordinator.isTerminalDismissalInFlight())
+        assertEquals(450, coordinator.preservedDismissalScroll)
+    }
+
+    @Test
+    fun testContractionAuthorization_RejectsUncontractedObstruction() {
+        val request = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            transitionPhase = ScribeBottomSurfaceCoordinator.TransitionPhase.IN_FLIGHT,
+            startingObstructionPx = 1000f,
+            targetObstructionPx = 600f,
+            currentObstructionPx = 1000f,
+            compactBaselinePx = 600f,
+            recordedExpansionDisplacement = 200f,
+            remainingCompensation = 200f,
+            linkedExpansionGeneration = 1L,
+            isAnchorValid = true,
+            hasWindowFocus = true,
+            isScribeOwner = true,
+            isTerminalDismissal = false
+        )
+        val result = ScribeScrollPolicy.authorizeContractionRestoration(request)
+        assertFalse("Uncontracted physical obstruction must be rejected", result.isAuthorized)
+        assertEquals("Rejection reason must flag uncontracted state", "Physical obstruction has not begun contracting", result.rejectionReason)
+    }
+
+    @Test
+    fun testContractionAuthorization_RejectsZeroObstructionDuringInFlight() {
+        val request = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            transitionPhase = ScribeBottomSurfaceCoordinator.TransitionPhase.IN_FLIGHT,
+            startingObstructionPx = 1000f,
+            targetObstructionPx = 600f,
+            currentObstructionPx = 0f,
+            compactBaselinePx = 600f,
+            recordedExpansionDisplacement = 200f,
+            remainingCompensation = 200f,
+            linkedExpansionGeneration = 1L,
+            isAnchorValid = true,
+            hasWindowFocus = true,
+            isScribeOwner = true,
+            isTerminalDismissal = false
+        )
+        val result = ScribeScrollPolicy.authorizeContractionRestoration(request)
+        assertFalse("Zero obstruction during in-flight contraction must be rejected", result.isAuthorized)
+        assertEquals("Physical obstruction is zero or unmeasured during active transition", result.rejectionReason)
+    }
+
+    @Test
+    fun testContractionAuthorization_RejectsStaleGeneration() {
+        val request = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            transitionPhase = ScribeBottomSurfaceCoordinator.TransitionPhase.IN_FLIGHT,
+            startingObstructionPx = 1000f,
+            targetObstructionPx = 600f,
+            currentObstructionPx = 800f,
+            compactBaselinePx = 600f,
+            recordedExpansionDisplacement = 200f,
+            remainingCompensation = 200f,
+            transitionGeneration = 5L,
+            expectedGeneration = 4L,
+            linkedExpansionGeneration = 1L,
+            isAnchorValid = true,
+            hasWindowFocus = true,
+            isScribeOwner = true,
+            isTerminalDismissal = false
+        )
+        val result = ScribeScrollPolicy.authorizeContractionRestoration(request)
+        assertFalse("Stale generation must be rejected", result.isAuthorized)
+        assertEquals("Transition generation mismatch (stale callback)", result.rejectionReason)
+    }
+
+    @Test
+    fun testContractionAuthorization_ValidatesLinkedExpansionGeneration() {
+        val request = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            transitionPhase = ScribeBottomSurfaceCoordinator.TransitionPhase.IN_FLIGHT,
+            startingObstructionPx = 1000f,
+            targetObstructionPx = 600f,
+            currentObstructionPx = 800f,
+            compactBaselinePx = 600f,
+            recordedExpansionDisplacement = 0f,
+            remainingCompensation = 200f,
+            transitionGeneration = 3L,
+            linkedExpansionGeneration = 0L,
+            isAnchorValid = true,
+            hasWindowFocus = true,
+            isScribeOwner = true,
+            isTerminalDismissal = false
+        )
+        val result = ScribeScrollPolicy.authorizeContractionRestoration(request)
+        assertFalse("Contraction unlinked from expansion generation must be rejected", result.isAuthorized)
+        assertEquals("Contraction transition is not linked to an expansion generation", result.rejectionReason)
+    }
+
+    @Test
+    fun testAuthoritativeScroll_SetCompensationAnchorDoesNotDuplicateDisplacement() {
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator()
+        coordinator.recordExpansionDisplacement(amount = 100f, startLine = 5, startCol = 2)
+        assertEquals(100f, coordinator.temporaryDisplacement, 0.001f)
+        coordinator.setCompensationAnchor(line = 6, col = 3, selected = false)
+        assertEquals("temporaryDisplacement must NOT be incremented by setCompensationAnchor", 100f, coordinator.temporaryDisplacement, 0.001f)
+        assertEquals(6, coordinator.caretLine)
+        assertEquals(3, coordinator.caretCol)
+    }
 }

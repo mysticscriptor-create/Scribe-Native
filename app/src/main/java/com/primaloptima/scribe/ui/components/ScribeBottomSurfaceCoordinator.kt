@@ -163,8 +163,38 @@ object ScribeBottomSurfaceCoordinator {
             initialObstructionPx: Float = startingObstructionPx,
             linkedGeneration: Long = 0L
         ): Long {
-            generationCounter++
             val effectiveStartingPx = if (startingObstructionPx != 0f) startingObstructionPx else initialObstructionPx
+
+            // Hard invariant: Any keyboard contraction or expansion targeting zero / sub-tolerance
+            // is strictly a terminal keyboard dismissal.
+            if ((type == TransitionType.KEYBOARD_CONTRACTION || type == TransitionType.KEYBOARD_EXPANDED) &&
+                targetObstructionPx <= IME_TARGET_TOLERANCE_PX
+            ) {
+                return startTerminalDismissal(
+                    currentScroll = preservedScroll,
+                    initialObstructionPx = effectiveStartingPx
+                )
+            }
+
+            // Idempotency: If transition of the exact same type is already in progress (STARTING or IN_FLIGHT),
+            // do NOT increment generationCounter and do NOT overwrite startingObstructionPx.
+            // Retarget within the existing generation if the target obstruction changed.
+            if (currentTransition.type == type &&
+                (currentTransition.phase == TransitionPhase.STARTING || currentTransition.phase == TransitionPhase.IN_FLIGHT)
+            ) {
+                if (targetObstructionPx > 0f && kotlin.math.abs(currentTransition.geometry.targetObstructionPx - targetObstructionPx) > 0.5f) {
+                    currentTransition = currentTransition.copy(
+                        geometry = currentTransition.geometry.copy(
+                            targetObstructionPx = targetObstructionPx,
+                            compactBaselinePx = if (compactBaselinePx > 0f) compactBaselinePx else currentTransition.geometry.compactBaselinePx,
+                            physicalViewportHeightPx = if (viewportHeightPx > 0) viewportHeightPx else currentTransition.geometry.physicalViewportHeightPx
+                        )
+                    )
+                }
+                return currentTransition.generation
+            }
+
+            generationCounter++
             val linkedGen = if (linkedGeneration != 0L) {
                 linkedGeneration
             } else if (type == TransitionType.KEYBOARD_CONTRACTION && currentTransition.type == TransitionType.KEYBOARD_EXPANDED) {
@@ -407,6 +437,16 @@ object ScribeBottomSurfaceCoordinator {
         }
 
         fun onSurfacePhysicallySettled(finalObstructionPx: Float): BottomSurfaceTransition {
+            val tx = currentTransition.copy(
+                phase = TransitionPhase.SETTLED,
+                geometry = currentTransition.geometry.copy(currentObstructionPx = finalObstructionPx)
+            )
+            currentTransition = tx
+            return tx
+        }
+
+        fun onSurfacePhysicallySettled(finalObstructionPx: Float, generation: Long?): BottomSurfaceTransition {
+            if (generation != null && generation != currentTransition.generation) return currentTransition
             val tx = currentTransition.copy(
                 phase = TransitionPhase.SETTLED,
                 geometry = currentTransition.geometry.copy(currentObstructionPx = finalObstructionPx)

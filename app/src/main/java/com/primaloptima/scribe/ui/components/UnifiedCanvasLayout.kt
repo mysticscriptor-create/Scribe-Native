@@ -220,6 +220,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * Native IME transition observer detecting terminal IME dismissal at the earliest window/insets callback.
      */
     private var wasImeVisibleBeforeAnimation = false
+    private var activeInsetsAnimGeneration: Long = 0L
 
     /**
      * Native IME transition observer detecting terminal IME dismissal at the earliest window/insets callback.
@@ -243,21 +244,22 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 if (wasImeVisibleBeforeAnimation && (!isImeVisibleAtEnd || targetImeBottom <= ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX)) {
                     notifyTerminalDismissalStarting()
                 }
+                activeInsetsAnimGeneration = transitionCoordinator.currentTransition.generation
             }
             return super.onStart(animation, bounds)
         }
 
         override fun onProgress(
             insets: WindowInsetsCompat,
-            runningAnimations: List<WindowInsetsAnimationCompat>
+            runningAnimations: MutableList<WindowInsetsAnimationCompat>
         ): WindowInsetsCompat {
             val imeAnim = runningAnimations.firstOrNull { (it.typeMask and WindowInsetsCompat.Type.ime()) != 0 }
             if (imeAnim != null) {
                 val imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime())
                 val navInsets = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
                 val physicalImePx = (imeInsets.bottom - navInsets.bottom).coerceAtLeast(0).toFloat()
-                val gen = transitionCoordinator.currentTransition.generation
-                transitionCoordinator.updatePhysicalObstruction(physicalImePx, generation = gen)
+                val targetGen = if (activeInsetsAnimGeneration != 0L) activeInsetsAnimGeneration else transitionCoordinator.currentTransition.generation
+                transitionCoordinator.updatePhysicalObstruction(physicalImePx, generation = targetGen)
                 liveImeHeightPx = physicalImePx
             }
             return insets
@@ -271,6 +273,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     notifyImePhysicallyDismissed()
                 }
                 wasImeVisibleBeforeAnimation = false
+                activeInsetsAnimGeneration = 0L
             }
         }
     }
@@ -593,6 +596,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     internal val scrollCoordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator().apply {
         onScrollBy = { delta ->
             scrollCanvasBy(delta)
+        }
+        onCompensationConsumed = { downPx ->
+            transitionCoordinator.consumeAppliedMovement(downPx)
         }
     }
 
@@ -2038,10 +2044,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             ) {
                 isPredictiveGlideRunning = false
                 targetPredictedScrollTotal = -1f
-                val currentScrollNow = (scrollD + editor.offsetY).toFloat()
-                val actualConsumed = (currentScrollNow - preAnimationScroll).coerceAtLeast(0f)
-                if (isExpansionTransitionActive && actualConsumed > 0f) {
-                    recordExpansionDisplacement(actualConsumed, line, col, cursor?.isSelected == true)
+                if (isExpansionTransitionActive) {
+                    val cur = try { editor.cursor } catch (_: Throwable) { null }
+                    scrollCoordinator.setCompensationAnchor(line, col, line, col, cur?.isSelected == true)
                 }
                 checkKeyboardTransactionSettled()
             }
@@ -2194,11 +2199,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     interpolator = FastOutSlowInInterpolator
                 ) {
                     if (isExpansionTransitionActive) {
-                        val currentScrollNow = (scrollD + editor.offsetY).toFloat()
-                        val actualConsumed = (currentScrollNow - preAnimationScroll).coerceAtLeast(0f)
-                        if (actualConsumed > 0f) {
-                            recordExpansionDisplacement(actualConsumed, line, col, cursor.isSelected)
-                        }
+                        scrollCoordinator.setCompensationAnchor(line, col, line, col, cursor.isSelected)
                     }
                 }
             } else {
@@ -2318,14 +2319,28 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
     }
 
+    private var fractionalHeightAccumulatorPx: Int = 0
+    private var lastAccumulatedGeneration: Long = 0L
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         topEdgeEffect?.setSize(w, h)
         if (oldw > 0 && kotlin.math.abs(w - oldw) > 2) {
             post { if (isAttachedToWindow) updatePersistentBottomClearance() }
         }
-        if (oldh > 0 && kotlin.math.abs(h - oldh) > 2) {
-            val dh = oldh - h
+        if (oldh > 0) {
+            val currentGen = transitionCoordinator.currentTransition.generation
+            if (lastAccumulatedGeneration != currentGen) {
+                lastAccumulatedGeneration = currentGen
+                fractionalHeightAccumulatorPx = 0
+            }
+            val frameDelta = oldh - h
+            fractionalHeightAccumulatorPx += frameDelta
+
+            if (kotlin.math.abs(fractionalHeightAccumulatorPx) > 2 ||
+                transitionCoordinator.activePhase == ScribeBottomSurfaceCoordinator.TransitionPhase.SETTLED) {
+                val dh = fractionalHeightAccumulatorPx
+                fractionalHeightAccumulatorPx = 0
             val currentObstruction = (liveImeHeightPx + liveDrawerHeightPx + (if (isKeyboardVisible || isBottomSurfaceActive) shortcutBarHeightPx else 0f)).coerceAtLeast(0f)
             val isScribeOwnedBottomSurface = hasWindowFocus() && (
                 isKeyboardTransactionActive ||
@@ -2408,10 +2423,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                                             reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
                                             durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
                                         ) {
-                                            val currentScrollNow = (scrollD + editor.offsetY).toFloat()
-                                            val actualConsumed = (currentScrollNow - preAnimationScroll).coerceAtLeast(0f)
-                                            if (isExpansionTransitionActive && actualConsumed > 0f) {
-                                                recordExpansionDisplacement(actualConsumed, targetLine, targetCol, cur.isSelected)
+                                            if (isExpansionTransitionActive) {
+                                                scrollCoordinator.setCompensationAnchor(targetLine, targetCol, targetLine, targetCol, cur.isSelected)
                                             }
                                         }
                                     }
@@ -2457,7 +2470,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     isScribeOwner = isScribeOwnedBottomSurface,
                     isTerminalDismissal = currentTx.isTerminalDismissal,
                     transitionGeneration = currentTx.generation,
-                    linkedExpansionGeneration = currentTx.linkedExpansionGeneration
+                    linkedExpansionGeneration = currentTx.linkedExpansionGeneration,
+                    expectedGeneration = currentTx.generation
                 )
                 val authResult = ScribeScrollPolicy.authorizeContractionRestoration(authRequest)
 
@@ -2502,8 +2516,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 contractionAccumulatedDeltaPx = 0f
 
                 pendingRestorationRunnable?.let { removeCallbacks(it) }
+                val scheduledGen = currentTx.generation
                 val performRestoration: () -> Unit = {
                     pendingRestorationRunnable = null
+                    if (transitionCoordinator.currentTransition.generation != scheduledGen) {
+                        return@performRestoration
+                    }
                     val cur = try { editor.cursor } catch (_: Throwable) { null }
                     val lay = editor.layout
                     if (lay != null) {
@@ -2547,6 +2565,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 }
                 previousBottomObstructionPx = curObstruction
             }
+        }
         }
     }
 
