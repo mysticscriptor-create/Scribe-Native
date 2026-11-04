@@ -106,7 +106,9 @@ object ScribeBottomSurfaceCoordinator {
         val anchorColumn: Int = 0,
         val selectionRange: SelectionRange = SelectionRange(),
         val isAnchorValid: Boolean = false
-    )
+    ) {
+        val temporaryDisplacementPx: Float get() = remainingDisplacement
+    }
 
     /**
      * Authoritative bottom-surface transition representation.
@@ -114,12 +116,16 @@ object ScribeBottomSurfaceCoordinator {
     data class BottomSurfaceTransition(
         val transitionId: Long = 0L,
         val generation: Long = 0L,
+        val linkedExpansionGeneration: Long = 0L,
         val type: TransitionType = TransitionType.NONE,
         val phase: TransitionPhase = TransitionPhase.IDLE,
         val geometry: BottomSurfaceGeometry = BottomSurfaceGeometry(),
         val compensation: ExpansionCompensation = ExpansionCompensation(),
         val preservedScroll: Int? = null
     ) {
+        val transitionType: TransitionType get() = type
+        val targetObstructionPx: Float get() = geometry.targetObstructionPx
+        val initialObstructionPx: Float get() = geometry.startingObstructionPx
         val isValid: Boolean get() = phase != TransitionPhase.CANCELLED && phase != TransitionPhase.COMPLETED
         val isTerminalDismissal: Boolean get() = type == TransitionType.TERMINAL_KEYBOARD_DISMISSAL
         val isContraction: Boolean get() = type == TransitionType.KEYBOARD_CONTRACTION || type == TransitionType.DRAWER_CONTRACTION
@@ -140,49 +146,71 @@ object ScribeBottomSurfaceCoordinator {
 
         val activeType: TransitionType get() = currentTransition.type
         val activePhase: TransitionPhase get() = currentTransition.phase
+        val isTerminalDismissalInFlight: Boolean get() = currentTransition.isTerminalDismissal && (currentTransition.phase == TransitionPhase.STARTING || currentTransition.phase == TransitionPhase.IN_FLIGHT)
+        fun isTerminalDismissalInFlight(): Boolean = isTerminalDismissalInFlight
+        val isTerminalDismissalSettled: Boolean get() = currentTransition.isTerminalDismissal && currentTransition.phase == TransitionPhase.SETTLED
+        val isTerminalDismissalLockActive: Boolean get() = isTerminalDismissalInFlight
         val isTerminalDismissalActive: Boolean get() = currentTransition.isTerminalDismissal && currentTransition.isValid
-        val isContractionActive: Boolean get() = currentTransition.isContraction && currentTransition.isValid
+        val isContractionActive: Boolean get() = currentTransition.isContraction && (currentTransition.phase == TransitionPhase.STARTING || currentTransition.phase == TransitionPhase.IN_FLIGHT || currentTransition.phase == TransitionPhase.SETTLED)
         val preservedDismissalScroll: Int? get() = currentTransition.preservedScroll
 
         fun startTransition(
             type: TransitionType,
-            startingObstructionPx: Float,
-            targetObstructionPx: Float,
-            compactBaselinePx: Float,
+            startingObstructionPx: Float = 0f,
+            targetObstructionPx: Float = 0f,
+            compactBaselinePx: Float = targetObstructionPx,
             viewportHeightPx: Int = 0,
-            preservedScroll: Int? = null
-        ): BottomSurfaceTransition {
+            preservedScroll: Int? = null,
+            initialObstructionPx: Float = startingObstructionPx,
+            linkedGeneration: Long = 0L
+        ): Long {
             generationCounter++
+            val effectiveStartingPx = if (startingObstructionPx != 0f) startingObstructionPx else initialObstructionPx
+            val linkedGen = if (linkedGeneration != 0L) {
+                linkedGeneration
+            } else if (type == TransitionType.KEYBOARD_CONTRACTION && currentTransition.type == TransitionType.KEYBOARD_EXPANDED) {
+                currentTransition.generation
+            } else if (type == TransitionType.DRAWER_CONTRACTION && (currentTransition.type == TransitionType.DRAWER_EXPANSION || currentTransition.type == TransitionType.DRAWER_OPENING)) {
+                currentTransition.generation
+            } else {
+                0L
+            }
+
+            val inheritedCompensation = if (linkedGen != 0L) {
+                currentTransition.compensation
+            } else {
+                ExpansionCompensation()
+            }
+
             val tx = BottomSurfaceTransition(
                 transitionId = System.nanoTime(),
                 generation = generationCounter,
+                linkedExpansionGeneration = linkedGen,
                 type = type,
                 phase = TransitionPhase.STARTING,
                 geometry = BottomSurfaceGeometry(
-                    startingObstructionPx = startingObstructionPx,
+                    startingObstructionPx = effectiveStartingPx,
                     targetObstructionPx = targetObstructionPx,
-                    currentObstructionPx = startingObstructionPx,
+                    currentObstructionPx = effectiveStartingPx,
                     compactBaselinePx = compactBaselinePx,
                     physicalViewportHeightPx = viewportHeightPx
                 ),
-                compensation = if (type == TransitionType.KEYBOARD_CONTRACTION || type == TransitionType.DRAWER_CONTRACTION) {
-                    currentTransition.compensation
-                } else {
-                    ExpansionCompensation()
-                },
+                compensation = inheritedCompensation,
                 preservedScroll = preservedScroll
             )
             currentTransition = tx
-            return tx
+            return generationCounter
         }
 
-        fun markInFlight(): BottomSurfaceTransition {
+        fun markInFlight(generation: Long? = null): BottomSurfaceTransition {
+            if (generation != null && generation != currentTransition.generation) return currentTransition
             val tx = currentTransition.copy(phase = TransitionPhase.IN_FLIGHT)
             currentTransition = tx
             return tx
         }
 
-        fun updatePhysicalObstruction(currentPx: Float): BottomSurfaceTransition {
+        fun updatePhysicalObstruction(currentPx: Float, generation: Long? = null): BottomSurfaceTransition {
+            if (generation != null && generation != currentTransition.generation) return currentTransition
             val tx = currentTransition.copy(
                 geometry = currentTransition.geometry.copy(currentObstructionPx = currentPx),
                 phase = if (currentTransition.phase == TransitionPhase.STARTING) TransitionPhase.IN_FLIGHT else currentTransition.phase
@@ -191,7 +219,8 @@ object ScribeBottomSurfaceCoordinator {
             return tx
         }
 
-        fun updateTargetObstruction(targetPx: Float): BottomSurfaceTransition {
+        fun updateTargetObstruction(targetPx: Float, generation: Long? = null): BottomSurfaceTransition {
+            if (generation != null && generation != currentTransition.generation) return currentTransition
             val tx = currentTransition.copy(
                 geometry = currentTransition.geometry.copy(targetObstructionPx = targetPx)
             )
@@ -200,13 +229,17 @@ object ScribeBottomSurfaceCoordinator {
         }
 
         fun recordExpansionDisplacement(
-            amountPx: Float,
-            anchorLine: Int,
-            anchorCol: Int,
-            selectionRange: SelectionRange
-        ): BottomSurfaceTransition {
+            generation: Long? = null,
+            displacementPx: Float = 0f,
+            anchorLine: Int = -1,
+            anchorCol: Int = 0,
+            amountPx: Float = displacementPx,
+            selectionRange: SelectionRange = SelectionRange(anchorLine, anchorCol, anchorLine, anchorCol)
+        ): Long {
+            if (generation != null && generation != currentTransition.generation) return currentTransition.generation
+            val effectiveAmount = if (amountPx > 0f) amountPx else displacementPx
             val prevDisp = currentTransition.compensation.recordedDisplacement
-            val newDisp = prevDisp + amountPx.coerceAtLeast(0f)
+            val newDisp = prevDisp + effectiveAmount.coerceAtLeast(0f)
             val tx = currentTransition.copy(
                 compensation = ExpansionCompensation(
                     recordedDisplacement = newDisp,
@@ -218,22 +251,40 @@ object ScribeBottomSurfaceCoordinator {
                 )
             )
             currentTransition = tx
-            return tx
+            return currentTransition.generation
         }
 
-        fun consumeAppliedMovement(appliedDownPx: Float): Float {
+        fun recordExpansionDisplacement(
+            amountPx: Float,
+            anchorLine: Int,
+            anchorCol: Int,
+            selectionRange: SelectionRange
+        ): Long {
+            return recordExpansionDisplacement(
+                generation = currentTransition.generation,
+                displacementPx = amountPx,
+                anchorLine = anchorLine,
+                anchorCol = anchorCol,
+                amountPx = amountPx,
+                selectionRange = selectionRange
+            )
+        }
+
+        fun consumeAppliedMovement(appliedDownPx: Float, generation: Long? = null): Float {
+            if (generation != null && generation != currentTransition.generation) return currentTransition.compensation.remainingDisplacement
             val comp = currentTransition.compensation
             val remaining = (comp.remainingDisplacement - appliedDownPx.coerceAtLeast(0f)).coerceAtLeast(0f)
             currentTransition = currentTransition.copy(
                 compensation = comp.copy(
                     remainingDisplacement = remaining,
-                    isAnchorValid = remaining > 0f && comp.isAnchorValid
+                    isAnchorValid = remaining > 0.5f && comp.isAnchorValid
                 )
             )
             return remaining
         }
 
-        fun rebaseCompensation(safeSlackPx: Float) {
+        fun rebaseCompensation(safeSlackPx: Float, generation: Long? = null) {
+            if (generation != null && generation != currentTransition.generation) return
             val comp = currentTransition.compensation
             val bounded = minOf(comp.remainingDisplacement, maxOf(0f, safeSlackPx))
             currentTransition = currentTransition.copy(
@@ -244,24 +295,53 @@ object ScribeBottomSurfaceCoordinator {
             )
         }
 
-        fun updateAnchorColumn(newCol: Int) {
+        fun updateAnchorColumn(newColumn: Int = 0, newCol: Int = newColumn, generation: Long? = null) {
+            if (generation != null && generation != currentTransition.generation) return
+            val effectiveCol = if (newColumn != 0) newColumn else newCol
             val comp = currentTransition.compensation
             if (comp.isAnchorValid) {
                 currentTransition = currentTransition.copy(
-                    compensation = comp.copy(anchorColumn = newCol)
+                    compensation = comp.copy(anchorColumn = effectiveCol)
                 )
             }
         }
 
-        fun invalidateCompensation(reason: String? = null) {
+        fun notifySelectionChanged(
+            startLine: Int,
+            startCol: Int,
+            endLine: Int = startLine,
+            endCol: Int = startCol,
+            isSelected: Boolean = false,
+            generation: Long? = null
+        ) {
+            if (generation != null && generation != currentTransition.generation) return
+            val comp = currentTransition.compensation
+            if (!comp.isAnchorValid) return
+            if (isSelected) {
+                if (startLine != endLine || comp.anchorLine != startLine) {
+                    invalidateCompensation("Selection changed", generation)
+                }
+            } else {
+                if (comp.anchorLine != startLine) {
+                    invalidateCompensation("Caret line changed from ${comp.anchorLine} to $startLine", generation)
+                }
+            }
+        }
+
+        fun invalidateCompensation(reason: String? = null, generation: Long? = null) {
+            if (generation != null && generation != currentTransition.generation) return
             currentTransition = currentTransition.copy(
                 compensation = ExpansionCompensation(isAnchorValid = false)
             )
         }
 
-        fun startTerminalDismissal(scrollPos: Int): BottomSurfaceTransition {
+        fun startTerminalDismissal(
+            scrollPos: Int,
+            generation: Long? = null
+        ): Long {
+            if (generation != null && generation != currentTransition.generation) return currentTransition.generation
             if (isTerminalDismissalActive && currentTransition.preservedScroll != null) {
-                return currentTransition // Idempotent: don't overwrite saved scroll
+                return currentTransition.generation // Idempotent: don't overwrite saved scroll
             }
             generationCounter++
             val tx = BottomSurfaceTransition(
@@ -277,28 +357,34 @@ object ScribeBottomSurfaceCoordinator {
                 preservedScroll = scrollPos
             )
             currentTransition = tx
-            return tx
+            return generationCounter
         }
 
-        fun startDrawerDismissal(scrollPos: Int? = null): BottomSurfaceTransition {
+        fun startDrawerDismissal(
+            currentScroll: Int? = null,
+            initialObstructionPx: Float = 0f,
+            scrollPos: Int? = currentScroll
+        ): Long {
             generationCounter++
+            val effectiveScroll = scrollPos ?: currentScroll
+            val startingObstruction = if (initialObstructionPx > 0f) initialObstructionPx else currentTransition.geometry.currentObstructionPx
             val tx = BottomSurfaceTransition(
                 transitionId = System.nanoTime(),
                 generation = generationCounter,
                 type = TransitionType.DRAWER_DISMISSAL,
                 phase = TransitionPhase.IN_FLIGHT,
                 geometry = currentTransition.geometry.copy(
-                    startingObstructionPx = currentTransition.geometry.currentObstructionPx,
+                    startingObstructionPx = startingObstruction,
                     targetObstructionPx = 0f
                 ),
                 compensation = ExpansionCompensation(isAnchorValid = false),
-                preservedScroll = scrollPos
+                preservedScroll = effectiveScroll
             )
             currentTransition = tx
-            return tx
+            return generationCounter
         }
 
-        fun startHandoff(startingObstructionPx: Float, targetObstructionPx: Float): BottomSurfaceTransition {
+        fun startHandoff(startingObstructionPx: Float, targetObstructionPx: Float): Long {
             generationCounter++
             val tx = BottomSurfaceTransition(
                 transitionId = System.nanoTime(),
@@ -314,24 +400,33 @@ object ScribeBottomSurfaceCoordinator {
                 compensation = ExpansionCompensation(isAnchorValid = false)
             )
             currentTransition = tx
-            return tx
+            return generationCounter
         }
 
-        fun onSurfacePhysicallySettled(): BottomSurfaceTransition {
+        fun onSurfacePhysicallySettled(generation: Long? = null): BottomSurfaceTransition {
+            if (generation != null && generation != currentTransition.generation) return currentTransition
             val tx = currentTransition.copy(phase = TransitionPhase.SETTLED)
             currentTransition = tx
             return tx
         }
 
-        fun completeTransition(): BottomSurfaceTransition {
-            val tx = currentTransition.copy(phase = TransitionPhase.COMPLETED)
+        fun completeTransition(generation: Long? = null): BottomSurfaceTransition {
+            if (generation != null && generation != currentTransition.generation) return currentTransition
+            val tx = currentTransition.copy(
+                phase = TransitionPhase.COMPLETED,
+                preservedScroll = null
+            )
             currentTransition = tx
             return tx
         }
 
-        fun cancelTransition(reason: String? = null): BottomSurfaceTransition {
+        fun cancelTransition(reason: String? = null, generation: Long? = null): BottomSurfaceTransition {
+            if (generation != null && generation != currentTransition.generation) return currentTransition
             generationCounter++
-            val tx = currentTransition.copy(phase = TransitionPhase.CANCELLED)
+            val tx = currentTransition.copy(
+                phase = TransitionPhase.CANCELLED,
+                preservedScroll = null
+            )
             currentTransition = tx
             return tx
         }
