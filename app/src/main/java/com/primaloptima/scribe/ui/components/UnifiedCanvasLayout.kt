@@ -256,7 +256,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime())
                 val navInsets = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
                 val physicalImePx = (imeInsets.bottom - navInsets.bottom).coerceAtLeast(0).toFloat()
-                transitionCoordinator.updatePhysicalObstruction(physicalImePx)
+                val gen = transitionCoordinator.currentTransition.generation
+                transitionCoordinator.updatePhysicalObstruction(physicalImePx, generation = gen)
                 liveImeHeightPx = physicalImePx
             }
             return insets
@@ -380,12 +381,21 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     fun notifyHandoffCompleted() {
         if (transitionCoordinator.activeType == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_TO_KEYBOARD_HANDOFF) {
-            transitionCoordinator.completeTransition()
+            val gen = transitionCoordinator.currentTransition.generation
+            transitionCoordinator.completeTransition(gen)
+        }
+    }
+
+    fun notifyDrawerDismissalCompleted() {
+        if (transitionCoordinator.activeType == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_DISMISSAL) {
+            val gen = transitionCoordinator.currentTransition.generation
+            transitionCoordinator.completeTransition(gen)
         }
     }
 
     fun notifyImePhysicallyDismissed() {
-        transitionCoordinator.onSurfacePhysicallySettled()
+        val gen = transitionCoordinator.currentTransition.generation
+        transitionCoordinator.onSurfacePhysicallySettled(gen)
         post {
             reconcileDismissalLayoutSettled()
         }
@@ -393,7 +403,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     fun completeTerminalDismissal() {
         val preserved = transitionCoordinator.preservedDismissalScroll
-        transitionCoordinator.completeTransition()
+        val gen = transitionCoordinator.currentTransition.generation
+        transitionCoordinator.completeTransition(gen)
         if (preserved != null && preserved > naturalMaxCanvasScroll) {
             genericRetainedScroll = preserved
         }
@@ -779,6 +790,28 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
     }
 
+    fun notifySelectionChangedWithProvenance(
+        startLine: Int,
+        startCol: Int,
+        endLine: Int = startLine,
+        endCol: Int = startCol,
+        selected: Boolean = false,
+        provenance: ScribeScrollPolicy.InteractionProvenance = ScribeScrollPolicy.InteractionProvenance.TEXT_INPUT
+    ) {
+        scrollCoordinator.notifySelectionChangedWithProvenance(
+            startLine = startLine,
+            startCol = startCol,
+            endLine = endLine,
+            endCol = endCol,
+            selected = selected,
+            provenance = provenance
+        )
+        if (!scrollCoordinator.isAnchorValid) {
+            val gen = transitionCoordinator.currentTransition.generation
+            transitionCoordinator.invalidateCompensation("Selection changed: provenance ", generation = gen)
+        }
+    }
+
     fun notifySelectionChanged(
         leftLine: Int,
         leftCol: Int,
@@ -786,16 +819,19 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         rightCol: Int,
         isSelected: Boolean
     ) {
-        scrollCoordinator.invalidateIfSelectionEndpointsChanged(
+        val provenance = if (isTouchOnHandleActive || isAnyHandleActive) {
+            ScribeScrollPolicy.InteractionProvenance.HANDLE_DRAG
+        } else {
+            ScribeScrollPolicy.InteractionProvenance.PROGRAMMATIC
+        }
+        notifySelectionChangedWithProvenance(
             startLine = leftLine,
             startCol = leftCol,
             endLine = rightLine,
             endCol = rightCol,
-            selected = isSelected
+            selected = isSelected,
+            provenance = provenance
         )
-        if (!scrollCoordinator.isAnchorValid) {
-            transitionCoordinator.invalidateCompensation("Selection endpoints changed")
-        }
     }
 
     fun updateExpansionCaretColumn(newCol: Int) {
@@ -2004,7 +2040,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 targetPredictedScrollTotal = -1f
                 val currentScrollNow = (scrollD + editor.offsetY).toFloat()
                 val actualConsumed = (currentScrollNow - preAnimationScroll).coerceAtLeast(0f)
-                if (actualConsumed > 0f) {
+                if (isExpansionTransitionActive && actualConsumed > 0f) {
                     recordExpansionDisplacement(actualConsumed, line, col, cursor?.isSelected == true)
                 }
                 checkKeyboardTransactionSettled()
@@ -2374,7 +2410,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                                         ) {
                                             val currentScrollNow = (scrollD + editor.offsetY).toFloat()
                                             val actualConsumed = (currentScrollNow - preAnimationScroll).coerceAtLeast(0f)
-                                            if (actualConsumed > 0f) {
+                                            if (isExpansionTransitionActive && actualConsumed > 0f) {
                                                 recordExpansionDisplacement(actualConsumed, targetLine, targetCol, cur.isSelected)
                                             }
                                         }
@@ -2781,6 +2817,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     // Confirmed intentional drag stops competing automatic movement
                     cancelRestoration()
                     cancelCanvasAnimation()
+                    invalidateCompensation("Confirmed manual document drag")
                     scrollCanvasBy(dy)
                     return true
                 }
@@ -2858,6 +2895,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     isDraggingCanvas = true
                     lastTouchX = ev.x
                     lastTouchY = ev.y
+                    cancelRestoration()
+                    cancelCanvasAnimation()
+                    invalidateCompensation("Confirmed manual document drag")
                     parent?.requestDisallowInterceptTouchEvent(true)
                     return true
                 }

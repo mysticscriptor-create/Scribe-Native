@@ -7638,4 +7638,67 @@ class CursorAndCanvasGeometryTest {
         assertFalse("Drawer dismissal must NEVER flag terminal keyboard dismissal", coordinator.isTerminalDismissalInFlight())
         assertNull("Drawer dismissal must not latch preservedDismissalScroll as keyboard freeze", coordinator.preservedDismissalScroll)
     }
+
+    @Test
+    fun testContractionAuthorization_RejectsIncreasingPhysicalObstruction() {
+        val request = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            transitionPhase = ScribeBottomSurfaceCoordinator.TransitionPhase.IN_FLIGHT,
+            startingObstructionPx = 1000f,
+            targetObstructionPx = 600f,
+            currentObstructionPx = 1100f,
+            compactBaselinePx = 600f,
+            recordedExpansionDisplacement = 200f,
+            remainingCompensation = 200f,
+            isAnchorValid = true,
+            hasWindowFocus = true,
+            isScribeOwner = true,
+            isTerminalDismissal = false
+        )
+        val result = ScribeScrollPolicy.authorizeContractionRestoration(request)
+        assertFalse("Increasing physical obstruction must be rejected as contraction", result.isAuthorized)
+        assertEquals("Rejection reason must flag increasing obstruction", "Physical obstruction is increasing, not contracting", result.rejectionReason)
+    }
+
+    @Test
+    fun testManualTapPlacementOnSameLine_InvalidatesCompensation() {
+        val scrollCoord = ScribeScrollPolicy.AuthoritativeScrollCoordinator()
+        scrollCoord.recordExpansionDisplacement(140f, anchorLine = 20, anchorCol = 8)
+        assertTrue("Anchor initially valid", scrollCoord.isAnchorValid)
+
+        // Same-line text input advances column from 8 to 12 -> preserved
+        scrollCoord.notifySelectionChangedWithProvenance(
+            startLine = 20,
+            startCol = 12,
+            endLine = 20,
+            endCol = 12,
+            selected = false,
+            provenance = ScribeScrollPolicy.InteractionProvenance.TEXT_INPUT
+        )
+        assertTrue("Typing on same line preserves anchor", scrollCoord.isAnchorValid)
+        assertEquals("Displacement intact", 140f, scrollCoord.temporaryDisplacement, 0.001f)
+
+        // Manual tap elsewhere on the same line (e.g. col 3) -> invalidated
+        scrollCoord.notifySelectionChangedWithProvenance(
+            startLine = 20,
+            startCol = 3,
+            endLine = 20,
+            endCol = 3,
+            selected = false,
+            provenance = ScribeScrollPolicy.InteractionProvenance.MANUAL_TAP
+        )
+        assertFalse("Manual tap on same line invalidates anchor", scrollCoord.isAnchorValid)
+        assertEquals("Displacement zeroed", 0f, scrollCoord.temporaryDisplacement, 0.001f)
+    }
+
+    @Test
+    fun testHandoffCompletion_TransitionsHandoffToCompleted() {
+        val coordinator = ScribeBottomSurfaceCoordinator.BottomSurfaceTransitionCoordinator()
+        val gen = coordinator.startHandoff(startingObstructionPx = 400f, targetObstructionPx = 600f)
+        assertEquals("Transition type must be DRAWER_TO_KEYBOARD_HANDOFF", ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_TO_KEYBOARD_HANDOFF, coordinator.currentTransition.type)
+        assertEquals("Phase in flight", ScribeBottomSurfaceCoordinator.TransitionPhase.IN_FLIGHT, coordinator.currentTransition.phase)
+
+        coordinator.completeTransition(gen)
+        assertEquals("Phase completed", ScribeBottomSurfaceCoordinator.TransitionPhase.COMPLETED, coordinator.currentTransition.phase)
+    }
 }

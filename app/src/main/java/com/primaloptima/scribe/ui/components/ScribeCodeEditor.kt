@@ -250,12 +250,18 @@ class ScribeCodeEditor @JvmOverloads constructor(
         try {
             subscribeEvent(io.github.rosemoe.sora.event.SelectionChangeEvent::class.java) { _, _ ->
                 val cur = try { cursor } catch (_: Throwable) { null } ?: return@subscribeEvent
-                (parent as? UnifiedCanvasLayout)?.notifySelectionChanged(
-                    leftLine = cur.leftLine,
-                    leftCol = cur.leftColumn,
-                    rightLine = cur.rightLine,
-                    rightCol = cur.rightColumn,
-                    isSelected = cur.isSelected
+                val provenance = when {
+                    isHandleDragging -> com.primaloptima.scribe.ui.components.ScribeScrollPolicy.InteractionProvenance.HANDLE_DRAG
+                    pendingCorrectionOrigin == com.primaloptima.scribe.ui.components.ScribeScrollPolicy.CursorCorrectionOrigin.TAP_PLACEMENT -> com.primaloptima.scribe.ui.components.ScribeScrollPolicy.InteractionProvenance.MANUAL_TAP
+                    else -> com.primaloptima.scribe.ui.components.ScribeScrollPolicy.InteractionProvenance.PROGRAMMATIC
+                }
+                (parent as? UnifiedCanvasLayout)?.notifySelectionChangedWithProvenance(
+                    startLine = cur.leftLine,
+                    startCol = cur.leftColumn,
+                    endLine = cur.rightLine,
+                    endCol = cur.rightColumn,
+                    selected = cur.isSelected,
+                    provenance = provenance
                 )
                 if (!cur.isSelected && cur.leftLine < text.lineCount) {
                     enforceAutoIndentFloor()
@@ -392,16 +398,23 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
                         if (hasNewlineInText || spansMultipleLines) {
                             // Structural newline edit: if edit is at or before anchor line, anchor position is shifted/split
-                            pCanvas.invalidateCompensation("Structural newline modification around anchor line $curAnchorLine (edit line $editLine)")
-                        } else if (editLine != -1 && curAnchorLine != -1 && editLine != curAnchorLine) {
-                            // Modification occurred on a different line while compensation is active
-                            pCanvas.invalidateCompensation("Edit occurred on line $editLine while anchor was on line $curAnchorLine")
+                            if (editLine != -1 && curAnchorLine != -1 && editLine <= curAnchorLine) {
+                                pCanvas.invalidateCompensation("Structural newline modification around anchor line $curAnchorLine (edit line $editLine)")
+                            }
+                        } else if (editLine != -1 && curAnchorLine != -1 && editLine < curAnchorLine) {
+                            // Single-line edit strictly above anchor line: does not change logical anchor line
+                        } else if (editLine != -1 && curAnchorLine != -1 && editLine > curAnchorLine) {
+                            // Single-line edit strictly below anchor line: anchor is unaffected
                         } else {
                             // Same-line ordinary typing, emoji insertion, single-line deletion or replacement:
                             // Logical line identity is fully preserved!
                             val cur = try { cursor } catch (_: Throwable) { null }
                             if (cur != null && !cur.isSelected) {
-                                pCanvas.updateExpansionCaretColumn(cur.leftColumn)
+                                pCanvas.notifySelectionChangedWithProvenance(
+                                    startLine = cur.leftLine,
+                                    startCol = cur.leftColumn,
+                                    provenance = com.primaloptima.scribe.ui.components.ScribeScrollPolicy.InteractionProvenance.TEXT_INPUT
+                                )
                             }
                         }
                     }

@@ -893,8 +893,9 @@ fun MainEditorScreen(
     }
     BackHandler(enabled = activeCardPreview == null && previewItem == null && !isWritingBarSearchActive && activeAccessoryDrawer != null) {
         if (drawerState != AccessoryDrawerState.COMPACT) {
-            val targetCompactPx = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.ACCESSORY_DRAWER_DEFAULT_HEIGHT_DP * density.density
-            unifiedCanvasRef?.notifyDrawerContractionStarting(targetCompactPx)
+            val startPx = drawerHeightController.currentDisplayedHeightDp * density.density
+            val targetCompactPx = drawerHeightController.compactHeightDp * density.density
+            unifiedCanvasRef?.notifyDrawerContractionStarting(startPx, targetCompactPx)
             drawerState = AccessoryDrawerState.COMPACT
             drawerHeightController.animateToState(AccessoryDrawerState.COMPACT)
         } else {
@@ -1365,6 +1366,8 @@ fun MainEditorScreen(
                 try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
                 activeAccessoryDrawer = targetMode
                 drawerState = AccessoryDrawerState.COMPACT
+                val openCompactPx = drawerHeightController.compactHeightDp * density.density
+                unifiedCanvasRef?.notifyDrawerOpeningStarting(openCompactPx)
                 presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.reduce(
                     presentationState,
                     com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationEvent.DrawerOpened(targetMode.name)
@@ -1413,6 +1416,10 @@ fun MainEditorScreen(
             val isPhysicallySettled = targetImePx > 0 && com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isImeAtTarget(targetImePx, curImePx)
             val isPhysicallyDismissed = curImePx <= com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX
 
+            if (!hasDrawer && displayedDrawerH <= 0.01f) {
+                unifiedCanvasRef?.notifyDrawerDismissalCompleted()
+            }
+
             if (hasDrawer) {
                 if (presentationState != com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN) {
                     presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.reduce(
@@ -1451,6 +1458,8 @@ fun MainEditorScreen(
                         com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationEvent.HandoffCompleted
                     )
                     transitionalSpacerDp = 0.dp
+                    handoffExplicitProgress = null
+                    unifiedCanvasRef?.notifyHandoffCompleted()
                     handoffExplicitProgress = null
 
                     val imeAboveNavPx = (curImePx - navBottomPx).coerceAtLeast(0)
@@ -1517,6 +1526,23 @@ fun MainEditorScreen(
                                 presentationState,
                                 com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationEvent.ImeTargetChanged(targetImePx, curImePx)
                             )
+                        } else if (hasWindowFocus && !hasDrawer) {
+                            val standardBasePx = lastKeyboardHeightDp.value * density.density
+                            val curImePxVal = (curImePx - navBottomPx).coerceAtLeast(0).toFloat()
+                            val targetImePxVal = (targetImePx - navBottomPx).coerceAtLeast(0).toFloat()
+                            if (targetImePxVal > standardBasePx + 20f * density.density) {
+                                unifiedCanvasRef?.notifyKeyboardExpansionStarting(
+                                    startingObstructionPx = curImePxVal,
+                                    targetObstructionPx = targetImePxVal,
+                                    standardBaselinePx = standardBasePx
+                                )
+                            } else if (curImePxVal > standardBasePx + 20f * density.density &&
+                                       kotlin.math.abs(targetImePxVal - standardBasePx) <= 20f * density.density) {
+                                unifiedCanvasRef?.notifyKeyboardContractionStarting(
+                                    startingObstructionPx = curImePxVal,
+                                    targetObstructionPx = standardBasePx
+                                )
+                            }
                         }
                     }
                 } else {
@@ -2910,14 +2936,30 @@ fun MainEditorScreen(
                                             drawerState = drawerState,
                                             onDrawerStateChange = { nextState ->
                                                 val oldState = drawerState
+                                                val startPx = drawerHeightController.currentDisplayedHeightDp * density.density
+                                                val targetCompactPx = drawerHeightController.compactHeightDp * density.density
+                                                if ((oldState == AccessoryDrawerState.FULL || oldState == AccessoryDrawerState.EXPANDED) &&
+                                                    nextState == AccessoryDrawerState.COMPACT) {
+                                                    unifiedCanvasRef?.notifyDrawerContractionStarting(startPx, targetCompactPx)
+                                                } else if (oldState == AccessoryDrawerState.COMPACT &&
+                                                    (nextState == AccessoryDrawerState.EXPANDED || nextState == AccessoryDrawerState.FULL)) {
+                                                    val targetExpandedPx = (if (nextState == AccessoryDrawerState.EXPANDED) drawerHeightController.expandedHeightDp else drawerHeightController.fullHeightDp) * density.density
+                                                    unifiedCanvasRef?.notifyDrawerExpansionStarting(
+                                                        startingObstructionPx = startPx,
+                                                        targetObstructionPx = targetExpandedPx,
+                                                        compactBaselinePx = targetCompactPx
+                                                    )
+                                                } else if (oldState == AccessoryDrawerState.EXPANDED && nextState == AccessoryDrawerState.FULL) {
+                                                    val targetFullPx = drawerHeightController.fullHeightDp * density.density
+                                                    unifiedCanvasRef?.notifyDrawerExpansionStarting(
+                                                        startingObstructionPx = startPx,
+                                                        targetObstructionPx = targetFullPx,
+                                                        compactBaselinePx = targetCompactPx
+                                                    )
+                                                }
                                                 drawerState = nextState
                                                 drawerHeightController.animateToState(nextState)
                                                 unifiedCanvasRef?.isBottomSurfaceActive = true
-                                                if ((oldState == AccessoryDrawerState.FULL || oldState == AccessoryDrawerState.EXPANDED) &&
-                                                    nextState == AccessoryDrawerState.COMPACT) {
-                                                    val targetCompactPx = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.ACCESSORY_DRAWER_DEFAULT_HEIGHT_DP * density.density
-                                                    unifiedCanvasRef?.notifyDrawerContractionStarting(targetCompactPx)
-                                                }
                                             },
                                             onDragStart = {
                                                 drawerHeightController.onDragStart()
@@ -2928,13 +2970,14 @@ fun MainEditorScreen(
                                             },
                                             onDragEndWithVelocity = { vyPx ->
                                                 val vyDp = vyPx / density.density
+                                                val startPx = drawerHeightController.currentDisplayedHeightDp * density.density
+                                                val targetCompactPx = drawerHeightController.compactHeightDp * density.density
                                                 drawerHeightController.onDragEndWithVelocity(vyDp) { targetState ->
                                                     val oldState = drawerState
                                                     drawerState = targetState
                                                     if ((oldState == AccessoryDrawerState.FULL || oldState == AccessoryDrawerState.EXPANDED) &&
                                                         targetState == AccessoryDrawerState.COMPACT) {
-                                                        val targetCompactPx = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.ACCESSORY_DRAWER_DEFAULT_HEIGHT_DP * density.density
-                                                        unifiedCanvasRef?.notifyDrawerContractionStarting(targetCompactPx)
+                                                        unifiedCanvasRef?.notifyDrawerContractionStarting(startPx, targetCompactPx)
                                                     }
                                                 }
                                             },

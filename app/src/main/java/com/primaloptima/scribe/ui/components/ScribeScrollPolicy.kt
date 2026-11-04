@@ -961,6 +961,14 @@ object ScribeScrollPolicy {
             return ContractionAuthorizationResult(false, rejectionReason = "Starting obstruction is not greater than target compact baseline")
         }
 
+        // 6b. Physical progress toward target baseline (Part 5.3):
+        val curObstruction = request.currentObstructionPx
+        if (curObstruction > 0f && startingObstruction > targetBaseline) {
+            if (curObstruction > startingObstruction + ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX) {
+                return ContractionAuthorizationResult(false, rejectionReason = "Physical obstruction is increasing, not contracting")
+            }
+        }
+
         // 7. Generation safety: if expected generation is specified, must match
         if (request.expectedGeneration != 0L && request.generation != 0L && request.generation != request.expectedGeneration) {
             return ContractionAuthorizationResult(false, rejectionReason = "Transition generation mismatch (stale callback)")
