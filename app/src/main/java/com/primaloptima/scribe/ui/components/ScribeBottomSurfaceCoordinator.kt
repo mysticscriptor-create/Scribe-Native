@@ -335,25 +335,29 @@ object ScribeBottomSurfaceCoordinator {
         }
 
         fun startTerminalDismissal(
-            scrollPos: Int,
-            generation: Long? = null
+            scrollPos: Int = 0,
+            generation: Long? = null,
+            currentScroll: Int? = null,
+            initialObstructionPx: Float = 0f
         ): Long {
             if (generation != null && generation != currentTransition.generation) return currentTransition.generation
             if (isTerminalDismissalActive && currentTransition.preservedScroll != null) {
                 return currentTransition.generation // Idempotent: don't overwrite saved scroll
             }
             generationCounter++
+            val effectiveScroll = currentScroll ?: scrollPos
+            val startingObstruction = if (initialObstructionPx > 0f) initialObstructionPx else currentTransition.geometry.currentObstructionPx
             val tx = BottomSurfaceTransition(
                 transitionId = System.nanoTime(),
                 generation = generationCounter,
                 type = TransitionType.TERMINAL_KEYBOARD_DISMISSAL,
                 phase = TransitionPhase.IN_FLIGHT,
                 geometry = currentTransition.geometry.copy(
-                    startingObstructionPx = currentTransition.geometry.currentObstructionPx,
+                    startingObstructionPx = startingObstruction,
                     targetObstructionPx = 0f
                 ),
                 compensation = ExpansionCompensation(isAnchorValid = false),
-                preservedScroll = scrollPos
+                preservedScroll = effectiveScroll
             )
             currentTransition = tx
             return generationCounter
@@ -400,6 +404,15 @@ object ScribeBottomSurfaceCoordinator {
             )
             currentTransition = tx
             return generationCounter
+        }
+
+        fun onSurfacePhysicallySettled(finalObstructionPx: Float): BottomSurfaceTransition {
+            val tx = currentTransition.copy(
+                phase = TransitionPhase.SETTLED,
+                geometry = currentTransition.geometry.copy(currentObstructionPx = finalObstructionPx)
+            )
+            currentTransition = tx
+            return tx
         }
 
         fun onSurfacePhysicallySettled(generation: Long? = null): BottomSurfaceTransition {
