@@ -146,10 +146,9 @@ object ScribeBottomSurfaceCoordinator {
 
         val activeType: TransitionType get() = currentTransition.type
         val activePhase: TransitionPhase get() = currentTransition.phase
-        val isTerminalDismissalInFlight: Boolean get() = currentTransition.isTerminalDismissal && (currentTransition.phase == TransitionPhase.STARTING || currentTransition.phase == TransitionPhase.IN_FLIGHT)
-        fun isTerminalDismissalInFlight(): Boolean = isTerminalDismissalInFlight
+        fun isTerminalDismissalInFlight(): Boolean = currentTransition.isTerminalDismissal && (currentTransition.phase == TransitionPhase.STARTING || currentTransition.phase == TransitionPhase.IN_FLIGHT)
         val isTerminalDismissalSettled: Boolean get() = currentTransition.isTerminalDismissal && currentTransition.phase == TransitionPhase.SETTLED
-        val isTerminalDismissalLockActive: Boolean get() = isTerminalDismissalInFlight
+        val isTerminalDismissalLockActive: Boolean get() = isTerminalDismissalInFlight()
         val isTerminalDismissalActive: Boolean get() = currentTransition.isTerminalDismissal && currentTransition.isValid
         val isContractionActive: Boolean get() = currentTransition.isContraction && (currentTransition.phase == TransitionPhase.STARTING || currentTransition.phase == TransitionPhase.IN_FLIGHT || currentTransition.phase == TransitionPhase.SETTLED)
         val preservedDismissalScroll: Int? get() = currentTransition.preservedScroll
