@@ -1397,7 +1397,9 @@ object ScribeScrollPolicy {
          * through actual applied downward movement (-actualMoved). Projected amounts
          * never decrement this counter.
          */
-        fun applyStep(newAnimatedScroll: Float, operationId: Long? = null): Float {
+        fun applyStep(newAnimatedScroll: Float): Float = applyStep(newAnimatedScroll, null)
+
+        fun applyStep(newAnimatedScroll: Float, operationId: Long?): Float {
             if (operationId != null && operationId != activeOperationId) return 0f
             if (!isAnimationActive) return 0f
             val stepDelta = newAnimatedScroll - lastAnimatedScroll
@@ -1444,7 +1446,7 @@ object ScribeScrollPolicy {
             return actualMoved
         }
 
-        fun applyStep(dt: Float): StepResult {
+        fun applyStep(dt: Float, isPhysicsStep: Boolean = true): StepResult {
             val step = (velocity * dt).coerceIn(-150f, 150f)
             totalScroll += step
             val actualMoved = step
@@ -1780,7 +1782,7 @@ object ScribeScrollPolicy {
         fun applyAnimationStep(fraction: Float) {
             if (!isRestorationActive) return
             val stepTarget = totalScroll + (targetTotalScroll - totalScroll) * fraction
-            val moved = coordinator.applyStep(stepTarget)
+            val moved = coordinator.applyStep(newAnimatedScroll = stepTarget)
             lastAppliedStep = moved
             totalScroll = coordinator.totalScroll
             temporaryDisplacement = coordinator.temporaryDisplacement
