@@ -65,14 +65,25 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         id = View.generateViewId()
     }
 
-    var preservedDismissalScroll: Int? = null
+    val transitionCoordinator = ScribeBottomSurfaceCoordinator.BottomSurfaceTransitionCoordinator()
 
-    var isKeyboardDismissing: Boolean = false
+    var preservedDismissalScroll: Int?
+        get() = transitionCoordinator.preservedDismissalScroll
         set(value) {
-            field = value
+            if (value != null) {
+                transitionCoordinator.startTerminalDismissal(value)
+            } else {
+                transitionCoordinator.completeTransition()
+            }
+        }
+
+    var isKeyboardDismissing: Boolean
+        get() = transitionCoordinator.isTerminalDismissalActive
+        set(value) {
             if (value) {
-                if (preservedDismissalScroll == null) {
-                    preservedDismissalScroll = scrollD + editor.offsetY
+                if (transitionCoordinator.preservedDismissalScroll == null) {
+                    val current = scrollD + editor.offsetY
+                    transitionCoordinator.startTerminalDismissal(current)
                 }
             } else {
                 checkAndClearPreservedDismissalScroll()
@@ -199,15 +210,110 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     /**
-     * Cancels any active viewport-owned safety animation when keyboard dismissal starts.
+     * Native IME transition observer detecting terminal IME dismissal at the earliest window/insets callback.
      */
-    fun notifyBottomSurfaceDismissalStarting() {
+    private val nativeInsetsAnimationCallback = object : WindowInsetsAnimationCompat.Callback(DISPATCH_MODE_STOP) {
+        override fun onPrepare(animation: WindowInsetsAnimationCompat) {
+            if ((animation.typeMask and WindowInsetsCompat.Type.ime()) != 0) {
+                val rootInsets = ViewCompat.getRootWindowInsets(this@UnifiedCanvasLayout)
+                val isImeVisible = rootInsets?.isVisible(WindowInsetsCompat.Type.ime()) == true
+                if (!isImeVisible) {
+                    notifyTerminalDismissalStarting()
+                }
+            }
+        }
+
+        override fun onStart(
+            animation: WindowInsetsAnimationCompat,
+            bounds: WindowInsetsAnimationCompat.BoundsCompat
+        ): WindowInsetsAnimationCompat.BoundsCompat {
+            if ((animation.typeMask and WindowInsetsCompat.Type.ime()) != 0) {
+                val rootInsets = ViewCompat.getRootWindowInsets(this@UnifiedCanvasLayout)
+                val isImeVisible = rootInsets?.isVisible(WindowInsetsCompat.Type.ime()) == true
+                if (!isImeVisible) {
+                    notifyTerminalDismissalStarting()
+                }
+            }
+            return super.onStart(animation, bounds)
+        }
+
+        override fun onEnd(animation: WindowInsetsAnimationCompat) {
+            if ((animation.typeMask and WindowInsetsCompat.Type.ime()) != 0) {
+                val rootInsets = ViewCompat.getRootWindowInsets(this@UnifiedCanvasLayout)
+                val isImeVisible = rootInsets?.isVisible(WindowInsetsCompat.Type.ime()) == true
+                if (!isImeVisible) {
+                    notifyImePhysicallyDismissed()
+                }
+            }
+        }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        try {
+            ViewCompat.setWindowInsetsAnimationCallback(this, nativeInsetsAnimationCallback)
+        } catch (_: Throwable) {}
+    }
+
+    /**
+     * Idempotently starts terminal keyboard dismissal lock.
+     * Captures original total scroll position exactly once on frame 0 and protects it
+     * from any recalculation, layout shrinkage, or animation retargeting.
+     */
+    fun notifyTerminalDismissalStarting() {
         val currentScroll = scrollD + editor.offsetY
-        preservedDismissalScroll = currentScroll
-        isKeyboardDismissing = true
+        transitionCoordinator.startTerminalDismissal(currentScroll)
         cancelRestoration()
         cancelViewportSafetyAnimation()
-        invalidateCompensation("Bottom surface dismissal starting")
+        invalidateCompensation("Terminal IME dismissal starting")
+    }
+
+    /**
+     * Backward-compatible alias for terminal dismissal.
+     */
+    fun notifyBottomSurfaceDismissalStarting() {
+        notifyTerminalDismissalStarting()
+    }
+
+    /**
+     * Explicit lifecycle operation for accessory drawer dismissal.
+     * Does NOT activate terminal keyboard dismissal.
+     */
+    fun notifyDrawerDismissalStarting() {
+        val currentScroll = scrollD + editor.offsetY
+        transitionCoordinator.startDrawerDismissal(currentScroll)
+        cancelRestoration()
+        cancelViewportSafetyAnimation()
+        liveDrawerHeightPx = 0f
+    }
+
+    fun notifyKeyboardContractionStarting(startingObstructionPx: Float, targetObstructionPx: Float) {
+        transitionCoordinator.startTransition(
+            type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            startingObstructionPx = startingObstructionPx,
+            targetObstructionPx = targetObstructionPx,
+            compactBaselinePx = targetObstructionPx,
+            viewportHeightPx = height
+        )
+    }
+
+    fun notifyDrawerContractionStarting(startingObstructionPx: Float, targetObstructionPx: Float) {
+        transitionCoordinator.startTransition(
+            type = ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_CONTRACTION,
+            startingObstructionPx = startingObstructionPx,
+            targetObstructionPx = targetObstructionPx,
+            compactBaselinePx = targetObstructionPx,
+            viewportHeightPx = height
+        )
+    }
+
+    fun notifyDrawerToKeyboardHandoffStarting(startingObstructionPx: Float, targetObstructionPx: Float) {
+        transitionCoordinator.startHandoff(startingObstructionPx, targetObstructionPx)
+    }
+
+    fun notifyImePhysicallyDismissed() {
+        transitionCoordinator.onSurfacePhysicallySettled()
+        checkAndClearPreservedDismissalScroll()
     }
 
     fun cancelViewportSafetyAnimation() {
@@ -523,25 +629,80 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             }
         }
 
-    fun recordExpansionDisplacement(dy: Float, line: Int, col: Int = 0, isSelected: Boolean = false) {
+    fun recordExpansionDisplacement(
+        dy: Float,
+        startLine: Int,
+        startCol: Int = 0,
+        endLine: Int = startLine,
+        endCol: Int = startCol,
+        isSelected: Boolean = false
+    ) {
         if (dy > 0f) {
-            temporaryExpansionDisplacement += dy
-            expansionCaretLine = line
-            expansionCaretCol = col
-            expansionHadSelection = isSelected
+            scrollCoordinator.recordExpansionDisplacement(
+                amount = dy,
+                startLine = startLine,
+                startCol = startCol,
+                endLine = endLine,
+                endCol = endCol,
+                selected = isSelected
+            )
+            transitionCoordinator.recordExpansionDisplacement(
+                amountPx = dy,
+                anchorLine = startLine,
+                anchorCol = startCol,
+                selectionRange = ScribeBottomSurfaceCoordinator.SelectionRange(
+                    startLine = startLine,
+                    startColumn = startCol,
+                    endLine = endLine,
+                    endColumn = endCol,
+                    hasSelection = isSelected
+                )
+            )
         }
+    }
+
+    fun recordExpansionDisplacement(dy: Float, line: Int, col: Int = 0, isSelected: Boolean = false) {
+        recordExpansionDisplacement(dy, line, col, line, col, isSelected)
     }
 
     fun invalidateCompensation(reason: String? = null) {
         cancelRestoration()
         scrollCoordinator.invalidateCompensation(reason)
+        transitionCoordinator.invalidateCompensation(reason)
         if (reason != null && ScribeScrollPolicy.isDebugDiagnosticsEnabled) {
             ScribeScrollPolicy.logDiagnostic("Compensation", "Invalidated: $reason")
         }
     }
 
+    fun notifySelectionChanged(
+        leftLine: Int,
+        leftCol: Int,
+        rightLine: Int,
+        rightCol: Int,
+        isSelected: Boolean
+    ) {
+        scrollCoordinator.invalidateIfSelectionEndpointsChanged(
+            startLine = leftLine,
+            startCol = leftCol,
+            endLine = rightLine,
+            endCol = rightCol,
+            selected = isSelected
+        )
+        if (!scrollCoordinator.isAnchorValid) {
+            transitionCoordinator.invalidateCompensation("Selection endpoints changed")
+        }
+    }
+
+    fun updateExpansionCaretColumn(newCol: Int) {
+        scrollCoordinator.caretCol = newCol
+        transitionCoordinator.updateAnchorColumn(newCol)
+    }
+
     fun invalidateCompensationIfCaretChanged(newLine: Int, newCol: Int, isSelected: Boolean) {
         scrollCoordinator.invalidateIfCaretChanged(newLine, newCol, isSelected)
+        if (!scrollCoordinator.isAnchorValid) {
+            transitionCoordinator.invalidateCompensation("Caret line or selection changed")
+        }
     }
 
     fun invalidateCompensationIfLineChanged(newLine: Int) {
@@ -1942,10 +2103,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
         // Maintain continuous canvas invariant on resume/relayout:
         if (headerHeight > 0 && editor.isWordwrapReady() && editor.layout != null) {
+            val targetTotal = preservedDismissalScroll ?: (scrollD + editor.offsetY)
             val reconciled = ScribeScrollPolicy.reconcileScrollState(
                 headerHeight = headerHeight,
-                scrollD = scrollD,
-                editorOffsetY = editor.offsetY,
+                scrollD = minOf(targetTotal, headerHeight),
+                editorOffsetY = (targetTotal - headerHeight).coerceAtLeast(0),
                 maxCanvasScroll = maxCanvasScroll
             )
             scrollD = reconciled.scrollD
@@ -1982,10 +2144,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 notifyViewportScrollChanged()
             }
         } else if (editor.isWordwrapReady() && editor.layout != null) {
+            val targetTotal = preservedDismissalScroll ?: (scrollD + editor.offsetY)
             val reconciled = ScribeScrollPolicy.reconcileScrollState(
                 headerHeight = headerHeight,
-                scrollD = scrollD,
-                editorOffsetY = editor.offsetY,
+                scrollD = minOf(targetTotal, headerHeight),
+                editorOffsetY = (targetTotal - headerHeight).coerceAtLeast(0),
                 maxCanvasScroll = maxCanvasScroll
             )
             if (reconciled.scrollD != scrollD) {
@@ -2132,15 +2295,30 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
                 val density = resources.displayMetrics.density
                 val curObstruction = currentObstruction
-                val isTerminalDismissal = isKeyboardDismissing || (!isKeyboardVisible && !isBottomSurfaceActive)
-                val hasRecordedDisplacement = temporaryExpansionDisplacement > 0f
-                val isTransactionPermitted = !isKeyboardDismissing && !isKeyboardTransactionActive && hasWindowFocus()
+                val isTerminalDismissal = isKeyboardDismissing || transitionCoordinator.isTerminalDismissalActive || (!isKeyboardVisible && !isBottomSurfaceActive)
 
-                // Pure Writer Invariant:
-                // Downward restoration is strictly permitted ONLY for a confirmed contraction
-                // of an active bottom surface where real temporary upward displacement was recorded (temporaryExpansionDisplacement > 0f).
-                // Terminal keyboard dismissal, unexpanded keyboards, or zero-displacement states must NEVER scroll down.
-                if (isTerminalDismissal || !isTransactionPermitted || !hasRecordedDisplacement) {
+                // Authoritative Contraction Authorization (Parts 2, 4, 9):
+                val authRequest = ScribeScrollPolicy.ContractionAuthorizationRequest(
+                    transitionType = transitionCoordinator.activeType,
+                    transitionPhase = transitionCoordinator.activePhase,
+                    startingObstructionPx = previousBottomObstructionPx,
+                    targetObstructionPx = curObstruction,
+                    currentObstructionPx = curObstruction,
+                    compactBaselinePx = if (isBottomSurfaceActive) {
+                        liveDrawerHeightPx
+                    } else {
+                        standardKeyboardHeightPx + (if (isKeyboardVisible) shortcutBarHeightPx else 0f)
+                    },
+                    recordedExpansionDisplacement = transitionCoordinator.currentTransition.compensation.recordedDisplacement,
+                    remainingCompensation = temporaryExpansionDisplacement,
+                    isAnchorValid = scrollCoordinator.isAnchorValid,
+                    hasWindowFocus = hasWindowFocus(),
+                    isScribeOwner = isScribeOwnedBottomSurface,
+                    isTerminalDismissal = isTerminalDismissal
+                )
+                val authResult = ScribeScrollPolicy.authorizeContractionRestoration(authRequest)
+
+                if (!authResult.isAuthorized) {
                     if (isTerminalDismissal) {
                         // Pure Writer Stationary Invariant:
                         // When keyboard is dismissed or closing, the document MUST remain
@@ -2151,10 +2329,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     }
                     cancelRestoration()
                     cancelViewportSafetyAnimation()
-                    invalidateCompensation("Terminal dismissal or no recorded displacement")
+                    if (isTerminalDismissal) {
+                        invalidateCompensation("Terminal dismissal")
+                    }
                     previousBottomObstructionPx = curObstruction
                     return
                 }
+
                 pendingRestorationRunnable?.let { removeCallbacks(it) }
                 val performRestoration: () -> Unit = {
                     pendingRestorationRunnable = null
@@ -2182,9 +2363,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                             )
                             val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
                             if (result.shouldScroll && result.deltaY != 0f) {
-                                val target = (currentScroll + result.deltaY).coerceIn(0f, maxCanvasScroll.toFloat())
+                                val safeDelta = maxOf(result.deltaY, -authResult.maximumPermittedRestorationPx)
+                                val target = (currentScroll + safeDelta).coerceIn(0f, maxCanvasScroll.toFloat())
                                 startOrRetargetContractionRestoration(target)
-                                temporaryExpansionDisplacement = result.remainingCompensation
+                                // Authoritative Single-Owner Invariant (Part 5):
+                                // Compensation is consumed ONLY through actual applied downward movement
+                                // in AuthoritativeScrollCoordinator.applyStep(). Never mutate or assign projected remainder here!
                             }
                         }
                     }
@@ -2423,9 +2607,18 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 lastTouchDownY = ev.y
                 lastTouchDownTime = System.currentTimeMillis()
                 onUserTouchDown?.invoke()
-                cancelCanvasAnimation()
-                if (!isBottomSurfaceActive && temporaryExpansionDisplacement <= 0f) {
-                    invalidateCompensation()
+
+                // Intent-aware cancellation (Part 7):
+                // A harmless touch-down must not automatically destroy valid transition compensation
+                // or abort an active contraction restoration. Only cancel viewport safety glides.
+                val isContractionRunning = isRestorationActive || activeGlideReason == ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION
+                val isHandoffActive = transitionCoordinator.activeType == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_TO_KEYBOARD_HANDOFF
+                if (!isContractionRunning && !isHandoffActive) {
+                    cancelViewportSafetyAnimation()
+                }
+
+                if (!isBottomSurfaceActive && !isKeyboardVisible && temporaryExpansionDisplacement <= 0f) {
+                    invalidateCompensation("No active bottom surface on touch down")
                 }
                 editor.stopFling()
                 initialDownX = ev.x
@@ -2456,6 +2649,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 lastTouchY = ev.y
 
                 if (isDraggingCanvas) {
+                    // Confirmed intentional drag stops competing automatic movement
+                    cancelRestoration()
+                    cancelCanvasAnimation()
                     scrollCanvasBy(dy)
                     return true
                 }
@@ -2631,9 +2827,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        try {
+            ViewCompat.setWindowInsetsAnimationCallback(this, null)
+        } catch (_: Throwable) {}
         cancelKeyboardTransaction("UnifiedCanvas detached from window")
         cancelCanvasAnimation()
         resetDeletionActiveRunnable?.let { removeCallbacks(it) }
         resetDeletionActiveRunnable = null
+        transitionCoordinator.cancelTransition("Detached from window")
     }
 }

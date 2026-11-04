@@ -250,7 +250,13 @@ class ScribeCodeEditor @JvmOverloads constructor(
         try {
             subscribeEvent(io.github.rosemoe.sora.event.SelectionChangeEvent::class.java) { _, _ ->
                 val cur = try { cursor } catch (_: Throwable) { null } ?: return@subscribeEvent
-                (parent as? UnifiedCanvasLayout)?.invalidateCompensationIfCaretChanged(cur.leftLine, cur.leftColumn, cur.isSelected)
+                (parent as? UnifiedCanvasLayout)?.notifySelectionChanged(
+                    leftLine = cur.leftLine,
+                    leftCol = cur.leftColumn,
+                    rightLine = cur.rightLine,
+                    rightCol = cur.rightColumn,
+                    isSelected = cur.isSelected
+                )
                 if (!cur.isSelected && cur.leftLine < text.lineCount) {
                     enforceAutoIndentFloor()
                     val line = cur.leftLine
@@ -358,16 +364,53 @@ class ScribeCodeEditor @JvmOverloads constructor(
         } catch (_: Throwable) { }
         try {
             subscribeEvent(io.github.rosemoe.sora.event.ContentChangeEvent::class.java) { event, _ ->
-                // Note: Same-line text typing or emoji insertion preserves temporary displacement
-                // in AuthoritativeScrollCoordinator. Caret line movement is safely caught by SelectionChangeEvent.
                 if (!isBatchApplyingIndent) {
                     documentVersion++
+                } else {
+                    // Batch indentation structurally alters line prefixes across document lines
+                    (parent as? UnifiedCanvasLayout)?.invalidateCompensation("Batch applying indent")
                 }
+
+                val pCanvas = parent as? UnifiedCanvasLayout
+                if (pCanvas != null && pCanvas.temporaryExpansionDisplacement > 0f) {
+                    // Content-aware anchor preservation (Part 6)
+                    if (event.action == io.github.rosemoe.sora.event.ContentChangeEvent.ACTION_SET_NEW_TEXT) {
+                        pCanvas.invalidateCompensation("Whole document text replaced")
+                    } else {
+                        val hasNewlineInText = try {
+                            event.changedText?.contains('\n') == true
+                        } catch (_: Throwable) { false }
+
+                        val spansMultipleLines = try {
+                            val start = event.changeStart
+                            val end = event.changeEnd
+                            start != null && end != null && start.line != end.line
+                        } catch (_: Throwable) { false }
+
+                        val curAnchorLine = pCanvas.expansionCaretLine
+                        val editLine = try { event.changeStart?.line ?: -1 } catch (_: Throwable) { -1 }
+
+                        if (hasNewlineInText || spansMultipleLines) {
+                            // Structural newline edit: if edit is at or before anchor line, anchor position is shifted/split
+                            pCanvas.invalidateCompensation("Structural newline modification around anchor line $curAnchorLine (edit line $editLine)")
+                        } else if (editLine != -1 && curAnchorLine != -1 && editLine != curAnchorLine) {
+                            // Modification occurred on a different line while compensation is active
+                            pCanvas.invalidateCompensation("Edit occurred on line $editLine while anchor was on line $curAnchorLine")
+                        } else {
+                            // Same-line ordinary typing, emoji insertion, single-line deletion or replacement:
+                            // Logical line identity is fully preserved!
+                            val cur = try { cursor } catch (_: Throwable) { null }
+                            if (cur != null && !cur.isSelected) {
+                                pCanvas.updateExpansionCaretColumn(cur.leftColumn)
+                            }
+                        }
+                    }
+                }
+
                 if (event.action == io.github.rosemoe.sora.event.ContentChangeEvent.ACTION_DELETE) {
                     if (text.isEmpty()) {
                         (parent as? UnifiedCanvasLayout)?.resetDocumentToTop(smooth = true)
                     } else {
-                        val pCanvas = parent as? UnifiedCanvasLayout
                         pCanvas?.notifyContentDeletionStarted()
                         // Deletion settlement is safely deferred to LayoutStateChangeEvent once layout geometry is stable
                     }

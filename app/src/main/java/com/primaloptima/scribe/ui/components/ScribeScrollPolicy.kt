@@ -871,6 +871,77 @@ object ScribeScrollPolicy {
     // ── Transition-Aware Contraction Restoration Model ─────────────────────────
 
     /**
+     * Authoritative request model to determine whether downward contraction restoration is authorized.
+     */
+    data class ContractionAuthorizationRequest(
+        val transitionType: ScribeBottomSurfaceCoordinator.TransitionType = ScribeBottomSurfaceCoordinator.TransitionType.NONE,
+        val transitionPhase: ScribeBottomSurfaceCoordinator.TransitionPhase = ScribeBottomSurfaceCoordinator.TransitionPhase.IDLE,
+        val startingObstructionPx: Float = 0f,
+        val targetObstructionPx: Float = 0f,
+        val currentObstructionPx: Float = 0f,
+        val compactBaselinePx: Float = 0f,
+        val recordedExpansionDisplacement: Float = 0f,
+        val remainingCompensation: Float = 0f,
+        val isAnchorValid: Boolean = false,
+        val hasWindowFocus: Boolean = true,
+        val isScribeOwner: Boolean = true,
+        val isTerminalDismissal: Boolean = false
+    )
+
+    /**
+     * Authoritative decision result for downward contraction restoration eligibility.
+     */
+    data class ContractionAuthorizationResult(
+        val isAuthorized: Boolean,
+        val targetBaselinePx: Float = 0f,
+        val maximumPermittedRestorationPx: Float = 0f,
+        val rejectionReason: String? = null
+    )
+
+    /**
+     * Authoritative policy function determining whether a downward contraction restoration is permitted.
+     * Enforces the 8 strict conditions:
+     * 1. Window focus and Scribe soft-input session ownership are active.
+     * 2. Not a terminal dismissal (terminal dismissal is strictly stationary).
+     * 3. Real upward expansion displacement was recorded (> 0) and remaining compensation > 0.
+     * 4. Caret / selection anchor remains logically valid.
+     * 5. Surface is returning toward a nonzero compact or standard baseline.
+     * 6. Transition is a genuine contraction rather than unrelated window resize or foreign IME change.
+     */
+    fun authorizeContractionRestoration(request: ContractionAuthorizationRequest): ContractionAuthorizationResult {
+        if (!request.hasWindowFocus || !request.isScribeOwner) {
+            return ContractionAuthorizationResult(false, rejectionReason = "Window focus or input ownership not active")
+        }
+        if (request.isTerminalDismissal || request.targetObstructionPx <= ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX) {
+            return ContractionAuthorizationResult(false, rejectionReason = "Terminal keyboard dismissal: stationary invariant")
+        }
+        if (request.recordedExpansionDisplacement <= 0f || request.remainingCompensation <= 0f) {
+            return ContractionAuthorizationResult(false, rejectionReason = "No recorded expansion displacement to restore")
+        }
+        if (!request.isAnchorValid) {
+            return ContractionAuthorizationResult(false, rejectionReason = "Caret anchor or selection invalidated by structural edit or movement")
+        }
+        val targetBaseline = if (request.compactBaselinePx > 0f) request.compactBaselinePx else request.targetObstructionPx
+        if (targetBaseline <= 0f) {
+            return ContractionAuthorizationResult(false, rejectionReason = "Target baseline is zero or unestablished")
+        }
+        val physicalContractionDelta = (request.startingObstructionPx - targetBaseline).coerceAtLeast(0f)
+        if (physicalContractionDelta <= 0f && request.transitionType != ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION &&
+            request.transitionType != ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_CONTRACTION) {
+            return ContractionAuthorizationResult(false, rejectionReason = "Not a contracting bottom-surface transition")
+        }
+        val maxPermitted = minOf(
+            request.remainingCompensation,
+            if (physicalContractionDelta > 0f) physicalContractionDelta else request.remainingCompensation
+        )
+        return ContractionAuthorizationResult(
+            isAuthorized = true,
+            targetBaselinePx = targetBaseline,
+            maximumPermittedRestorationPx = maxPermitted
+        )
+    }
+
+    /**
      * Request model for calculating automatic downward restoration when an expanded
      * keyboard (e.g. emoji picker) or accessory drawer contracts back to normal height.
      */
@@ -1112,6 +1183,13 @@ object ScribeScrollPolicy {
         var headerHeight: Int = 0,
         var density: Float = 1f
     ) {
+        var selectionStartLine: Int = -1
+        var selectionStartCol: Int = 0
+        var selectionEndLine: Int = -1
+        var selectionEndCol: Int = 0
+        var isAnchorValid: Boolean = false
+        var originalAnchorLine: Int = -1
+
         var isAnimationActive: Boolean = false
             private set
         var activeReason: ScrollAnimationReason? = null
@@ -1132,6 +1210,27 @@ object ScribeScrollPolicy {
         // Callbacks for production integration
         var onScrollBy: ((deltaY: Float) -> Float)? = null
         var onAnimationFinished: (() -> Unit)? = null
+
+        fun recordExpansionDisplacement(
+            amount: Float,
+            startLine: Int,
+            startCol: Int,
+            endLine: Int = startLine,
+            endCol: Int = startCol,
+            selected: Boolean = false
+        ) {
+            if (amount <= 0f) return
+            temporaryDisplacement += amount
+            caretLine = startLine
+            caretCol = startCol
+            selectionStartLine = startLine
+            selectionStartCol = startCol
+            selectionEndLine = endLine
+            selectionEndCol = endCol
+            isSelected = selected
+            isAnchorValid = true
+            originalAnchorLine = startLine
+        }
 
         /**
          * Initiates or retargets an automatic positioning operation.
@@ -1186,6 +1285,10 @@ object ScribeScrollPolicy {
         /**
          * Applies a tick of animation with the new absolute animated scroll value.
          * Returns actual displacement moved.
+         *
+         * Strict Invariant: Authoritative remaining compensation is deducted ONLY
+         * through actual applied downward movement (-actualMoved). Projected amounts
+         * never decrement this counter.
          */
         fun applyStep(newAnimatedScroll: Float, operationId: Long? = null): Float {
             if (operationId != null && operationId != activeOperationId) return 0f
@@ -1201,23 +1304,29 @@ object ScribeScrollPolicy {
             totalScroll = before + consumed
             val actualMoved = consumed
 
-            // Causal compensation accounting: only movement actually applied is recorded
+            // Causal compensation accounting: only movement actually applied is deducted
             if (activeReason == ScrollAnimationReason.CONTRACTION_RESTORATION && actualMoved < 0f) {
                 val appliedDown = -actualMoved
                 temporaryDisplacement = (temporaryDisplacement - appliedDown).coerceAtLeast(0f)
-                if (temporaryDisplacement <= 0f) {
+                if (temporaryDisplacement <= 0.5f) {
+                    temporaryDisplacement = 0f
+                    isAnchorValid = false
                     caretLine = -1
                     caretCol = 0
+                    selectionStartLine = -1
+                    selectionStartCol = 0
+                    selectionEndLine = -1
+                    selectionEndCol = 0
                     isSelected = false
+                    originalAnchorLine = -1
                 }
             } else if (isExpansionTransitionActive && actualMoved > 0f &&
                 (activeReason == ScrollAnimationReason.CARET_VISIBILITY || activeReason == ScrollAnimationReason.PREDICTIVE_GLIDE)) {
                 temporaryDisplacement += actualMoved
+                isAnchorValid = true
             }
 
             // Boundary collision / unreachable target detection:
-            // If movement is completely blocked by bounds (consumed == 0 while stepDelta is non-zero),
-            // do not continue applying steps as if the ideal trajectory was followed.
             val hitBoundary = (stepDelta > 0.05f && unconsumed > 0.05f && kotlin.math.abs(consumed) < 0.05f) ||
                     (stepDelta < -0.05f && unconsumed < -0.05f && kotlin.math.abs(consumed) < 0.05f)
 
@@ -1254,7 +1363,13 @@ object ScribeScrollPolicy {
             temporaryDisplacement = 0f
             caretLine = -1
             caretCol = 0
+            selectionStartLine = -1
+            selectionStartCol = 0
+            selectionEndLine = -1
+            selectionEndCol = 0
             isSelected = false
+            isAnchorValid = false
+            originalAnchorLine = -1
         }
 
         fun invalidateIfCaretChanged(newLine: Int, newCol: Int, newSelected: Boolean) {
@@ -1262,9 +1377,32 @@ object ScribeScrollPolicy {
             // This MUST NOT invalidate temporary displacement. Only moving to a different line (caretLine != newLine)
             // or making an active text selection change invalidates compensation.
             if (caretLine != -1 && (caretLine != newLine || isSelected != newSelected)) {
-                invalidateCompensation("Caret line changed to $newLine")
+                invalidateCompensation("Caret line or selection changed (line $caretLine -> $newLine, sel $isSelected -> $newSelected)")
             } else if (caretLine == newLine) {
                 caretCol = newCol
+                selectionStartCol = newCol
+                selectionEndCol = newCol
+            }
+        }
+
+        fun invalidateIfSelectionEndpointsChanged(
+            startLine: Int,
+            startCol: Int,
+            endLine: Int,
+            endCol: Int,
+            selected: Boolean
+        ) {
+            if (!isAnchorValid || temporaryDisplacement <= 0f) return
+            if (!selected && !isSelected) {
+                if (caretLine != -1 && caretLine != startLine) {
+                    invalidateCompensation("Caret moved from line $caretLine to line $startLine")
+                } else if (caretLine == startLine) {
+                    caretCol = startCol
+                }
+            } else if (selected != isSelected ||
+                selectionStartLine != startLine || selectionStartCol != startCol ||
+                selectionEndLine != endLine || selectionEndCol != endCol) {
+                invalidateCompensation("Selection endpoints changed from ($selectionStartLine:$selectionStartCol..$selectionEndLine:$selectionEndCol) to ($startLine:$startCol..$endLine:$endCol)")
             }
         }
 
@@ -1274,10 +1412,7 @@ object ScribeScrollPolicy {
                 temporaryDisplacement = safeSlack
             }
             if (temporaryDisplacement <= 0.5f) {
-                temporaryDisplacement = 0f
-                caretLine = -1
-                caretCol = 0
-                isSelected = false
+                invalidateCompensation("Rebased below threshold")
             }
         }
     }

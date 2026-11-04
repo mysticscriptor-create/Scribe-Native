@@ -464,6 +464,10 @@ fun MainEditorScreen(
                     targetImeAboveNavDp = targetIme
                 )
             )
+            unifiedCanvasRef?.notifyDrawerToKeyboardHandoffStarting(
+                startingObstructionPx = currentDrawerH * density.density,
+                targetObstructionPx = targetIme * density.density
+            )
 
             handoffExplicitProgress = null
 
@@ -889,7 +893,10 @@ fun MainEditorScreen(
     }
     BackHandler(enabled = activeCardPreview == null && previewItem == null && !isWritingBarSearchActive && activeAccessoryDrawer != null) {
         if (drawerState != AccessoryDrawerState.COMPACT) {
+            val targetCompactPx = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.ACCESSORY_DRAWER_DEFAULT_HEIGHT_DP * density.density
+            unifiedCanvasRef?.notifyDrawerContractionStarting(targetCompactPx)
             drawerState = AccessoryDrawerState.COMPACT
+            drawerHeightController.animateToState(AccessoryDrawerState.COMPACT)
         } else {
             returnFromDrawerToKeyboard()
         }
@@ -1422,8 +1429,7 @@ fun MainEditorScreen(
                     unifiedCanvasRef?.isKeyboardDismissing = false
                     unifiedCanvasRef?.endExpansionTransition()
                 } else if (targetImePx <= 0) {
-                    unifiedCanvasRef?.notifyBottomSurfaceDismissalStarting()
-                    unifiedCanvasRef?.cancelKeyboardTransaction("IME dismissal started")
+                    unifiedCanvasRef?.cancelKeyboardTransaction("IME dismissal started under drawer")
                 }
             } else if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF) {
                 val currentHandoffH = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.calculateHandoffBottomSurfaceHeightDp(
@@ -1520,7 +1526,7 @@ fun MainEditorScreen(
                         
                         // Terminal dismissal initiated: immediately notify canvas on frame 0
                         if (targetImePx <= com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX) {
-                            unifiedCanvasRef?.notifyBottomSurfaceDismissalStarting()
+                            unifiedCanvasRef?.notifyTerminalDismissalStarting()
                         }
                         
                         if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED ||
@@ -1530,7 +1536,7 @@ fun MainEditorScreen(
                                 presentationState,
                                 com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationEvent.ImeDismissalStarted
                             )
-                            unifiedCanvasRef?.notifyBottomSurfaceDismissalStarting()
+                            unifiedCanvasRef?.notifyTerminalDismissalStarting()
                             unifiedCanvasRef?.cancelKeyboardTransaction("IME dismissal started")
                         }
                     } else {
@@ -1545,7 +1551,7 @@ fun MainEditorScreen(
                                 com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationEvent.ImeDismissalFinished
                             )
                             transitionalSpacerDp = 0.dp
-                            unifiedCanvasRef?.isKeyboardDismissing = false
+                            unifiedCanvasRef?.notifyImePhysicallyDismissed()
                             unifiedCanvasRef?.endExpansionTransition()
                         }
                     }
@@ -2380,7 +2386,7 @@ fun MainEditorScreen(
                                 if (hasWindowFocus && curImePx > 0 && targetImePx <= com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX &&
                                     (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED ||
                                      presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE)) {
-                                    unifiedCanvasRef?.notifyBottomSurfaceDismissalStarting()
+                                    unifiedCanvasRef?.notifyTerminalDismissalStarting()
                                 }
 
                                 val placeable = measurable.measure(
@@ -2670,7 +2676,7 @@ fun MainEditorScreen(
                                                                 .clip(RoundedCornerShape(4.dp))
                                                                 .clickable {
                                                                     shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
-                                                                    unifiedCanvasRef?.notifyBottomSurfaceDismissalStarting()
+                                                                    unifiedCanvasRef?.notifyDrawerDismissalStarting()
                                                                     activeAccessoryDrawer = null
                                                                     presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.reduce(
                                                                         presentationState,
@@ -2902,10 +2908,16 @@ fun MainEditorScreen(
                                                 currentHeightDp = effectiveBottomSurfaceHeightDp,
                                             activePreviewItemId = activeCardPreview?.item?.id,
                                             drawerState = drawerState,
-                                            onDrawerStateChange = {
-                                                drawerState = it
-                                                drawerHeightController.animateToState(it)
+                                            onDrawerStateChange = { nextState ->
+                                                val oldState = drawerState
+                                                drawerState = nextState
+                                                drawerHeightController.animateToState(nextState)
                                                 unifiedCanvasRef?.isBottomSurfaceActive = true
+                                                if ((oldState == AccessoryDrawerState.FULL || oldState == AccessoryDrawerState.EXPANDED) &&
+                                                    nextState == AccessoryDrawerState.COMPACT) {
+                                                    val targetCompactPx = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.ACCESSORY_DRAWER_DEFAULT_HEIGHT_DP * density.density
+                                                    unifiedCanvasRef?.notifyDrawerContractionStarting(targetCompactPx)
+                                                }
                                             },
                                             onDragStart = {
                                                 drawerHeightController.onDragStart()
@@ -2917,12 +2929,18 @@ fun MainEditorScreen(
                                             onDragEndWithVelocity = { vyPx ->
                                                 val vyDp = vyPx / density.density
                                                 drawerHeightController.onDragEndWithVelocity(vyDp) { targetState ->
+                                                    val oldState = drawerState
                                                     drawerState = targetState
+                                                    if ((oldState == AccessoryDrawerState.FULL || oldState == AccessoryDrawerState.EXPANDED) &&
+                                                        targetState == AccessoryDrawerState.COMPACT) {
+                                                        val targetCompactPx = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.ACCESSORY_DRAWER_DEFAULT_HEIGHT_DP * density.density
+                                                        unifiedCanvasRef?.notifyDrawerContractionStarting(targetCompactPx)
+                                                    }
                                                 }
                                             },
                                             onOpenShortcuts = {
                                                 shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
-                                                unifiedCanvasRef?.notifyBottomSurfaceDismissalStarting()
+                                                unifiedCanvasRef?.notifyDrawerDismissalStarting()
                                                 activeAccessoryDrawer = null
                                                 presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.reduce(
                                                     presentationState,
@@ -3108,7 +3126,7 @@ fun MainEditorScreen(
                                                 ?: soraEditorRef?.windowToken
                                             windowToken?.let { imm?.hideSoftInputFromWindow(it, 0) }
                                             if (activeAccessoryDrawer != null) {
-                                                unifiedCanvasRef?.notifyBottomSurfaceDismissalStarting()
+                                                unifiedCanvasRef?.notifyDrawerDismissalStarting()
                                                 activeAccessoryDrawer = null
                                                 drawerState = AccessoryDrawerState.COMPACT
                                                 presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.reduce(

@@ -7368,4 +7368,274 @@ class CursorAndCanvasGeometryTest {
             assertFalse("Dismissal must never scroll", result.shouldScroll)
         }
     }
+
+    @Test
+    fun testTerminalDismissal_PreservesExactScrollPositionAcrossAllParagraphs() {
+        val coordinator = ScribeBottomSurfaceCoordinator.BottomSurfaceTransitionCoordinator()
+        
+        // Test multiple paragraph positions: top (scroll = 0), middle (scroll = 450), bottom/last (scroll = 1200)
+        val paragraphScrollPositions = listOf(0, 450, 1200)
+        for (scroll in paragraphScrollPositions) {
+            coordinator.startTerminalDismissal(
+                currentScroll = scroll,
+                initialObstructionPx = 800f
+            )
+            
+            assertTrue("Terminal dismissal must be marked in flight", coordinator.isTerminalDismissalInFlight())
+            assertEquals("Stationary invariant must preserve exact scroll", scroll, coordinator.preservedDismissalScroll)
+            
+            // In terminal dismissal, contraction restoration must be completely forbidden
+            val authRequest = ScribeScrollPolicy.ContractionAuthorizationRequest(
+                transitionType = coordinator.currentTransition.transitionType,
+                isTerminalDismissal = coordinator.isTerminalDismissalInFlight(),
+                temporaryExpansionDisplacement = 150f,
+                targetBottomObstructionPx = 0f,
+                isAnchorValid = true
+            )
+            val authResult = ScribeScrollPolicy.authorizeContractionRestoration(authRequest)
+            assertFalse("Contraction restoration must be rejected during terminal dismissal", authResult.isAuthorized)
+            assertEquals("Permitted restoration must be 0", 0f, authResult.maximumPermittedRestorationPx, 0.001f)
+            
+            // When IME physically dismisses (obstruction = 0):
+            coordinator.onSurfacePhysicallySettled(0f)
+            assertFalse("Terminal dismissal must complete when settled", coordinator.isTerminalDismissalInFlight())
+        }
+    }
+
+    @Test
+    fun testContractionAuthorization_RejectsTerminalDismissalAndUnrelatedResize() {
+        // 1. Rejected on TERMINAL_KEYBOARD_DISMISSAL
+        val reqTerminal = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = ScribeBottomSurfaceCoordinator.TransitionType.TERMINAL_KEYBOARD_DISMISSAL,
+            isTerminalDismissal = true,
+            temporaryExpansionDisplacement = 100f,
+            targetBottomObstructionPx = 0f,
+            isAnchorValid = true
+        )
+        val resTerminal = ScribeScrollPolicy.authorizeContractionRestoration(reqTerminal)
+        assertFalse("Terminal dismissal must be rejected", resTerminal.isAuthorized)
+
+        // 2. Rejected on VIEWPORT_RESIZE
+        val reqResize = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = ScribeBottomSurfaceCoordinator.TransitionType.VIEWPORT_RESIZE,
+            isTerminalDismissal = false,
+            temporaryExpansionDisplacement = 100f,
+            targetBottomObstructionPx = 300f,
+            isAnchorValid = true
+        )
+        val resResize = ScribeScrollPolicy.authorizeContractionRestoration(reqResize)
+        assertFalse("Unrelated viewport resize must be rejected", resResize.isAuthorized)
+
+        // 3. Rejected when target obstruction is 0 (dismissing, not contracting to baseline)
+        val reqZeroTarget = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            isTerminalDismissal = false,
+            temporaryExpansionDisplacement = 100f,
+            targetBottomObstructionPx = 0f,
+            isAnchorValid = true
+        )
+        val resZeroTarget = ScribeScrollPolicy.authorizeContractionRestoration(reqZeroTarget)
+        assertFalse("Target obstruction of 0 must be rejected", resZeroTarget.isAuthorized)
+
+        // 4. Rejected when displacement <= 0
+        val reqZeroDisp = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            isTerminalDismissal = false,
+            temporaryExpansionDisplacement = 0f,
+            targetBottomObstructionPx = 300f,
+            isAnchorValid = true
+        )
+        val resZeroDisp = ScribeScrollPolicy.authorizeContractionRestoration(reqZeroDisp)
+        assertFalse("Zero displacement must be rejected", resZeroDisp.isAuthorized)
+
+        // 5. Rejected when anchor is invalid
+        val reqInvalidAnchor = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            isTerminalDismissal = false,
+            temporaryExpansionDisplacement = 100f,
+            targetBottomObstructionPx = 300f,
+            isAnchorValid = false
+        )
+        val resInvalidAnchor = ScribeScrollPolicy.authorizeContractionRestoration(reqInvalidAnchor)
+        assertFalse("Invalid anchor must be rejected", resInvalidAnchor.isAuthorized)
+    }
+
+    @Test
+    fun testContractionAuthorization_AcceptsGenuineContractionReturningToBaseline() {
+        val coordinator = ScribeBottomSurfaceCoordinator.BottomSurfaceTransitionCoordinator()
+        
+        // Start keyboard contraction from 520dp (1300px) down to compact baseline 280dp (700px)
+        val gen = coordinator.startTransition(
+            type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            initialObstructionPx = 1300f,
+            targetObstructionPx = 700f
+        )
+        coordinator.recordExpansionDisplacement(
+            generation = gen,
+            displacementPx = 200f,
+            anchorLine = 15,
+            anchorCol = 10
+        )
+        
+        val req = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = coordinator.currentTransition.transitionType,
+            isTerminalDismissal = coordinator.isTerminalDismissalInFlight(),
+            temporaryExpansionDisplacement = coordinator.currentTransition.compensation.temporaryDisplacementPx,
+            targetBottomObstructionPx = coordinator.currentTransition.targetObstructionPx,
+            isAnchorValid = coordinator.currentTransition.compensation.isAnchorValid,
+            currentSlackAboveBaselinePx = 300f,
+            generation = gen,
+            expectedGeneration = coordinator.currentTransition.generation
+        )
+        val result = ScribeScrollPolicy.authorizeContractionRestoration(req)
+        assertTrue("Genuine contraction returning to compact baseline must be authorized", result.isAuthorized)
+        assertEquals("Permitted restoration must equal recorded displacement", 200f, result.maximumPermittedRestorationPx, 0.001f)
+    }
+
+    @Test
+    fun testContractionRestoration_CompensationConsumedOnlyOnActualMovement_NoDoubleConsumption() {
+        val scrollCoord = ScribeScrollPolicy.AuthoritativeScrollCoordinator()
+        val transCoord = ScribeBottomSurfaceCoordinator.BottomSurfaceTransitionCoordinator()
+        
+        val gen = transCoord.startTransition(
+            type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            initialObstructionPx = 1300f,
+            targetObstructionPx = 700f
+        )
+        transCoord.recordExpansionDisplacement(gen, 160f, anchorLine = 8, anchorCol = 4)
+        scrollCoord.recordExpansionDisplacement(160f, anchorLine = 8, anchorCol = 4)
+        
+        assertEquals(160f, scrollCoord.temporaryDisplacement, 0.001f)
+        assertEquals(160f, transCoord.currentTransition.compensation.temporaryDisplacementPx, 0.001f)
+
+        // Frame 1: Spring moves downward
+        scrollCoord.currentScroll = 450f
+        scrollCoord.targetScroll = 400f
+        scrollCoord.velocity = -500f
+        
+        val stepResult = scrollCoord.applyStep(dt = 0.016f)
+        val appliedDown = stepResult.consumedDisplacement
+        assertTrue("Step must report positive consumed downward displacement", appliedDown > 0f)
+        
+        // transCoord consumes EXACTLY appliedDown
+        transCoord.consumeAppliedMovement(appliedDown)
+        
+        assertEquals("Remaining displacement in scrollCoord matches compensation - consumed",
+            scrollCoord.temporaryDisplacement,
+            transCoord.currentTransition.compensation.temporaryDisplacementPx,
+            0.001f
+        )
+        assertTrue("Displacement was deducted once, not lost", scrollCoord.temporaryDisplacement > 0f)
+        assertTrue("Displacement decreased strictly by actual movement", scrollCoord.temporaryDisplacement < 160f)
+
+        // Zero movement frame:
+        val remainingBefore = transCoord.currentTransition.compensation.temporaryDisplacementPx
+        transCoord.consumeAppliedMovement(0f)
+        assertEquals("Zero movement must not consume any compensation", remainingBefore, transCoord.currentTransition.compensation.temporaryDisplacementPx, 0.001f)
+    }
+
+    @Test
+    fun testContractionRestoration_PartialCompensationPreservedWhenConstrainedBySlack() {
+        val transCoord = ScribeBottomSurfaceCoordinator.BottomSurfaceTransitionCoordinator()
+        val gen = transCoord.startTransition(
+            type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            initialObstructionPx = 1200f,
+            targetObstructionPx = 600f
+        )
+        transCoord.recordExpansionDisplacement(gen, 180f, anchorLine = 12, anchorCol = 0)
+
+        // Slack above baseline is only 75px (less than full 180px compensation)
+        val req = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = transCoord.currentTransition.transitionType,
+            isTerminalDismissal = false,
+            temporaryExpansionDisplacement = 180f,
+            targetBottomObstructionPx = 600f,
+            isAnchorValid = true,
+            currentSlackAboveBaselinePx = 75f,
+            generation = gen,
+            expectedGeneration = gen
+        )
+        val result = ScribeScrollPolicy.authorizeContractionRestoration(req)
+        assertTrue("Partial restoration authorized", result.isAuthorized)
+        assertEquals("Restoration is clamped to available slack", 75f, result.maximumPermittedRestorationPx, 0.001f)
+
+        // Consume only 75px
+        transCoord.consumeAppliedMovement(75f)
+        assertEquals("Unconsumed 105px remainder remains preserved", 105f, transCoord.currentTransition.compensation.temporaryDisplacementPx, 0.001f)
+    }
+
+    @Test
+    fun testSelectionEndpointsChange_InvalidatesExpansionCompensation() {
+        val transCoord = ScribeBottomSurfaceCoordinator.BottomSurfaceTransitionCoordinator()
+        val scrollCoord = ScribeScrollPolicy.AuthoritativeScrollCoordinator()
+
+        val gen = transCoord.startTransition(
+            type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_EXPANDED,
+            initialObstructionPx = 600f,
+            targetObstructionPx = 1200f
+        )
+        transCoord.recordExpansionDisplacement(gen, 120f, anchorLine = 10, anchorCol = 5)
+        scrollCoord.recordExpansionDisplacement(120f, anchorLine = 10, anchorCol = 5)
+
+        // User makes a selection from (10, 5) to (12, 1)
+        transCoord.notifySelectionChanged(
+            startLine = 10, startCol = 5,
+            endLine = 12, endCol = 1,
+            isSelected = true
+        )
+        assertFalse("Multi-line selection invalidates anchor", transCoord.currentTransition.compensation.isAnchorValid)
+        assertEquals("Compensation zeroed after invalidation", 0f, transCoord.currentTransition.compensation.temporaryDisplacementPx, 0.001f)
+
+        // Authoritative scroll coordinator also invalidates
+        scrollCoord.invalidateIfSelectionEndpointsChanged(10, 5, 12, 1, isSelected = true)
+        assertFalse("Scroll coordinator anchor invalidated", scrollCoord.isAnchorValid)
+        assertEquals("Scroll coordinator displacement zeroed", 0f, scrollCoord.temporaryDisplacement, 0.001f)
+    }
+
+    @Test
+    fun testSameLineTypingAndEmoji_PreservesAnchorAndCompensation() {
+        val transCoord = ScribeBottomSurfaceCoordinator.BottomSurfaceTransitionCoordinator()
+        val scrollCoord = ScribeScrollPolicy.AuthoritativeScrollCoordinator()
+
+        val gen = transCoord.startTransition(
+            type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_EXPANDED,
+            initialObstructionPx = 600f,
+            targetObstructionPx = 1200f
+        )
+        transCoord.recordExpansionDisplacement(gen, 140f, anchorLine = 20, anchorCol = 8)
+        scrollCoord.recordExpansionDisplacement(140f, anchorLine = 20, anchorCol = 8)
+
+        // Typing emoji or characters advances column on same line (20, 8) -> (20, 10)
+        transCoord.updateAnchorColumn(newColumn = 10)
+        scrollCoord.updateAnchorColumn(newColumn = 10)
+
+        assertTrue("Anchor remains valid on same line edit", transCoord.currentTransition.compensation.isAnchorValid)
+        assertEquals("Compensation preserved on same line edit", 140f, transCoord.currentTransition.compensation.temporaryDisplacementPx, 0.001f)
+        assertEquals("Anchor column updated", 10, transCoord.currentTransition.compensation.anchorColumn)
+        assertEquals("Scroll coordinator column updated", 10, scrollCoord.caretCol)
+        assertEquals("Scroll coordinator displacement preserved", 140f, scrollCoord.temporaryDisplacement, 0.001f)
+
+        // Structural edit: Caret jumps to line 21
+        transCoord.notifySelectionChanged(21, 0, 21, 0, isSelected = false)
+        scrollCoord.invalidateIfCaretChanged(21, 0, false)
+
+        assertFalse("Line change invalidates anchor", transCoord.currentTransition.compensation.isAnchorValid)
+        assertEquals("Line change clears compensation", 0f, transCoord.currentTransition.compensation.temporaryDisplacementPx, 0.001f)
+        assertEquals("Line change clears scroll coordinator displacement", 0f, scrollCoord.temporaryDisplacement, 0.001f)
+    }
+
+    @Test
+    fun testDrawerDismissal_DoesNotActivateKeyboardDismissalLock() {
+        val coordinator = ScribeBottomSurfaceCoordinator.BottomSurfaceTransitionCoordinator()
+        
+        // Closing drawer (e.g. to open Shortcuts Studio or main menu)
+        coordinator.startDrawerDismissal(
+            currentScroll = 500,
+            initialObstructionPx = 400f
+        )
+        
+        assertEquals("Transition type must be DRAWER_DISMISSAL", ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_DISMISSAL, coordinator.currentTransition.transitionType)
+        assertFalse("Drawer dismissal must NEVER flag terminal keyboard dismissal", coordinator.isTerminalDismissalInFlight())
+        assertNull("Drawer dismissal must not latch preservedDismissalScroll as keyboard freeze", coordinator.preservedDismissalScroll)
+    }
 }
