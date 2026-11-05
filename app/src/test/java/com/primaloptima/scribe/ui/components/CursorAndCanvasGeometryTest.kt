@@ -7839,4 +7839,168 @@ class CursorAndCanvasGeometryTest {
         assertEquals(6, coordinator.caretLine)
         assertEquals(3, coordinator.caretCol)
     }
+
+    @Test
+    fun testContractionAuthorization_TriStateStatus() {
+        // 1. PENDING: Physical contraction has not begun yet (current obstruction >= starting obstruction - tolerance)
+        val pendingReq = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            transitionPhase = ScribeBottomSurfaceCoordinator.TransitionPhase.STARTING,
+            startingObstructionPx = 1000f,
+            targetObstructionPx = 600f,
+            currentObstructionPx = 1000f,
+            compactBaselinePx = 600f,
+            recordedExpansionDisplacement = 120f,
+            remainingCompensation = 120f,
+            isAnchorValid = true
+        )
+        val pendingRes = ScribeScrollPolicy.authorizeContractionRestoration(pendingReq)
+        assertEquals(ScribeScrollPolicy.ContractionAuthorizationStatus.PENDING, pendingRes.status)
+        assertTrue(pendingRes.isPending)
+        assertFalse(pendingRes.isAuthorized)
+        assertFalse(pendingRes.isRejected)
+
+        // 2. REJECTED: Terminal dismissal invariant failure
+        val rejectedReq = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = ScribeBottomSurfaceCoordinator.TransitionType.TERMINAL_KEYBOARD_DISMISSAL,
+            transitionPhase = ScribeBottomSurfaceCoordinator.TransitionPhase.IN_FLIGHT,
+            startingObstructionPx = 1000f,
+            targetObstructionPx = 0f,
+            currentObstructionPx = 500f,
+            compactBaselinePx = 0f,
+            recordedExpansionDisplacement = 120f,
+            remainingCompensation = 120f,
+            isTerminalDismissal = true
+        )
+        val rejectedRes = ScribeScrollPolicy.authorizeContractionRestoration(rejectedReq)
+        assertEquals(ScribeScrollPolicy.ContractionAuthorizationStatus.REJECTED, rejectedRes.status)
+        assertTrue(rejectedRes.isRejected)
+        assertFalse(rejectedRes.isAuthorized)
+        assertFalse(rejectedRes.isPending)
+
+        // 3. AUTHORIZED: Real physical contraction in flight with valid anchor and budget
+        val authorizedReq = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            transitionPhase = ScribeBottomSurfaceCoordinator.TransitionPhase.IN_FLIGHT,
+            startingObstructionPx = 1000f,
+            targetObstructionPx = 600f,
+            currentObstructionPx = 800f, // 200px physically released
+            compactBaselinePx = 600f,
+            recordedExpansionDisplacement = 120f,
+            remainingCompensation = 120f,
+            alreadyRestoredAgainstBudgetPx = 0f,
+            physicalContractionReleasedPx = 200f,
+            availableScrollRangePx = 500f,
+            isAnchorValid = true
+        )
+        val authorizedRes = ScribeScrollPolicy.authorizeContractionRestoration(authorizedReq)
+        assertEquals(ScribeScrollPolicy.ContractionAuthorizationStatus.AUTHORIZED, authorizedRes.status)
+        assertTrue(authorizedRes.isAuthorized)
+        assertEquals(120f, authorizedRes.maximumPermittedRestorationPx, 0.001f)
+    }
+
+    @Test
+    fun testContractionRestoration_PhysicalContractionBudgetPreventsOvershoot() {
+        // Test that restoration delta is strictly bounded by physicalContractionReleasedPx - alreadyRestoredAgainstBudgetPx
+        val req1 = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            transitionPhase = ScribeBottomSurfaceCoordinator.TransitionPhase.IN_FLIGHT,
+            startingObstructionPx = 1000f,
+            targetObstructionPx = 600f,
+            currentObstructionPx = 950f,
+            compactBaselinePx = 600f,
+            recordedExpansionDisplacement = 150f,
+            remainingCompensation = 150f,
+            alreadyRestoredAgainstBudgetPx = 0f,
+            physicalContractionReleasedPx = 50f,
+            availableScrollRangePx = 600f,
+            isAnchorValid = true
+        )
+        val res1 = ScribeScrollPolicy.authorizeContractionRestoration(req1)
+        assertTrue("Frame 1 should be authorized within released budget", res1.isAuthorized)
+        assertEquals("Permitted restoration must be capped at physical release of 50px, not full 150px compensation", 50f, res1.maximumPermittedRestorationPx, 0.001f)
+
+        // After restoring 50px, budget is consumed:
+        val req2 = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            transitionPhase = ScribeBottomSurfaceCoordinator.TransitionPhase.IN_FLIGHT,
+            startingObstructionPx = 1000f,
+            targetObstructionPx = 600f,
+            currentObstructionPx = 950f, // still at 950px
+            compactBaselinePx = 600f,
+            recordedExpansionDisplacement = 150f,
+            remainingCompensation = 100f,
+            alreadyRestoredAgainstBudgetPx = 50f,
+            physicalContractionReleasedPx = 50f,
+            availableScrollRangePx = 550f,
+            isAnchorValid = true
+        )
+        val res2 = ScribeScrollPolicy.authorizeContractionRestoration(req2)
+        assertEquals("When physical release budget is exhausted, status must be PENDING", ScribeScrollPolicy.ContractionAuthorizationStatus.PENDING, res2.status)
+        assertFalse(res2.isAuthorized)
+        assertEquals(0f, res2.maximumPermittedRestorationPx, 0.001f)
+    }
+
+    @Test
+    fun testDrawerTransitions_AllSixTransitionsGeometry() {
+        // Verify TransitionType properties and projections for all drawer states
+        val openType = ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_OPENING
+        val expType = ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_EXPANSION
+        val conType = ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_CONTRACTION
+
+        assertTrue("DRAWER_OPENING must be recognized as drawer transition", openType.isDrawer)
+        assertTrue("DRAWER_EXPANSION must be recognized as drawer transition", expType.isDrawer)
+        assertTrue("DRAWER_CONTRACTION must be recognized as drawer transition", conType.isDrawer)
+        assertFalse("DRAWER_EXPANSION must not be contraction", expType.isContraction)
+        assertTrue("DRAWER_CONTRACTION must be contraction", conType.isContraction)
+
+        // Geometry snapshot projection test
+        val snapshot = ScribeBottomSurfaceCoordinator.BottomSurfaceGeometrySnapshot(
+            imeHeightPx = 0f,
+            drawerHeightPx = 450f,
+            shortcutBarHeightPx = 48f,
+            isImeVisible = false,
+            isDrawerActive = true
+        )
+        assertEquals(450f, snapshot.projectionFor(conType), 0.001f)
+        assertEquals(450f, snapshot.projectionFor(expType), 0.001f)
+    }
+
+    @Test
+    fun testAuthoritativeScrollCoordinator_SingleLedgerNonResurrection() {
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator()
+        
+        // Expansion on generation 10
+        coordinator.recordExpansionDisplacement(amount = 150f, startLine = 12, startCol = 5, generation = 10L)
+        assertEquals(10L, coordinator.originatingExpansionGeneration)
+        assertEquals(150f, coordinator.recordedDisplacement, 0.001f)
+        assertEquals(150f, coordinator.temporaryDisplacement, 0.001f)
+
+        // Stale generation attempt must be rejected and not add displacement
+        coordinator.recordExpansionDisplacement(amount = 50f, startLine = 12, startCol = 5, generation = 9L)
+        assertEquals("Stale generation must not alter displacement", 150f, coordinator.temporaryDisplacement, 0.001f)
+
+        // Invalidate compensation
+        coordinator.invalidateCompensation("User edited text")
+        assertEquals(0f, coordinator.temporaryDisplacement, 0.001f)
+        assertFalse(coordinator.isAnchorValid)
+    }
+
+    @Test
+    fun testAnchorInitialization_BeforeAnimationStep() {
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator()
+        
+        // Before starting animation, anchor is set
+        coordinator.setCompensationAnchor(line = 20, col = 8, selected = false)
+        assertTrue("Anchor must be valid before animation starts", coordinator.isAnchorValid)
+        assertEquals(20, coordinator.caretLine)
+        assertEquals(8, coordinator.caretCol)
+
+        // Step execution during animation preserves anchor
+        coordinator.currentScroll = 200f
+        coordinator.targetScroll = 350f
+        coordinator.velocity = 1000f
+        coordinator.applyStep(dt = 0.016f)
+        assertTrue("Anchor must remain valid during upward animation steps", coordinator.isAnchorValid)
+    }
 }

@@ -894,19 +894,50 @@ object ScribeScrollPolicy {
         val temporaryExpansionDisplacement: Float = remainingCompensation,
         val targetBottomObstructionPx: Float = targetObstructionPx,
         val currentSlackAboveBaselinePx: Float = 0f,
+        val alreadyRestoredAgainstBudgetPx: Float = 0f,
+        val physicalContractionReleasedPx: Float = 0f,
+        val availableScrollRangePx: Float = Float.MAX_VALUE,
         val generation: Long = transitionGeneration,
         val expectedGeneration: Long = 0L
     )
 
     /**
+     * Tri-state contraction authorization status.
+     * Separates true authorization, pending physical movement, and permanent rejection.
+     */
+    enum class ContractionAuthorizationStatus {
+        AUTHORIZED,
+        PENDING,
+        REJECTED
+    }
+
+    /**
      * Authoritative decision result for downward contraction restoration eligibility.
      */
     data class ContractionAuthorizationResult(
-        val isAuthorized: Boolean,
+        val status: ContractionAuthorizationStatus,
         val targetBaselinePx: Float = 0f,
         val maximumPermittedRestorationPx: Float = 0f,
+        val cumulativePhysicalReleasedPx: Float = 0f,
         val rejectionReason: String? = null
-    )
+    ) {
+        val isAuthorized: Boolean get() = status == ContractionAuthorizationStatus.AUTHORIZED
+        val isPending: Boolean get() = status == ContractionAuthorizationStatus.PENDING
+        val isRejected: Boolean get() = status == ContractionAuthorizationStatus.REJECTED
+
+        constructor(
+            isAuthorized: Boolean,
+            targetBaselinePx: Float = 0f,
+            maximumPermittedRestorationPx: Float = 0f,
+            rejectionReason: String? = null
+        ) : this(
+            status = if (isAuthorized) ContractionAuthorizationStatus.AUTHORIZED else ContractionAuthorizationStatus.REJECTED,
+            targetBaselinePx = targetBaselinePx,
+            maximumPermittedRestorationPx = maximumPermittedRestorationPx,
+            cumulativePhysicalReleasedPx = 0f,
+            rejectionReason = rejectionReason
+        )
+    }
 
     /**
      * Authoritative policy function determining whether a downward contraction restoration is permitted.
@@ -924,24 +955,36 @@ object ScribeScrollPolicy {
         // 1. Explicitly allow ONLY genuine contraction types (Part 5.1)
         if (request.transitionType != ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION &&
             request.transitionType != ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_CONTRACTION) {
-            return ContractionAuthorizationResult(false, rejectionReason = "Transition type ${request.transitionType} is not an authorized contraction type")
+            return ContractionAuthorizationResult(
+                status = ContractionAuthorizationStatus.REJECTED,
+                rejectionReason = "Transition type ${request.transitionType} is not an authorized contraction type"
+            )
         }
 
         // 2. Validate lifecycle phase (Part 5.2): Must be active (STARTING, IN_FLIGHT, or SETTLED with remaining compensation)
         if (request.transitionPhase != ScribeBottomSurfaceCoordinator.TransitionPhase.STARTING &&
             request.transitionPhase != ScribeBottomSurfaceCoordinator.TransitionPhase.IN_FLIGHT &&
             request.transitionPhase != ScribeBottomSurfaceCoordinator.TransitionPhase.SETTLED) {
-            return ContractionAuthorizationResult(false, rejectionReason = "Transition phase ${request.transitionPhase} is not eligible for contraction restoration")
+            return ContractionAuthorizationResult(
+                status = ContractionAuthorizationStatus.REJECTED,
+                rejectionReason = "Transition phase ${request.transitionPhase} is not eligible for contraction restoration"
+            )
         }
 
         // 3. Window focus and Scribe input ownership
         if (!request.hasWindowFocus || !request.isScribeOwner) {
-            return ContractionAuthorizationResult(false, rejectionReason = "Window focus or input ownership not active")
+            return ContractionAuthorizationResult(
+                status = ContractionAuthorizationStatus.REJECTED,
+                rejectionReason = "Window focus or input ownership not active"
+            )
         }
 
         // 4. Terminal dismissal invariant: terminal dismissal is strictly stationary
         if (request.isTerminalDismissal) {
-            return ContractionAuthorizationResult(false, rejectionReason = "Terminal keyboard dismissal: stationary invariant")
+            return ContractionAuthorizationResult(
+                status = ContractionAuthorizationStatus.REJECTED,
+                rejectionReason = "Terminal keyboard dismissal: stationary invariant"
+            )
         }
 
         // 5. Target baseline: must be a known nonzero compact or standard baseline (not terminal zero)
@@ -952,13 +995,19 @@ object ScribeScrollPolicy {
             else -> 0f
         }
         if (targetBaseline <= ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX) {
-            return ContractionAuthorizationResult(false, rejectionReason = "Target baseline is zero or unestablished (terminal dismissal)")
+            return ContractionAuthorizationResult(
+                status = ContractionAuthorizationStatus.REJECTED,
+                rejectionReason = "Target baseline is zero or unestablished (terminal dismissal)"
+            )
         }
 
         // 6. Starting obstruction must be genuinely greater than target compact baseline
         val startingObstruction = request.startingObstructionPx
         if (startingObstruction > 0f && startingObstruction <= targetBaseline + ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX) {
-            return ContractionAuthorizationResult(false, rejectionReason = "Starting obstruction is not greater than target compact baseline")
+            return ContractionAuthorizationResult(
+                status = ContractionAuthorizationStatus.REJECTED,
+                rejectionReason = "Starting obstruction is not greater than target compact baseline"
+            )
         }
 
         // 6b. Physical progress toward target baseline (Part 5.3):
@@ -968,45 +1017,94 @@ object ScribeScrollPolicy {
         if (request.transitionPhase == ScribeBottomSurfaceCoordinator.TransitionPhase.IN_FLIGHT) {
             // Zero or unknown obstruction cannot be interpreted as contraction progress during active in-flight transition
             if (curObstruction <= 0f) {
-                return ContractionAuthorizationResult(false, rejectionReason = "Physical obstruction is zero or unmeasured during active transition")
+                return ContractionAuthorizationResult(
+                    status = ContractionAuthorizationStatus.REJECTED,
+                    rejectionReason = "Physical obstruction is zero or unmeasured during active transition"
+                )
             }
             if (startingObstruction > 0f && curObstruction > startingObstruction + tolerance) {
-                return ContractionAuthorizationResult(false, rejectionReason = "Physical obstruction is increasing, not contracting")
+                return ContractionAuthorizationResult(
+                    status = ContractionAuthorizationStatus.REJECTED,
+                    rejectionReason = "Physical obstruction is increasing, not contracting"
+                )
             }
             // In flight contraction MUST have genuinely progressed downward from starting obstruction
             if (startingObstruction > 0f && (startingObstruction - curObstruction) < tolerance) {
-                return ContractionAuthorizationResult(false, rejectionReason = "Physical obstruction has not begun contracting")
+                return ContractionAuthorizationResult(
+                    status = ContractionAuthorizationStatus.PENDING,
+                    rejectionReason = "Physical obstruction has not begun contracting"
+                )
             }
-        } else if (startingObstruction > 0f && curObstruction > 0f) {
-            if (curObstruction > startingObstruction + tolerance) {
-                return ContractionAuthorizationResult(false, rejectionReason = "Physical obstruction is increasing, not contracting")
+        } else if (request.transitionPhase == ScribeBottomSurfaceCoordinator.TransitionPhase.STARTING) {
+            if (startingObstruction > 0f && curObstruction > startingObstruction + tolerance) {
+                return ContractionAuthorizationResult(
+                    status = ContractionAuthorizationStatus.REJECTED,
+                    rejectionReason = "Physical obstruction is increasing, not contracting"
+                )
+            }
+            if (startingObstruction > 0f && (startingObstruction - curObstruction) < tolerance) {
+                return ContractionAuthorizationResult(
+                    status = ContractionAuthorizationStatus.PENDING,
+                    rejectionReason = "Physical contraction is pending physical movement"
+                )
             }
         }
 
         // 7. Generation safety: if expected generation is specified, must match
         if (request.expectedGeneration != 0L && request.generation != 0L && request.generation != request.expectedGeneration) {
-            return ContractionAuthorizationResult(false, rejectionReason = "Transition generation mismatch (stale callback)")
+            return ContractionAuthorizationResult(
+                status = ContractionAuthorizationStatus.REJECTED,
+                rejectionReason = "Transition generation mismatch (stale callback)"
+            )
         }
 
         // 7b. Linked expansion generation check (must trace back to expansion or have active compensation)
         val compensation = maxOf(request.remainingCompensation, request.temporaryExpansionDisplacement)
         if (compensation <= 0.5f) {
-            return ContractionAuthorizationResult(false, rejectionReason = "No remaining expansion compensation to restore")
+            return ContractionAuthorizationResult(
+                status = ContractionAuthorizationStatus.REJECTED,
+                rejectionReason = "No remaining expansion compensation to restore"
+            )
         }
         if (request.transitionGeneration != 0L && request.linkedExpansionGeneration == 0L && request.recordedExpansionDisplacement <= 0.5f) {
-            return ContractionAuthorizationResult(false, rejectionReason = "Contraction transition is not linked to an expansion generation")
+            return ContractionAuthorizationResult(
+                status = ContractionAuthorizationStatus.REJECTED,
+                rejectionReason = "Contraction transition is not linked to an expansion generation"
+            )
         }
 
         // 8. Anchor validity
         if (!request.isAnchorValid) {
-            return ContractionAuthorizationResult(false, rejectionReason = "Caret anchor or selection invalidated by structural edit or movement")
+            return ContractionAuthorizationResult(
+                status = ContractionAuthorizationStatus.REJECTED,
+                rejectionReason = "Caret anchor or selection invalidated by structural edit or movement"
+            )
         }
 
-        // Calculate maximum permitted restoration
-        val physicalContractionDelta = if (startingObstruction > targetBaseline) {
-            startingObstruction - targetBaseline
+        // Calculate cumulative physical contraction released distance
+        val releasedPhysical = when {
+            request.transitionPhase == ScribeBottomSurfaceCoordinator.TransitionPhase.SETTLED -> {
+                if (startingObstruction > targetBaseline) (startingObstruction - targetBaseline) else compensation
+            }
+            request.physicalContractionReleasedPx > 0f -> request.physicalContractionReleasedPx
+            startingObstruction > curObstruction -> (startingObstruction - curObstruction)
+            else -> 0f
+        }
+
+        // Calculate remaining physical contraction budget
+        val remainingPhysicalBudget = if (request.transitionPhase == ScribeBottomSurfaceCoordinator.TransitionPhase.SETTLED) {
+            (releasedPhysical - request.alreadyRestoredAgainstBudgetPx).coerceAtLeast(0f)
         } else {
-            compensation
+            (releasedPhysical - request.alreadyRestoredAgainstBudgetPx).coerceAtLeast(0f)
+        }
+
+        if (remainingPhysicalBudget <= 0.05f && request.transitionPhase != ScribeBottomSurfaceCoordinator.TransitionPhase.SETTLED) {
+            return ContractionAuthorizationResult(
+                status = ContractionAuthorizationStatus.PENDING,
+                targetBaselinePx = targetBaseline,
+                cumulativePhysicalReleasedPx = releasedPhysical,
+                rejectionReason = "Awaiting further physical contraction release"
+            )
         }
 
         val slackLimit = if (request.currentSlackAboveBaselinePx > 0f) {
@@ -1017,14 +1115,16 @@ object ScribeScrollPolicy {
 
         val maxPermitted = minOf(
             compensation,
-            physicalContractionDelta,
-            slackLimit
+            remainingPhysicalBudget,
+            slackLimit,
+            request.availableScrollRangePx
         )
 
         return ContractionAuthorizationResult(
-            isAuthorized = true,
+            status = ContractionAuthorizationStatus.AUTHORIZED,
             targetBaselinePx = targetBaseline,
-            maximumPermittedRestorationPx = maxPermitted
+            maximumPermittedRestorationPx = maxPermitted,
+            cumulativePhysicalReleasedPx = releasedPhysical
         )
     }
 
@@ -1293,16 +1393,15 @@ object ScribeScrollPolicy {
         var currentScroll: Float
             get() = totalScroll
             set(value) { totalScroll = value }
+
         var targetScroll: Float = 0f
         var velocity: Float = 0f
-
         var selectionStartLine: Int = -1
         var selectionStartCol: Int = 0
         var selectionEndLine: Int = -1
         var selectionEndCol: Int = 0
         var isAnchorValid: Boolean = false
         var originalAnchorLine: Int = -1
-
         var isAnimationActive: Boolean = false
             private set
         var activeReason: ScrollAnimationReason? = null
@@ -1312,6 +1411,13 @@ object ScribeScrollPolicy {
         var lastAnimatedScroll: Float = totalScroll
             private set
         var isExpansionTransitionActive: Boolean = false
+
+        /**
+         * Authoritative generation and cumulative ledger balances.
+         */
+        var originatingExpansionGeneration: Long = 0L
+        var recordedDisplacement: Float = 0f
+        var totalConsumedDisplacement: Float = 0f
 
         /**
          * Monotonically increasing operation ID. Prevents obsolete animation callbacks
@@ -1362,12 +1468,29 @@ object ScribeScrollPolicy {
             endCol: Int = startCol,
             selected: Boolean = false,
             anchorLine: Int = startLine,
-            anchorCol: Int = startCol
+            anchorCol: Int = startCol,
+            generation: Long = 0L
         ) {
             if (amount <= 0f) return
             val effStartLine = if (anchorLine != -1) anchorLine else startLine
             val effStartCol = if (anchorLine != -1 && anchorCol != 0) anchorCol else startCol
-            temporaryDisplacement += amount
+
+            if (generation != 0L) {
+                if (originatingExpansionGeneration == 0L || originatingExpansionGeneration == generation) {
+                    originatingExpansionGeneration = generation
+                    recordedDisplacement += amount
+                    temporaryDisplacement += amount
+                } else {
+                    originatingExpansionGeneration = generation
+                    recordedDisplacement = amount
+                    temporaryDisplacement = amount
+                    totalConsumedDisplacement = 0f
+                }
+            } else {
+                recordedDisplacement += amount
+                temporaryDisplacement += amount
+            }
+
             caretLine = effStartLine
             caretCol = effStartCol
             selectionStartLine = effStartLine
@@ -1442,9 +1565,9 @@ object ScribeScrollPolicy {
         fun applyStep(newAnimatedScroll: Float, operationId: Long?): Float {
             if (operationId != null && operationId != activeOperationId) return 0f
             if (!isAnimationActive) return 0f
+
             val stepDelta = newAnimatedScroll - lastAnimatedScroll
             lastAnimatedScroll = newAnimatedScroll
-
             if (kotlin.math.abs(stepDelta) < 0.05f) return 0f
 
             val before = totalScroll
@@ -1457,9 +1580,13 @@ object ScribeScrollPolicy {
             if (activeReason == ScrollAnimationReason.CONTRACTION_RESTORATION && actualMoved < 0f) {
                 val appliedDown = -actualMoved
                 temporaryDisplacement = (temporaryDisplacement - appliedDown).coerceAtLeast(0f)
+                totalConsumedDisplacement += appliedDown
                 onCompensationConsumed?.invoke(appliedDown)
                 if (temporaryDisplacement <= 0.5f) {
                     temporaryDisplacement = 0f
+                    recordedDisplacement = 0f
+                    totalConsumedDisplacement = 0f
+                    originatingExpansionGeneration = 0L
                     isAnchorValid = false
                     caretLine = -1
                     caretCol = 0
@@ -1472,6 +1599,7 @@ object ScribeScrollPolicy {
                 }
             } else if (isExpansionTransitionActive && actualMoved > 0f &&
                 (activeReason == ScrollAnimationReason.CARET_VISIBILITY || activeReason == ScrollAnimationReason.PREDICTIVE_GLIDE)) {
+                recordedDisplacement += actualMoved
                 temporaryDisplacement += actualMoved
                 isAnchorValid = true
             }
@@ -1484,6 +1612,7 @@ object ScribeScrollPolicy {
             if (hitBoundary || (target != null && kotlin.math.abs(totalScroll - target) < 0.5f)) {
                 finishAnimation(activeOperationId)
             }
+
             return actualMoved
         }
 
@@ -1493,8 +1622,12 @@ object ScribeScrollPolicy {
             val actualMoved = step
             val appliedDown = if (actualMoved < 0f) -actualMoved else 0f
             temporaryDisplacement = (temporaryDisplacement - appliedDown).coerceAtLeast(0f)
+            totalConsumedDisplacement += appliedDown
             if (temporaryDisplacement <= 0.5f) {
                 temporaryDisplacement = 0f
+                recordedDisplacement = 0f
+                totalConsumedDisplacement = 0f
+                originatingExpansionGeneration = 0L
                 isAnchorValid = false
             }
             return StepResult(consumedDisplacement = appliedDown, remainingDisplacement = temporaryDisplacement)
@@ -1524,6 +1657,9 @@ object ScribeScrollPolicy {
         fun invalidateCompensation(reason: String? = null) {
             cancelAnimation("Compensation invalidated: $reason", activeOperationId)
             temporaryDisplacement = 0f
+            recordedDisplacement = 0f
+            totalConsumedDisplacement = 0f
+            originatingExpansionGeneration = 0L
             caretLine = -1
             caretCol = 0
             selectionStartLine = -1

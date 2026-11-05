@@ -431,9 +431,30 @@ fun MainEditorScreen(
         )
     }
 
-
-
-    var transitionalSpacerDp by remember { mutableStateOf(0.dp) }
+    LaunchedEffect(drawerHeightController, density, activeAccessoryDrawer, drawerState) {
+        drawerHeightController.onAnimationSettled = { _, heightDp ->
+            unifiedCanvasRef?.notifyDrawerSettledAtTarget(heightDp * density.density)
+        }
+        drawerHeightController.onDragDirectionChanged = { isExpanding, currentHeightDp ->
+            if (activeAccessoryDrawer != null) {
+                val currentPx = currentHeightDp * density.density
+                val compactPx = drawerHeightController.compactHeightDp * density.density
+                val expandedPx = drawerHeightController.expandedHeightDp * density.density
+                val fullPx = drawerHeightController.fullHeightDp * density.density
+                if (isExpanding) {
+                    val targetPx = if (drawerState == AccessoryDrawerState.EXPANDED) fullPx else expandedPx
+                    if (targetPx > currentPx) {
+                        unifiedCanvasRef?.notifyDrawerExpansionStarting(currentPx, targetPx, compactPx)
+                    }
+                } else {
+                    val targetPx = if (drawerState == AccessoryDrawerState.FULL) expandedPx else compactPx
+                    if (targetPx < currentPx) {
+                        unifiedCanvasRef?.notifyDrawerContractionStarting(currentPx, targetPx, compactPx)
+                    }
+                }
+            }
+        }
+    }
     var handoffStartingObstructionDp by remember { mutableFloatStateOf(0f) }
     var handoffStartingImeDp by remember { mutableFloatStateOf(0f) }
     var handoffExplicitProgress by remember { mutableStateOf<Float?>(null) }
@@ -1551,13 +1572,12 @@ fun MainEditorScreen(
                         unifiedCanvasRef?.liveImeHeightPx = imeAboveNavPx.toFloat()
                         
                         // Terminal dismissal initiated: immediately notify canvas on frame 0
-                        if (targetImePx <= com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX) {
+                        if (targetImePx <= com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX && !hasDrawer) {
                             unifiedCanvasRef?.notifyTerminalDismissalStarting()
                         }
                         
-                        if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED ||
-                            presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE ||
-                            presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN) {
+                        if (!hasDrawer && (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED ||
+                            presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE)) {
                             presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.reduce(
                                 presentationState,
                                 com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationEvent.ImeDismissalStarted
@@ -2929,58 +2949,65 @@ fun MainEditorScreen(
                                             .height(effectiveBottomSurfaceHeightDp)
                                     ) {
                                         if (activeAccessoryDrawer != null) {
+                                            val handleDrawerStateTransition: (AccessoryDrawerState, AccessoryDrawerState) -> Unit = { oldState, nextState ->
+                                                if (oldState != nextState) {
+                                                    val startPx = drawerHeightController.currentDisplayedHeightDp * density.density
+                                                    val compactPx = drawerHeightController.compactHeightDp * density.density
+                                                    val expandedPx = drawerHeightController.expandedHeightDp * density.density
+                                                    val fullPx = drawerHeightController.fullHeightDp * density.density
+
+                                                    when {
+                                                        // Expansions
+                                                        oldState == AccessoryDrawerState.COMPACT && nextState == AccessoryDrawerState.EXPANDED -> {
+                                                            unifiedCanvasRef?.notifyDrawerExpansionStarting(startPx, expandedPx, compactPx)
+                                                        }
+                                                        oldState == AccessoryDrawerState.COMPACT && nextState == AccessoryDrawerState.FULL -> {
+                                                            unifiedCanvasRef?.notifyDrawerExpansionStarting(startPx, fullPx, compactPx)
+                                                        }
+                                                        oldState == AccessoryDrawerState.EXPANDED && nextState == AccessoryDrawerState.FULL -> {
+                                                            unifiedCanvasRef?.notifyDrawerExpansionStarting(startPx, fullPx, compactPx)
+                                                        }
+                                                        // Contractions
+                                                        oldState == AccessoryDrawerState.FULL && nextState == AccessoryDrawerState.EXPANDED -> {
+                                                            unifiedCanvasRef?.notifyDrawerContractionStarting(startPx, expandedPx, compactPx)
+                                                        }
+                                                        oldState == AccessoryDrawerState.FULL && nextState == AccessoryDrawerState.COMPACT -> {
+                                                            unifiedCanvasRef?.notifyDrawerContractionStarting(startPx, compactPx, compactPx)
+                                                        }
+                                                        oldState == AccessoryDrawerState.EXPANDED && nextState == AccessoryDrawerState.COMPACT -> {
+                                                            unifiedCanvasRef?.notifyDrawerContractionStarting(startPx, compactPx, compactPx)
+                                                        }
+                                                    }
+                                                }
+                                            }
+
                                             AccessoryDrawer(
                                                 mode = activeAccessoryDrawer!!,
                                                 currentHeightDp = effectiveBottomSurfaceHeightDp,
-                                            activePreviewItemId = activeCardPreview?.item?.id,
-                                            drawerState = drawerState,
-                                            onDrawerStateChange = { nextState ->
-                                                val oldState = drawerState
-                                                val startPx = drawerHeightController.currentDisplayedHeightDp * density.density
-                                                val targetCompactPx = drawerHeightController.compactHeightDp * density.density
-                                                if ((oldState == AccessoryDrawerState.FULL || oldState == AccessoryDrawerState.EXPANDED) &&
-                                                    nextState == AccessoryDrawerState.COMPACT) {
-                                                    unifiedCanvasRef?.notifyDrawerContractionStarting(startPx, targetCompactPx)
-                                                } else if (oldState == AccessoryDrawerState.COMPACT &&
-                                                    (nextState == AccessoryDrawerState.EXPANDED || nextState == AccessoryDrawerState.FULL)) {
-                                                    val targetExpandedPx = (if (nextState == AccessoryDrawerState.EXPANDED) drawerHeightController.expandedHeightDp else drawerHeightController.fullHeightDp) * density.density
-                                                    unifiedCanvasRef?.notifyDrawerExpansionStarting(
-                                                        startingObstructionPx = startPx,
-                                                        targetObstructionPx = targetExpandedPx,
-                                                        compactBaselinePx = targetCompactPx
-                                                    )
-                                                } else if (oldState == AccessoryDrawerState.EXPANDED && nextState == AccessoryDrawerState.FULL) {
-                                                    val targetFullPx = drawerHeightController.fullHeightDp * density.density
-                                                    unifiedCanvasRef?.notifyDrawerExpansionStarting(
-                                                        startingObstructionPx = startPx,
-                                                        targetObstructionPx = targetFullPx,
-                                                        compactBaselinePx = targetCompactPx
-                                                    )
-                                                }
-                                                drawerState = nextState
-                                                drawerHeightController.animateToState(nextState)
-                                                unifiedCanvasRef?.isBottomSurfaceActive = true
-                                            },
-                                            onDragStart = {
-                                                drawerHeightController.onDragStart()
-                                            },
-                                            onDragDelta = { deltaPx ->
-                                                val deltaDp = deltaPx / density.density
-                                                drawerHeightController.onDragDelta(deltaDp)
-                                            },
-                                            onDragEndWithVelocity = { vyPx ->
-                                                val vyDp = vyPx / density.density
-                                                val startPx = drawerHeightController.currentDisplayedHeightDp * density.density
-                                                val targetCompactPx = drawerHeightController.compactHeightDp * density.density
-                                                drawerHeightController.onDragEndWithVelocity(vyDp) { targetState ->
+                                                activePreviewItemId = activeCardPreview?.item?.id,
+                                                drawerState = drawerState,
+                                                onDrawerStateChange = { nextState ->
                                                     val oldState = drawerState
-                                                    drawerState = targetState
-                                                    if ((oldState == AccessoryDrawerState.FULL || oldState == AccessoryDrawerState.EXPANDED) &&
-                                                        targetState == AccessoryDrawerState.COMPACT) {
-                                                        unifiedCanvasRef?.notifyDrawerContractionStarting(startPx, targetCompactPx)
+                                                    handleDrawerStateTransition(oldState, nextState)
+                                                    drawerState = nextState
+                                                    drawerHeightController.animateToState(nextState)
+                                                    unifiedCanvasRef?.isBottomSurfaceActive = true
+                                                },
+                                                onDragStart = {
+                                                    drawerHeightController.onDragStart()
+                                                },
+                                                onDragDelta = { deltaPx ->
+                                                    val deltaDp = deltaPx / density.density
+                                                    drawerHeightController.onDragDelta(deltaDp)
+                                                },
+                                                onDragEndWithVelocity = { vyPx ->
+                                                    val vyDp = vyPx / density.density
+                                                    drawerHeightController.onDragEndWithVelocity(vyDp) { targetState ->
+                                                        val oldState = drawerState
+                                                        drawerState = targetState
+                                                        handleDrawerStateTransition(oldState, targetState)
                                                     }
-                                                }
-                                            },
+                                                },
                                             onOpenShortcuts = {
                                                 shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
                                                 unifiedCanvasRef?.notifyDrawerDismissalStarting()

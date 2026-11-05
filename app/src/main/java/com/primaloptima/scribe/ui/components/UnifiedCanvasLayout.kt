@@ -217,6 +217,66 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     /**
+     * Captures an authoritative bottom-surface geometry snapshot with separate measurements
+     * and explicit projections per transition type.
+     */
+    fun captureBottomGeometrySnapshot(): ScribeBottomSurfaceCoordinator.BottomSurfaceGeometrySnapshot {
+        val rootInsets = ViewCompat.getRootWindowInsets(this)
+        val navInsets = rootInsets?.getInsets(WindowInsetsCompat.Type.navigationBars())?.bottom ?: 0
+        val isDrawerActive = liveDrawerHeightPx > 0f || (isBottomSurfaceActive && !isKeyboardVisible)
+        val owner = when {
+            isDrawerActive -> ScribeBottomSurfaceCoordinator.SurfaceOwner.DRAWER
+            isKeyboardVisible || liveImeHeightPx > 0f -> ScribeBottomSurfaceCoordinator.SurfaceOwner.KEYBOARD
+            else -> ScribeBottomSurfaceCoordinator.SurfaceOwner.NONE
+        }
+        val effectiveCombined = (liveImeHeightPx + liveDrawerHeightPx + (if (isKeyboardVisible || isBottomSurfaceActive) shortcutBarHeightPx else 0f)).coerceAtLeast(0f)
+        return ScribeBottomSurfaceCoordinator.BottomSurfaceGeometrySnapshot(
+            imeObstructionPx = liveImeHeightPx,
+            drawerHeightPx = liveDrawerHeightPx,
+            shortcutBarReservationPx = if (isKeyboardVisible || isBottomSurfaceActive) shortcutBarHeightPx else 0f,
+            navigationBarInsetPx = navInsets.toFloat(),
+            effectiveBottomObstructionPx = effectiveCombined,
+            activeOwner = owner,
+            sequenceNumber = System.nanoTime(),
+            timestampMs = System.currentTimeMillis()
+        )
+    }
+
+    override fun dispatchApplyWindowInsets(insets: WindowInsets): WindowInsets {
+        val compatInsets = WindowInsetsCompat.toWindowInsetsCompat(insets, this)
+        val imeInsets = compatInsets.getInsets(WindowInsetsCompat.Type.ime())
+        val navInsets = compatInsets.getInsets(WindowInsetsCompat.Type.navigationBars())
+        val targetImePx = (imeInsets.bottom - navInsets.bottom).coerceAtLeast(0).toFloat()
+        val startingImePx = liveImeHeightPx
+
+        if (startingImePx > ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX) {
+            val isDrawerActive = liveDrawerHeightPx > ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX || (isBottomSurfaceActive && !isKeyboardVisible)
+            if (targetImePx <= ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX) {
+                // If keyboard target is 0, only terminal dismissal if drawer is NOT active
+                if (!isDrawerActive) {
+                    notifyTerminalDismissalStarting()
+                }
+            } else if (targetImePx < startingImePx - ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX) {
+                notifyKeyboardContractionStarting(
+                    startingObstructionPx = startingImePx,
+                    targetObstructionPx = targetImePx
+                )
+            } else if (targetImePx > startingImePx + ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX) {
+                notifyKeyboardExpansionStarting(
+                    startingObstructionPx = startingImePx,
+                    targetObstructionPx = targetImePx,
+                    standardBaselinePx = standardKeyboardHeightPx
+                )
+            }
+        } else if (targetImePx > ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX) {
+            if (standardKeyboardHeightPx <= 0f) {
+                standardKeyboardHeightPx = targetImePx
+            }
+        }
+        return super.dispatchApplyWindowInsets(insets)
+    }
+
+    /**
      * Native IME transition observer detecting terminal IME dismissal at the earliest window/insets callback.
      */
     private var wasImeVisibleBeforeAnimation = false
@@ -241,8 +301,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val rootInsets = ViewCompat.getRootWindowInsets(this@UnifiedCanvasLayout)
                 val isImeVisibleAtEnd = rootInsets?.isVisible(WindowInsetsCompat.Type.ime()) == true
                 val targetImeBottom = rootInsets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
+                val isDrawerActive = liveDrawerHeightPx > ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX || (isBottomSurfaceActive && !isKeyboardVisible)
                 if (wasImeVisibleBeforeAnimation && (!isImeVisibleAtEnd || targetImeBottom <= ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX)) {
-                    notifyTerminalDismissalStarting()
+                    if (!isDrawerActive) {
+                        notifyTerminalDismissalStarting()
+                    }
                 }
                 activeInsetsAnimGeneration = transitionCoordinator.currentTransition.generation
             }
@@ -261,6 +324,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val targetGen = if (activeInsetsAnimGeneration != 0L) activeInsetsAnimGeneration else transitionCoordinator.currentTransition.generation
                 transitionCoordinator.updatePhysicalObstruction(physicalImePx, generation = targetGen)
                 liveImeHeightPx = physicalImePx
+
+                val currentTx = transitionCoordinator.currentTransition
+                if (currentTx.isContraction && currentTx.activeOwner == ScribeBottomSurfaceCoordinator.SurfaceOwner.KEYBOARD && scrollCoordinator.temporaryDisplacement > 0.5f) {
+                    checkAndPerformContractionRestoration(physicalImePx)
+                }
             }
             return insets
         }
@@ -269,8 +337,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             if ((animation.typeMask and WindowInsetsCompat.Type.ime()) != 0) {
                 val rootInsets = ViewCompat.getRootWindowInsets(this@UnifiedCanvasLayout)
                 val isImeVisible = rootInsets?.isVisible(WindowInsetsCompat.Type.ime()) == true
+                val isDrawerActive = liveDrawerHeightPx > ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX || (isBottomSurfaceActive && !isKeyboardVisible)
                 if (!isImeVisible) {
-                    notifyImePhysicallyDismissed()
+                    if (!isDrawerActive) {
+                        notifyImePhysicallyDismissed()
+                    }
+                } else {
+                    notifyImeSettledAtTarget(liveImeHeightPx)
                 }
                 wasImeVisibleBeforeAnimation = false
                 activeInsetsAnimGeneration = 0L
@@ -318,6 +391,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     fun notifyKeyboardExpansionStarting(startingObstructionPx: Float, targetObstructionPx: Float, standardBaselinePx: Float) {
+        contractionRestoredBudgetPx = 0f
         isExpansionTransitionActive = true
         transitionCoordinator.startTransition(
             type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_EXPANDED,
@@ -326,10 +400,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             compactBaselinePx = standardBaselinePx,
             viewportHeightPx = height
         )
-        transitionCoordinator.markInFlight()
     }
 
     fun notifyKeyboardContractionStarting(startingObstructionPx: Float, targetObstructionPx: Float) {
+        contractionRestoredBudgetPx = 0f
         isExpansionTransitionActive = false
         transitionCoordinator.startTransition(
             type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
@@ -338,10 +412,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             compactBaselinePx = targetObstructionPx,
             viewportHeightPx = height
         )
-        transitionCoordinator.markInFlight()
     }
 
     fun notifyDrawerOpeningStarting(targetObstructionPx: Float) {
+        contractionRestoredBudgetPx = 0f
         isExpansionTransitionActive = true
         transitionCoordinator.startTransition(
             type = ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_OPENING,
@@ -350,10 +424,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             compactBaselinePx = targetObstructionPx,
             viewportHeightPx = height
         )
-        transitionCoordinator.markInFlight()
     }
 
-    fun notifyDrawerExpansionStarting(startingObstructionPx: Float, targetObstructionPx: Float, compactBaselinePx: Float) {
+    fun notifyDrawerExpansionStarting(startingObstructionPx: Float, targetObstructionPx: Float, compactBaselinePx: Float = targetObstructionPx) {
+        contractionRestoredBudgetPx = 0f
         isExpansionTransitionActive = true
         transitionCoordinator.startTransition(
             type = ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_EXPANSION,
@@ -362,19 +436,92 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             compactBaselinePx = compactBaselinePx,
             viewportHeightPx = height
         )
-        transitionCoordinator.markInFlight()
     }
 
-    fun notifyDrawerContractionStarting(startingObstructionPx: Float, targetObstructionPx: Float) {
+    fun notifyDrawerContractionStarting(startingObstructionPx: Float, targetObstructionPx: Float, compactBaselinePx: Float = targetObstructionPx) {
+        contractionRestoredBudgetPx = 0f
         isExpansionTransitionActive = false
         transitionCoordinator.startTransition(
             type = ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_CONTRACTION,
             startingObstructionPx = startingObstructionPx,
             targetObstructionPx = targetObstructionPx,
-            compactBaselinePx = targetObstructionPx,
+            compactBaselinePx = compactBaselinePx,
             viewportHeightPx = height
         )
-        transitionCoordinator.markInFlight()
+    }
+
+    fun notifyDrawerSettledAtTarget(finalObstructionPx: Float = liveDrawerHeightPx) {
+        val tx = transitionCoordinator.currentTransition
+        if (tx.type == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_CONTRACTION ||
+            tx.type == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_EXPANSION ||
+            tx.type == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_OPENING) {
+            transitionCoordinator.onSurfacePhysicallySettled(finalObstructionPx)
+        }
+    }
+
+    fun notifyImeSettledAtTarget(finalObstructionPx: Float = liveImeHeightPx) {
+        val tx = transitionCoordinator.currentTransition
+        if (tx.type == ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION ||
+            tx.type == ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_EXPANDED ||
+            tx.type == ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_ENTRANCE) {
+            transitionCoordinator.onSurfacePhysicallySettled(finalObstructionPx)
+        }
+    }
+
+    fun checkAndPerformContractionRestoration(curPhysicalPx: Float) {
+        val currentTx = transitionCoordinator.currentTransition
+        if (!currentTx.isContraction) return
+        if (scrollCoordinator.temporaryDisplacement <= 0.5f) return
+        val density = resources.displayMetrics.density
+        val authRequest = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = currentTx.type,
+            transitionPhase = currentTx.phase,
+            startingObstructionPx = currentTx.geometry.startingObstructionPx,
+            targetObstructionPx = currentTx.geometry.targetObstructionPx,
+            currentObstructionPx = curPhysicalPx,
+            compactBaselinePx = currentTx.geometry.compactBaselinePx,
+            recordedExpansionDisplacement = scrollCoordinator.recordedDisplacement,
+            remainingCompensation = scrollCoordinator.temporaryDisplacement,
+            alreadyRestoredAgainstBudgetPx = contractionRestoredBudgetPx,
+            physicalContractionReleasedPx = (currentTx.geometry.startingObstructionPx - curPhysicalPx).coerceAtLeast(0f),
+            availableScrollRangePx = (scrollD + editor.offsetY).toFloat(),
+            isAnchorValid = scrollCoordinator.isAnchorValid,
+            hasWindowFocus = hasWindowFocus(),
+            isScribeOwner = isScribeOwnedBottomSurface,
+            isTerminalDismissal = currentTx.isTerminalDismissal,
+            transitionGeneration = currentTx.generation,
+            linkedExpansionGeneration = currentTx.linkedExpansionGeneration,
+            expectedGeneration = if (currentTx.linkedExpansionGeneration != 0L) currentTx.linkedExpansionGeneration else scrollCoordinator.originatingExpansionGeneration
+        )
+        val authResult = ScribeScrollPolicy.authorizeContractionRestoration(authRequest)
+        if (!authResult.isAuthorized) return
+
+        val cur = try { editor.cursor } catch (_: Throwable) { null }
+        val lay = editor.layout ?: return
+        val geom = getSelectionGeometry(cur, lay) ?: return
+        val currentScroll = (scrollD + editor.offsetY).toFloat()
+        val lineCount = try { editor.text.lineCount } catch (_: Throwable) { 1 }
+        val isAtLastLine = try {
+            (cur != null && cur.leftLine >= (lineCount - 1)) || (lineCount <= 1)
+        } catch (_: Throwable) { false }
+
+        val req = ScribeScrollPolicy.ContractionRestorationRequest(
+            caretScreenBottom = headerHeight + geom.bottomDocY - currentScroll,
+            caretScreenTop = headerHeight + geom.topDocY - currentScroll,
+            viewportHeight = height,
+            density = density,
+            totalScroll = currentScroll,
+            temporaryDisplacement = scrollCoordinator.temporaryDisplacement,
+            isAtLastLine = isAtLastLine,
+            isKeyboardDismissing = isKeyboardDismissing,
+            isBottomSurfaceActive = isBottomSurfaceActive || isKeyboardVisible
+        )
+        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
+        if (result.shouldScroll && result.deltaY != 0f) {
+            val safeDelta = maxOf(result.deltaY, -authResult.maximumPermittedRestorationPx)
+            val target = (currentScroll + safeDelta).coerceIn(0f, maxCanvasScroll.toFloat())
+            startOrRetargetContractionRestoration(target)
+        }
     }
 
     fun notifyDrawerToKeyboardHandoffStarting(startingObstructionPx: Float, targetObstructionPx: Float) {
@@ -591,6 +738,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     private var resetDeletionActiveRunnable: Runnable? = null
 
     /**
+     * Cumulative downward restoration already applied against the physical release budget.
+     */
+    var contractionRestoredBudgetPx: Float = 0f
+        private set
+
+    /**
      * Authoritative single-owner scroll and animation coordinator.
      */
     internal val scrollCoordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator().apply {
@@ -598,6 +751,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             scrollCanvasBy(delta)
         }
         onCompensationConsumed = { downPx ->
+            contractionRestoredBudgetPx += downPx
             transitionCoordinator.consumeAppliedMovement(downPx)
         }
     }
@@ -760,18 +914,22 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         isSelected: Boolean = false
     ) {
         if (dy > 0f) {
+            val gen = transitionCoordinator.currentTransition.generation
             scrollCoordinator.recordExpansionDisplacement(
                 amount = dy,
                 startLine = startLine,
                 startCol = startCol,
                 endLine = endLine,
                 endCol = endCol,
-                selected = isSelected
+                selected = isSelected,
+                generation = gen
             )
             transitionCoordinator.recordExpansionDisplacement(
-                amountPx = dy,
+                generation = gen,
+                displacementPx = dy,
                 anchorLine = startLine,
                 anchorCol = startCol,
+                amountPx = dy,
                 selectionRange = ScribeBottomSurfaceCoordinator.SelectionRange(
                     startLine = startLine,
                     startColumn = startCol,
@@ -789,6 +947,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     fun invalidateCompensation(reason: String? = null) {
         cancelRestoration()
+        contractionRestoredBudgetPx = 0f
         scrollCoordinator.invalidateCompensation(reason)
         transitionCoordinator.invalidateCompensation(reason)
         if (reason != null && ScribeScrollPolicy.isDebugDiagnosticsEnabled) {
@@ -2191,17 +2350,15 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             lastEnsureCursorTime = now
             val duration = customDurationMs
             if (smooth) {
-                val preAnimationScroll = (scrollD + editor.offsetY).toFloat()
+                if (isExpansionTransitionActive) {
+                    scrollCoordinator.setCompensationAnchor(line, col, line, col, cursor.isSelected)
+                }
                 startAuthoritativeScrollAnimation(
                     targetTotalScroll = decision.targetTotalScroll,
                     reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
                     durationMs = duration,
                     interpolator = FastOutSlowInInterpolator
-                ) {
-                    if (isExpansionTransitionActive) {
-                        scrollCoordinator.setCompensationAnchor(line, col, line, col, cursor.isSelected)
-                    }
-                }
+                )
             } else {
                 val beforeScroll = (scrollD + editor.offsetY).toFloat()
                 scrollCanvasBy(decision.neededUpwardDisplacement)
@@ -2418,15 +2575,14 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                                         val targetLine = if (isAllSelected) cur.rightLine else cur.leftLine
                                         val targetCol = if (isAllSelected) cur.rightColumn else cur.leftColumn
                                         val preAnimationScroll = (scrollD + editor.offsetY).toFloat()
+                                        if (isExpansionTransitionActive) {
+                                            scrollCoordinator.setCompensationAnchor(targetLine, targetCol, targetLine, targetCol, cur.isSelected)
+                                        }
                                         startAuthoritativeScrollAnimation(
                                             targetTotalScroll = decision.targetTotalScroll,
                                             reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
                                             durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
-                                        ) {
-                                            if (isExpansionTransitionActive) {
-                                                scrollCoordinator.setCompensationAnchor(targetLine, targetCol, targetLine, targetCol, cur.isSelected)
-                                            }
-                                        }
+                                        )
                                     }
                                     // Strict Invariant: If isCurrentlySafe, do ABSOLUTELY NOTHING. Safe cursor never moves!
                                 }
@@ -2448,8 +2604,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 isExpansionTransitionActive = false
                 resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
                 val density = resources.displayMetrics.density
-                val curObstruction = currentObstruction
                 val currentTx = transitionCoordinator.currentTransition
+                val snapshot = captureBottomGeometrySnapshot()
+                val curObstruction = snapshot.projectionFor(currentTx.type)
                 val isTerminalDismissal = currentTx.type == ScribeBottomSurfaceCoordinator.TransitionType.TERMINAL_KEYBOARD_DISMISSAL && currentTx.isValid
 
                 // Update physical obstruction progress in current transition
@@ -2463,19 +2620,27 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     targetObstructionPx = currentTx.geometry.targetObstructionPx,
                     currentObstructionPx = curObstruction,
                     compactBaselinePx = currentTx.geometry.compactBaselinePx,
-                    recordedExpansionDisplacement = currentTx.compensation.recordedDisplacement,
-                    remainingCompensation = temporaryExpansionDisplacement,
+                    recordedExpansionDisplacement = scrollCoordinator.recordedDisplacement,
+                    remainingCompensation = scrollCoordinator.temporaryDisplacement,
+                    alreadyRestoredAgainstBudgetPx = contractionRestoredBudgetPx,
+                    physicalContractionReleasedPx = (currentTx.geometry.startingObstructionPx - curObstruction).coerceAtLeast(0f),
+                    availableScrollRangePx = (scrollD + editor.offsetY).toFloat(),
                     isAnchorValid = scrollCoordinator.isAnchorValid,
                     hasWindowFocus = hasWindowFocus(),
                     isScribeOwner = isScribeOwnedBottomSurface,
                     isTerminalDismissal = currentTx.isTerminalDismissal,
                     transitionGeneration = currentTx.generation,
                     linkedExpansionGeneration = currentTx.linkedExpansionGeneration,
-                    expectedGeneration = currentTx.generation
+                    expectedGeneration = if (currentTx.linkedExpansionGeneration != 0L) currentTx.linkedExpansionGeneration else scrollCoordinator.originatingExpansionGeneration
                 )
                 val authResult = ScribeScrollPolicy.authorizeContractionRestoration(authRequest)
 
-                if (!authResult.isAuthorized) {
+                if (authResult.isPending) {
+                    previousBottomObstructionPx = curObstruction
+                    return
+                }
+
+                if (authResult.isRejected) {
                     if (isTerminalDismissal) {
                         // Pure Writer Stationary Invariant:
                         // When keyboard is dismissed or closing, the document MUST remain
@@ -2508,7 +2673,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                         currentTx.phase == ScribeBottomSurfaceCoordinator.TransitionPhase.SETTLED ||
                         kotlin.math.abs(curObstruction - currentTx.geometry.targetObstructionPx) <= ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX
 
-                if (!shouldPerformNow && temporaryExpansionDisplacement > 0f) {
+                if (!shouldPerformNow && scrollCoordinator.temporaryDisplacement > 0f) {
                     previousBottomObstructionPx = curObstruction
                     return
                 }
@@ -2537,7 +2702,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                                 viewportHeight = h,
                                 density = density,
                                 totalScroll = currentScroll,
-                                temporaryDisplacement = temporaryExpansionDisplacement,
+                                temporaryDisplacement = scrollCoordinator.temporaryDisplacement,
                                 isAtLastLine = isAtLastLine,
                                 isKeyboardDismissing = isKeyboardDismissing,
                                 isBottomSurfaceActive = isBottomSurfaceActive || isKeyboardVisible

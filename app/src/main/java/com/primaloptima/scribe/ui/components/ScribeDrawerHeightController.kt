@@ -55,6 +55,10 @@ class ScribeDrawerHeightController(
     var currentAnimationToken: Long = 0L
         internal set
 
+    var onDragDirectionChanged: ((isExpanding: Boolean, currentHeightDp: Float) -> Unit)? = null
+    var onAnimationSettled: ((state: ScribeBottomSurfaceCoordinator.AccessoryDrawerState, heightDp: Float) -> Unit)? = null
+    private var activeDragDirection: Boolean? = null
+
     private fun clampToDrawerBounds(value: Float): Float {
         val minH = minOf(compactHeightDp, fullHeightDp)
         val maxH = maxOf(compactHeightDp, fullHeightDp)
@@ -108,6 +112,7 @@ class ScribeDrawerHeightController(
                 } catch (_: Throwable) {}
                 if (token == currentAnimationToken) {
                     liveDragHeightDp = targetHeight
+                    onAnimationSettled?.invoke(logicalState, targetHeight)
                 }
             }
         }
@@ -134,6 +139,7 @@ class ScribeDrawerHeightController(
                 } catch (_: Throwable) {}
                 if (token == currentAnimationToken) {
                     liveDragHeightDp = targetHeight
+                    onAnimationSettled?.invoke(logicalState, targetHeight)
                 }
             }
             return
@@ -153,6 +159,7 @@ class ScribeDrawerHeightController(
                 if (token == currentAnimationToken) {
                     isAnimating = false
                     liveDragHeightDp = animatable.value
+                    onAnimationSettled?.invoke(logicalState, animatable.value)
                 }
             }
         }
@@ -167,6 +174,7 @@ class ScribeDrawerHeightController(
         activeAnimationJob = null
         isAnimating = false
         isDragging = true
+        activeDragDirection = null
         liveDragHeightDp = clampToDrawerBounds(animatable.value)
     }
 
@@ -176,6 +184,13 @@ class ScribeDrawerHeightController(
     fun onDragDelta(deltaDp: Float) {
         if (!isDragging) {
             onDragStart()
+        }
+        if (kotlin.math.abs(deltaDp) > 0.1f) {
+            val isExpanding = deltaDp < 0f
+            if (activeDragDirection != isExpanding) {
+                activeDragDirection = isExpanding
+                onDragDirectionChanged?.invoke(isExpanding, currentDisplayedHeightDp)
+            }
         }
         liveDragHeightDp = clampToDrawerBounds(liveDragHeightDp - deltaDp)
     }
@@ -191,6 +206,7 @@ class ScribeDrawerHeightController(
         val token = ++currentAnimationToken
         activeAnimationJob?.cancel()
         isDragging = false
+        activeDragDirection = null
         val currentH = clampToDrawerBounds(liveDragHeightDp)
 
         val targetState = when {
@@ -237,6 +253,7 @@ class ScribeDrawerHeightController(
                 if (token == currentAnimationToken) {
                     isAnimating = false
                     liveDragHeightDp = animatable.value
+                    onAnimationSettled?.invoke(logicalState, animatable.value)
                 }
             }
         }

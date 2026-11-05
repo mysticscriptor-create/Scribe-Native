@@ -86,6 +86,48 @@ object ScribeBottomSurfaceCoordinator {
     }
 
     /**
+     * Active bottom surface ownership classification.
+     */
+    enum class SurfaceOwner {
+        NONE,
+        KEYBOARD,
+        DRAWER,
+        HANDOFF
+    }
+
+    /**
+     * Authoritative bottom-surface geometry snapshot.
+     * Keeps IME, drawer, shortcut bar, and navigation insets separate, providing
+     * explicit projections per transition type.
+     */
+    data class BottomSurfaceGeometrySnapshot(
+        val imeObstructionPx: Float = 0f,
+        val drawerHeightPx: Float = 0f,
+        val shortcutBarReservationPx: Float = 0f,
+        val navigationBarInsetPx: Float = 0f,
+        val effectiveBottomObstructionPx: Float = 0f,
+        val activeOwner: SurfaceOwner = SurfaceOwner.NONE,
+        val sequenceNumber: Long = 0L,
+        val timestampMs: Long = 0L
+    ) {
+        fun projectionFor(type: TransitionType): Float = when (type) {
+            TransitionType.KEYBOARD_ENTRANCE,
+            TransitionType.KEYBOARD_SETTLED,
+            TransitionType.KEYBOARD_EXPANDED,
+            TransitionType.KEYBOARD_CONTRACTION,
+            TransitionType.TERMINAL_KEYBOARD_DISMISSAL -> imeObstructionPx
+
+            TransitionType.DRAWER_OPENING,
+            TransitionType.DRAWER_EXPANSION,
+            TransitionType.DRAWER_CONTRACTION,
+            TransitionType.DRAWER_DISMISSAL -> drawerHeightPx
+
+            TransitionType.DRAWER_TO_KEYBOARD_HANDOFF -> effectiveBottomObstructionPx
+            else -> effectiveBottomObstructionPx
+        }
+    }
+
+    /**
      * Bottom surface physical geometry.
      */
     data class BottomSurfaceGeometry(
@@ -93,7 +135,8 @@ object ScribeBottomSurfaceCoordinator {
         val targetObstructionPx: Float = 0f,
         val currentObstructionPx: Float = 0f,
         val compactBaselinePx: Float = 0f,
-        val physicalViewportHeightPx: Int = 0
+        val physicalViewportHeightPx: Int = 0,
+        val activeOwner: SurfaceOwner = SurfaceOwner.NONE
     )
 
     /**
@@ -126,6 +169,7 @@ object ScribeBottomSurfaceCoordinator {
         val transitionType: TransitionType get() = type
         val targetObstructionPx: Float get() = geometry.targetObstructionPx
         val initialObstructionPx: Float get() = geometry.startingObstructionPx
+        val activeOwner: SurfaceOwner get() = geometry.activeOwner
         val isValid: Boolean get() = phase != TransitionPhase.CANCELLED && phase != TransitionPhase.COMPLETED
         val isTerminalDismissal: Boolean get() = type == TransitionType.TERMINAL_KEYBOARD_DISMISSAL
         val isContraction: Boolean get() = type == TransitionType.KEYBOARD_CONTRACTION || type == TransitionType.DRAWER_CONTRACTION
@@ -140,12 +184,12 @@ object ScribeBottomSurfaceCoordinator {
      */
     class BottomSurfaceTransitionCoordinator {
         private var generationCounter: Long = 0L
-
         var currentTransition: BottomSurfaceTransition = BottomSurfaceTransition()
             private set
 
         val activeType: TransitionType get() = currentTransition.type
         val activePhase: TransitionPhase get() = currentTransition.phase
+
         fun isTerminalDismissalInFlight(): Boolean = currentTransition.isTerminalDismissal && (currentTransition.phase == TransitionPhase.STARTING || currentTransition.phase == TransitionPhase.IN_FLIGHT)
         val isTerminalDismissalSettled: Boolean get() = currentTransition.isTerminalDismissal && currentTransition.phase == TransitionPhase.SETTLED
         val isTerminalDismissalLockActive: Boolean get() = isTerminalDismissalInFlight()
@@ -195,20 +239,49 @@ object ScribeBottomSurfaceCoordinator {
             }
 
             generationCounter++
+
             val linkedGen = if (linkedGeneration != 0L) {
                 linkedGeneration
-            } else if (type == TransitionType.KEYBOARD_CONTRACTION && currentTransition.type == TransitionType.KEYBOARD_EXPANDED) {
-                currentTransition.generation
-            } else if (type == TransitionType.DRAWER_CONTRACTION && (currentTransition.type == TransitionType.DRAWER_EXPANSION || currentTransition.type == TransitionType.DRAWER_OPENING)) {
-                currentTransition.generation
+            } else if (type == TransitionType.KEYBOARD_CONTRACTION) {
+                if (currentTransition.type == TransitionType.KEYBOARD_EXPANDED) {
+                    currentTransition.generation
+                } else if (currentTransition.compensation.recordedDisplacement > 0f) {
+                    if (currentTransition.linkedExpansionGeneration != 0L) currentTransition.linkedExpansionGeneration else currentTransition.generation
+                } else {
+                    0L
+                }
+            } else if (type == TransitionType.DRAWER_CONTRACTION) {
+                if (currentTransition.type == TransitionType.DRAWER_EXPANSION || currentTransition.type == TransitionType.DRAWER_OPENING) {
+                    currentTransition.generation
+                } else if (currentTransition.compensation.recordedDisplacement > 0f) {
+                    if (currentTransition.linkedExpansionGeneration != 0L) currentTransition.linkedExpansionGeneration else currentTransition.generation
+                } else {
+                    0L
+                }
             } else {
                 0L
             }
 
-            val inheritedCompensation = if (linkedGen != 0L) {
+            val inheritedCompensation = if (linkedGen != 0L && currentTransition.compensation.recordedDisplacement > 0f) {
                 currentTransition.compensation
             } else {
                 ExpansionCompensation()
+            }
+
+            val owner = when (type) {
+                TransitionType.KEYBOARD_ENTRANCE,
+                TransitionType.KEYBOARD_SETTLED,
+                TransitionType.KEYBOARD_EXPANDED,
+                TransitionType.KEYBOARD_CONTRACTION,
+                TransitionType.TERMINAL_KEYBOARD_DISMISSAL -> SurfaceOwner.KEYBOARD
+
+                TransitionType.DRAWER_OPENING,
+                TransitionType.DRAWER_EXPANSION,
+                TransitionType.DRAWER_CONTRACTION,
+                TransitionType.DRAWER_DISMISSAL -> SurfaceOwner.DRAWER
+
+                TransitionType.DRAWER_TO_KEYBOARD_HANDOFF -> SurfaceOwner.HANDOFF
+                else -> SurfaceOwner.NONE
             }
 
             val tx = BottomSurfaceTransition(
@@ -222,7 +295,8 @@ object ScribeBottomSurfaceCoordinator {
                     targetObstructionPx = targetObstructionPx,
                     currentObstructionPx = effectiveStartingPx,
                     compactBaselinePx = compactBaselinePx,
-                    physicalViewportHeightPx = viewportHeightPx
+                    physicalViewportHeightPx = viewportHeightPx,
+                    activeOwner = owner
                 ),
                 compensation = inheritedCompensation,
                 preservedScroll = preservedScroll
@@ -240,9 +314,23 @@ object ScribeBottomSurfaceCoordinator {
 
         fun updatePhysicalObstruction(currentPx: Float, generation: Long? = null): BottomSurfaceTransition {
             if (generation != null && generation != currentTransition.generation) return currentTransition
+            val startPx = currentTransition.geometry.startingObstructionPx
+            val targetPx = currentTransition.geometry.targetObstructionPx
+
+            val newPhase = if (currentTransition.phase == TransitionPhase.STARTING) {
+                val hasProgressed = when {
+                    currentTransition.isContraction && startPx > 0f -> (startPx - currentPx) >= IME_TARGET_TOLERANCE_PX
+                    currentTransition.isExpansion && startPx >= 0f -> (currentPx - startPx) >= IME_TARGET_TOLERANCE_PX
+                    else -> false
+                }
+                if (hasProgressed) TransitionPhase.IN_FLIGHT else TransitionPhase.STARTING
+            } else {
+                currentTransition.phase
+            }
+
             val tx = currentTransition.copy(
                 geometry = currentTransition.geometry.copy(currentObstructionPx = currentPx),
-                phase = if (currentTransition.phase == TransitionPhase.STARTING) TransitionPhase.IN_FLIGHT else currentTransition.phase
+                phase = newPhase
             )
             currentTransition = tx
             return tx
@@ -269,10 +357,12 @@ object ScribeBottomSurfaceCoordinator {
             val effectiveAmount = if (amountPx > 0f) amountPx else displacementPx
             val prevDisp = currentTransition.compensation.recordedDisplacement
             val newDisp = prevDisp + effectiveAmount.coerceAtLeast(0f)
+            val prevRemaining = currentTransition.compensation.remainingDisplacement
+            val newRemaining = prevRemaining + effectiveAmount.coerceAtLeast(0f)
             val tx = currentTransition.copy(
                 compensation = ExpansionCompensation(
                     recordedDisplacement = newDisp,
-                    remainingDisplacement = newDisp,
+                    remainingDisplacement = newRemaining,
                     anchorLine = anchorLine,
                     anchorColumn = anchorCol,
                     selectionRange = selectionRange,
