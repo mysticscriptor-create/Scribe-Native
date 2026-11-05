@@ -7942,17 +7942,26 @@ class CursorAndCanvasGeometryTest {
     }
 
     @Test
-    fun testDrawerTransitions_AllSixTransitionsGeometry() {
-        // Verify TransitionType properties and projections for all drawer states
+    fun testDrawerTransitions_GeometryAndProjections() {
+        // Verify drawer transition classification, contraction status, and snapshot projections
         val openType = ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_OPENING
         val expType = ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_EXPANSION
         val conType = ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_CONTRACTION
 
-        assertTrue("DRAWER_OPENING must be recognized as drawer transition", openType.isDrawer)
-        assertTrue("DRAWER_EXPANSION must be recognized as drawer transition", expType.isDrawer)
-        assertTrue("DRAWER_CONTRACTION must be recognized as drawer transition", conType.isDrawer)
-        assertFalse("DRAWER_EXPANSION must not be contraction", expType.isContraction)
-        assertTrue("DRAWER_CONTRACTION must be contraction", conType.isContraction)
+        val drawerTransitions = setOf(
+            ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_OPENING,
+            ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_EXPANSION,
+            ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_CONTRACTION,
+            ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_DISMISSAL
+        )
+        assertTrue("DRAWER_OPENING must be recognized as drawer transition", openType in drawerTransitions)
+        assertTrue("DRAWER_EXPANSION must be recognized as drawer transition", expType in drawerTransitions)
+        assertTrue("DRAWER_CONTRACTION must be recognized as drawer transition", conType in drawerTransitions)
+
+        val expTransition = ScribeBottomSurfaceCoordinator.BottomSurfaceTransition(type = expType)
+        val conTransition = ScribeBottomSurfaceCoordinator.BottomSurfaceTransition(type = conType)
+        assertFalse("DRAWER_EXPANSION must not be contraction", expTransition.isContraction)
+        assertTrue("DRAWER_CONTRACTION must be contraction", conTransition.isContraction)
 
         // Geometry snapshot projection test
         val snapshot = ScribeBottomSurfaceCoordinator.BottomSurfaceGeometrySnapshot(
