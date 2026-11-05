@@ -7464,32 +7464,67 @@ class CursorAndCanvasGeometryTest {
     fun testContractionAuthorization_AcceptsGenuineContractionReturningToBaseline() {
         val coordinator = ScribeBottomSurfaceCoordinator.BottomSurfaceTransitionCoordinator()
         
-        // Start keyboard contraction from 520dp (1300px) down to compact baseline 280dp (700px)
-        val gen = coordinator.startTransition(
-            type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
-            initialObstructionPx = 1300f,
-            targetObstructionPx = 700f
+        // 1. Start a genuine keyboard expansion from compact baseline 700px to expanded 1300px
+        val expGen = coordinator.startTransition(
+            type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_EXPANDED,
+            startingObstructionPx = 700f,
+            targetObstructionPx = 1300f,
+            compactBaselinePx = 700f
         )
+        // 2. Record compensation against that expansion generation
         coordinator.recordExpansionDisplacement(
-            generation = gen,
+            generation = expGen,
             displacementPx = 200f,
             anchorLine = 15,
             anchorCol = 10
         )
+        // 3. Start contraction back down to compact baseline 700px, explicitly linked to expGen
+        val conGen = coordinator.startTransition(
+            type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            startingObstructionPx = 1300f,
+            targetObstructionPx = 700f,
+            compactBaselinePx = 700f,
+            linkedGeneration = expGen
+        )
+        // 4. Update physical obstruction so transition reaches verified IN_FLIGHT progress
+        coordinator.updatePhysicalObstruction(currentPx = 1050f, generation = conGen)
         
+        // 5. Supply matching measurements, valid anchor, linked generation, and available slack
         val req = ScribeScrollPolicy.ContractionAuthorizationRequest(
             transitionType = coordinator.currentTransition.transitionType,
-            isTerminalDismissal = coordinator.isTerminalDismissalInFlight(),
+            transitionPhase = coordinator.currentTransition.phase,
+            startingObstructionPx = coordinator.currentTransition.geometry.startingObstructionPx,
+            targetObstructionPx = coordinator.currentTransition.geometry.targetObstructionPx,
+            currentObstructionPx = coordinator.currentTransition.geometry.currentObstructionPx,
+            compactBaselinePx = coordinator.currentTransition.geometry.compactBaselinePx,
+            recordedExpansionDisplacement = coordinator.currentTransition.compensation.recordedDisplacement,
+            remainingCompensation = coordinator.currentTransition.compensation.remainingDisplacement,
             temporaryExpansionDisplacement = coordinator.currentTransition.compensation.temporaryDisplacementPx,
-            targetBottomObstructionPx = coordinator.currentTransition.targetObstructionPx,
             isAnchorValid = coordinator.currentTransition.compensation.isAnchorValid,
+            hasWindowFocus = true,
+            isScribeOwner = true,
+            isTerminalDismissal = coordinator.isTerminalDismissalInFlight(),
+            transitionGeneration = conGen,
+            linkedExpansionGeneration = coordinator.currentTransition.linkedExpansionGeneration,
             currentSlackAboveBaselinePx = 300f,
-            generation = gen,
-            expectedGeneration = coordinator.currentTransition.generation
+            physicalContractionReleasedPx = 250f,
+            availableScrollRangePx = 500f,
+            generation = conGen,
+            expectedGeneration = conGen
         )
         val result = ScribeScrollPolicy.authorizeContractionRestoration(req)
+        assertEquals(ScribeScrollPolicy.ContractionAuthorizationStatus.AUTHORIZED, result.status)
         assertTrue("Genuine contraction returning to compact baseline must be authorized", result.isAuthorized)
         assertEquals("Permitted restoration must equal recorded displacement", 200f, result.maximumPermittedRestorationPx, 0.001f)
+
+        // Verify unlinked or stale generations remain rejected
+        val unlinkedReq = req.copy(linkedExpansionGeneration = 0L, recordedExpansionDisplacement = 0f)
+        val unlinkedRes = ScribeScrollPolicy.authorizeContractionRestoration(unlinkedReq)
+        assertFalse("Unlinked contraction must be rejected", unlinkedRes.isAuthorized)
+
+        val staleReq = req.copy(generation = conGen - 1)
+        val staleRes = ScribeScrollPolicy.authorizeContractionRestoration(staleReq)
+        assertFalse("Stale generation must be rejected", staleRes.isAuthorized)
     }
 
     @Test
@@ -7537,31 +7572,72 @@ class CursorAndCanvasGeometryTest {
     @Test
     fun testContractionRestoration_PartialCompensationPreservedWhenConstrainedBySlack() {
         val transCoord = ScribeBottomSurfaceCoordinator.BottomSurfaceTransitionCoordinator()
-        val gen = transCoord.startTransition(
-            type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
-            initialObstructionPx = 1200f,
-            targetObstructionPx = 600f
+        
+        // 1. Start a genuine keyboard expansion from compact baseline 600px to expanded 1200px
+        val expGen = transCoord.startTransition(
+            type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_EXPANDED,
+            startingObstructionPx = 600f,
+            targetObstructionPx = 1200f,
+            compactBaselinePx = 600f
         )
-        transCoord.recordExpansionDisplacement(gen, 180f, anchorLine = 12, anchorCol = 0)
+        // 2. Record compensation against that expansion generation
+        transCoord.recordExpansionDisplacement(
+            generation = expGen,
+            displacementPx = 180f,
+            anchorLine = 12,
+            anchorCol = 0
+        )
+        // 3. Start contraction back down to compact baseline 600px, linked to expGen
+        val conGen = transCoord.startTransition(
+            type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            startingObstructionPx = 1200f,
+            targetObstructionPx = 600f,
+            compactBaselinePx = 600f,
+            linkedGeneration = expGen
+        )
+        // 4. Update physical obstruction so transition reaches verified IN_FLIGHT progress (200px released)
+        transCoord.updatePhysicalObstruction(currentPx = 1000f, generation = conGen)
 
-        // Slack above baseline is only 75px (less than full 180px compensation)
+        // 5. Slack above baseline is only 75px (less than 180px compensation and 200px physical release)
         val req = ScribeScrollPolicy.ContractionAuthorizationRequest(
             transitionType = transCoord.currentTransition.transitionType,
-            isTerminalDismissal = false,
-            temporaryExpansionDisplacement = 180f,
-            targetBottomObstructionPx = 600f,
-            isAnchorValid = true,
+            transitionPhase = transCoord.currentTransition.phase,
+            startingObstructionPx = transCoord.currentTransition.geometry.startingObstructionPx,
+            targetObstructionPx = transCoord.currentTransition.geometry.targetObstructionPx,
+            currentObstructionPx = transCoord.currentTransition.geometry.currentObstructionPx,
+            compactBaselinePx = transCoord.currentTransition.geometry.compactBaselinePx,
+            recordedExpansionDisplacement = transCoord.currentTransition.compensation.recordedDisplacement,
+            remainingCompensation = transCoord.currentTransition.compensation.remainingDisplacement,
+            temporaryExpansionDisplacement = transCoord.currentTransition.compensation.temporaryDisplacementPx,
+            isAnchorValid = transCoord.currentTransition.compensation.isAnchorValid,
+            hasWindowFocus = true,
+            isScribeOwner = true,
+            isTerminalDismissal = transCoord.isTerminalDismissalInFlight(),
+            transitionGeneration = conGen,
+            linkedExpansionGeneration = transCoord.currentTransition.linkedExpansionGeneration,
             currentSlackAboveBaselinePx = 75f,
-            generation = gen,
-            expectedGeneration = gen
+            physicalContractionReleasedPx = 200f,
+            availableScrollRangePx = 500f,
+            generation = conGen,
+            expectedGeneration = conGen
         )
         val result = ScribeScrollPolicy.authorizeContractionRestoration(req)
+        assertEquals(ScribeScrollPolicy.ContractionAuthorizationStatus.AUTHORIZED, result.status)
         assertTrue("Partial restoration authorized", result.isAuthorized)
         assertEquals("Restoration is clamped to available slack", 75f, result.maximumPermittedRestorationPx, 0.001f)
 
         // Consume only 75px
         transCoord.consumeAppliedMovement(75f)
         assertEquals("Unconsumed 105px remainder remains preserved", 105f, transCoord.currentTransition.compensation.temporaryDisplacementPx, 0.001f)
+
+        // Verify unreleased physical distance cannot be restored (constrained by physical release budget)
+        val constrainedByReleaseReq = req.copy(
+            currentObstructionPx = 1150f, // only 50px released
+            physicalContractionReleasedPx = 50f
+        )
+        val releaseRes = ScribeScrollPolicy.authorizeContractionRestoration(constrainedByReleaseReq)
+        assertTrue("Restoration authorized within physical release budget", releaseRes.isAuthorized)
+        assertEquals("Restoration must be capped at physical release of 50px", 50f, releaseRes.maximumPermittedRestorationPx, 0.001f)
     }
 
     @Test

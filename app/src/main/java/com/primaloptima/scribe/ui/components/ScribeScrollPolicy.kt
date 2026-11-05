@@ -1476,6 +1476,9 @@ object ScribeScrollPolicy {
             val effStartCol = if (anchorLine != -1 && anchorCol != 0) anchorCol else startCol
 
             if (generation != 0L) {
+                if (originatingExpansionGeneration != 0L && generation < originatingExpansionGeneration) {
+                    return
+                }
                 if (originatingExpansionGeneration == 0L || originatingExpansionGeneration == generation) {
                     originatingExpansionGeneration = generation
                     recordedDisplacement += amount
@@ -1621,9 +1624,10 @@ object ScribeScrollPolicy {
             totalScroll += step
             val actualMoved = step
             val appliedDown = if (actualMoved < 0f) -actualMoved else 0f
+            val hadPriorCompensation = temporaryDisplacement > 0.5f
             temporaryDisplacement = (temporaryDisplacement - appliedDown).coerceAtLeast(0f)
             totalConsumedDisplacement += appliedDown
-            if (temporaryDisplacement <= 0.5f) {
+            if (hadPriorCompensation && temporaryDisplacement <= 0.5f) {
                 temporaryDisplacement = 0f
                 recordedDisplacement = 0f
                 totalConsumedDisplacement = 0f
