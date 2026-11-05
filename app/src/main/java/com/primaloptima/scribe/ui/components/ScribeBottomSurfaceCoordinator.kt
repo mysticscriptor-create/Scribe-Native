@@ -151,7 +151,7 @@ object ScribeBottomSurfaceCoordinator {
         val isTerminalDismissalLockActive: Boolean get() = isTerminalDismissalInFlight()
         val isTerminalDismissalActive: Boolean get() = currentTransition.isTerminalDismissal && currentTransition.isValid
         val isContractionActive: Boolean get() = currentTransition.isContraction && (currentTransition.phase == TransitionPhase.STARTING || currentTransition.phase == TransitionPhase.IN_FLIGHT || currentTransition.phase == TransitionPhase.SETTLED)
-        val preservedDismissalScroll: Int? get() = currentTransition.preservedScroll
+        val preservedDismissalScroll: Int? get() = if (currentTransition.isTerminalDismissal) currentTransition.preservedScroll else null
 
         fun startTransition(
             type: TransitionType,
@@ -371,7 +371,7 @@ object ScribeBottomSurfaceCoordinator {
             initialObstructionPx: Float = 0f
         ): Long {
             if (generation != null && generation != currentTransition.generation) return currentTransition.generation
-            if (isTerminalDismissalActive && currentTransition.preservedScroll != null) {
+            if (isTerminalDismissalInFlight() && currentTransition.preservedScroll != null) {
                 return currentTransition.generation // Idempotent: don't overwrite saved scroll
             }
             generationCounter++
@@ -411,7 +411,7 @@ object ScribeBottomSurfaceCoordinator {
                     targetObstructionPx = 0f
                 ),
                 compensation = ExpansionCompensation(isAnchorValid = false),
-                preservedScroll = effectiveScroll
+                preservedScroll = null
             )
             currentTransition = tx
             return generationCounter

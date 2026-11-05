@@ -957,7 +957,7 @@ object ScribeScrollPolicy {
 
         // 6. Starting obstruction must be genuinely greater than target compact baseline
         val startingObstruction = request.startingObstructionPx
-        if (startingObstruction <= targetBaseline + ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX) {
+        if (startingObstruction > 0f && startingObstruction <= targetBaseline + ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX) {
             return ContractionAuthorizationResult(false, rejectionReason = "Starting obstruction is not greater than target compact baseline")
         }
 
@@ -965,19 +965,21 @@ object ScribeScrollPolicy {
         val curObstruction = request.currentObstructionPx
         val tolerance = ScribeBottomSurfaceCoordinator.IME_TARGET_TOLERANCE_PX
 
-        // Zero or unknown obstruction cannot be interpreted as contraction progress
-        if (curObstruction <= 0f && request.transitionPhase != ScribeBottomSurfaceCoordinator.TransitionPhase.SETTLED) {
-            return ContractionAuthorizationResult(false, rejectionReason = "Physical obstruction is zero or unmeasured during active transition")
-        }
-
-        if (curObstruction > startingObstruction + tolerance) {
-            return ContractionAuthorizationResult(false, rejectionReason = "Physical obstruction is increasing, not contracting")
-        }
-
-        // In flight contraction MUST have genuinely progressed downward from starting obstruction
         if (request.transitionPhase == ScribeBottomSurfaceCoordinator.TransitionPhase.IN_FLIGHT) {
-            if ((startingObstruction - curObstruction) < tolerance) {
+            // Zero or unknown obstruction cannot be interpreted as contraction progress during active in-flight transition
+            if (curObstruction <= 0f) {
+                return ContractionAuthorizationResult(false, rejectionReason = "Physical obstruction is zero or unmeasured during active transition")
+            }
+            if (startingObstruction > 0f && curObstruction > startingObstruction + tolerance) {
+                return ContractionAuthorizationResult(false, rejectionReason = "Physical obstruction is increasing, not contracting")
+            }
+            // In flight contraction MUST have genuinely progressed downward from starting obstruction
+            if (startingObstruction > 0f && (startingObstruction - curObstruction) < tolerance) {
                 return ContractionAuthorizationResult(false, rejectionReason = "Physical obstruction has not begun contracting")
+            }
+        } else if (startingObstruction > 0f && curObstruction > 0f) {
+            if (curObstruction > startingObstruction + tolerance) {
+                return ContractionAuthorizationResult(false, rejectionReason = "Physical obstruction is increasing, not contracting")
             }
         }
 
