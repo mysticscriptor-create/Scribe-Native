@@ -10,6 +10,7 @@ import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.view.WindowInsets
 import android.view.animation.PathInterpolator
 import android.widget.EdgeEffect
 import android.widget.OverScroller
@@ -663,6 +664,16 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 }
             }
         }
+
+    val isScribeOwnedBottomSurface: Boolean
+        get() = hasWindowFocus() && (
+            isKeyboardTransactionActive ||
+            isBottomSurfaceActive ||
+            (editor.isFocused && (isKeyboardVisible || liveImeHeightPx > 0f))
+        )
+
+    val isHandoffActive: Boolean
+        get() = transitionCoordinator.activeType == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_TO_KEYBOARD_HANDOFF
 
     init {
         addView(headerView)
@@ -2499,11 +2510,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val dh = fractionalHeightAccumulatorPx
                 fractionalHeightAccumulatorPx = 0
             val currentObstruction = (liveImeHeightPx + liveDrawerHeightPx + (if (isKeyboardVisible || isBottomSurfaceActive) shortcutBarHeightPx else 0f)).coerceAtLeast(0f)
-            val isScribeOwnedBottomSurface = hasWindowFocus() && (
-                isKeyboardTransactionActive ||
-                isBottomSurfaceActive ||
-                (editor.isFocused && (isKeyboardVisible || liveImeHeightPx > 0f))
-            )
+            val isScribeOwnedBottomSurface = this.isScribeOwnedBottomSurface
 
             if (dh > 0) {
                 if (isScribeOwnedBottomSurface) {
@@ -2960,7 +2967,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 // A harmless touch-down must not automatically destroy valid transition compensation
                 // or abort an active contraction restoration. Only cancel viewport safety glides.
                 val isContractionRunning = isRestorationActive || activeGlideReason == ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION
-                val isHandoffActive = transitionCoordinator.activeType == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_TO_KEYBOARD_HANDOFF
                 if (!isContractionRunning && !isHandoffActive) {
                     cancelViewportSafetyAnimation()
                 }

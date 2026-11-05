@@ -455,6 +455,7 @@ fun MainEditorScreen(
             }
         }
     }
+    var transitionalSpacerDp by remember { mutableStateOf(0.dp) }
     var handoffStartingObstructionDp by remember { mutableFloatStateOf(0f) }
     var handoffStartingImeDp by remember { mutableFloatStateOf(0f) }
     var handoffExplicitProgress by remember { mutableStateOf<Float?>(null) }

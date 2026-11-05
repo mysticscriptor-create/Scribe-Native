@@ -7956,11 +7956,12 @@ class CursorAndCanvasGeometryTest {
 
         // Geometry snapshot projection test
         val snapshot = ScribeBottomSurfaceCoordinator.BottomSurfaceGeometrySnapshot(
-            imeHeightPx = 0f,
+            imeObstructionPx = 0f,
             drawerHeightPx = 450f,
-            shortcutBarHeightPx = 48f,
-            isImeVisible = false,
-            isDrawerActive = true
+            shortcutBarReservationPx = 48f,
+            navigationBarInsetPx = 0f,
+            effectiveBottomObstructionPx = 498f,
+            activeOwner = ScribeBottomSurfaceCoordinator.SurfaceOwner.DRAWER
         )
         assertEquals(450f, snapshot.projectionFor(conType), 0.001f)
         assertEquals(450f, snapshot.projectionFor(expType), 0.001f)
