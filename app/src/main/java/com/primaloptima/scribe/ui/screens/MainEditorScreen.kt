@@ -1488,7 +1488,7 @@ fun MainEditorScreen(
                     val barHeightPx = if (shortcuts.isNotEmpty()) 36f * density.density else 0f
                     val screenHeight = configuration.screenHeightDp.toFloat()
                     if (com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(imeAboveNavDpVal, screenHeight)) {
-                        unifiedCanvasRef?.standardKeyboardHeightPx = imeAboveNavPx.toFloat()
+                        unifiedCanvasRef?.standardKeyboardHeightPx = lastKeyboardHeightDp.value * density.density
                         unifiedCanvasRef?.updateRetainedBottomScrollClearance(
                             actualObstructionAboveNavPx = imeAboveNavPx.toFloat(),
                             shortcutBarHeightPx = barHeightPx
@@ -1501,7 +1501,8 @@ fun MainEditorScreen(
             } else {
                 if (targetImePx > 0) {
                     if (isPhysicallySettled) {
-                        if (presentationState != com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED) {
+                        val wasKeyboardAlreadySettled = presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED
+                        if (!wasKeyboardAlreadySettled) {
                             presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.reduce(
                                 presentationState,
                                 com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationEvent.ImeSettledAtTarget
@@ -1515,7 +1516,6 @@ fun MainEditorScreen(
                             val isInMultiWindow = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
                                 (context as? android.app.Activity)?.isInMultiWindowMode ?: false
                             } else false
-                            val wasKeyboardAlreadySettled = presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED
                             if (com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.canUpdateSavedStandardBaseline(
                                     presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
                                     hasActiveDrawer = activeAccessoryDrawer != null,
@@ -1531,7 +1531,7 @@ fun MainEditorScreen(
                                     dataStore.setLastKeyboardHeight(imeAboveNavDpVal)
                                 }
                             }
-                            unifiedCanvasRef?.standardKeyboardHeightPx = imeAboveNavPx.toFloat()
+                            unifiedCanvasRef?.standardKeyboardHeightPx = lastKeyboardHeightDp.value * density.density
                             unifiedCanvasRef?.updateRetainedBottomScrollClearance(
                                 actualObstructionAboveNavPx = imeAboveNavPx.toFloat(),
                                 shortcutBarHeightPx = barHeightPx

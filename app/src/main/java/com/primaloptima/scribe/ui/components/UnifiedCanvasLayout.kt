@@ -482,6 +482,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      */
     fun evaluateViewportAdjustment(forceAnimate: Boolean = false) {
         if (isUserTouching || isDraggingCanvas) return
+        if (isKeyboardTransactionActive) return
         val h = height.toFloat()
         if (h <= 0f) return
 
@@ -544,12 +545,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             )
         }
 
-        val effectiveBottomObstructionPx = when {
-            isDrawerActive -> liveDrawerHeightPx + (if (isKeyboardVisible || isBottomSurfaceActive) shortcutBarHeightPx else 0f)
-            isKeyboardVisible || liveImeHeightPx > 0f -> liveImeHeightPx + (if (isKeyboardVisible || isBottomSurfaceActive) shortcutBarHeightPx else 0f)
-            else -> 0f
-        }
-        val usableWritingHeight = (h - effectiveBottomObstructionPx).coerceAtLeast(0f)
+        val usableWritingHeight = h.coerceAtLeast(0f)
 
         val maxCanvas = maxCanvasScroll.toFloat()
         val request = ScribeScrollPolicy.ViewportAdjustmentRequest(
@@ -574,19 +570,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
         if (result.shouldScroll || forceAnimate) {
-            if (scrollCoordinator.isAnimationActive && scrollCoordinator.activeReason == ScribeScrollPolicy.ScrollAnimationReason.VIEWPORT_ADJUSTMENT) {
-                scrollCoordinator.retargetActiveOperation(
-                    newTarget = result.targetTotalScroll,
-                    reason = ScribeScrollPolicy.ScrollAnimationReason.VIEWPORT_ADJUSTMENT,
-                    maxCanvasScroll = maxCanvas.toInt()
-                )
-            } else {
-                startAuthoritativeScrollAnimation(
-                    targetTotalScroll = result.targetTotalScroll,
-                    reason = ScribeScrollPolicy.ScrollAnimationReason.VIEWPORT_ADJUSTMENT,
-                    durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
-                )
-            }
+            startAuthoritativeScrollAnimation(
+                targetTotalScroll = result.targetTotalScroll,
+                reason = ScribeScrollPolicy.ScrollAnimationReason.VIEWPORT_ADJUSTMENT,
+                durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
+            )
         }
     }
 

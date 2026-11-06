@@ -1548,11 +1548,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
             val wasTap = !isTouchMoved && dt < 450L
             if (wasTap && !isPinchScaling && !isHandleDragging && !isInteractingWithImage) {
                 val pCanvas = parentCanvas
-                if (pCanvas != null && (pCanvas.isKeyboardVisible || pCanvas.isBottomSurfaceActive)) {
+                if (pCanvas != null && (pCanvas.isKeyboardVisible || pCanvas.isBottomSurfaceActive) && !pCanvas.isKeyboardTransactionActive) {
                     // Viewport is already contracted: perform ordinary caret visibility check with TAP_PLACEMENT origin
+                    // using current committed cursor geometry rather than pre-tap estimate
                     pCanvas.ensureCursorVisibleAboveKeyboard(
-                        targetLine = pendingTapTargetLine,
-                        targetCol = pendingTapTargetCol,
+                        targetLine = null,
+                        targetCol = null,
                         smooth = true,
                         origin = ScribeScrollPolicy.CursorCorrectionOrigin.TAP_PLACEMENT
                     )
