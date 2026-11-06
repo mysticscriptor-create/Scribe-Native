@@ -805,8 +805,14 @@ object ScribeBottomSurfaceCoordinator {
      * cleanly finishes into HIDDEN.
      * When hasShortcuts is false, no slot is reserved.
      */
-    fun isShortcutBarGeometryReserved(state: PresentationState, hasShortcuts: Boolean = true): Boolean {
+    fun isShortcutBarGeometryReserved(
+        state: PresentationState,
+        hasShortcuts: Boolean = true,
+        isImeVisibleOrEntering: Boolean = false,
+        isDrawerActive: Boolean = false
+    ): Boolean {
         if (!hasShortcuts) return false
+        if (isImeVisibleOrEntering || isDrawerActive) return true
         return when (state) {
             PresentationState.HIDDEN -> false
             PresentationState.KEYBOARD_ENTRANCE,
@@ -820,8 +826,13 @@ object ScribeBottomSurfaceCoordinator {
     /**
      * Computes the reserved shortcut-bar clearance in dp based on geometry reservation state.
      */
-    fun calculateReservedShortcutBarClearanceDp(state: PresentationState, hasShortcuts: Boolean = true): Float {
-        return if (isShortcutBarGeometryReserved(state, hasShortcuts)) SHORTCUT_BAR_HEIGHT_DP else 0f
+    fun calculateReservedShortcutBarClearanceDp(
+        state: PresentationState,
+        hasShortcuts: Boolean = true,
+        isImeVisibleOrEntering: Boolean = false,
+        isDrawerActive: Boolean = false
+    ): Float {
+        return if (isShortcutBarGeometryReserved(state, hasShortcuts, isImeVisibleOrEntering, isDrawerActive)) SHORTCUT_BAR_HEIGHT_DP else 0f
     }
 
     /**

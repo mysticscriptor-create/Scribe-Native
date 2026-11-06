@@ -417,7 +417,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     fun notifyDrawerOpeningStarting(targetObstructionPx: Float) {
         contractionRestoredBudgetPx = 0f
-        isExpansionTransitionActive = true
+        isExpansionTransitionActive = false
         transitionCoordinator.startTransition(
             type = ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_OPENING,
             startingObstructionPx = 0f,
@@ -492,7 +492,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             isTerminalDismissal = currentTx.isTerminalDismissal,
             transitionGeneration = currentTx.generation,
             linkedExpansionGeneration = currentTx.linkedExpansionGeneration,
-            expectedGeneration = if (currentTx.linkedExpansionGeneration != 0L) currentTx.linkedExpansionGeneration else scrollCoordinator.originatingExpansionGeneration
+            originatingExpansionGeneration = scrollCoordinator.originatingExpansionGeneration,
+            generation = currentTx.generation,
+            expectedGeneration = currentTx.generation
         )
         val authResult = ScribeScrollPolicy.authorizeContractionRestoration(authRequest)
         if (!authResult.isAuthorized) return
@@ -2195,14 +2197,18 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         onKeyboardEntranceStarted?.invoke()
 
         if (deltaY > ScribeScrollPolicy.DRAG_THRESHOLD_DP) {
-            isExpansionTransitionActive = true
-            resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
-            val rReset = Runnable {
-                isExpansionTransitionActive = false
-                checkKeyboardTransactionSettled()
+            val isActualExpansion = transitionCoordinator.currentTransition.type == ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_EXPANDED ||
+                                    transitionCoordinator.currentTransition.type == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_EXPANSION
+            isExpansionTransitionActive = isActualExpansion
+            if (isActualExpansion) {
+                resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
+                val rReset = Runnable {
+                    isExpansionTransitionActive = false
+                    checkKeyboardTransactionSettled()
+                }
+                resetExpansionTransitionRunnable = rReset
+                postDelayed(rReset, 600L)
             }
-            resetExpansionTransitionRunnable = rReset
-            postDelayed(rReset, 600L)
 
             isPredictiveGlideRunning = true
             targetPredictedScrollTotal = desiredTarget
@@ -2515,8 +2521,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             if (dh > 0) {
                 if (isScribeOwnedBottomSurface) {
                     // Viewport shrinking (Scribe keyboard appearing or accessory drawer opening)
-                    previousBottomObstructionPx = currentObstruction
-                    isExpansionTransitionActive = true
+                    val currentTx = transitionCoordinator.currentTransition
+                    val snapshot = captureBottomGeometrySnapshot()
+                    previousBottomObstructionPx = snapshot.projectionFor(currentTx.type)
+                    val isActualExpansion = currentTx.type == ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_EXPANDED ||
+                                            currentTx.type == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_EXPANSION
+                    isExpansionTransitionActive = isActualExpansion
                     isKeyboardDismissing = false
 
                     val curC = try { editor.cursor } catch (_: Throwable) { null }
@@ -2638,7 +2648,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     isTerminalDismissal = currentTx.isTerminalDismissal,
                     transitionGeneration = currentTx.generation,
                     linkedExpansionGeneration = currentTx.linkedExpansionGeneration,
-                    expectedGeneration = if (currentTx.linkedExpansionGeneration != 0L) currentTx.linkedExpansionGeneration else scrollCoordinator.originatingExpansionGeneration
+                    originatingExpansionGeneration = scrollCoordinator.originatingExpansionGeneration,
+                    generation = currentTx.generation,
+                    expectedGeneration = currentTx.generation
                 )
                 val authResult = ScribeScrollPolicy.authorizeContractionRestoration(authRequest)
 

@@ -1738,9 +1738,12 @@ fun MainEditorScreen(
                         0f
                     }
 
+                    val isImeOpeningOrVisible = (imeInsets.getBottom(density) > 0 || imeAnimTarget.getBottom(density) > 0 || isKeyboardVisible || isAwaitingKeyboardOpen)
                     val isShortcutBarReserved = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isShortcutBarGeometryReserved(
-                        presentationState,
-                        shortcuts.isNotEmpty()
+                        state = presentationState,
+                        hasShortcuts = shortcuts.isNotEmpty(),
+                        isImeVisibleOrEntering = isImeOpeningOrVisible,
+                        isDrawerActive = (activeAccessoryDrawer != null)
                     )
                     val fixedShortcutBarClearance = if (isShortcutBarReserved && shortcuts.isNotEmpty()) 36f else 0f
                     val curNavBottomDpVal = navInsets.getBottom(density) / density.density

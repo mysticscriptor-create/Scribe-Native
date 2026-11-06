@@ -8089,4 +8089,118 @@ class CursorAndCanvasGeometryTest {
         coordinator.applyStep(dt = 0.016f)
         assertTrue("Anchor must remain valid during upward animation steps", coordinator.isAnchorValid)
     }
+
+    @Test
+    fun testSynchronousFrameZeroShortcutBarReservation() {
+        // Frame-0 synchronous reservation: When IME insets or animation are active before PresentationState updates
+        val hiddenState = ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN
+        
+        // When IME is entering (insets > 0) but state is still HIDDEN
+        val reservedOnImeEntrance = ScribeBottomSurfaceCoordinator.isShortcutBarGeometryReserved(
+            state = hiddenState,
+            hasShortcuts = true,
+            isImeVisibleOrEntering = true
+        )
+        val clearanceOnImeEntrance = ScribeBottomSurfaceCoordinator.calculateReservedShortcutBarClearanceDp(
+            state = hiddenState,
+            hasShortcuts = true,
+            isImeVisibleOrEntering = true
+        )
+        assertTrue("Shortcut slot must be synchronously reserved on frame 0 when IME is entering", reservedOnImeEntrance)
+        assertEquals(36f, clearanceOnImeEntrance, 0.001f)
+
+        // When accessory drawer is active while state is HIDDEN
+        val reservedOnDrawer = ScribeBottomSurfaceCoordinator.isShortcutBarGeometryReserved(
+            state = hiddenState,
+            hasShortcuts = true,
+            isDrawerActive = true
+        )
+        assertTrue("Shortcut slot must be reserved when accessory drawer is active", reservedOnDrawer)
+
+        // Without shortcuts, never reserve slot even if IME is entering
+        val noShortcutsReserved = ScribeBottomSurfaceCoordinator.isShortcutBarGeometryReserved(
+            state = hiddenState,
+            hasShortcuts = false,
+            isImeVisibleOrEntering = true
+        )
+        assertFalse("Without shortcuts, slot must never be reserved", noShortcutsReserved)
+
+        // Idle HIDDEN without IME or drawer must not reserve slot
+        val idleReserved = ScribeBottomSurfaceCoordinator.isShortcutBarGeometryReserved(
+            state = hiddenState,
+            hasShortcuts = true,
+            isImeVisibleOrEntering = false,
+            isDrawerActive = false
+        )
+        assertFalse("Idle HIDDEN without IME or drawer must not reserve slot", idleReserved)
+    }
+
+    @Test
+    fun testContractionAuthorization_ValidatesOriginatingExpansionLineage() {
+        val coordinator = ScribeBottomSurfaceCoordinator.BottomSurfaceTransitionCoordinator()
+
+        // 1. Start expansion generation 15L from baseline 700px to 1300px
+        val expGen = coordinator.startTransition(
+            type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_EXPANDED,
+            startingObstructionPx = 700f,
+            targetObstructionPx = 1300f,
+            compactBaselinePx = 700f
+        )
+        coordinator.recordExpansionDisplacement(
+            generation = expGen,
+            displacementPx = 200f,
+            anchorLine = 15,
+            anchorCol = 10
+        )
+
+        // 2. Start contraction generation 25L linked to expGen
+        val conGen = coordinator.startTransition(
+            type = ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION,
+            startingObstructionPx = 1300f,
+            targetObstructionPx = 700f,
+            compactBaselinePx = 700f,
+            linkedGeneration = expGen
+        )
+        coordinator.updatePhysicalObstruction(currentPx = 1050f, generation = conGen)
+
+        // Base matching request
+        val matchingReq = ScribeScrollPolicy.ContractionAuthorizationRequest(
+            transitionType = coordinator.currentTransition.transitionType,
+            transitionPhase = coordinator.currentTransition.phase,
+            startingObstructionPx = coordinator.currentTransition.geometry.startingObstructionPx,
+            targetObstructionPx = coordinator.currentTransition.geometry.targetObstructionPx,
+            currentObstructionPx = coordinator.currentTransition.geometry.currentObstructionPx,
+            compactBaselinePx = coordinator.currentTransition.geometry.compactBaselinePx,
+            recordedExpansionDisplacement = coordinator.currentTransition.compensation.recordedDisplacement,
+            remainingCompensation = coordinator.currentTransition.compensation.remainingDisplacement,
+            temporaryExpansionDisplacement = coordinator.currentTransition.compensation.temporaryDisplacementPx,
+            isAnchorValid = coordinator.currentTransition.compensation.isAnchorValid,
+            hasWindowFocus = true,
+            isScribeOwner = true,
+            isTerminalDismissal = false,
+            transitionGeneration = conGen,
+            linkedExpansionGeneration = expGen,
+            originatingExpansionGeneration = expGen,
+            currentSlackAboveBaselinePx = 300f,
+            physicalContractionReleasedPx = 250f,
+            availableScrollRangePx = 500f,
+            generation = conGen,
+            expectedGeneration = conGen
+        )
+
+        val matchResult = ScribeScrollPolicy.authorizeContractionRestoration(matchingReq)
+        assertTrue("Matching originating lineage must authorize contraction restoration", matchResult.isAuthorized)
+
+        // Mismatched originating expansion lineage must be rejected
+        val mismatchedReq = matchingReq.copy(originatingExpansionGeneration = expGen + 99L)
+        val mismatchResult = ScribeScrollPolicy.authorizeContractionRestoration(mismatchedReq)
+        assertFalse("Mismatched originating expansion generation must be rejected", mismatchResult.isAuthorized)
+        assertEquals(ScribeScrollPolicy.ContractionAuthorizationStatus.REJECTED, mismatchResult.status)
+        assertTrue("Rejection reason must mention mismatch", mismatchResult.rejectionReason.contains("does not match originating expansion generation"))
+
+        // Stale contraction callback check remains independent of expansion lineage
+        val staleConReq = matchingReq.copy(generation = conGen - 1)
+        val staleConResult = ScribeScrollPolicy.authorizeContractionRestoration(staleConReq)
+        assertFalse("Stale contraction generation callback must be rejected", staleConResult.isAuthorized)
+    }
 }

@@ -891,6 +891,7 @@ object ScribeScrollPolicy {
         val isTerminalDismissal: Boolean = false,
         val transitionGeneration: Long = 0L,
         val linkedExpansionGeneration: Long = 0L,
+        val originatingExpansionGeneration: Long = 0L,
         val temporaryExpansionDisplacement: Float = remainingCompensation,
         val targetBottomObstructionPx: Float = targetObstructionPx,
         val currentSlackAboveBaselinePx: Float = 0f,
@@ -1070,6 +1071,13 @@ object ScribeScrollPolicy {
             return ContractionAuthorizationResult(
                 status = ContractionAuthorizationStatus.REJECTED,
                 rejectionReason = "Contraction transition is not linked to an expansion generation"
+            )
+        }
+        if (request.linkedExpansionGeneration != 0L && request.originatingExpansionGeneration != 0L &&
+            request.linkedExpansionGeneration != request.originatingExpansionGeneration) {
+            return ContractionAuthorizationResult(
+                status = ContractionAuthorizationStatus.REJECTED,
+                rejectionReason = "Contraction linked generation (${request.linkedExpansionGeneration}) does not match originating expansion generation (${request.originatingExpansionGeneration})"
             )
         }
 
