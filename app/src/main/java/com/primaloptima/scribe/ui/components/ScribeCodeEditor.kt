@@ -372,53 +372,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
             subscribeEvent(io.github.rosemoe.sora.event.ContentChangeEvent::class.java) { event, _ ->
                 if (!isBatchApplyingIndent) {
                     documentVersion++
-                } else {
-                    // Batch indentation structurally alters line prefixes across document lines
-                    (parent as? UnifiedCanvasLayout)?.invalidateCompensation("Batch applying indent")
                 }
-
                 val pCanvas = parent as? UnifiedCanvasLayout
-                if (pCanvas != null && pCanvas.temporaryExpansionDisplacement > 0f) {
-                    // Content-aware anchor preservation (Part 6)
-                    if (event.action == io.github.rosemoe.sora.event.ContentChangeEvent.ACTION_SET_NEW_TEXT) {
-                        pCanvas.invalidateCompensation("Whole document text replaced")
-                    } else {
-                        val hasNewlineInText = try {
-                            event.changedText?.contains('\n') == true
-                        } catch (_: Throwable) { false }
-
-                        val spansMultipleLines = try {
-                            val start = event.changeStart
-                            val end = event.changeEnd
-                            start != null && end != null && start.line != end.line
-                        } catch (_: Throwable) { false }
-
-                        val curAnchorLine = pCanvas.expansionCaretLine
-                        val editLine = try { event.changeStart?.line ?: -1 } catch (_: Throwable) { -1 }
-
-                        if (hasNewlineInText || spansMultipleLines) {
-                            // Structural newline edit: if edit is at or before anchor line, anchor position is shifted/split
-                            if (editLine != -1 && curAnchorLine != -1 && editLine <= curAnchorLine) {
-                                pCanvas.invalidateCompensation("Structural newline modification around anchor line $curAnchorLine (edit line $editLine)")
-                            }
-                        } else if (editLine != -1 && curAnchorLine != -1 && editLine < curAnchorLine) {
-                            // Single-line edit strictly above anchor line: does not change logical anchor line
-                        } else if (editLine != -1 && curAnchorLine != -1 && editLine > curAnchorLine) {
-                            // Single-line edit strictly below anchor line: anchor is unaffected
-                        } else {
-                            // Same-line ordinary typing, emoji insertion, single-line deletion or replacement:
-                            // Logical line identity is fully preserved!
-                            val cur = try { cursor } catch (_: Throwable) { null }
-                            if (cur != null && !cur.isSelected) {
-                                pCanvas.notifySelectionChangedWithProvenance(
-                                    startLine = cur.leftLine,
-                                    startCol = cur.leftColumn,
-                                    provenance = com.primaloptima.scribe.ui.components.ScribeScrollPolicy.InteractionProvenance.TEXT_INPUT
-                                )
-                            }
-                        }
-                    }
+                if (pCanvas != null) {
+                    pCanvas.onEditorContentOrSelectionChanged()
                 }
+            }
 
                 if (event.action == io.github.rosemoe.sora.event.ContentChangeEvent.ACTION_DELETE) {
                     if (text.isEmpty()) {

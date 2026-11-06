@@ -1240,14 +1240,41 @@ object ScribeBottomSurfaceCoordinator {
         measuredHeightDp: Float,
         currentBaselineDp: Float,
         screenHeightDp: Float,
-        isInMultiWindowMode: Boolean = false
+        isInMultiWindowMode: Boolean = false,
+        wasKeyboardAlreadySettled: Boolean = false
     ): Boolean {
         if (isInMultiWindowMode) return false
         if (hasActiveDrawer) return false
         if (presentationState != PresentationState.KEYBOARD_SETTLED) return false
         if (!isImeSettled) return false
+        if (wasKeyboardAlreadySettled && measuredHeightDp > currentBaselineDp + 10f) return false
         if (!isValidStandardKeyboardHeight(measuredHeightDp, screenHeightDp)) return false
         return shouldUpdateSavedBaseline(measuredHeightDp, currentBaselineDp, screenHeightDp)
+    }
+
+    /**
+     * Authoritative check whether a bottom surface is genuinely expanded beyond its normal baseline.
+     */
+    fun isBottomSurfaceExpanded(
+        presentationState: PresentationState,
+        displayedDrawerHeightDp: Float = 0f,
+        compactDrawerBaselineDp: Float = 0f,
+        liveImeHeightPx: Float = 0f,
+        standardKeyboardBaselinePx: Float = 0f,
+        density: Float = 1f
+    ): Boolean {
+        val toleranceDp = 2f
+        val tolerancePx = 4f * density
+        return when (presentationState) {
+            PresentationState.ACCESSORY_DRAWER_OPEN ->
+                compactDrawerBaselineDp > 0f && displayedDrawerHeightDp > (compactDrawerBaselineDp + toleranceDp)
+            PresentationState.KEYBOARD_EXPANDED ->
+                standardKeyboardBaselinePx > 0f && liveImeHeightPx > (standardKeyboardBaselinePx + tolerancePx)
+            PresentationState.DRAWER_TO_KEYBOARD_HANDOFF ->
+                (compactDrawerBaselineDp > 0f && displayedDrawerHeightDp > (compactDrawerBaselineDp + toleranceDp)) ||
+                (standardKeyboardBaselinePx > 0f && liveImeHeightPx > (standardKeyboardBaselinePx + tolerancePx))
+            else -> false
+        }
     }
 
     /**

@@ -8203,4 +8203,293 @@ class CursorAndCanvasGeometryTest {
         val staleConResult = ScribeScrollPolicy.authorizeContractionRestoration(staleConReq)
         assertFalse("Stale contraction generation callback must be rejected", staleConResult.isAuthorized)
     }
+
+    // ── Viewport-Driven Scrolling Architecture: 12 Behavioral Matrix Tests ────────
+
+    @Test
+    fun testViewportAdjustment_Scenario1_StandardKeyboardAppears_ZeroAdjustment() {
+        // Standard keyboard entrance is not an expansion.
+        val request = ScribeScrollPolicy.ViewportAdjustmentRequest(
+            currentPersistentScroll = 300f,
+            currentTemporaryAdjustment = 0f,
+            caretDocTop = 400f,
+            caretDocBottom = 450f,
+            headerHeight = 100,
+            usableViewportHeight = 600f,
+            density = 2f,
+            maxCanvasScroll = 1200f,
+            isSurfaceExpanded = false,
+            isTerminalDismissal = false
+        )
+        val result = ScribeScrollPolicy.resolveViewportAdjustment(request)
+        assertEquals("Temporary adjustment must be 0 for standard keyboard", 0f, result.targetTemporaryAdjustment, 0.001f)
+        assertEquals("Target total scroll must remain at persistent scroll position", 300f, result.targetTotalScroll, 0.001f)
+        assertFalse("Should not scroll automatically for standard keyboard", result.shouldScroll)
+    }
+
+    @Test
+    fun testViewportAdjustment_Scenario2_CompactDrawerOpens_ZeroAdjustment() {
+        // Compact drawer opening is not an expansion.
+        val request = ScribeScrollPolicy.ViewportAdjustmentRequest(
+            currentPersistentScroll = 150f,
+            currentTemporaryAdjustment = 0f,
+            caretDocTop = 200f,
+            caretDocBottom = 240f,
+            headerHeight = 100,
+            usableViewportHeight = 700f,
+            density = 2f,
+            maxCanvasScroll = 1200f,
+            isSurfaceExpanded = false,
+            isTerminalDismissal = false
+        )
+        val result = ScribeScrollPolicy.resolveViewportAdjustment(request)
+        assertEquals("Temporary adjustment must be 0 for compact drawer", 0f, result.targetTemporaryAdjustment, 0.001f)
+        assertFalse("Should not scroll automatically for compact drawer", result.shouldScroll)
+    }
+
+    @Test
+    fun testViewportAdjustment_Scenario3_KeyboardExpandsBeyondStandard_TemporaryAdjustmentApplied() {
+        // Keyboard expands into an emoji/picker panel, shrinking the usable viewport to 300px.
+        val request = ScribeScrollPolicy.ViewportAdjustmentRequest(
+            currentPersistentScroll = 100f,
+            currentTemporaryAdjustment = 0f,
+            caretDocTop = 400f,
+            caretDocBottom = 450f,
+            headerHeight = 100,
+            usableViewportHeight = 300f,
+            density = 2f,
+            maxCanvasScroll = 1200f,
+            isSurfaceExpanded = true,
+            isTerminalDismissal = false
+        )
+        val result = ScribeScrollPolicy.resolveViewportAdjustment(request)
+        assertTrue("Temporary adjustment must be applied when caret is occluded", result.targetTemporaryAdjustment > 0f)
+        assertTrue("Should trigger scroll animation to preserve cursor visibility", result.shouldScroll)
+        assertEquals("Persistent scroll position must remain unchanged", 100f, result.newPersistentScrollPosition, 0.001f)
+    }
+
+    @Test
+    fun testViewportAdjustment_Scenario4_CompactDrawerExpandsToExpandedOrFull_TemporaryAdjustmentApplied() {
+        // Compact drawer expands to FULL, shrinking writing area to 250px.
+        val request = ScribeScrollPolicy.ViewportAdjustmentRequest(
+            currentPersistentScroll = 200f,
+            currentTemporaryAdjustment = 0f,
+            caretDocTop = 420f,
+            caretDocBottom = 460f,
+            headerHeight = 100,
+            usableViewportHeight = 250f,
+            density = 2f,
+            maxCanvasScroll = 1500f,
+            isSurfaceExpanded = true,
+            isTerminalDismissal = false
+        )
+        val result = ScribeScrollPolicy.resolveViewportAdjustment(request)
+        assertTrue("Temporary adjustment must be applied for expanded drawer", result.targetTemporaryAdjustment > 0f)
+        assertTrue(result.shouldScroll)
+    }
+
+    @Test
+    fun testViewportAdjustment_Scenario5_ExpandedKeyboardReturnsToStandard_AdjustmentSmoothlyReducesToZero() {
+        // Expanded keyboard closes back to standard keyboard (isSurfaceExpanded = false).
+        val request = ScribeScrollPolicy.ViewportAdjustmentRequest(
+            currentPersistentScroll = 200f,
+            currentTemporaryAdjustment = 150f,
+            caretDocTop = 300f,
+            caretDocBottom = 340f,
+            headerHeight = 100,
+            usableViewportHeight = 600f,
+            density = 2f,
+            maxCanvasScroll = 1500f,
+            isSurfaceExpanded = false,
+            isTerminalDismissal = false
+        )
+        val result = ScribeScrollPolicy.resolveViewportAdjustment(request)
+        assertEquals("Target temporary adjustment must return to 0", 0f, result.targetTemporaryAdjustment, 0.001f)
+        assertEquals("Target total scroll must equal persistent scroll", 200f, result.targetTotalScroll, 0.001f)
+        assertTrue("Should scroll downward to restore persistent position", result.shouldScroll)
+    }
+
+    @Test
+    fun testViewportAdjustment_Scenario6_DrawerContracts_FullToExpandedToCompact_SmoothlyReduces() {
+        // While contracting from FULL (usable = 250) to EXPANDED (usable = 450), adjustment decreases.
+        val fullRequest = ScribeScrollPolicy.ViewportAdjustmentRequest(
+            currentPersistentScroll = 200f,
+            currentTemporaryAdjustment = 0f,
+            caretDocTop = 450f,
+            caretDocBottom = 480f,
+            headerHeight = 100,
+            usableViewportHeight = 250f,
+            density = 2f,
+            maxCanvasScroll = 1500f,
+            isSurfaceExpanded = true
+        )
+        val fullResult = ScribeScrollPolicy.resolveViewportAdjustment(fullRequest)
+
+        val expandedRequest = ScribeScrollPolicy.ViewportAdjustmentRequest(
+            currentPersistentScroll = 200f,
+            currentTemporaryAdjustment = fullResult.targetTemporaryAdjustment,
+            caretDocTop = 450f,
+            caretDocBottom = 480f,
+            headerHeight = 100,
+            usableViewportHeight = 450f,
+            density = 2f,
+            maxCanvasScroll = 1500f,
+            isSurfaceExpanded = true
+        )
+        val expandedResult = ScribeScrollPolicy.resolveViewportAdjustment(expandedRequest)
+
+        assertTrue(
+            "Target adjustment for taller viewport must be less than for shorter viewport",
+            expandedResult.targetTemporaryAdjustment < fullResult.targetTemporaryAdjustment
+        )
+    }
+
+    @Test
+    fun testViewportAdjustment_Scenario7_SingleFrameJump_CalculatesDirectly() {
+        // Immediate jump from usable 200 to usable 800 without intermediate steps.
+        val request = ScribeScrollPolicy.ViewportAdjustmentRequest(
+            currentPersistentScroll = 100f,
+            currentTemporaryAdjustment = 250f,
+            caretDocTop = 200f,
+            caretDocBottom = 240f,
+            headerHeight = 100,
+            usableViewportHeight = 800f,
+            density = 2f,
+            maxCanvasScroll = 1500f,
+            isSurfaceExpanded = false
+        )
+        val result = ScribeScrollPolicy.resolveViewportAdjustment(request)
+        assertEquals(0f, result.targetTemporaryAdjustment, 0.001f)
+        assertEquals(100f, result.targetTotalScroll, 0.001f)
+    }
+
+    @Test
+    fun testViewportAdjustment_Scenario8_CaretMovesWhileExpanded_UsesLiveGeometry() {
+        // Caret moves down 100px while surface is expanded.
+        val requestEarly = ScribeScrollPolicy.ViewportAdjustmentRequest(
+            currentPersistentScroll = 100f,
+            currentTemporaryAdjustment = 50f,
+            caretDocTop = 200f,
+            caretDocBottom = 240f,
+            headerHeight = 100,
+            usableViewportHeight = 300f,
+            density = 2f,
+            maxCanvasScroll = 1500f,
+            isSurfaceExpanded = true
+        )
+        val resultEarly = ScribeScrollPolicy.resolveViewportAdjustment(requestEarly)
+
+        val requestMovedDown = ScribeScrollPolicy.ViewportAdjustmentRequest(
+            currentPersistentScroll = 100f,
+            currentTemporaryAdjustment = resultEarly.targetTemporaryAdjustment,
+            caretDocTop = 300f,
+            caretDocBottom = 340f,
+            headerHeight = 100,
+            usableViewportHeight = 300f,
+            density = 2f,
+            maxCanvasScroll = 1500f,
+            isSurfaceExpanded = true
+        )
+        val resultMovedDown = ScribeScrollPolicy.resolveViewportAdjustment(requestMovedDown)
+
+        assertTrue(
+            "Caret moving downward must increase temporary adjustment to keep visible",
+            resultMovedDown.targetTemporaryAdjustment > resultEarly.targetTemporaryAdjustment
+        )
+    }
+
+    @Test
+    fun testViewportAdjustment_Scenario9_UserScrollWhileExpanded_UpdatesPersistentScrollWithoutLosingAdjustment() {
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
+            persistentScrollPosition = 200f,
+            temporaryViewportAdjustment = 80f
+        )
+        assertEquals(280f, coordinator.displayedTotalScroll, 0.001f)
+
+        // User manually scrolls down 50px
+        coordinator.recordUserScrollDelta(50f, 1500f)
+
+        assertEquals("Persistent scroll must absorb user scroll delta", 250f, coordinator.persistentScrollPosition, 0.001f)
+        assertEquals("Temporary adjustment must remain intact during user scroll", 80f, coordinator.temporaryViewportAdjustment, 0.001f)
+        assertEquals("Displayed scroll must reflect both", 330f, coordinator.displayedTotalScroll, 0.001f)
+
+        // Surface contracts to baseline: settlement resets temporary adjustment
+        coordinator.onViewportAdjustmentSettled(isSurfaceExpanded = false)
+        coordinator.temporaryViewportAdjustment = 0f
+        assertEquals("After contraction, persistent position retains user scroll", 250f, coordinator.persistentScrollPosition, 0.001f)
+    }
+
+    @Test
+    fun testViewportAdjustment_Scenario10_TerminalDismissal_PreservesStationaryDocument() {
+        val request = ScribeScrollPolicy.ViewportAdjustmentRequest(
+            currentPersistentScroll = 300f,
+            currentTemporaryAdjustment = 75f,
+            caretDocTop = 200f,
+            caretDocBottom = 240f,
+            headerHeight = 100,
+            usableViewportHeight = 800f,
+            density = 2f,
+            maxCanvasScroll = 1500f,
+            isSurfaceExpanded = false,
+            isTerminalDismissal = true
+        )
+        val result = ScribeScrollPolicy.resolveViewportAdjustment(request)
+
+        assertFalse("Terminal dismissal must never scroll downward", result.shouldScroll)
+        assertEquals("Target total scroll must remain at current displayed total", 375f, result.targetTotalScroll, 0.001f)
+        assertEquals("Temporary adjustment is zeroed (folded into persistent)", 0f, result.targetTemporaryAdjustment, 0.001f)
+        assertEquals("Persistent position absorbs temporary adjustment", 375f, result.newPersistentScrollPosition, 0.001f)
+        assertTrue(result.foldAdjustmentIntoPersistent)
+    }
+
+    @Test
+    fun testViewportAdjustment_Scenario11_IsBottomSurfaceExpanded_HelperValidation() {
+        // Compact drawer (height = 180dp, baseline = 180dp) is NOT expanded
+        assertFalse(
+            ScribeBottomSurfaceCoordinator.isBottomSurfaceExpanded(
+                presentationState = ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN,
+                displayedDrawerHeightDp = 180f,
+                compactDrawerBaselineDp = 180f
+            )
+        )
+
+        // Expanded drawer (height = 350dp, baseline = 180dp) IS expanded
+        assertTrue(
+            ScribeBottomSurfaceCoordinator.isBottomSurfaceExpanded(
+                presentationState = ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN,
+                displayedDrawerHeightDp = 350f,
+                compactDrawerBaselineDp = 180f
+            )
+        )
+
+        // Standard keyboard (height = 250px, baseline = 250px) is NOT expanded
+        assertFalse(
+            ScribeBottomSurfaceCoordinator.isBottomSurfaceExpanded(
+                presentationState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
+                liveImeHeightPx = 250f,
+                standardKeyboardBaselinePx = 250f
+            )
+        )
+
+        // Expanded picker keyboard (height = 420px, baseline = 250px) IS expanded
+        assertTrue(
+            ScribeBottomSurfaceCoordinator.isBottomSurfaceExpanded(
+                presentationState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_EXPANDED,
+                liveImeHeightPx = 420f,
+                standardKeyboardBaselinePx = 250f
+            )
+        )
+    }
+
+    @Test
+    fun testViewportAdjustment_Scenario12_AuthoritativeScrollCoordinator_SecondaryConstructorCompatibility() {
+        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
+            totalScroll = 500f,
+            temporaryDisplacement = 120f
+        )
+        assertEquals(380f, coordinator.persistentScrollPosition, 0.001f)
+        assertEquals(120f, coordinator.temporaryViewportAdjustment, 0.001f)
+        assertEquals(500f, coordinator.displayedTotalScroll, 0.001f)
+        assertEquals(500f, coordinator.totalScroll, 0.001f)
+    }
 }

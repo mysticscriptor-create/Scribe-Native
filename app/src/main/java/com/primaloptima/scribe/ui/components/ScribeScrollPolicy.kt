@@ -868,6 +868,99 @@ object ScribeScrollPolicy {
         }
     }
 
+    // ── Viewport-Driven Scrolling Model ─────────────────────────────────────────
+
+    /**
+     * Authoritative request model for viewport-driven scrolling adjustment.
+     * Evaluates cursor visibility and available writing area to determine the
+     * minimum temporary upward adjustment needed when a bottom surface is expanded.
+     */
+    data class ViewportAdjustmentRequest(
+        val currentPersistentScroll: Float,
+        val currentTemporaryAdjustment: Float,
+        val caretDocTop: Float,
+        val caretDocBottom: Float,
+        val headerHeight: Int,
+        val usableViewportHeight: Float,
+        val density: Float,
+        val maxCanvasScroll: Float,
+        val isSurfaceExpanded: Boolean,
+        val isTerminalDismissal: Boolean = false,
+        val isUserScrollActive: Boolean = false
+    )
+
+    /**
+     * Authoritative result model for viewport-driven adjustment.
+     */
+    data class ViewportAdjustmentResult(
+        val targetTotalScroll: Float,
+        val targetTemporaryAdjustment: Float,
+        val newPersistentScrollPosition: Float,
+        val shouldScroll: Boolean,
+        val foldAdjustmentIntoPersistent: Boolean
+    )
+
+    /**
+     * Stateless viewport-driven adjustment resolution.
+     * Computes the exact temporary adjustment needed solely from current geometry
+     * and persistent document scroll position.
+     */
+    fun resolveViewportAdjustment(request: ViewportAdjustmentRequest): ViewportAdjustmentResult {
+        if (request.isTerminalDismissal) {
+            val currentTotal = request.currentPersistentScroll + request.currentTemporaryAdjustment
+            return ViewportAdjustmentResult(
+                targetTotalScroll = currentTotal,
+                targetTemporaryAdjustment = 0f,
+                newPersistentScrollPosition = currentTotal,
+                shouldScroll = false,
+                foldAdjustmentIntoPersistent = true
+            )
+        }
+
+        if (request.isUserScrollActive || request.usableViewportHeight <= 0f) {
+            return ViewportAdjustmentResult(
+                targetTotalScroll = request.currentPersistentScroll + request.currentTemporaryAdjustment,
+                targetTemporaryAdjustment = request.currentTemporaryAdjustment,
+                newPersistentScrollPosition = request.currentPersistentScroll,
+                shouldScroll = false,
+                foldAdjustmentIntoPersistent = false
+            )
+        }
+
+        val safety = resolveCursorSafety(
+            rectTop = request.caretDocTop,
+            rectBottom = request.caretDocBottom,
+            headerHeight = request.headerHeight.toFloat(),
+            currentTotalScroll = request.currentPersistentScroll,
+            usableViewportHeight = request.usableViewportHeight,
+            density = request.density,
+            maxCanvasScroll = maxOf(request.maxCanvasScroll, request.currentPersistentScroll),
+            allowDownwardForTopUnderflow = false
+        )
+        val requiredFromPersistent = safety.neededUpwardDisplacement.coerceAtLeast(0f)
+
+        val targetTemp = if (request.isSurfaceExpanded) {
+            requiredFromPersistent
+        } else {
+            0f
+        }
+
+        val maxAllowed = maxOf(0f, request.maxCanvasScroll)
+        val targetTotal = (request.currentPersistentScroll + targetTemp).coerceIn(0f, maxAllowed)
+        val clampedTargetTemp = (targetTotal - request.currentPersistentScroll).coerceAtLeast(0f)
+        val currentTotal = request.currentPersistentScroll + request.currentTemporaryAdjustment
+        val delta = targetTotal - currentTotal
+        val shouldScroll = kotlin.math.abs(delta) >= 1f
+
+        return ViewportAdjustmentResult(
+            targetTotalScroll = targetTotal,
+            targetTemporaryAdjustment = clampedTargetTemp,
+            newPersistentScrollPosition = request.currentPersistentScroll,
+            shouldScroll = shouldScroll,
+            foldAdjustmentIntoPersistent = !request.isSurfaceExpanded && clampedTargetTemp <= 0.5f
+        )
+    }
+
     // ── Transition-Aware Contraction Restoration Model ─────────────────────────
 
     /**
@@ -1355,6 +1448,7 @@ object ScribeScrollPolicy {
 
     enum class ScrollAnimationReason {
         CARET_VISIBILITY,
+        VIEWPORT_ADJUSTMENT,
         CONTRACTION_RESTORATION,
         PREDICTIVE_GLIDE,
         DELETION_ANCHOR,
@@ -1389,8 +1483,8 @@ object ScribeScrollPolicy {
      * causal compensation bookkeeping, and safe-boundary enforcement.
      */
     class AuthoritativeScrollCoordinator(
-        var totalScroll: Float = 0f,
-        var temporaryDisplacement: Float = 0f,
+        var persistentScrollPosition: Float = 0f,
+        var temporaryViewportAdjustment: Float = 0f,
         var caretLine: Int = -1,
         var caretCol: Int = 0,
         var isSelected: Boolean = false,
@@ -1398,9 +1492,30 @@ object ScribeScrollPolicy {
         var headerHeight: Int = 0,
         var density: Float = 1f
     ) {
+        val displayedTotalScroll: Float
+            get() = persistentScrollPosition + temporaryViewportAdjustment
+
+        var totalScroll: Float
+            get() = displayedTotalScroll
+            set(value) {
+                persistentScrollPosition = value
+                temporaryViewportAdjustment = 0f
+            }
+
         var currentScroll: Float
-            get() = totalScroll
-            set(value) { totalScroll = value }
+            get() = displayedTotalScroll
+            set(value) {
+                persistentScrollPosition = value
+                temporaryViewportAdjustment = 0f
+            }
+
+        var temporaryDisplacement: Float
+            get() = temporaryViewportAdjustment
+            set(value) { temporaryViewportAdjustment = value }
+
+        var recordedDisplacement: Float
+            get() = temporaryViewportAdjustment
+            set(value) {}
 
         var targetScroll: Float = 0f
         var velocity: Float = 0f
@@ -1416,7 +1531,7 @@ object ScribeScrollPolicy {
             private set
         var activeTargetTotalScroll: Float? = null
             private set
-        var lastAnimatedScroll: Float = totalScroll
+        var lastAnimatedScroll: Float = 0f
             private set
         var isExpansionTransitionActive: Boolean = false
 
@@ -1424,7 +1539,6 @@ object ScribeScrollPolicy {
          * Authoritative generation and cumulative ledger balances.
          */
         var originatingExpansionGeneration: Long = 0L
-        var recordedDisplacement: Float = 0f
         var totalConsumedDisplacement: Float = 0f
 
         /**
@@ -1439,6 +1553,38 @@ object ScribeScrollPolicy {
         var onCompensationConsumed: ((Float) -> Unit)? = null
         var onExpansionDisplacementApplied: ((Float) -> Unit)? = null
         var onAnimationFinished: (() -> Unit)? = null
+
+        constructor(
+            totalScroll: Float,
+            temporaryDisplacement: Float,
+            caretLine: Int = -1,
+            caretCol: Int = 0,
+            isSelected: Boolean = false,
+            caretDocBottom: Float = 0f,
+            headerHeight: Int = 0,
+            density: Float = 1f
+        ) : this(
+            persistentScrollPosition = (totalScroll - temporaryDisplacement).coerceAtLeast(0f),
+            temporaryViewportAdjustment = temporaryDisplacement,
+            caretLine = caretLine,
+            caretCol = caretCol,
+            isSelected = isSelected,
+            caretDocBottom = caretDocBottom,
+            headerHeight = headerHeight,
+            density = density
+        )
+
+        fun recordUserScrollDelta(actualMoved: Float, maxCanvasScroll: Float = Float.MAX_VALUE) {
+            cancelAnimation("User manual scroll", activeOperationId)
+            persistentScrollPosition = (persistentScrollPosition + actualMoved).coerceIn(0f, maxOf(0f, maxCanvasScroll))
+        }
+
+        fun onViewportAdjustmentSettled(isSurfaceExpanded: Boolean) {
+            if (!isSurfaceExpanded && temporaryViewportAdjustment <= 0.5f) {
+                persistentScrollPosition = (persistentScrollPosition + temporaryViewportAdjustment).coerceAtLeast(0f)
+                temporaryViewportAdjustment = 0f
+            }
+        }
 
         fun updateAnchorColumn(newColumn: Int = 0, newCol: Int = newColumn) {
             val col = if (newColumn != 0) newColumn else newCol
@@ -1586,39 +1732,32 @@ object ScribeScrollPolicy {
             lastAnimatedScroll = newAnimatedScroll
             if (kotlin.math.abs(stepDelta) < 0.05f) return 0f
 
-            val before = totalScroll
+            val before = displayedTotalScroll
             val unconsumed = onScrollBy?.invoke(stepDelta) ?: 0f
             val consumed = stepDelta - unconsumed
-            totalScroll = before + consumed
             val actualMoved = consumed
 
-            // Causal compensation accounting: only movement actually applied is deducted
-            if (activeReason == ScrollAnimationReason.CONTRACTION_RESTORATION && actualMoved < 0f) {
-                val appliedDown = -actualMoved
-                temporaryDisplacement = (temporaryDisplacement - appliedDown).coerceAtLeast(0f)
-                totalConsumedDisplacement += appliedDown
-                onCompensationConsumed?.invoke(appliedDown)
-                if (temporaryDisplacement <= 0.5f) {
-                    temporaryDisplacement = 0f
-                    recordedDisplacement = 0f
+            // Viewport-driven and causal compensation accounting
+            if (activeReason == ScrollAnimationReason.VIEWPORT_ADJUSTMENT || activeReason == ScrollAnimationReason.CONTRACTION_RESTORATION) {
+                temporaryViewportAdjustment = (temporaryViewportAdjustment + actualMoved).coerceAtLeast(0f)
+                if (actualMoved < 0f) {
+                    val appliedDown = -actualMoved
+                    totalConsumedDisplacement += appliedDown
+                    onCompensationConsumed?.invoke(appliedDown)
+                }
+                if (temporaryViewportAdjustment <= 0.5f) {
+                    temporaryViewportAdjustment = 0f
                     totalConsumedDisplacement = 0f
                     originatingExpansionGeneration = 0L
                     isAnchorValid = false
-                    caretLine = -1
-                    caretCol = 0
-                    selectionStartLine = -1
-                    selectionStartCol = 0
-                    selectionEndLine = -1
-                    selectionEndCol = 0
-                    isSelected = false
-                    originalAnchorLine = -1
                 }
-            } else if (isExpansionTransitionActive && actualMoved > 0f &&
-                (activeReason == ScrollAnimationReason.CARET_VISIBILITY || activeReason == ScrollAnimationReason.PREDICTIVE_GLIDE)) {
-                recordedDisplacement += actualMoved
-                temporaryDisplacement += actualMoved
-                isAnchorValid = true
-                onExpansionDisplacementApplied?.invoke(actualMoved)
+            } else {
+                persistentScrollPosition = (persistentScrollPosition + actualMoved).coerceAtLeast(0f)
+                if (isExpansionTransitionActive && actualMoved > 0f &&
+                    (activeReason == ScrollAnimationReason.CARET_VISIBILITY || activeReason == ScrollAnimationReason.PREDICTIVE_GLIDE)) {
+                    isAnchorValid = true
+                    onExpansionDisplacementApplied?.invoke(actualMoved)
+                }
             }
 
             // Boundary collision / unreachable target detection:
