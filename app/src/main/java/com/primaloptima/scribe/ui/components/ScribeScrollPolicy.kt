@@ -1514,7 +1514,9 @@ object ScribeScrollPolicy {
             get() = temporaryViewportAdjustment
             set(value) {
                 temporaryViewportAdjustment = value
-                recordedDisplacement = value
+                if (value > recordedDisplacement) {
+                    recordedDisplacement = value
+                }
             }
 
         var recordedDisplacement: Float = temporaryDisplacement
@@ -1623,16 +1625,16 @@ object ScribeScrollPolicy {
                 if (originatingExpansionGeneration == 0L || originatingExpansionGeneration == generation) {
                     originatingExpansionGeneration = generation
                     recordedDisplacement += amount
-                    temporaryDisplacement += amount
+                    temporaryViewportAdjustment += amount
                 } else {
                     originatingExpansionGeneration = generation
                     recordedDisplacement = amount
-                    temporaryDisplacement = amount
+                    temporaryViewportAdjustment = amount
                     totalConsumedDisplacement = 0f
                 }
             } else {
                 recordedDisplacement += amount
-                temporaryDisplacement += amount
+                temporaryViewportAdjustment += amount
             }
 
             caretLine = effStartLine
@@ -1723,11 +1725,11 @@ object ScribeScrollPolicy {
             if (activeReason == ScrollAnimationReason.VIEWPORT_ADJUSTMENT || activeReason == ScrollAnimationReason.CONTRACTION_RESTORATION) {
                 if (actualMoved < 0f) {
                     val appliedDown = -actualMoved
-                    temporaryDisplacement = (temporaryDisplacement - appliedDown).coerceAtLeast(0f)
+                    temporaryViewportAdjustment = (temporaryViewportAdjustment - appliedDown).coerceAtLeast(0f)
                     totalConsumedDisplacement += appliedDown
                     onCompensationConsumed?.invoke(appliedDown)
-                    if (temporaryDisplacement <= 0.5f) {
-                        temporaryDisplacement = 0f
+                    if (temporaryViewportAdjustment <= 0.5f) {
+                        temporaryViewportAdjustment = 0f
                         recordedDisplacement = 0f
                         totalConsumedDisplacement = 0f
                         originatingExpansionGeneration = 0L
@@ -1742,12 +1744,12 @@ object ScribeScrollPolicy {
                         originalAnchorLine = -1
                     }
                 } else {
-                    temporaryDisplacement = (temporaryDisplacement + actualMoved).coerceAtLeast(0f)
+                    temporaryViewportAdjustment = (temporaryViewportAdjustment + actualMoved).coerceAtLeast(0f)
                 }
             } else if (isExpansionTransitionActive && actualMoved > 0f &&
                 (activeReason == ScrollAnimationReason.CARET_VISIBILITY || activeReason == ScrollAnimationReason.PREDICTIVE_GLIDE)) {
                 recordedDisplacement += actualMoved
-                temporaryDisplacement += actualMoved
+                temporaryViewportAdjustment += actualMoved
                 isAnchorValid = true
                 onExpansionDisplacementApplied?.invoke(actualMoved)
             } else {
@@ -1757,25 +1759,26 @@ object ScribeScrollPolicy {
             // Boundary collision / unreachable target detection:
             val hitBoundary = (stepDelta > 0.05f && unconsumed > 0.05f && kotlin.math.abs(consumed) < 0.05f) ||
                     (stepDelta < -0.05f && unconsumed < -0.05f && kotlin.math.abs(consumed) < 0.05f)
-
             val target = activeTargetTotalScroll
             if (hitBoundary || (target != null && kotlin.math.abs(totalScroll - target) < 0.5f)) {
                 finishAnimation(activeOperationId)
             }
-
             return actualMoved
         }
 
         fun applyStep(dt: Float, isPhysicsStep: Boolean = true): StepResult {
             val step = (velocity * dt).coerceIn(-150f, 150f)
-            totalScroll += step
             val actualMoved = step
             val appliedDown = if (actualMoved < 0f) -actualMoved else 0f
-            val hadPriorCompensation = temporaryDisplacement > 0.5f
-            temporaryDisplacement = (temporaryDisplacement - appliedDown).coerceAtLeast(0f)
-            totalConsumedDisplacement += appliedDown
-            if (hadPriorCompensation && temporaryDisplacement <= 0.5f) {
-                temporaryDisplacement = 0f
+            val hadPriorCompensation = temporaryViewportAdjustment > 0.5f
+            if (appliedDown > 0f) {
+                temporaryViewportAdjustment = (temporaryViewportAdjustment - appliedDown).coerceAtLeast(0f)
+                totalConsumedDisplacement += appliedDown
+            } else {
+                persistentScrollPosition = (persistentScrollPosition + actualMoved).coerceAtLeast(0f)
+            }
+            if (hadPriorCompensation && temporaryViewportAdjustment <= 0.5f) {
+                temporaryViewportAdjustment = 0f
                 recordedDisplacement = 0f
                 totalConsumedDisplacement = 0f
                 originatingExpansionGeneration = 0L
@@ -1807,7 +1810,7 @@ object ScribeScrollPolicy {
 
         fun invalidateCompensation(reason: String? = null) {
             cancelAnimation("Compensation invalidated: $reason", activeOperationId)
-            temporaryDisplacement = 0f
+            temporaryViewportAdjustment = 0f
             recordedDisplacement = 0f
             totalConsumedDisplacement = 0f
             originatingExpansionGeneration = 0L
@@ -2069,8 +2072,8 @@ object ScribeScrollPolicy {
             isKeyboardDismissing: Boolean,
             isBottomSurfaceActive: Boolean
         ): ContractionRestorationResult {
-            coordinator.totalScroll = totalScroll
             coordinator.temporaryDisplacement = temporaryDisplacement
+            coordinator.totalScroll = totalScroll
             coordinator.caretLine = caretLine
             coordinator.caretCol = caretCol
             coordinator.isSelected = isSelected

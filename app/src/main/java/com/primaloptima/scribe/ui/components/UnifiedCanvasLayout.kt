@@ -519,15 +519,37 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val isDrawerActive = liveDrawerHeightPx > 0f || (isBottomSurfaceActive && !isKeyboardVisible)
         val isExpanded = if (isTerminalDismissal) {
             false
-        } else if (isDrawerActive) {
-            val compactBaseline = if (currentTx.geometry.compactBaselinePx > 0f) currentTx.geometry.compactBaselinePx else (180f * density)
-            liveDrawerHeightPx > (compactBaseline + 4f * density)
-        } else if (isKeyboardVisible || liveImeHeightPx > 0f) {
-            val stdBaseline = if (standardKeyboardHeightPx > 0f) standardKeyboardHeightPx else (240f * density)
-            liveImeHeightPx > (stdBaseline + 6f * density)
         } else {
-            false
+            val presState = when {
+                isDrawerActive -> ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN
+                transitionCoordinator.activeType == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_TO_KEYBOARD_HANDOFF ->
+                    ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF
+                isKeyboardVisible || liveImeHeightPx > 0f ->
+                    ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED
+                else ->
+                    ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN
+            }
+            val compactBaselineDp = if (currentTx.geometry.compactBaselinePx > 0f) {
+                currentTx.geometry.compactBaselinePx / density
+            } else {
+                180f
+            }
+            ScribeBottomSurfaceCoordinator.isBottomSurfaceExpanded(
+                presentationState = presState,
+                displayedDrawerHeightDp = liveDrawerHeightPx / density,
+                compactDrawerBaselineDp = compactBaselineDp,
+                liveImeHeightPx = liveImeHeightPx,
+                standardKeyboardBaselinePx = standardKeyboardHeightPx,
+                density = density
+            )
         }
+
+        val effectiveBottomObstructionPx = when {
+            isDrawerActive -> liveDrawerHeightPx + (if (isKeyboardVisible || isBottomSurfaceActive) shortcutBarHeightPx else 0f)
+            isKeyboardVisible || liveImeHeightPx > 0f -> liveImeHeightPx + (if (isKeyboardVisible || isBottomSurfaceActive) shortcutBarHeightPx else 0f)
+            else -> 0f
+        }
+        val usableWritingHeight = (h - effectiveBottomObstructionPx).coerceAtLeast(0f)
 
         val maxCanvas = maxCanvasScroll.toFloat()
         val request = ScribeScrollPolicy.ViewportAdjustmentRequest(
@@ -536,7 +558,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             caretDocTop = caretDocTop,
             caretDocBottom = caretDocBottom,
             headerHeight = headerHeight,
-            usableViewportHeight = h,
+            usableViewportHeight = usableWritingHeight,
             density = density,
             maxCanvasScroll = maxCanvas,
             isSurfaceExpanded = isExpanded,
@@ -551,11 +573,19 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
         if (result.shouldScroll || forceAnimate) {
-            startAuthoritativeScrollAnimation(
-                targetTotalScroll = result.targetTotalScroll,
-                reason = ScribeScrollPolicy.ScrollAnimationReason.VIEWPORT_ADJUSTMENT,
-                durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
-            )
+            if (scrollCoordinator.isAnimationActive && scrollCoordinator.activeReason == ScribeScrollPolicy.ScrollAnimationReason.VIEWPORT_ADJUSTMENT) {
+                scrollCoordinator.retargetActiveOperation(
+                    newTarget = result.targetTotalScroll,
+                    reason = ScribeScrollPolicy.ScrollAnimationReason.VIEWPORT_ADJUSTMENT,
+                    maxCanvasScroll = maxCanvas.toInt()
+                )
+            } else {
+                startAuthoritativeScrollAnimation(
+                    targetTotalScroll = result.targetTotalScroll,
+                    reason = ScribeScrollPolicy.ScrollAnimationReason.VIEWPORT_ADJUSTMENT,
+                    durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
+                )
+            }
         }
     }
 

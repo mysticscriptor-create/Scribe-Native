@@ -1456,7 +1456,6 @@ fun MainEditorScreen(
 
                 if (isPhysicallyDismissed) {
                     unifiedCanvasRef?.isKeyboardDismissing = false
-                    unifiedCanvasRef?.endExpansionTransition()
                 } else if (targetImePx <= 0) {
                     unifiedCanvasRef?.cancelKeyboardTransaction("IME dismissal started under drawer")
                 }
@@ -1497,7 +1496,6 @@ fun MainEditorScreen(
                     }
                     unifiedCanvasRef?.liveImeHeightPx = imeAboveNavPx.toFloat()
                     unifiedCanvasRef?.liveDrawerHeightPx = 0f
-                    unifiedCanvasRef?.endExpansionTransition()
                     unifiedCanvasRef?.notifyImeSettledAtTarget()
                 }
             } else {
@@ -1539,7 +1537,6 @@ fun MainEditorScreen(
                         }
                         unifiedCanvasRef?.liveImeHeightPx = imeAboveNavPx.toFloat()
                         unifiedCanvasRef?.liveDrawerHeightPx = 0f
-                        unifiedCanvasRef?.endExpansionTransition()
                         unifiedCanvasRef?.notifyImeSettledAtTarget()
                     } else {
                         if (presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN ||
@@ -1599,7 +1596,6 @@ fun MainEditorScreen(
                             )
                             transitionalSpacerDp = 0.dp
                             unifiedCanvasRef?.notifyImePhysicallyDismissed()
-                            unifiedCanvasRef?.endExpansionTransition()
                         }
                     }
                 }
