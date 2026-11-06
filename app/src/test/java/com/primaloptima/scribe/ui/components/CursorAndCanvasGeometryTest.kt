@@ -8196,7 +8196,7 @@ class CursorAndCanvasGeometryTest {
         val mismatchResult = ScribeScrollPolicy.authorizeContractionRestoration(mismatchedReq)
         assertFalse("Mismatched originating expansion generation must be rejected", mismatchResult.isAuthorized)
         assertEquals(ScribeScrollPolicy.ContractionAuthorizationStatus.REJECTED, mismatchResult.status)
-        assertTrue("Rejection reason must mention mismatch", mismatchResult.rejectionReason.contains("does not match originating expansion generation"))
+        assertTrue("Rejection reason must mention mismatch", mismatchResult.rejectionReason?.contains("does not match originating expansion generation") == true)
 
         // Stale contraction callback check remains independent of expansion lineage
         val staleConReq = matchingReq.copy(generation = conGen - 1)
