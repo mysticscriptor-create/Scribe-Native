@@ -1101,7 +1101,7 @@ object ScribeScrollPolicy {
 
         // Calculate remaining physical contraction budget
         val remainingPhysicalBudget = if (request.transitionPhase == ScribeBottomSurfaceCoordinator.TransitionPhase.SETTLED) {
-            (releasedPhysical - request.alreadyRestoredAgainstBudgetPx).coerceAtLeast(0f)
+            maxOf(compensation, (releasedPhysical - request.alreadyRestoredAgainstBudgetPx).coerceAtLeast(0f))
         } else {
             (releasedPhysical - request.alreadyRestoredAgainstBudgetPx).coerceAtLeast(0f)
         }
@@ -1437,6 +1437,7 @@ object ScribeScrollPolicy {
         // Callbacks for production integration
         var onScrollBy: ((deltaY: Float) -> Float)? = null
         var onCompensationConsumed: ((Float) -> Unit)? = null
+        var onExpansionDisplacementApplied: ((Float) -> Unit)? = null
         var onAnimationFinished: (() -> Unit)? = null
 
         fun updateAnchorColumn(newColumn: Int = 0, newCol: Int = newColumn) {
@@ -1453,7 +1454,8 @@ object ScribeScrollPolicy {
             col: Int = 0,
             endLine: Int = line,
             endCol: Int = col,
-            selected: Boolean = false
+            selected: Boolean = false,
+            generation: Long = 0L
         ) {
             val effLine = line.coerceAtLeast(0)
             val effCol = col.coerceAtLeast(0)
@@ -1466,6 +1468,9 @@ object ScribeScrollPolicy {
             isSelected = selected
             isAnchorValid = true
             originalAnchorLine = effLine
+            if (generation != 0L) {
+                originatingExpansionGeneration = generation
+            }
         }
 
         fun recordExpansionDisplacement(
@@ -1613,6 +1618,7 @@ object ScribeScrollPolicy {
                 recordedDisplacement += actualMoved
                 temporaryDisplacement += actualMoved
                 isAnchorValid = true
+                onExpansionDisplacementApplied?.invoke(actualMoved)
             }
 
             // Boundary collision / unreachable target detection:

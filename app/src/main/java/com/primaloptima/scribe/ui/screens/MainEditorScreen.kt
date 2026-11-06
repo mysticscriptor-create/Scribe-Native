@@ -1834,7 +1834,7 @@ fun MainEditorScreen(
                                 this.liveDrawerHeightPx = 0f
                                 this.activeEditingTarget = lastActiveTarget
                                 this.isKeyboardVisible = isKeyboardVisible
-                                this.isBottomSurfaceActive = (activeAccessoryDrawer != null || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF)
+                                this.isBottomSurfaceActive = (isKeyboardVisible || activeAccessoryDrawer != null || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN)
                                 this.isKeyboardDismissing = isKeyboardDismissing
                                 onUserTouchDown = {
                                     updateEditingTarget(EditingTarget.EDITOR_BODY)
@@ -2131,7 +2131,7 @@ fun MainEditorScreen(
                             layout.liveImeHeightPx = if (hasWindowFocus) liveImeAboveNavPx.toFloat() else 0f
                             layout.liveDrawerHeightPx = if (activeAccessoryDrawer != null) drawerHeightController.currentDisplayedHeightDp * density.density else 0f
                             layout.isKeyboardVisible = isKeyboardVisible && hasWindowFocus
-                            layout.isBottomSurfaceActive = (activeAccessoryDrawer != null || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF)
+                            layout.isBottomSurfaceActive = ((isKeyboardVisible && hasWindowFocus) || activeAccessoryDrawer != null || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE || presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN)
                             layout.isKeyboardDismissing = isKeyboardDismissing && hasWindowFocus
                             layout.activeEditingTarget = lastActiveTarget
                             val editor = layout.editor

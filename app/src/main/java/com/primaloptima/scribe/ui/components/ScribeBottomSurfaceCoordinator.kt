@@ -245,7 +245,7 @@ object ScribeBottomSurfaceCoordinator {
             } else if (type == TransitionType.KEYBOARD_CONTRACTION) {
                 if (currentTransition.type == TransitionType.KEYBOARD_EXPANDED) {
                     currentTransition.generation
-                } else if (currentTransition.compensation.recordedDisplacement > 0f) {
+                } else if (currentTransition.compensation.recordedDisplacement > 0f || currentTransition.compensation.remainingDisplacement > 0f) {
                     if (currentTransition.linkedExpansionGeneration != 0L) currentTransition.linkedExpansionGeneration else currentTransition.generation
                 } else {
                     0L
@@ -253,7 +253,7 @@ object ScribeBottomSurfaceCoordinator {
             } else if (type == TransitionType.DRAWER_CONTRACTION) {
                 if (currentTransition.type == TransitionType.DRAWER_EXPANSION || currentTransition.type == TransitionType.DRAWER_OPENING) {
                     currentTransition.generation
-                } else if (currentTransition.compensation.recordedDisplacement > 0f) {
+                } else if (currentTransition.compensation.recordedDisplacement > 0f || currentTransition.compensation.remainingDisplacement > 0f) {
                     if (currentTransition.linkedExpansionGeneration != 0L) currentTransition.linkedExpansionGeneration else currentTransition.generation
                 } else {
                     0L
@@ -262,7 +262,9 @@ object ScribeBottomSurfaceCoordinator {
                 0L
             }
 
-            val inheritedCompensation = if (linkedGen != 0L && currentTransition.compensation.recordedDisplacement > 0f) {
+            val inheritedCompensation = if (linkedGen != 0L && (currentTransition.compensation.recordedDisplacement > 0f || currentTransition.compensation.remainingDisplacement > 0f)) {
+                currentTransition.compensation
+            } else if (type.isContraction && (currentTransition.compensation.recordedDisplacement > 0f || currentTransition.compensation.remainingDisplacement > 0f)) {
                 currentTransition.compensation
             } else {
                 ExpansionCompensation()

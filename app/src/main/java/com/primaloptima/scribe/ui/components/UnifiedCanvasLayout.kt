@@ -417,7 +417,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     fun notifyDrawerOpeningStarting(targetObstructionPx: Float) {
         contractionRestoredBudgetPx = 0f
-        isExpansionTransitionActive = false
+        isExpansionTransitionActive = true
         transitionCoordinator.startTransition(
             type = ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_OPENING,
             startingObstructionPx = 0f,
@@ -457,6 +457,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             tx.type == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_EXPANSION ||
             tx.type == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_OPENING) {
             transitionCoordinator.onSurfacePhysicallySettled(finalObstructionPx)
+            if (tx.type == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_CONTRACTION && scrollCoordinator.temporaryDisplacement > 0.5f) {
+                checkAndPerformContractionRestoration(finalObstructionPx)
+            }
         }
     }
 
@@ -466,6 +469,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             tx.type == ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_EXPANDED ||
             tx.type == ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_ENTRANCE) {
             transitionCoordinator.onSurfacePhysicallySettled(finalObstructionPx)
+            if (tx.type == ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_CONTRACTION && scrollCoordinator.temporaryDisplacement > 0.5f) {
+                checkAndPerformContractionRestoration(finalObstructionPx)
+            }
         }
     }
 
@@ -671,7 +677,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         get() = hasWindowFocus() && (
             isKeyboardTransactionActive ||
             isBottomSurfaceActive ||
-            (editor.isFocused && (isKeyboardVisible || liveImeHeightPx > 0f))
+            isKeyboardVisible ||
+            liveImeHeightPx > 0f ||
+            liveDrawerHeightPx > 0f ||
+            editor.isFocused
         )
 
     val isHandoffActive: Boolean
@@ -766,6 +775,23 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         onCompensationConsumed = { downPx ->
             contractionRestoredBudgetPx += downPx
             transitionCoordinator.consumeAppliedMovement(downPx)
+        }
+        onExpansionDisplacementApplied = { upPx ->
+            val curLine = scrollCoordinator.caretLine
+            val curCol = scrollCoordinator.caretCol
+            val endLine = scrollCoordinator.selectionEndLine
+            val endCol = scrollCoordinator.selectionEndCol
+            transitionCoordinator.recordExpansionDisplacement(
+                amountPx = upPx,
+                anchorLine = curLine,
+                anchorCol = curCol,
+                selectionRange = ScribeBottomSurfaceCoordinator.SelectionRange(
+                    startLine = curLine,
+                    startColumn = curCol,
+                    endLine = if (endLine != -1) endLine else curLine,
+                    endColumn = if (endCol != -1) endCol else curCol
+                )
+            )
         }
     }
 
@@ -2198,7 +2224,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
         if (deltaY > ScribeScrollPolicy.DRAG_THRESHOLD_DP) {
             val isActualExpansion = transitionCoordinator.currentTransition.type == ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_EXPANDED ||
-                                    transitionCoordinator.currentTransition.type == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_EXPANSION
+                                    transitionCoordinator.currentTransition.type == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_EXPANSION ||
+                                    transitionCoordinator.currentTransition.type == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_OPENING
             isExpansionTransitionActive = isActualExpansion
             if (isActualExpansion) {
                 resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
@@ -2222,7 +2249,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 targetPredictedScrollTotal = -1f
                 if (isExpansionTransitionActive) {
                     val cur = try { editor.cursor } catch (_: Throwable) { null }
-                    scrollCoordinator.setCompensationAnchor(line, col, line, col, cur?.isSelected == true)
+                    scrollCoordinator.setCompensationAnchor(line, col, line, col, cur?.isSelected == true, transitionCoordinator.currentTransition.generation)
                 }
                 checkKeyboardTransactionSettled()
             }
@@ -2368,7 +2395,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val duration = customDurationMs
             if (smooth) {
                 if (isExpansionTransitionActive) {
-                    scrollCoordinator.setCompensationAnchor(line, col, line, col, cursor.isSelected)
+                    scrollCoordinator.setCompensationAnchor(line, col, line, col, cursor.isSelected, transitionCoordinator.currentTransition.generation)
                 }
                 startAuthoritativeScrollAnimation(
                     targetTotalScroll = decision.targetTotalScroll,
@@ -2525,7 +2552,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     val snapshot = captureBottomGeometrySnapshot()
                     previousBottomObstructionPx = snapshot.projectionFor(currentTx.type)
                     val isActualExpansion = currentTx.type == ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_EXPANDED ||
-                                            currentTx.type == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_EXPANSION
+                                            currentTx.type == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_EXPANSION ||
+                                            currentTx.type == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_OPENING
                     isExpansionTransitionActive = isActualExpansion
                     isKeyboardDismissing = false
 
@@ -2593,7 +2621,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                                         val targetCol = if (isAllSelected) cur.rightColumn else cur.leftColumn
                                         val preAnimationScroll = (scrollD + editor.offsetY).toFloat()
                                         if (isExpansionTransitionActive) {
-                                            scrollCoordinator.setCompensationAnchor(targetLine, targetCol, targetLine, targetCol, cur.isSelected)
+                                            scrollCoordinator.setCompensationAnchor(targetLine, targetCol, targetLine, targetCol, cur.isSelected, currentTx.generation)
                                         }
                                         startAuthoritativeScrollAnimation(
                                             targetTotalScroll = decision.targetTotalScroll,
