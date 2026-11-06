@@ -976,34 +976,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 } else if (reason == ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION) {
                     rebaseCompensationAfterSafeCorrection()
                 } else if (reason == ScribeScrollPolicy.ScrollAnimationReason.VIEWPORT_ADJUSTMENT) {
-                    val isDrawerActive = liveDrawerHeightPx > 0f || (isBottomSurfaceActive && !isKeyboardVisible)
-                    val isExpanded = if (isTerminalDismissal) {
-                        false
-                    } else {
-                        val presState = when {
-                            isDrawerActive -> ScribeBottomSurfaceCoordinator.PresentationState.ACCESSORY_DRAWER_OPEN
-                            transitionCoordinator.activeType == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_TO_KEYBOARD_HANDOFF ->
-                                ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF
-                            isKeyboardVisible || liveImeHeightPx > 0f ->
-                                ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED
-                            else ->
-                                ScribeBottomSurfaceCoordinator.PresentationState.HIDDEN
-                        }
-                        val compactBaselineDp = if (currentTx.geometry.compactBaselinePx > 0f) {
-                            currentTx.geometry.compactBaselinePx / density
-                        } else {
-                            180f
-                        }
-                        ScribeBottomSurfaceCoordinator.isBottomSurfaceExpanded(
-                            presentationState = presState,
-                            displayedDrawerHeightDp = liveDrawerHeightPx / density,
-                            compactDrawerBaselineDp = compactBaselineDp,
-                            liveImeHeightPx = liveImeHeightPx,
-                            standardKeyboardBaselinePx = standardKeyboardHeightPx,
-                            density = density
-                        )
-                    }
-                    scrollCoordinator.onViewportAdjustmentSettled(isExpanded)
+                    evaluateViewportAdjustment()
                 }
                 onEnd?.invoke()
             } else {
