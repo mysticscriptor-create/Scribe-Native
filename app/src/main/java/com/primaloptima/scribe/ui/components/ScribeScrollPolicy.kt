@@ -1563,8 +1563,8 @@ object ScribeScrollPolicy {
             persistentScrollPosition = (persistentScrollPosition + actualMoved).coerceIn(0f, maxOf(0f, maxCanvasScroll))
         }
 
-        fun onViewportAdjustmentSettled(isSurfaceExpanded: Boolean) {
-            if (!isSurfaceExpanded && temporaryViewportAdjustment <= 0.5f) {
+        fun onViewportAdjustmentSettled(isSurfaceExpanded: Boolean, forceFold: Boolean = false) {
+            if (forceFold || (!isSurfaceExpanded && temporaryViewportAdjustment <= 0.5f)) {
                 persistentScrollPosition = (persistentScrollPosition + temporaryViewportAdjustment).coerceAtLeast(0f)
                 temporaryViewportAdjustment = 0f
             }
@@ -1725,9 +1725,15 @@ object ScribeScrollPolicy {
             if (activeReason == ScrollAnimationReason.VIEWPORT_ADJUSTMENT || activeReason == ScrollAnimationReason.CONTRACTION_RESTORATION) {
                 if (actualMoved < 0f) {
                     val appliedDown = -actualMoved
-                    temporaryViewportAdjustment = (temporaryViewportAdjustment - appliedDown).coerceAtLeast(0f)
-                    totalConsumedDisplacement += appliedDown
-                    onCompensationConsumed?.invoke(appliedDown)
+                    val availableTemp = temporaryViewportAdjustment
+                    val fromTemp = minOf(availableTemp, appliedDown)
+                    val excessDown = appliedDown - fromTemp
+                    temporaryViewportAdjustment = (availableTemp - fromTemp).coerceAtLeast(0f)
+                    if (excessDown > 0f) {
+                        persistentScrollPosition = (persistentScrollPosition - excessDown).coerceAtLeast(0f)
+                    }
+                    totalConsumedDisplacement += fromTemp
+                    onCompensationConsumed?.invoke(fromTemp)
                     if (temporaryViewportAdjustment <= 0.5f) {
                         temporaryViewportAdjustment = 0f
                         recordedDisplacement = 0f
@@ -1772,8 +1778,14 @@ object ScribeScrollPolicy {
             val appliedDown = if (actualMoved < 0f) -actualMoved else 0f
             val hadPriorCompensation = temporaryViewportAdjustment > 0.5f
             if (appliedDown > 0f) {
-                temporaryViewportAdjustment = (temporaryViewportAdjustment - appliedDown).coerceAtLeast(0f)
-                totalConsumedDisplacement += appliedDown
+                val availableTemp = temporaryViewportAdjustment
+                val fromTemp = minOf(availableTemp, appliedDown)
+                val excessDown = appliedDown - fromTemp
+                temporaryViewportAdjustment = (availableTemp - fromTemp).coerceAtLeast(0f)
+                if (excessDown > 0f) {
+                    persistentScrollPosition = (persistentScrollPosition - excessDown).coerceAtLeast(0f)
+                }
+                totalConsumedDisplacement += fromTemp
             } else {
                 persistentScrollPosition = (persistentScrollPosition + actualMoved).coerceAtLeast(0f)
             }
@@ -1810,6 +1822,7 @@ object ScribeScrollPolicy {
 
         fun invalidateCompensation(reason: String? = null) {
             cancelAnimation("Compensation invalidated: $reason", activeOperationId)
+            persistentScrollPosition = displayedTotalScroll
             temporaryViewportAdjustment = 0f
             recordedDisplacement = 0f
             totalConsumedDisplacement = 0f

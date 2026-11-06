@@ -1515,6 +1515,7 @@ fun MainEditorScreen(
                             val isInMultiWindow = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
                                 (context as? android.app.Activity)?.isInMultiWindowMode ?: false
                             } else false
+                            val wasKeyboardAlreadySettled = presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED
                             if (com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.canUpdateSavedStandardBaseline(
                                     presentationState = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
                                     hasActiveDrawer = activeAccessoryDrawer != null,
@@ -1522,7 +1523,8 @@ fun MainEditorScreen(
                                     measuredHeightDp = imeAboveNavDpVal,
                                     currentBaselineDp = lastKeyboardHeightDp.value,
                                     screenHeightDp = screenHeight,
-                                    isInMultiWindowMode = isInMultiWindow
+                                    isInMultiWindowMode = isInMultiWindow,
+                                    wasKeyboardAlreadySettled = wasKeyboardAlreadySettled
                                 )) {
                                 lastKeyboardHeightDp = imeAboveNavDpVal.dp
                                 scope.launch {
