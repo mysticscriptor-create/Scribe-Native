@@ -8401,8 +8401,8 @@ class CursorAndCanvasGeometryTest {
     @Test
     fun testViewportAdjustment_Scenario9_UserScrollWhileExpanded_UpdatesPersistentScrollWithoutLosingAdjustment() {
         val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
-            persistentScrollPosition = 200f,
-            temporaryViewportAdjustment = 80f
+            totalScroll = 280f,
+            temporaryDisplacement = 80f
         )
         assertEquals(280f, coordinator.displayedTotalScroll, 0.001f)
 
@@ -8474,7 +8474,7 @@ class CursorAndCanvasGeometryTest {
         // Expanded picker keyboard (height = 420px, baseline = 250px) IS expanded
         assertTrue(
             ScribeBottomSurfaceCoordinator.isBottomSurfaceExpanded(
-                presentationState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_EXPANDED,
+                presentationState = ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_SETTLED,
                 liveImeHeightPx = 420f,
                 standardKeyboardBaselinePx = 250f
             )

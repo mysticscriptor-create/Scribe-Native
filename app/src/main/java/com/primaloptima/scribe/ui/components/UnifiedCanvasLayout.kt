@@ -554,8 +554,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             startAuthoritativeScrollAnimation(
                 targetTotalScroll = result.targetTotalScroll,
                 reason = ScribeScrollPolicy.ScrollAnimationReason.VIEWPORT_ADJUSTMENT,
-                durationMs = ScribeScrollPolicy.DURATION_CONTRACTION_RESTORE_MS,
-                maxCanvasScroll = maxCanvasScroll
+                durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
             )
         }
     }

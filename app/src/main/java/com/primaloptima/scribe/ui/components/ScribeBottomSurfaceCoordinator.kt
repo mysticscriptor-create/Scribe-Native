@@ -1268,7 +1268,8 @@ object ScribeBottomSurfaceCoordinator {
         return when (presentationState) {
             PresentationState.ACCESSORY_DRAWER_OPEN ->
                 compactDrawerBaselineDp > 0f && displayedDrawerHeightDp > (compactDrawerBaselineDp + toleranceDp)
-            PresentationState.KEYBOARD_EXPANDED ->
+            PresentationState.KEYBOARD_SETTLED,
+            PresentationState.KEYBOARD_ENTRANCE ->
                 standardKeyboardBaselinePx > 0f && liveImeHeightPx > (standardKeyboardBaselinePx + tolerancePx)
             PresentationState.DRAWER_TO_KEYBOARD_HANDOFF ->
                 (compactDrawerBaselineDp > 0f && displayedDrawerHeightDp > (compactDrawerBaselineDp + toleranceDp)) ||

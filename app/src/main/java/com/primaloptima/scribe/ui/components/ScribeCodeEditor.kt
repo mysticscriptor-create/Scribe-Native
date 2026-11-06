@@ -377,7 +377,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 if (pCanvas != null) {
                     pCanvas.onEditorContentOrSelectionChanged()
                 }
-            }
 
                 if (event.action == io.github.rosemoe.sora.event.ContentChangeEvent.ACTION_DELETE) {
                     if (text.isEmpty()) {

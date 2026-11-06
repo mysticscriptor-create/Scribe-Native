@@ -1483,8 +1483,8 @@ object ScribeScrollPolicy {
      * causal compensation bookkeeping, and safe-boundary enforcement.
      */
     class AuthoritativeScrollCoordinator(
-        var persistentScrollPosition: Float = 0f,
-        var temporaryViewportAdjustment: Float = 0f,
+        totalScroll: Float = 0f,
+        temporaryDisplacement: Float = 0f,
         var caretLine: Int = -1,
         var caretCol: Int = 0,
         var isSelected: Boolean = false,
@@ -1492,6 +1492,9 @@ object ScribeScrollPolicy {
         var headerHeight: Int = 0,
         var density: Float = 1f
     ) {
+        var persistentScrollPosition: Float = (totalScroll - temporaryDisplacement).coerceAtLeast(0f)
+        var temporaryViewportAdjustment: Float = temporaryDisplacement
+
         val displayedTotalScroll: Float
             get() = persistentScrollPosition + temporaryViewportAdjustment
 
@@ -1553,26 +1556,6 @@ object ScribeScrollPolicy {
         var onCompensationConsumed: ((Float) -> Unit)? = null
         var onExpansionDisplacementApplied: ((Float) -> Unit)? = null
         var onAnimationFinished: (() -> Unit)? = null
-
-        constructor(
-            totalScroll: Float,
-            temporaryDisplacement: Float,
-            caretLine: Int = -1,
-            caretCol: Int = 0,
-            isSelected: Boolean = false,
-            caretDocBottom: Float = 0f,
-            headerHeight: Int = 0,
-            density: Float = 1f
-        ) : this(
-            persistentScrollPosition = (totalScroll - temporaryDisplacement).coerceAtLeast(0f),
-            temporaryViewportAdjustment = temporaryDisplacement,
-            caretLine = caretLine,
-            caretCol = caretCol,
-            isSelected = isSelected,
-            caretDocBottom = caretDocBottom,
-            headerHeight = headerHeight,
-            density = density
-        )
 
         fun recordUserScrollDelta(actualMoved: Float, maxCanvasScroll: Float = Float.MAX_VALUE) {
             cancelAnimation("User manual scroll", activeOperationId)
