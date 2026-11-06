@@ -768,32 +768,33 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     /**
      * Authoritative single-owner scroll and animation coordinator.
      */
-    internal val scrollCoordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator().apply {
-        onScrollBy = { delta ->
-            scrollCanvasBy(delta)
-        }
-        onCompensationConsumed = { downPx ->
-            contractionRestoredBudgetPx += downPx
-            transitionCoordinator.consumeAppliedMovement(downPx)
-        }
-        onExpansionDisplacementApplied = { upPx ->
-            val curLine = scrollCoordinator.caretLine
-            val curCol = scrollCoordinator.caretCol
-            val endLine = scrollCoordinator.selectionEndLine
-            val endCol = scrollCoordinator.selectionEndCol
-            transitionCoordinator.recordExpansionDisplacement(
-                amountPx = upPx,
-                anchorLine = curLine,
-                anchorCol = curCol,
-                selectionRange = ScribeBottomSurfaceCoordinator.SelectionRange(
-                    startLine = curLine,
-                    startColumn = curCol,
-                    endLine = if (endLine != -1) endLine else curLine,
-                    endColumn = if (endCol != -1) endCol else curCol
+    internal val scrollCoordinator: ScribeScrollPolicy.AuthoritativeScrollCoordinator =
+        ScribeScrollPolicy.AuthoritativeScrollCoordinator().also { coordinator ->
+            coordinator.onScrollBy = { delta ->
+                scrollCanvasBy(delta)
+            }
+            coordinator.onCompensationConsumed = { downPx ->
+                contractionRestoredBudgetPx += downPx
+                transitionCoordinator.consumeAppliedMovement(downPx)
+            }
+            coordinator.onExpansionDisplacementApplied = { upPx ->
+                val curLine = coordinator.caretLine
+                val curCol = coordinator.caretCol
+                val endLine = coordinator.selectionEndLine
+                val endCol = coordinator.selectionEndCol
+                transitionCoordinator.recordExpansionDisplacement(
+                    amountPx = upPx,
+                    anchorLine = curLine,
+                    anchorCol = curCol,
+                    selectionRange = ScribeBottomSurfaceCoordinator.SelectionRange(
+                        startLine = curLine,
+                        startColumn = curCol,
+                        endLine = if (endLine != -1) endLine else curLine,
+                        endColumn = if (endCol != -1) endCol else curCol
+                    )
                 )
-            )
+            }
         }
-    }
 
     /**
      * Transition-aware compensation tracking:

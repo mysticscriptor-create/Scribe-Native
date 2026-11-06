@@ -1738,7 +1738,10 @@ fun MainEditorScreen(
                         0f
                     }
 
-                    val isImeOpeningOrVisible = (imeInsets.getBottom(density) > 0 || imeAnimTarget.getBottom(density) > 0 || isKeyboardVisible || isAwaitingKeyboardOpen)
+                    val isImeOpeningOrVisible = (hasWindowFocus && (imeInsets.getBottom(density) > 0 || imeAnimTarget.getBottom(density) > 0)) ||
+                        isKeyboardVisible ||
+                        presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.KEYBOARD_ENTRANCE ||
+                        presentationState == com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.PresentationState.DRAWER_TO_KEYBOARD_HANDOFF
                     val isShortcutBarReserved = com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator.isShortcutBarGeometryReserved(
                         state = presentationState,
                         hasShortcuts = shortcuts.isNotEmpty(),

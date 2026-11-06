@@ -240,21 +240,30 @@ object ScribeBottomSurfaceCoordinator {
 
             generationCounter++
 
+            val hasCurrentCompensation = currentTransition.compensation.recordedDisplacement > 0f ||
+                currentTransition.compensation.remainingDisplacement > 0f
+
             val linkedGen = if (linkedGeneration != 0L) {
                 linkedGeneration
             } else if (type == TransitionType.KEYBOARD_CONTRACTION) {
                 if (currentTransition.type == TransitionType.KEYBOARD_EXPANDED) {
                     currentTransition.generation
-                } else if (currentTransition.compensation.recordedDisplacement > 0f || currentTransition.compensation.remainingDisplacement > 0f) {
-                    if (currentTransition.linkedExpansionGeneration != 0L) currentTransition.linkedExpansionGeneration else currentTransition.generation
+                } else if (currentTransition.type == TransitionType.KEYBOARD_CONTRACTION &&
+                    currentTransition.linkedExpansionGeneration != 0L &&
+                    hasCurrentCompensation
+                ) {
+                    currentTransition.linkedExpansionGeneration
                 } else {
                     0L
                 }
             } else if (type == TransitionType.DRAWER_CONTRACTION) {
                 if (currentTransition.type == TransitionType.DRAWER_EXPANSION || currentTransition.type == TransitionType.DRAWER_OPENING) {
                     currentTransition.generation
-                } else if (currentTransition.compensation.recordedDisplacement > 0f || currentTransition.compensation.remainingDisplacement > 0f) {
-                    if (currentTransition.linkedExpansionGeneration != 0L) currentTransition.linkedExpansionGeneration else currentTransition.generation
+                } else if (currentTransition.type == TransitionType.DRAWER_CONTRACTION &&
+                    currentTransition.linkedExpansionGeneration != 0L &&
+                    hasCurrentCompensation
+                ) {
+                    currentTransition.linkedExpansionGeneration
                 } else {
                     0L
                 }
@@ -262,9 +271,9 @@ object ScribeBottomSurfaceCoordinator {
                 0L
             }
 
-            val inheritedCompensation = if (linkedGen != 0L && (currentTransition.compensation.recordedDisplacement > 0f || currentTransition.compensation.remainingDisplacement > 0f)) {
-                currentTransition.compensation
-            } else if (type.isContraction && (currentTransition.compensation.recordedDisplacement > 0f || currentTransition.compensation.remainingDisplacement > 0f)) {
+            val isContractionTransition = type == TransitionType.KEYBOARD_CONTRACTION ||
+                type == TransitionType.DRAWER_CONTRACTION
+            val inheritedCompensation = if (isContractionTransition && linkedGen != 0L && hasCurrentCompensation) {
                 currentTransition.compensation
             } else {
                 ExpansionCompensation()
