@@ -1501,24 +1501,23 @@ object ScribeScrollPolicy {
         var totalScroll: Float
             get() = displayedTotalScroll
             set(value) {
-                persistentScrollPosition = value
-                temporaryViewportAdjustment = 0f
+                persistentScrollPosition = (value - temporaryViewportAdjustment).coerceAtLeast(0f)
             }
 
         var currentScroll: Float
             get() = displayedTotalScroll
             set(value) {
-                persistentScrollPosition = value
-                temporaryViewportAdjustment = 0f
+                persistentScrollPosition = (value - temporaryViewportAdjustment).coerceAtLeast(0f)
             }
 
         var temporaryDisplacement: Float
             get() = temporaryViewportAdjustment
-            set(value) { temporaryViewportAdjustment = value }
+            set(value) {
+                temporaryViewportAdjustment = value
+                recordedDisplacement = value
+            }
 
-        var recordedDisplacement: Float
-            get() = temporaryViewportAdjustment
-            set(value) {}
+        var recordedDisplacement: Float = temporaryDisplacement
 
         var targetScroll: Float = 0f
         var velocity: Float = 0f
@@ -1722,25 +1721,37 @@ object ScribeScrollPolicy {
 
             // Viewport-driven and causal compensation accounting
             if (activeReason == ScrollAnimationReason.VIEWPORT_ADJUSTMENT || activeReason == ScrollAnimationReason.CONTRACTION_RESTORATION) {
-                temporaryViewportAdjustment = (temporaryViewportAdjustment + actualMoved).coerceAtLeast(0f)
                 if (actualMoved < 0f) {
                     val appliedDown = -actualMoved
+                    temporaryDisplacement = (temporaryDisplacement - appliedDown).coerceAtLeast(0f)
                     totalConsumedDisplacement += appliedDown
                     onCompensationConsumed?.invoke(appliedDown)
+                    if (temporaryDisplacement <= 0.5f) {
+                        temporaryDisplacement = 0f
+                        recordedDisplacement = 0f
+                        totalConsumedDisplacement = 0f
+                        originatingExpansionGeneration = 0L
+                        isAnchorValid = false
+                        caretLine = -1
+                        caretCol = 0
+                        selectionStartLine = -1
+                        selectionStartCol = 0
+                        selectionEndLine = -1
+                        selectionEndCol = 0
+                        isSelected = false
+                        originalAnchorLine = -1
+                    }
+                } else {
+                    temporaryDisplacement = (temporaryDisplacement + actualMoved).coerceAtLeast(0f)
                 }
-                if (temporaryViewportAdjustment <= 0.5f) {
-                    temporaryViewportAdjustment = 0f
-                    totalConsumedDisplacement = 0f
-                    originatingExpansionGeneration = 0L
-                    isAnchorValid = false
-                }
+            } else if (isExpansionTransitionActive && actualMoved > 0f &&
+                (activeReason == ScrollAnimationReason.CARET_VISIBILITY || activeReason == ScrollAnimationReason.PREDICTIVE_GLIDE)) {
+                recordedDisplacement += actualMoved
+                temporaryDisplacement += actualMoved
+                isAnchorValid = true
+                onExpansionDisplacementApplied?.invoke(actualMoved)
             } else {
                 persistentScrollPosition = (persistentScrollPosition + actualMoved).coerceAtLeast(0f)
-                if (isExpansionTransitionActive && actualMoved > 0f &&
-                    (activeReason == ScrollAnimationReason.CARET_VISIBILITY || activeReason == ScrollAnimationReason.PREDICTIVE_GLIDE)) {
-                    isAnchorValid = true
-                    onExpansionDisplacementApplied?.invoke(actualMoved)
-                }
             }
 
             // Boundary collision / unreachable target detection:
