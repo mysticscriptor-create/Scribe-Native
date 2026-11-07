@@ -433,9 +433,9 @@ object ScribeScrollPolicy {
     )
 
     // ── Geometry Models (Delegated to ScribeScrollGeometry) ───────────────────
-    typealias SelectionGeometry = com.primaloptima.scribe.ui.components.SelectionGeometry
-    typealias SafeTargetValidationResult = com.primaloptima.scribe.ui.components.SafeTargetValidationResult
-    typealias CursorTargetResolution = com.primaloptima.scribe.ui.components.CursorTargetResolution
+    typealias SelectionGeometry = com.primaloptima.scribe.ui.editor.scroll.SelectionGeometry
+    typealias SafeTargetValidationResult = com.primaloptima.scribe.ui.editor.scroll.SafeTargetValidationResult
+    typealias CursorTargetResolution = com.primaloptima.scribe.ui.editor.scroll.CursorTargetResolution
 
     /**
      * Deterministic simulation controller for testing contraction restoration, retargeting,
