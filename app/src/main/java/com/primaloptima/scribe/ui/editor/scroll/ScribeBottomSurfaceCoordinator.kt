@@ -155,4 +155,97 @@ object ScribeBottomSurfaceCoordinator {
         // 2. The cursor is at the last line of the document following an actively contracting bottom surface.
         return (temporaryDisplacement > 0f) || isAtLastLine
     }
+    /**
+     * Calculates the expanded drawer height in Dp.
+     */
+    fun calculateExpandedHeightDp(compactHeightDp: Float, screenHeightDp: Float): Float {
+        return maxOf(compactHeightDp + 60f, (screenHeightDp * 0.48f).coerceIn(360f, 480f))
+    }
+
+    /**
+     * Calculates the full drawer height in Dp.
+     */
+    fun calculateFullHeightDp(screenHeightDp: Float): Float {
+        return (screenHeightDp * 0.72f).coerceIn(480f, 650f)
+    }
+
+    /**
+     * Resolves the target height in Dp for a given [AccessoryDrawerState].
+     */
+    fun calculateDrawerTargetHeightDp(
+        drawerState: AccessoryDrawerState,
+        compactHeightDp: Float,
+        expandedHeightDp: Float,
+        fullHeightDp: Float
+    ): Float {
+        return when (drawerState) {
+            AccessoryDrawerState.COMPACT -> compactHeightDp
+            AccessoryDrawerState.EXPANDED -> expandedHeightDp
+            AccessoryDrawerState.FULL -> fullHeightDp
+        }
+    }
+
+    /**
+     * Cycles drawer state through COMPACT -> EXPANDED -> FULL -> COMPACT.
+     */
+    fun calculateNextDrawerState(currentState: AccessoryDrawerState): AccessoryDrawerState {
+        return when (currentState) {
+            AccessoryDrawerState.COMPACT -> AccessoryDrawerState.EXPANDED
+            AccessoryDrawerState.EXPANDED -> AccessoryDrawerState.FULL
+            AccessoryDrawerState.FULL -> AccessoryDrawerState.COMPACT
+        }
+    }
+
+    /**
+     * Determines the snap target state from release velocity and live height.
+     */
+    fun calculateSnapTargetState(
+        currentHeightDp: Float,
+        velocityDpPerSec: Float,
+        compactHeightDp: Float,
+        expandedHeightDp: Float,
+        fullHeightDp: Float
+    ): AccessoryDrawerState {
+        return when {
+            // Fling upward: rapid upward movement (-vyDp > 300)
+            velocityDpPerSec < -300f -> {
+                if (currentHeightDp < expandedHeightDp * 0.95f) AccessoryDrawerState.EXPANDED
+                else AccessoryDrawerState.FULL
+            }
+            // Fling downward: rapid downward movement (vyDp > 300)
+            velocityDpPerSec > 300f -> {
+                if (currentHeightDp > expandedHeightDp * 1.05f) AccessoryDrawerState.EXPANDED
+                else AccessoryDrawerState.COMPACT
+            }
+            // Release without fast fling: snap to nearest height
+            else -> {
+                val dCompact = kotlin.math.abs(currentHeightDp - compactHeightDp)
+                val dExpanded = kotlin.math.abs(currentHeightDp - expandedHeightDp)
+                val dFull = kotlin.math.abs(currentHeightDp - fullHeightDp)
+                when {
+                    dCompact <= dExpanded && dCompact <= dFull -> AccessoryDrawerState.COMPACT
+                    dExpanded <= dFull -> AccessoryDrawerState.EXPANDED
+                    else -> AccessoryDrawerState.FULL
+                }
+            }
+        }
+    }
+
+    /**
+     * Resolves the effective drawer height in Dp accounting for dragging, state, and bounds.
+     */
+    fun resolveEffectiveDrawerHeightDp(
+        isDrawerDragging: Boolean,
+        dragLiveHeightDp: Float,
+        drawerState: AccessoryDrawerState,
+        animatedHeightDp: Float,
+        compactHeightDp: Float,
+        fullHeightDp: Float
+    ): Float {
+        return when {
+            isDrawerDragging -> dragLiveHeightDp.coerceIn(compactHeightDp, fullHeightDp)
+            drawerState == AccessoryDrawerState.COMPACT -> compactHeightDp
+            else -> animatedHeightDp.coerceIn(compactHeightDp, fullHeightDp)
+        }
+    }
 }

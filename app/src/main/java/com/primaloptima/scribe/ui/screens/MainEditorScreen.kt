@@ -219,6 +219,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import com.primaloptima.scribe.ui.components.UnifiedCanvasLayout
 import com.primaloptima.scribe.ui.components.ScribeCodeEditor
+import com.primaloptima.scribe.ui.editor.scroll.AccessoryDrawerMode
+import com.primaloptima.scribe.ui.editor.scroll.AccessoryDrawerState
 import com.primaloptima.scribe.ui.editor.scroll.ScribeBottomSurfaceCoordinator
 import com.primaloptima.scribe.ui.editor.scroll.ScribeBottomSurfaceState
 import com.primaloptima.scribe.ui.editor.scroll.rememberScribeBottomSurfaceState
@@ -331,8 +333,6 @@ fun MainEditorScreen(
     val templates  by shortcutsVm.templates.collectAsStateWithLifecycle()
     val customCategories by shortcutsVm.customCategories.collectAsStateWithLifecycle()
 
-    var activeAccessoryDrawer by remember { mutableStateOf<AccessoryDrawerMode?>(null) }
-    var drawerState by remember { mutableStateOf(AccessoryDrawerState.COMPACT) }
     var drawerSearchQuery by remember { mutableStateOf("") }
     var isWritingBarSearchActive by remember { mutableStateOf(false) }
     val writingBarSearchFocusRequester = remember { FocusRequester() }
@@ -384,8 +384,7 @@ fun MainEditorScreen(
     val dataStore = remember { (context.applicationContext as? ScribeApp)?.dataStore ?: ScribeDataStore(context) }
     val bottomSurfaceState = rememberScribeBottomSurfaceState(
         savedKeyboardHeightFlow = dataStore.lastKeyboardHeightFlow,
-        onSaveKeyboardHeight = { height -> dataStore.setLastKeyboardHeight(height) },
-        isAccessoryDrawerActive = activeAccessoryDrawer != null
+        onSaveKeyboardHeight = { height -> dataStore.setLastKeyboardHeight(height) }
     )
     val selectedOrnamentId by dataStore.manuscriptOrnamentIdFlow.collectAsStateWithLifecycle("classic_diamond")
     var showOrnamentPicker by remember { mutableStateOf(false) }
@@ -770,21 +769,22 @@ fun MainEditorScreen(
         isWritingBarSearchActive = false
         drawerSearchQuery = ""
     }
-    BackHandler(enabled = activeCardPreview == null && previewItem == null && !isWritingBarSearchActive && drawerState != AccessoryDrawerState.COMPACT) {
-        drawerState = AccessoryDrawerState.COMPACT
+    BackHandler(enabled = activeCardPreview == null && previewItem == null && !isWritingBarSearchActive && bottomSurfaceState.drawerState != AccessoryDrawerState.COMPACT) {
+        bottomSurfaceState.drawerState = AccessoryDrawerState.COMPACT
     }
-    BackHandler(enabled = activeCardPreview == null && previewItem == null && !isWritingBarSearchActive && drawerState == AccessoryDrawerState.COMPACT && activeAccessoryDrawer != null) {
-        activeAccessoryDrawer = null
-        activeCardPreview = null
-        isPreviewExpanded = false
-        drawerState = AccessoryDrawerState.COMPACT
-        bottomSurfaceState.startAwaitingKeyboard()
-        drawerSearchQuery = ""
-        isWritingBarSearchActive = false
-        previewItem = null
-        soraEditorRef?.requestFocus()
-        keyboardController?.show()
-        try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+    BackHandler(enabled = activeCardPreview == null && previewItem == null && !isWritingBarSearchActive && bottomSurfaceState.drawerState == AccessoryDrawerState.COMPACT && bottomSurfaceState.isAccessoryDrawerActive) {
+        bottomSurfaceState.closeDrawerAndRestoreKeyboard(
+            onRestore = {
+                activeCardPreview = null
+                isPreviewExpanded = false
+                drawerSearchQuery = ""
+                isWritingBarSearchActive = false
+                previewItem = null
+                soraEditorRef?.requestFocus()
+                keyboardController?.show()
+                try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+            }
+        )
     }
 
     BackHandler {
@@ -1230,52 +1230,36 @@ fun MainEditorScreen(
     val imeAboveNavDp = bottomSurfaceState.imeAboveNavDp
     val configuration = LocalConfiguration.current
     val compactHeightDp = bottomSurfaceState.compactHeightDp
-    val expandedHeightDp = maxOf(compactHeightDp + 60.dp, (configuration.screenHeightDp.dp * 0.48f).coerceIn(360.dp, 480.dp))
-    val fullHeightDp = (configuration.screenHeightDp.dp * 0.72f).coerceIn(480.dp, 650.dp)
-    val drawerHeightDpAnim = remember { Animatable(compactHeightDp.value) }
-    var isDrawerDragging by remember { mutableStateOf(false) }
-    var dragLiveHeightDp by remember { mutableFloatStateOf(compactHeightDp.value) }
 
-    var lastDrawerToggleTimestamp by remember { mutableLongStateOf(0L) }
     val toggleAccessoryDrawer: (AccessoryDrawerMode) -> Unit = { targetMode ->
-        val now = System.currentTimeMillis()
-        val isSwitchingBetweenOpenDrawers = activeAccessoryDrawer != null && targetMode != activeAccessoryDrawer
-        if (isSwitchingBetweenOpenDrawers || now - lastDrawerToggleTimestamp >= 200L) {
-            lastDrawerToggleTimestamp = now
-            if (activeSheetPage != null) {
-                activeSheetPage = null
-            }
-            if (activeAccessoryDrawer == targetMode) {
-                // Closing active drawer -> Restore soft keyboard with locked transition height
-                activeAccessoryDrawer = null
-                drawerState = AccessoryDrawerState.COMPACT
-                bottomSurfaceState.startAwaitingKeyboard(unifiedCanvasRef)
+        if (activeSheetPage != null) {
+            activeSheetPage = null
+        }
+        bottomSurfaceState.toggleAccessoryDrawer(
+            targetMode = targetMode,
+            unifiedCanvas = unifiedCanvasRef,
+            scope = scope,
+            onClosing = {
                 isWritingBarSearchActive = false
                 drawerSearchQuery = ""
                 previewItem = null
-                scope.launch { drawerHeightDpAnim.snapTo(compactHeightDp.value) }
                 soraEditorRef?.requestFocus()
                 keyboardController?.show()
                 try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
-            } else if (activeAccessoryDrawer != null) {
-                // Seamless instantaneous switch between open drawers: zero keyboard/cursor flicker
-                activeAccessoryDrawer = targetMode
+            },
+            onOpening = {
+                keyboardController?.hide()
+                try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
                 isWritingBarSearchActive = false
                 drawerSearchQuery = ""
                 previewItem = null
-            } else {
-                // Opening drawer from keyboard / idle state
-                bottomSurfaceState.cancelAwaitingKeyboard()
-                keyboardController?.hide()
-                try { soraEditorRef?.hideSoftInput() } catch (_: Exception) {}
-                activeAccessoryDrawer = targetMode
-                drawerState = AccessoryDrawerState.COMPACT
-                scope.launch { drawerHeightDpAnim.snapTo(compactHeightDp.value) }
+            },
+            onSwitching = {
                 isWritingBarSearchActive = false
                 drawerSearchQuery = ""
                 previewItem = null
             }
-        }
+        )
     }
 
     val maxStandardKbBaselineDp = bottomSurfaceState.maxStandardKbBaselineDp
@@ -1380,50 +1364,11 @@ fun MainEditorScreen(
                     val docTopInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
                     val shortcutBarHeight = 36.dp
 
-                    LaunchedEffect(drawerState, compactHeightDp, expandedHeightDp, fullHeightDp, activeAccessoryDrawer) {
-                        if (activeAccessoryDrawer != null && !isDrawerDragging) {
-                            val target = when (drawerState) {
-                                AccessoryDrawerState.COMPACT -> compactHeightDp.value
-                                AccessoryDrawerState.EXPANDED -> expandedHeightDp.value
-                                AccessoryDrawerState.FULL -> fullHeightDp.value
-                            }
-                            if (drawerHeightDpAnim.targetValue != target) {
-                                drawerHeightDpAnim.animateTo(
-                                    targetValue = target,
-                                    animationSpec = spring(
-                                        stiffness = Spring.StiffnessMediumLow,
-                                        dampingRatio = Spring.DampingRatioNoBouncy
-                                    )
-                                )
-                            }
-                        } else if (activeAccessoryDrawer == null) {
-                            if (drawerHeightDpAnim.value != compactHeightDp.value) {
-                                drawerHeightDpAnim.animateTo(
-                                    targetValue = compactHeightDp.value,
-                                    animationSpec = spring(
-                                        stiffness = Spring.StiffnessMediumLow,
-                                        dampingRatio = Spring.DampingRatioNoBouncy
-                                    )
-                                )
-                            }
-                            dragLiveHeightDp = compactHeightDp.value
-                        }
-                    }
-
-                    val isDrawerActive = activeAccessoryDrawer != null
-                    val drawerHeightDpVal = when {
-                        isDrawerDragging -> dragLiveHeightDp.dp.coerceIn(compactHeightDp, fullHeightDp).value
-                        drawerState == AccessoryDrawerState.COMPACT -> compactHeightDp.value
-                        else -> drawerHeightDpAnim.value.dp.coerceIn(compactHeightDp, fullHeightDp).value
-                    }
-                    val effectiveBottomSurfaceHeight = bottomSurfaceState.resolveEffectiveBottomSurfaceHeight(
-                        isAccessoryDrawerActive = isDrawerActive,
-                        drawerHeightDp = drawerHeightDpVal
-                    )
-                    val isKeyboardDismissing = bottomSurfaceState.isKeyboardDismissing(isAccessoryDrawerActive = isDrawerActive)
+                    val effectiveBottomSurfaceHeight = bottomSurfaceState.effectiveBottomSurfaceHeight
+                    val isKeyboardDismissing = bottomSurfaceState.isKeyboardDismissing()
                     val isKeyboardSettled = bottomSurfaceState.isKeyboardSettled()
-                    val isShortcutBarVisuallyVisible = (activeAccessoryDrawer != null || isKeyboardSettled) && shortcuts.isNotEmpty()
-                    val isBarVisible = (isKeyboardVisible || imeAboveNavDp > 10.dp || activeAccessoryDrawer != null || bottomSurfaceState.isAwaitingKeyboardOpen || bottomSurfaceState.isBarTransitionLatched) && shortcuts.isNotEmpty()
+                    val isShortcutBarVisuallyVisible = (bottomSurfaceState.isAccessoryDrawerActive || isKeyboardSettled) && shortcuts.isNotEmpty()
+                    val isBarVisible = (isKeyboardVisible || imeAboveNavDp > 10.dp || bottomSurfaceState.isAccessoryDrawerActive || bottomSurfaceState.isAwaitingKeyboardOpen || bottomSurfaceState.isBarTransitionLatched) && shortcuts.isNotEmpty()
                     val docBottomPadding = if (!isBarVisible) {
                         docBottomNavInset
                     } else {
@@ -1459,13 +1404,31 @@ fun MainEditorScreen(
                             lastAppliedBgArgb = bgArgb
                             lastAppliedThemeId = activeTheme?.id
 
-                            val bottomSurfaceHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight.value else maxOf(compactHeightDp.value, imeAboveNavDp.value)
+                            val bottomSurfaceHeightDp = if (bottomSurfaceState.isAccessoryDrawerActive) effectiveBottomSurfaceHeight.value else maxOf(compactHeightDp.value, imeAboveNavDp.value)
                             val shortcutBarDp = if (shortcuts.isNotEmpty()) 36.dp.value else 0f
                             val curEstimatedKbPx = (bottomSurfaceHeightDp + shortcutBarDp) * density
-                            val isDrawerOrTransitionActive = bottomSurfaceState.isDrawerOrTransitionActive(activeAccessoryDrawer != null)
-                            val curIsKeyboardVisible = bottomSurfaceState.curIsKeyboardVisible(activeAccessoryDrawer != null)
-                            val curIsBottomSurfaceActive = bottomSurfaceState.curIsBottomSurfaceActive(activeAccessoryDrawer != null, shortcuts.isNotEmpty())
-
+                            val isDrawerOrTransitionActive = bottomSurfaceState.isDrawerOrTransitionActive()
+                            val curIsKeyboardVisible = bottomSurfaceState.curIsKeyboardVisible()
+                            val curIsBottomSurfaceActive = bottomSurfaceState.curIsBottomSurfaceActive(hasShortcuts = shortcuts.isNotEmpty())
+                            val handleUserTouchDown: () -> Unit = {
+                                updateEditingTarget(EditingTarget.EDITOR_BODY)
+                                if (bottomSurfaceState.isAccessoryDrawerActive) {
+                                    bottomSurfaceState.closeDrawerAndRestoreKeyboard(
+                                        unifiedCanvas = unifiedCanvasRef,
+                                        scope = scope,
+                                        onRestore = {
+                                            isWritingBarSearchActive = false
+                                            drawerSearchQuery = ""
+                                            previewItem = null
+                                            soraEditorRef?.requestFocus()
+                                            keyboardController?.show()
+                                            try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+                                        }
+                                    )
+                                } else if (!isKeyboardVisible) {
+                                    bottomSurfaceState.startAwaitingKeyboard(unifiedCanvasRef)
+                                }
+                            }
                             UnifiedCanvasLayout(ctx).apply {
                                 horizontalPaddingDp = initialPadH
                                 setBackgroundColor(bgArgb)
@@ -1474,23 +1437,7 @@ fun MainEditorScreen(
                                 this.isKeyboardVisible = curIsKeyboardVisible
                                 this.isBottomSurfaceActive = curIsBottomSurfaceActive
                                 this.isKeyboardDismissing = isKeyboardDismissing
-                                onUserTouchDown = {
-                                    updateEditingTarget(EditingTarget.EDITOR_BODY)
-                                    if (activeAccessoryDrawer != null) {
-                                        activeAccessoryDrawer = null
-                                        drawerState = AccessoryDrawerState.COMPACT
-                                        bottomSurfaceState.startAwaitingKeyboard(unifiedCanvasRef)
-                                        isWritingBarSearchActive = false
-                                        drawerSearchQuery = ""
-                                        previewItem = null
-                                        scope.launch { drawerHeightDpAnim.snapTo(compactHeightDp.value) }
-                                        soraEditorRef?.requestFocus()
-                                        keyboardController?.show()
-                                        try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
-                                    } else if (!isKeyboardVisible) {
-                                        bottomSurfaceState.startAwaitingKeyboard(unifiedCanvasRef)
-                                    }
-                                }
+                                onUserTouchDown = handleUserTouchDown
                                 onKeyboardEntranceStarted = {
                                     bottomSurfaceState.onKeyboardEntranceStarted(unifiedCanvasRef)
                                 }
@@ -1708,32 +1655,18 @@ fun MainEditorScreen(
                             }
                         },
                         update = { layout ->
-                            layout.onUserTouchDown = {
-                                updateEditingTarget(EditingTarget.EDITOR_BODY)
-                                if (activeAccessoryDrawer != null) {
-                                    activeAccessoryDrawer = null
-                                    drawerState = AccessoryDrawerState.COMPACT
-                                    bottomSurfaceState.startAwaitingKeyboard(unifiedCanvasRef)
-                                    isWritingBarSearchActive = false
-                                    drawerSearchQuery = ""
-                                    previewItem = null
-                                    scope.launch { drawerHeightDpAnim.snapTo(compactHeightDp.value) }
-                                    soraEditorRef?.requestFocus()
-                                    keyboardController?.show()
-                                    try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
-                                }
-                            }
+                            layout.onUserTouchDown = handleUserTouchDown
                             val density = layout.context.resources.displayMetrics.density
-                            val bottomSurfaceHeightDp = if (activeAccessoryDrawer != null) effectiveBottomSurfaceHeight.value else maxOf(compactHeightDp.value, imeAboveNavDp.value)
+                            val bottomSurfaceHeightDp = if (bottomSurfaceState.isAccessoryDrawerActive) effectiveBottomSurfaceHeight.value else maxOf(compactHeightDp.value, imeAboveNavDp.value)
                             val shortcutBarDp = if (shortcuts.isNotEmpty()) 36.dp.value else 0f
                             val curEstimatedKbPx = (bottomSurfaceHeightDp + shortcutBarDp) * density
                             layout.estimatedKeyboardHeightPx = curEstimatedKbPx
                             layout.onKeyboardEntranceStarted = {
                                 bottomSurfaceState.onKeyboardEntranceStarted(unifiedCanvasRef)
                             }
-                            val isDrawerOrTransitionActive = bottomSurfaceState.isDrawerOrTransitionActive(activeAccessoryDrawer != null)
-                            val curIsKeyboardVisible = bottomSurfaceState.curIsKeyboardVisible(activeAccessoryDrawer != null)
-                            val curIsBottomSurfaceActive = bottomSurfaceState.curIsBottomSurfaceActive(activeAccessoryDrawer != null, shortcuts.isNotEmpty())
+                            val isDrawerOrTransitionActive = bottomSurfaceState.isDrawerOrTransitionActive()
+                            val curIsKeyboardVisible = bottomSurfaceState.curIsKeyboardVisible()
+                            val curIsBottomSurfaceActive = bottomSurfaceState.curIsBottomSurfaceActive(hasShortcuts = shortcuts.isNotEmpty())
                             layout.isKeyboardVisible = curIsKeyboardVisible
                             layout.isBottomSurfaceActive = curIsBottomSurfaceActive
                             layout.isKeyboardDismissing = isKeyboardDismissing
@@ -2154,7 +2087,7 @@ fun MainEditorScreen(
                                             )
 
                                             // ── Dedicated Switcher Buttons for Snippets & Templates ──
-                                            val isSnippetsOpen = activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS
+                                            val isSnippetsOpen = bottomSurfaceState.activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS
                                             val snippetBtnColor = Color(0xFF8B5CF6)
                                             Box(
                                                 contentAlignment = Alignment.Center,
@@ -2187,7 +2120,7 @@ fun MainEditorScreen(
                                                 }
                                             }
 
-                                            val isTemplatesOpen = activeAccessoryDrawer == AccessoryDrawerMode.TEMPLATES
+                                            val isTemplatesOpen = bottomSurfaceState.activeAccessoryDrawer == AccessoryDrawerMode.TEMPLATES
                                             val templateBtnColor = Color(0xFFF59E0B)
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically
@@ -2225,7 +2158,7 @@ fun MainEditorScreen(
 
                                                 // ── Phase 6 & 7: Animated Drawer Controls (Zero-Gap Sub-Row with Scale-Fade) ──
                                                 androidx.compose.animation.AnimatedVisibility(
-                                                    visible = activeAccessoryDrawer != null,
+                                                    visible = bottomSurfaceState.isAccessoryDrawerActive,
                                                     enter = androidx.compose.animation.expandHorizontally(
                                                         animationSpec = spring(
                                                             stiffness = Spring.StiffnessMediumLow,
@@ -2303,9 +2236,8 @@ fun MainEditorScreen(
                                                                 .defaultMinSize(minWidth = 30.dp)
                                                                 .clip(RoundedCornerShape(4.dp))
                                                                 .clickable {
-                                                                    shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
-                                                                    activeAccessoryDrawer = null
-                                                                    bottomSurfaceState.cancelAwaitingKeyboard()
+                                                                    shortcutsVm.targetStudioTab = if (bottomSurfaceState.activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
+                                                                    bottomSurfaceState.closeDrawer()
                                                                     drawerSearchQuery = ""
                                                                     isWritingBarSearchActive = false
                                                                     previewItem = null
@@ -2466,7 +2398,7 @@ fun MainEditorScreen(
                                                     Box(modifier = Modifier.weight(1f)) {
                                                         if (drawerSearchQuery.isEmpty()) {
                                                             Text(
-                                                                text = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) "Search snips..." else "Search tmpl...",
+                                                                text = if (bottomSurfaceState.activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) "Search snips..." else "Search tmpl...",
                                                                 fontSize = 12.sp,
                                                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                                                             )
@@ -2525,75 +2457,27 @@ fun MainEditorScreen(
                                         .fillMaxWidth()
                                         .height(effectiveBottomSurfaceHeight)
                                 ) {
-                                    if (activeAccessoryDrawer != null) {
+                                    if (bottomSurfaceState.isAccessoryDrawerActive) {
                                         AccessoryDrawer(
-                                            mode = activeAccessoryDrawer!!,
+                                            mode = bottomSurfaceState.activeAccessoryDrawer!!,
                                             currentHeightDp = effectiveBottomSurfaceHeight,
                                             activePreviewItemId = activeCardPreview?.item?.id,
-                                            drawerState = drawerState,
+                                            drawerState = bottomSurfaceState.drawerState,
                                             onDrawerStateChange = {
-                                                drawerState = it
-                                                unifiedCanvasRef?.isBottomSurfaceActive = true
-                                                unifiedCanvasRef?.isKeyboardVisible = true
+                                                bottomSurfaceState.setDrawerState(it, unifiedCanvasRef)
                                             },
                                             onDragStart = {
-                                                isDrawerDragging = true
-                                                dragLiveHeightDp = drawerHeightDpAnim.value
+                                                bottomSurfaceState.onDrawerDragStart()
                                             },
                                             onDragDelta = { deltaPx ->
-                                                isDrawerDragging = true
-                                                val deltaDp = deltaPx / density.density
-                                                dragLiveHeightDp = (dragLiveHeightDp - deltaDp).coerceIn(compactHeightDp.value, fullHeightDp.value)
+                                                bottomSurfaceState.onDrawerDragDelta(deltaPx, density.density)
                                             },
                                             onDragEndWithVelocity = { vyPx ->
-                                                val vyDp = vyPx / density.density
-                                                val currentH = dragLiveHeightDp
-                                                val targetState = when {
-                                                    // Fling upward: rapid upward movement (-vyDp > 300)
-                                                    vyDp < -300f -> {
-                                                        if (currentH < expandedHeightDp.value * 0.95f) AccessoryDrawerState.EXPANDED
-                                                        else AccessoryDrawerState.FULL
-                                                    }
-                                                    // Fling downward: rapid downward movement (vyDp > 300)
-                                                    vyDp > 300f -> {
-                                                        if (currentH > expandedHeightDp.value * 1.05f) AccessoryDrawerState.EXPANDED
-                                                        else AccessoryDrawerState.COMPACT
-                                                    }
-                                                    // Release without fast fling: snap to nearest height
-                                                    else -> {
-                                                        val dCompact = kotlin.math.abs(currentH - compactHeightDp.value)
-                                                        val dExpanded = kotlin.math.abs(currentH - expandedHeightDp.value)
-                                                        val dFull = kotlin.math.abs(currentH - fullHeightDp.value)
-                                                        when {
-                                                            dCompact <= dExpanded && dCompact <= dFull -> AccessoryDrawerState.COMPACT
-                                                            dExpanded <= dFull -> AccessoryDrawerState.EXPANDED
-                                                            else -> AccessoryDrawerState.FULL
-                                                        }
-                                                    }
-                                                }
-                                                drawerState = targetState
-                                                val targetHeight = when (targetState) {
-                                                    AccessoryDrawerState.COMPACT -> compactHeightDp.value
-                                                    AccessoryDrawerState.EXPANDED -> expandedHeightDp.value
-                                                    AccessoryDrawerState.FULL -> fullHeightDp.value
-                                                }
-                                                scope.launch {
-                                                    drawerHeightDpAnim.snapTo(currentH)
-                                                    isDrawerDragging = false
-                                                    drawerHeightDpAnim.animateTo(
-                                                        targetValue = targetHeight,
-                                                        initialVelocity = -vyDp,
-                                                        animationSpec = spring(
-                                                            stiffness = Spring.StiffnessMediumLow,
-                                                            dampingRatio = Spring.DampingRatioNoBouncy
-                                                        )
-                                                    )
-                                                }
+                                                bottomSurfaceState.onDrawerDragEndWithVelocity(vyPx, scope, density.density)
                                             },
                                             onOpenShortcuts = {
-                                                shortcutsVm.targetStudioTab = if (activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
-                                                activeAccessoryDrawer = null
-                                                bottomSurfaceState.cancelAwaitingKeyboard()
+                                                shortcutsVm.targetStudioTab = if (bottomSurfaceState.activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
+                                                bottomSurfaceState.closeDrawer()
                                                 drawerSearchQuery = ""
                                                 isWritingBarSearchActive = false
                                                 previewItem = null
@@ -2606,7 +2490,7 @@ fun MainEditorScreen(
                                                 activeCardPreview = CardPreviewAnchor(
                                                     item = action,
                                                     sourceRect = rect,
-                                                    isSnippet = activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS
+                                                    isSnippet = bottomSurfaceState.activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS
                                                 )
                                                 isPreviewExpanded = true
                                             },
@@ -2772,10 +2656,8 @@ fun MainEditorScreen(
                                             val windowToken = (context as? Activity)?.window?.decorView?.windowToken
                                                 ?: soraEditorRef?.windowToken
                                             windowToken?.let { imm?.hideSoftInputFromWindow(it, 0) }
-                                            if (activeAccessoryDrawer != null) {
-                                                activeAccessoryDrawer = null
-                                                drawerState = AccessoryDrawerState.COMPACT
-                                                bottomSurfaceState.cancelAwaitingKeyboard()
+                                            if (bottomSurfaceState.isAccessoryDrawerActive) {
+                                                bottomSurfaceState.closeDrawer()
                                             }
                                             activeSheetPage = EditorSheetPage.MENU
                                         }
@@ -4531,16 +4413,7 @@ private fun ShortcutBarChip(
     }
 }
 
-enum class AccessoryDrawerState {
-    COMPACT,
-    EXPANDED,
-    FULL
-}
 
-enum class AccessoryDrawerMode {
-    SNIPPETS,
-    TEMPLATES
-}
 
 @Composable
 private fun AccessoryDrawer(

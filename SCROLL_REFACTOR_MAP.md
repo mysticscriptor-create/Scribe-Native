@@ -75,8 +75,8 @@ Across Phases 1 through 6 and the preceding **Correction Pass**, Scribe's monoli
 | **13. Keyboard/IME State & Inset Integration** | `MainEditorScreen.kt`, `ScribeBottomSurfaceCoordinator.kt` | `ScribeBottomSurfaceState.kt` (`rememberScribeBottomSurfaceState`) | Extracted Compose-aware state holder observing `WindowInsets` and managing lifecycle. |
 | **14. Standard Keyboard Height Persistence** | `MainEditorScreen.kt`, `ScribeDataStore` | `ScribeBottomSurfaceState.kt`, `ScribeDataStore` | Debounced 350ms settling, baseline validation, and DataStore updates managed via `LaunchedEffect`. |
 | **15. Shortcut-Bar Layout Reservation** | `MainEditorScreen.kt`, `UnifiedCanvasLayout.kt` | `ScribeBottomSurfaceState.kt`, `MainEditorScreen` | UI layout reservation via `calculateEstimatedKeyboardHeightPx` and `resolveEffectiveBottomSurfaceHeight`. |
-| **16. Accessory Drawer State, Sizing, Dragging & Transitions** | `MainEditorScreen.kt` | `MainEditorScreen` (local `remember` state) | UI state management in MainEditorScreen (Phase 7 candidate). |
-| **17. Drawer-to-Keyboard Handoff** | `MainEditorScreen.kt`, `UnifiedCanvasLayout.onUserTouchDown` | `ScribeBottomSurfaceState.kt` + `MainEditorScreen` | `startAwaitingKeyboard`, `cancelAwaitingKeyboard`, and `onKeyboardEntranceStarted` lifecycle hooks. |
+| **16. Accessory Drawer State, Sizing, Dragging & Transitions** | `MainEditorScreen.kt` | `ScribeBottomSurfaceState.kt`, `ScribeBottomSurfaceCoordinator.kt` | Extracted drawer state container, velocity tracking, snapping, and `Animatable` height transitions. |
+| **17. Drawer-to-Keyboard Handoff** | `MainEditorScreen.kt`, `UnifiedCanvasLayout.onUserTouchDown` | `ScribeBottomSurfaceState.kt` + `MainEditorScreen` | `closeDrawerAndRestoreKeyboard`, `startAwaitingKeyboard`, `cancelAwaitingKeyboard`, and `onKeyboardEntranceStarted` lifecycle hooks. |
 | **18. Saved Viewport/Session Restoration** | `EditorSessionRestorationCoordinator.kt`, `UnifiedCanvasLayout.kt` | Navigation Layer (`EditorSessionRestorationCoordinator`) | Navigation lifecycle integration preserved in navigation package. |
 | **19. Scroll Diagnostics** | `ScribeScrollDiagnostics.kt` | `ScribeScrollDiagnostics.kt` | Centralized scoped diagnostics logging helper. |
 
@@ -132,6 +132,29 @@ In Phase 6, soft keyboard, IME viewport integration, and transition latching wer
 
 ---
 
+## 5.1 Accessory Drawer Viewport & Transition Architecture (Phase 7 Complete)
+
+In Phase 7, accessory drawer state and viewport transition logic were extracted from `MainEditorScreen.kt` into **`ScribeBottomSurfaceState.kt`** and **`ScribeBottomSurfaceCoordinator.kt`**.
+
+### Architecture & Responsibilities
+- **Enums Extracted:** `AccessoryDrawerState` (COMPACT, EXPANDED, FULL) and `AccessoryDrawerMode` (SNIPPETS, TEMPLATES) located in `com.primaloptima.scribe.ui.editor.scroll`.
+- **Stateless Coordinator Calculations (`ScribeBottomSurfaceCoordinator`):**
+  - `calculateExpandedHeightDp(compactHeightDp, screenHeightDp)`: 48% screen height clamped between 360dp and 480dp (or compact + 60dp).
+  - `calculateFullHeightDp(screenHeightDp)`: 72% screen height clamped between 480dp and 650dp.
+  - `calculateDrawerTargetHeightDp(state, compact, expanded, full)`: Pure mapping from drawer state to target height.
+  - `calculateNextDrawerState(currentState)`: Cyclic toggle (`COMPACT -> EXPANDED -> FULL -> COMPACT`).
+  - `calculateSnapTargetState(currentH, vyDp, compact, expanded, full)`: Fling velocity thresholding (> 300 dp/s down, < -300 dp/s up) and nearest-target snap resolution.
+  - `resolveEffectiveDrawerHeightDp(...)`: Live height resolution accounting for drag state, animated height, and bounds.
+- **State Container Delegation (`ScribeBottomSurfaceState`):**
+  - Encapsulates `activeAccessoryDrawer`, `drawerState`, `isDrawerDragging`, `dragLiveHeightDp`, `lastDrawerToggleTimestamp`, and `drawerHeightDpAnim`.
+  - Animates `drawerHeightDpAnim` automatically in a dedicated `LaunchedEffect` within `rememberScribeBottomSurfaceState`.
+  - Provides unified lifecycle methods: `openDrawer`, `closeDrawer`, `switchDrawer`, `toggleAccessoryDrawer`, and `closeDrawerAndRestoreKeyboard`.
+  - Exposes drag hooks: `onDrawerDragStart()`, `onDrawerDragDelta(deltaPx)`, and `onDrawerDragEndWithVelocity(vyPx, scope)`.
+- **UI Boundary Preservation:**
+  - `MainEditorScreen.kt` delegates drawer state, drag events, and keyboard transitions cleanly while retaining visual rendering in `AccessoryDrawer` composable.
+
+---
+
 ## 6. Observed Defects and Questionable Implementations Backlog
 
 ### A. Phase 5 Regression (Resolved by Correction Pass)
@@ -158,6 +181,7 @@ In Phase 6, soft keyboard, IME viewport integration, and transition latching wer
 - [x] **Phase 4 — Extract Scroll Animation Code:** Complete.
 - [x] **Phase 5 — Extract Scroll Input and Fling Handling:** Complete (`ACTION_DOWN` lifecycle fully restored).
 - [x] **Correction Pass:** Complete across all 4 steps.
-- [ ] **Phase 6 — Extract Keyboard and IME Viewport State:** Source-extracted (`ScribeBottomSurfaceState.kt` created, tested, and integrated with `MainEditorScreen.kt`; awaiting successful CI workflow verification).
+- [x] **Phase 6 — Extract Keyboard and IME Viewport State:** Complete (CI workflow #803 verified, precision assertion calibrated).
+- [x] **Phase 7 — Extract Accessory Drawer Viewport and Transition State:** Complete (`AccessoryDrawerState`, `AccessoryDrawerMode`, dragging, snapping, and spring height transitions extracted into `ScribeBottomSurfaceState.kt` and `ScribeBottomSurfaceCoordinator.kt`; `MainEditorScreen.kt` updated to delegate cleanly).
 
-**Next Milestone:** Awaiting successful Phase 6 CI workflow verification, then proceed to **Phase 7** as directed by the user.
+**Next Milestone:** Proceed to **Phase 8 — Saved Viewport & Session Restoration Separation** as directed by the user.

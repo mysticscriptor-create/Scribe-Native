@@ -150,4 +150,175 @@ class ScribeBottomSurfaceStateTest {
         state.imeAboveNavDp = 150.dp
         assertTrue(state.isKeyboardDismissing(isAccessoryDrawerActive = false))
     }
+
+    // ── Phase 7: Accessory Drawer State & Viewport Tests ─────────────────
+
+    @Test
+    fun testDrawerInitialStateDefaults() {
+        val state = ScribeBottomSurfaceState(initialKeyboardHeightDp = 280.dp)
+        assertEquals(null, state.activeAccessoryDrawer)
+        assertFalse(state.isAccessoryDrawerActive)
+        assertEquals(AccessoryDrawerState.COMPACT, state.drawerState)
+        assertFalse(state.isDrawerDragging)
+        assertEquals(280f, state.dragLiveHeightDp, 0.001f)
+    }
+
+    @Test
+    fun testDrawerExpandedAndFullHeightCalculations() {
+        val state = ScribeBottomSurfaceState(initialKeyboardHeightDp = 280.dp)
+        state.screenHeightDp = 800.dp
+        state.screenHeightDpFloat = 800f
+
+        // compactHeightDp = 280dp
+        // expandedHeight = maxOf(280 + 60, (800 * 0.48 = 384).coerceIn(360, 480)) = 384dp
+        assertEquals(384f, state.expandedHeightDp.value, 0.001f)
+
+        // fullHeight = (800 * 0.72 = 576).coerceIn(480, 650) = 576dp
+        assertEquals(576f, state.fullHeightDp.value, 0.001f)
+    }
+
+    @Test
+    fun testDrawerSnapTargetStateFlingUp() {
+        // Upward fling: vyDp < -300f
+        // Below 95% of expanded (0.95 * 384 = 364.8) -> snaps to EXPANDED
+        val targetUnderExpanded = ScribeBottomSurfaceCoordinator.calculateSnapTargetState(
+            currentHeightDp = 300f,
+            velocityDpPerSec = -400f,
+            compactHeightDp = 280f,
+            expandedHeightDp = 384f,
+            fullHeightDp = 576f
+        )
+        assertEquals(AccessoryDrawerState.EXPANDED, targetUnderExpanded)
+
+        // At or above 95% of expanded -> snaps to FULL
+        val targetAboveExpanded = ScribeBottomSurfaceCoordinator.calculateSnapTargetState(
+            currentHeightDp = 370f,
+            velocityDpPerSec = -400f,
+            compactHeightDp = 280f,
+            expandedHeightDp = 384f,
+            fullHeightDp = 576f
+        )
+        assertEquals(AccessoryDrawerState.FULL, targetAboveExpanded)
+    }
+
+    @Test
+    fun testDrawerSnapTargetStateFlingDown() {
+        // Downward fling: vyDp > 300f
+        // Above 105% of expanded (1.05 * 384 = 403.2) -> snaps to EXPANDED
+        val targetAboveExpanded = ScribeBottomSurfaceCoordinator.calculateSnapTargetState(
+            currentHeightDp = 500f,
+            velocityDpPerSec = 400f,
+            compactHeightDp = 280f,
+            expandedHeightDp = 384f,
+            fullHeightDp = 576f
+        )
+        assertEquals(AccessoryDrawerState.EXPANDED, targetAboveExpanded)
+
+        // At or below 105% of expanded -> snaps to COMPACT
+        val targetBelowExpanded = ScribeBottomSurfaceCoordinator.calculateSnapTargetState(
+            currentHeightDp = 350f,
+            velocityDpPerSec = 400f,
+            compactHeightDp = 280f,
+            expandedHeightDp = 384f,
+            fullHeightDp = 576f
+        )
+        assertEquals(AccessoryDrawerState.COMPACT, targetBelowExpanded)
+    }
+
+    @Test
+    fun testDrawerSnapTargetStateNeutralNearest() {
+        // Neutral fling (|vyDp| <= 300f): snaps to nearest height
+        val nearestCompact = ScribeBottomSurfaceCoordinator.calculateSnapTargetState(
+            currentHeightDp = 290f,
+            velocityDpPerSec = 0f,
+            compactHeightDp = 280f,
+            expandedHeightDp = 384f,
+            fullHeightDp = 576f
+        )
+        assertEquals(AccessoryDrawerState.COMPACT, nearestCompact)
+
+        val nearestExpanded = ScribeBottomSurfaceCoordinator.calculateSnapTargetState(
+            currentHeightDp = 370f,
+            velocityDpPerSec = 0f,
+            compactHeightDp = 280f,
+            expandedHeightDp = 384f,
+            fullHeightDp = 576f
+        )
+        assertEquals(AccessoryDrawerState.EXPANDED, nearestExpanded)
+
+        val nearestFull = ScribeBottomSurfaceCoordinator.calculateSnapTargetState(
+            currentHeightDp = 520f,
+            velocityDpPerSec = 0f,
+            compactHeightDp = 280f,
+            expandedHeightDp = 384f,
+            fullHeightDp = 576f
+        )
+        assertEquals(AccessoryDrawerState.FULL, nearestFull)
+    }
+
+    @Test
+    fun testDrawerStateCycling() {
+        val state = ScribeBottomSurfaceState(initialKeyboardHeightDp = 280.dp)
+        assertEquals(AccessoryDrawerState.COMPACT, state.drawerState)
+
+        val next1 = state.cycleDrawerState()
+        assertEquals(AccessoryDrawerState.EXPANDED, next1)
+        assertEquals(AccessoryDrawerState.EXPANDED, state.drawerState)
+
+        val next2 = state.cycleDrawerState()
+        assertEquals(AccessoryDrawerState.FULL, next2)
+        assertEquals(AccessoryDrawerState.FULL, state.drawerState)
+
+        val next3 = state.cycleDrawerState()
+        assertEquals(AccessoryDrawerState.COMPACT, next3)
+        assertEquals(AccessoryDrawerState.COMPACT, state.drawerState)
+    }
+
+    @Test
+    fun testDrawerOpenCloseAndSwitchTransitions() {
+        val state = ScribeBottomSurfaceState(initialKeyboardHeightDp = 280.dp)
+        assertFalse(state.isAccessoryDrawerActive)
+
+        // Open snippets drawer
+        state.openDrawer(AccessoryDrawerMode.SNIPPETS)
+        assertEquals(AccessoryDrawerMode.SNIPPETS, state.activeAccessoryDrawer)
+        assertEquals(AccessoryDrawerState.COMPACT, state.drawerState)
+        assertTrue(state.isAccessoryDrawerActive)
+
+        // Switch to templates drawer
+        state.switchDrawer(AccessoryDrawerMode.TEMPLATES)
+        assertEquals(AccessoryDrawerMode.TEMPLATES, state.activeAccessoryDrawer)
+        assertTrue(state.isAccessoryDrawerActive)
+
+        // Close drawer
+        state.closeDrawer()
+        assertEquals(null, state.activeAccessoryDrawer)
+        assertEquals(AccessoryDrawerState.COMPACT, state.drawerState)
+        assertFalse(state.isAccessoryDrawerActive)
+    }
+
+    @Test
+    fun testDrawerDragLifecycle() {
+        val state = ScribeBottomSurfaceState(initialKeyboardHeightDp = 280.dp)
+        state.screenHeightDp = 800.dp
+        state.screenHeightDpFloat = 800f
+        state.densityValue = 2.0f
+
+        assertFalse(state.isDrawerDragging)
+        state.onDrawerDragStart()
+        assertTrue(state.isDrawerDragging)
+
+        // Dragging upward by 40px at density 2.0 = 20dp upward delta
+        // dragLiveHeightDp becomes 280 - (-20) = 300dp
+        state.onDrawerDragDelta(deltaPx = -40f, densityVal = 2.0f)
+        assertEquals(300f, state.dragLiveHeightDp, 0.001f)
+
+        // Clamp to fullHeightDp (576dp) when dragging excessively upward
+        state.onDrawerDragDelta(deltaPx = -1000f, densityVal = 2.0f)
+        assertEquals(576f, state.dragLiveHeightDp, 0.001f)
+
+        // Clamp to compactHeightDp (280dp) when dragging excessively downward
+        state.onDrawerDragDelta(deltaPx = 2000f, densityVal = 2.0f)
+        assertEquals(280f, state.dragLiveHeightDp, 0.001f)
+    }
 }
