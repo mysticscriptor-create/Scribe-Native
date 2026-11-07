@@ -28,12 +28,12 @@ interface AnimationDriver {
 }
 
 /**
- * Production-grade animation controller coordinating AuthoritativeScrollCoordinator
+ * Production-grade animation controller coordinating ScribeScrollCoordinator
  * with an AnimationDriver. Enforces monotonic operation ID tracking and race-free
  * cancellation / retargeting without stale callback interference.
  */
 class ProductionScrollAnimationCoordinator(
-    val scrollCoordinator: AuthoritativeScrollCoordinator,
+    val scrollCoordinator: ScribeScrollCoordinator,
     var animationDriverFactory: (() -> AnimationDriver)? = null
 ) {
     val activeOperationId: Long

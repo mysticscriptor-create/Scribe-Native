@@ -8,11 +8,8 @@ import android.graphics.Rect
 import android.os.Build
 import android.util.AttributeSet
 import android.view.MotionEvent
-import android.view.VelocityTracker
 import android.view.View
-import android.view.ViewConfiguration
 import android.view.ViewGroup
-import android.view.animation.PathInterpolator
 import android.widget.EdgeEffect
 import android.widget.OverScroller
 import androidx.compose.ui.platform.ComposeView
@@ -199,6 +196,14 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             }
             override val isTopEdgeEffectFinished: Boolean
                 get() = this@UnifiedCanvasLayout.topEdgeEffect?.isFinished ?: true
+            override fun onUserTouchDown(touchY: Float) {
+                this@UnifiedCanvasLayout.lastTouchDownY = touchY
+                this@UnifiedCanvasLayout.lastTouchDownTime = System.currentTimeMillis()
+                this@UnifiedCanvasLayout.onUserTouchDown?.invoke()
+                this@UnifiedCanvasLayout.cancelCanvasAnimation()
+                this@UnifiedCanvasLayout.invalidateCompensation()
+                this@UnifiedCanvasLayout.editor.stopFling()
+            }
         })
     }
 

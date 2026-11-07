@@ -193,7 +193,3 @@ class ScribeScrollCoordinator(
     }
 }
 
-/**
- * Backward compatibility alias for the AuthoritativeScrollCoordinator.
- */
-typealias AuthoritativeScrollCoordinator = ScribeScrollCoordinator

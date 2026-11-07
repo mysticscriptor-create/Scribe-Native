@@ -38,6 +38,7 @@ class ScribeScrollInputController(
         fun onTopEdgeEffectRelease()
         fun onTopEdgeEffectAbsorb(velocity: Int)
         val isTopEdgeEffectFinished: Boolean
+        fun onUserTouchDown(touchY: Float)
     }
 
     val scroller: OverScroller = OverScroller(context)
@@ -66,12 +67,14 @@ class ScribeScrollInputController(
         velocityTracker?.addMovement(ev)
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                isMultiTouchLatched = false
                 host.isUserTouching = true
+                host.onUserTouchDown(ev.y)
                 initialDownX = ev.x
                 initialDownY = ev.y
                 lastTouchX = ev.x
                 lastTouchY = ev.y
-                isMultiTouchLatched = false
+                isDraggingCanvas = false
                 val editorX = ev.x - host.editorLeft()
                 val editorY = ev.y - (host.headerHeight - host.scrollD)
                 isTouchOnHandleActive = host.editorIsHandleDragging() || host.isTouchOnHandle(editorX, editorY)

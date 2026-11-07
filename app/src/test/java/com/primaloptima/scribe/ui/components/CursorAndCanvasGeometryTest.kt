@@ -1540,8 +1540,8 @@ class CursorAndCanvasGeometryTest {
     @Test
     fun testContractionRestoration_DiagnosticsLogging() {
         var loggedMessage: String? = null
-        ScribeScrollRestorationPolicy.isDebugDiagnosticsEnabled = true
-        ScribeScrollRestorationPolicy.onScrollDiagnosticLog = { msg -> loggedMessage = msg }
+        ScribeScrollDiagnostics.isDebugDiagnosticsEnabled = true
+        ScribeScrollDiagnostics.onScrollDiagnosticLog = { msg -> loggedMessage = msg }
 
         try {
             ScribeScrollRestorationPolicy.resolveContractionRestorationDelta(
@@ -1560,8 +1560,8 @@ class CursorAndCanvasGeometryTest {
             val msg = loggedMessage
             assertTrue("Diagnostic log must be called", msg != null && msg.contains("Applied"))
         } finally {
-            ScribeScrollRestorationPolicy.isDebugDiagnosticsEnabled = false
-            ScribeScrollRestorationPolicy.onScrollDiagnosticLog = null
+            ScribeScrollDiagnostics.isDebugDiagnosticsEnabled = false
+            ScribeScrollDiagnostics.onScrollDiagnosticLog = null
         }
     }
 
@@ -1639,7 +1639,7 @@ class CursorAndCanvasGeometryTest {
     fun testContractionSimulation_RepeatedViewportHeightChanges_NoOvershoot() {
         // Controller simulates drawer collapsing across intermediate layout frames:
         // h = 800 -> 850 -> 920 -> 1000 -> 1100
-        val controller = ScribeScrollPolicy.ContractionSimulationController(
+        val controller = ContractionSimulationController(
             totalScroll = 800f,
             temporaryDisplacement = 200f,
             caretLine = 30,
@@ -1672,7 +1672,7 @@ class CursorAndCanvasGeometryTest {
     @Test
     fun testContractionSimulation_NewTargetArrivingBeforeOldAnimationFinishes_RetargetsSmoothly() {
         // Animation is in flight (40% completed) when another layout frame arrives
-        val controller = ScribeScrollPolicy.ContractionSimulationController(
+        val controller = ContractionSimulationController(
             totalScroll = 900f,
             temporaryDisplacement = 200f,
             caretLine = 30,
@@ -1703,7 +1703,7 @@ class CursorAndCanvasGeometryTest {
 
     @Test
     fun testContractionSimulation_AnimationCancellation_ReconcilesActualAppliedMovement() {
-        val controller = ScribeScrollPolicy.ContractionSimulationController(
+        val controller = ContractionSimulationController(
             totalScroll = 800f,
             temporaryDisplacement = 150f,
             caretLine = 20,
@@ -1728,7 +1728,7 @@ class CursorAndCanvasGeometryTest {
 
     @Test
     fun testContractionSimulation_TickByTickAccounting_LockstepPrecision() {
-        val controller = ScribeScrollPolicy.ContractionSimulationController(
+        val controller = ContractionSimulationController(
             totalScroll = 600f,
             temporaryDisplacement = 120f,
             caretLine = 15,
@@ -1759,7 +1759,7 @@ class CursorAndCanvasGeometryTest {
 
     @Test
     fun testContractionSimulation_RepeatedExpandCollapseCycles_NoAccumulatedDisplacement() {
-        val controller = ScribeScrollPolicy.ContractionSimulationController(
+        val controller = ContractionSimulationController(
             totalScroll = 500f,
             temporaryDisplacement = 0f,
             caretLine = 10,
@@ -1787,7 +1787,7 @@ class CursorAndCanvasGeometryTest {
 
     @Test
     fun testContractionSimulation_UserTouch_InvalidatesStaleCompensation() {
-        val controller = ScribeScrollPolicy.ContractionSimulationController(
+        val controller = ContractionSimulationController(
             totalScroll = 600f,
             temporaryDisplacement = 150f,
             caretLine = 25,
@@ -1810,7 +1810,7 @@ class CursorAndCanvasGeometryTest {
 
     @Test
     fun testContractionSimulation_CaretMovement_InvalidatesStaleCompensation() {
-        val controller = ScribeScrollPolicy.ContractionSimulationController(
+        val controller = ContractionSimulationController(
             totalScroll = 600f,
             temporaryDisplacement = 150f,
             caretLine = 25,
@@ -1828,7 +1828,7 @@ class CursorAndCanvasGeometryTest {
 
     @Test
     fun testContractionSimulation_ContentEdits_InvalidatesStaleCompensation() {
-        val controller = ScribeScrollPolicy.ContractionSimulationController(
+        val controller = ContractionSimulationController(
             totalScroll = 600f,
             temporaryDisplacement = 150f,
             caretLine = 25,
@@ -1846,7 +1846,7 @@ class CursorAndCanvasGeometryTest {
 
     @Test
     fun testContractionSimulation_FullKeyboardDismissal_StrictlyStationary() {
-        val controller = ScribeScrollPolicy.ContractionSimulationController(
+        val controller = ContractionSimulationController(
             totalScroll = 600f,
             temporaryDisplacement = 150f,
             caretLine = 25,
@@ -1914,7 +1914,7 @@ class CursorAndCanvasGeometryTest {
     fun testContraction_KeyboardExpansion_FollowedByNormalHeightRestoration() {
         // Standard keyboard (viewport 1100) expands to emoji keyboard (viewport 800).
         // Document scrolls up by 150px to keep line 20 visible.
-        val controller = ScribeScrollPolicy.ContractionSimulationController(
+        val controller = ContractionSimulationController(
             totalScroll = 500f,
             temporaryDisplacement = 0f,
             caretLine = 20,
@@ -1955,7 +1955,7 @@ class CursorAndCanvasGeometryTest {
     fun testContraction_AccessoryDrawerExpansion_FollowedByNormalHeightRestoration() {
         // Compact accessory (viewport 950) expands to full drawer (viewport 650).
         // Upward scroll of 220px is recorded.
-        val controller = ScribeScrollPolicy.ContractionSimulationController(
+        val controller = ContractionSimulationController(
             totalScroll = 400f,
             temporaryDisplacement = 0f,
             caretLine = 18,
@@ -1989,7 +1989,7 @@ class CursorAndCanvasGeometryTest {
 
     @Test
     fun testContraction_SelectionChangeDuringTransition_InvalidatesStaleCompensation() {
-        val controller = ScribeScrollPolicy.ContractionSimulationController(
+        val controller = ContractionSimulationController(
             totalScroll = 700f,
             temporaryDisplacement = 180f,
             caretLine = 22,
@@ -2019,7 +2019,7 @@ class CursorAndCanvasGeometryTest {
 
     @Test
     fun testContraction_ManualScrollDuringExpansion_InvalidatesCompensation() {
-        val controller = ScribeScrollPolicy.ContractionSimulationController(
+        val controller = ContractionSimulationController(
             totalScroll = 600f,
             temporaryDisplacement = 120f,
             caretLine = 15,

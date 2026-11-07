@@ -45,20 +45,6 @@ object ScribeScrollRestorationPolicy {
         val reason: String
     )
 
-    /**
-     * Diagnostic logging toggle and callback for scroll & viewport coordination.
-     */
-    var isDebugDiagnosticsEnabled: Boolean
-        get() = ScribeScrollDiagnostics.isDebugDiagnosticsEnabled
-        set(value) { ScribeScrollDiagnostics.isDebugDiagnosticsEnabled = value }
-
-    var onScrollDiagnosticLog: ((String) -> Unit)?
-        get() = ScribeScrollDiagnostics.onScrollDiagnosticLog
-        set(value) { ScribeScrollDiagnostics.onScrollDiagnosticLog = value }
-
-    fun logDiagnostic(tag: String, message: String) {
-        ScribeScrollDiagnostics.log(tag, message)
-    }
 
     /**
      * Authoritative calculation for downward canvas adjustment when an expanded keyboard
@@ -71,11 +57,11 @@ object ScribeScrollRestorationPolicy {
             return ContractionRestorationResult(0f, false, request.temporaryDisplacement, "Invalid viewport height")
         }
         if (request.isKeyboardDismissing) {
-            logDiagnostic("ContractionRestoration", "Rejected: keyboard is dismissing (Pure Writer stationary invariant)")
+            ScribeScrollDiagnostics.log("ContractionRestoration", "Rejected: keyboard is dismissing (Pure Writer stationary invariant)")
             return ContractionRestorationResult(0f, false, 0f, "Keyboard dismissing")
         }
         if (!request.isBottomSurfaceActive) {
-            logDiagnostic("ContractionRestoration", "Rejected: no bottom surface active")
+            ScribeScrollDiagnostics.log("ContractionRestoration", "Rejected: no bottom surface active")
             return ContractionRestorationResult(0f, false, 0f, "Bottom surface inactive")
         }
         if (request.totalScroll <= 0f) {
@@ -95,7 +81,7 @@ object ScribeScrollRestorationPolicy {
         // calculate corrective upward delta.
         if (slack < 0f) {
             val correctiveUp = -slack // positive upward delta
-            logDiagnostic("ContractionRestoration", "Corrective upward applied: slack=$slack, correctiveUp=$correctiveUp")
+            ScribeScrollDiagnostics.log("ContractionRestoration", "Corrective upward applied: slack=$slack, correctiveUp=$correctiveUp")
             return ContractionRestorationResult(
                 deltaY = correctiveUp,
                 shouldScroll = true,
@@ -106,7 +92,7 @@ object ScribeScrollRestorationPolicy {
 
         // Caret is sitting right at the safe boundary (within deadband above targetLineBottom)
         if (slack <= deadbandPx) {
-            logDiagnostic("ContractionRestoration", "Zero delta: caret already at safe boundary (slack=$slack)")
+            ScribeScrollDiagnostics.log("ContractionRestoration", "Zero delta: caret already at safe boundary (slack=$slack)")
             return ContractionRestorationResult(0f, false, request.temporaryDisplacement, "Caret already at safe boundary")
         }
 
@@ -130,7 +116,7 @@ object ScribeScrollRestorationPolicy {
         if (clampedDown < -deadbandPx) {
             val restoredAmount = -clampedDown
             val remaining = (request.temporaryDisplacement - restoredAmount).coerceAtLeast(0f)
-            logDiagnostic(
+            ScribeScrollDiagnostics.log(
                 "ContractionRestoration",
                 "Applied: deltaY=$clampedDown, intended=$intendedDown, slack=$slack, remainingCompensation=$remaining"
             )
