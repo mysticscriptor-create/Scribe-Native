@@ -1,8 +1,8 @@
 # Scribe Native Scroll Architecture Refactor Map
 
 **Commit Reference Baseline:** `d0d39b5` ("fix(viewport): eliminate unnecessary scroll-and-return and coordinate fluid shortcut bar entry")  
-**Starting HEAD:** `f262f7b`  
-**Milestone:** Phases 1–6 Complete (Keyboard and IME Viewport State Extracted)  
+**Starting HEAD:** `59c3537`  
+**Milestone:** Phase 6 Source-Extracted (Awaiting CI Verification)  
 **Verification Scope:** Exhaustive static source code inspection and repository-wide symbol reference verification. (Local Gradle/tests intentionally not executed per bounded instructions; remote verification deferred to GitHub Actions CI).
 
 ---
@@ -158,6 +158,6 @@ In Phase 6, soft keyboard, IME viewport integration, and transition latching wer
 - [x] **Phase 4 — Extract Scroll Animation Code:** Complete.
 - [x] **Phase 5 — Extract Scroll Input and Fling Handling:** Complete (`ACTION_DOWN` lifecycle fully restored).
 - [x] **Correction Pass:** Complete across all 4 steps.
-- [x] **Phase 6 — Extract Keyboard and IME Viewport State:** Complete (`ScribeBottomSurfaceState.kt` created, tested, and integrated with `MainEditorScreen.kt`).
+- [ ] **Phase 6 — Extract Keyboard and IME Viewport State:** Source-extracted (`ScribeBottomSurfaceState.kt` created, tested, and integrated with `MainEditorScreen.kt`; awaiting successful CI workflow verification).
 
-**Next Milestone:** Proceed to **Phase 7** as directed by the user.
+**Next Milestone:** Awaiting successful Phase 6 CI workflow verification, then proceed to **Phase 7** as directed by the user.

@@ -1,5 +1,6 @@
 package com.primaloptima.scribe.ui.editor.scroll
 
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.ime
@@ -224,6 +225,7 @@ class ScribeBottomSurfaceState(
  * Creates and remembers a [ScribeBottomSurfaceState] instance, coordinating IME insets,
  * DataStore baseline persistence, and transition latching across recompositions.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun rememberScribeBottomSurfaceState(
     savedKeyboardHeightFlow: Flow<Float>,
