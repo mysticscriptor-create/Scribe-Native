@@ -2070,7 +2070,7 @@ class CursorAndCanvasGeometryTest {
 
     @Test
     fun testAuthoritativeCoordinator_SmoothRetargetingInFlight_NoVelocityReset() {
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
+        val coordinator = ScribeScrollCoordinator(
             totalScroll = 700f,
             temporaryDisplacement = 250f,
             caretLine = 30,
@@ -2083,7 +2083,7 @@ class CursorAndCanvasGeometryTest {
         coordinator.onScrollBy = { 0f }
 
         // 1. Initial contraction restoration towards 500f (-200px)
-        val shouldStart = coordinator.requestTarget(500f, ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION)
+        val shouldStart = coordinator.requestTarget(500f, ScrollAnimationReason.CONTRACTION_RESTORATION)
         assertTrue(shouldStart)
         assertTrue(coordinator.isAnimationActive)
         assertEquals(500f, coordinator.activeTargetTotalScroll)
@@ -2095,7 +2095,7 @@ class CursorAndCanvasGeometryTest {
         assertEquals("Displacement decremented by 100px", 150f, coordinator.temporaryDisplacement, 0.001f)
 
         // 3. New target arrives while in flight (e.g. drawer collapsed further, new target 450f)
-        val retargeted = coordinator.requestTarget(450f, ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION)
+        val retargeted = coordinator.requestTarget(450f, ScrollAnimationReason.CONTRACTION_RESTORATION)
         assertTrue("Coordinator must accept retarget", retargeted)
         assertEquals("Target updated to 450f", 450f, coordinator.activeTargetTotalScroll)
         assertEquals("Current position remains at 600f", 600f, coordinator.totalScroll, 0.001f)
@@ -2112,22 +2112,22 @@ class CursorAndCanvasGeometryTest {
 
     @Test
     fun testAuthoritativeCoordinator_CoalescesIntermediateCloseTargets() {
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
+        val coordinator = ScribeScrollCoordinator(
             totalScroll = 600f,
             temporaryDisplacement = 100f
         )
-        coordinator.requestTarget(500f, ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION)
+        coordinator.requestTarget(500f, ScrollAnimationReason.CONTRACTION_RESTORATION)
         assertTrue(coordinator.isAnimationActive)
 
         // Sub-2px intermediate changes must NOT trigger retargeting or reset
-        val ignoredRetarget = coordinator.requestTarget(501f, ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION)
+        val ignoredRetarget = coordinator.requestTarget(501f, ScrollAnimationReason.CONTRACTION_RESTORATION)
         assertFalse("Close target within deadband must be coalesced without restarting", ignoredRetarget)
         assertEquals(500f, coordinator.activeTargetTotalScroll)
     }
 
     @Test
     fun testAuthoritativeCoordinator_CausalExpansionTracking() {
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
+        val coordinator = ScribeScrollCoordinator(
             totalScroll = 300f,
             temporaryDisplacement = 0f,
             caretLine = 12,
@@ -2137,13 +2137,13 @@ class CursorAndCanvasGeometryTest {
 
         // When transition is NOT active, upward movement is NOT recorded as expansion
         coordinator.isExpansionTransitionActive = false
-        coordinator.requestTarget(400f, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        coordinator.requestTarget(400f, ScrollAnimationReason.CARET_VISIBILITY)
         coordinator.applyStep(400f)
         assertEquals("No displacement recorded outside expansion transition", 0f, coordinator.temporaryDisplacement, 0.001f)
 
         // When transition IS active, upward movement from CARET_VISIBILITY is recorded
         coordinator.isExpansionTransitionActive = true
-        coordinator.requestTarget(550f, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        coordinator.requestTarget(550f, ScrollAnimationReason.CARET_VISIBILITY)
         coordinator.applyStep(550f)
         assertEquals("Expansion displacement recorded", 150f, coordinator.temporaryDisplacement, 0.001f)
     }
@@ -2183,14 +2183,14 @@ class CursorAndCanvasGeometryTest {
 
     @Test
     fun testAuthoritativeCoordinator_UserTouch_InvalidatesAllCompensation() {
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
+        val coordinator = ScribeScrollCoordinator(
             totalScroll = 500f,
             temporaryDisplacement = 180f,
             caretLine = 15,
             caretCol = 3,
             isSelected = false
         )
-        coordinator.requestTarget(400f, ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION)
+        coordinator.requestTarget(400f, ScrollAnimationReason.CONTRACTION_RESTORATION)
         assertTrue(coordinator.isAnimationActive)
 
         // User touch down
@@ -2202,7 +2202,7 @@ class CursorAndCanvasGeometryTest {
 
     @Test
     fun testAuthoritativeCoordinator_CaretChange_InvalidatesCompensation() {
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
+        val coordinator = ScribeScrollCoordinator(
             totalScroll = 500f,
             temporaryDisplacement = 180f,
             caretLine = 15,
@@ -2276,7 +2276,7 @@ class CursorAndCanvasGeometryTest {
         // Point 9.1: Cancel an ongoing animation with a new target. Verify the old animator's
         // cancel and completion callbacks cannot clear the new target or trigger obsolete restoration,
         // and verify the coordinator continues driving to the new destination.
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 100f)
+        val coordinator = ScribeScrollCoordinator(totalScroll = 100f)
         val drivers = mutableListOf<TestAnimationDriver>()
         val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
             scrollCoordinator = coordinator,
@@ -2290,7 +2290,7 @@ class CursorAndCanvasGeometryTest {
         // Start operation 1: from 100f to 300f
         productionCoordinator.startAuthoritativeAnimation(
             targetTotalScroll = 300f,
-            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+            reason = ScrollAnimationReason.CARET_VISIBILITY
         )
         assertEquals(1, drivers.size)
         val driver1 = drivers[0]
@@ -2304,7 +2304,7 @@ class CursorAndCanvasGeometryTest {
         // This cancels driver 1. In Android, cancel() invokes cancelCb followed by endCb synchronously.
         productionCoordinator.startAuthoritativeAnimation(
             targetTotalScroll = 500f,
-            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+            reason = ScrollAnimationReason.CARET_VISIBILITY
         )
 
         // Verify driver 1 was cancelled
@@ -2336,7 +2336,7 @@ class CursorAndCanvasGeometryTest {
     fun testProductionCoordinator_InFlightRetargeting_SmoothlyUpdatesWithoutHitchOrRelativeError() {
         // Point 9.2: Retarget while moving, verify the animator smoothly updates to the final destination
         // without accumulating relative errors, and verify sub-deadband changes do not restart or hitch.
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 100f)
+        val coordinator = ScribeScrollCoordinator(totalScroll = 100f)
         val drivers = mutableListOf<TestAnimationDriver>()
         val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
             scrollCoordinator = coordinator,
@@ -2350,7 +2350,7 @@ class CursorAndCanvasGeometryTest {
         // Initial target 300f
         productionCoordinator.startAuthoritativeAnimation(
             targetTotalScroll = 300f,
-            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+            reason = ScrollAnimationReason.CARET_VISIBILITY
         )
         val driver1 = drivers[0]
         driver1.step(200f)
@@ -2360,7 +2360,7 @@ class CursorAndCanvasGeometryTest {
         // against activeTarget: if target was 300f and new request is 301f, delta is 1f <= 2f)
         val ignoredRetarget = coordinator.requestTarget(
             targetScroll = 301f,
-            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+            reason = ScrollAnimationReason.CARET_VISIBILITY
         )
         assertFalse("Sub-deadband target change (<= 2f) must not restart animation or hitch", ignoredRetarget)
         assertEquals("Target remains 300f", 300f, coordinator.activeTargetTotalScroll ?: 0f, 0.001f)
@@ -2368,7 +2368,7 @@ class CursorAndCanvasGeometryTest {
         // Material target change: 450f
         productionCoordinator.startAuthoritativeAnimation(
             targetTotalScroll = 450f,
-            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+            reason = ScrollAnimationReason.CARET_VISIBILITY
         )
         assertEquals(2, drivers.size)
         val driver2 = drivers[1]
@@ -2387,7 +2387,7 @@ class CursorAndCanvasGeometryTest {
     fun testProductionCoordinator_ClampBoundaryBehavior_StopsAtBoundaryWithoutFakingTrajectory() {
         // Point 9.3: Hit a clamped maximum while animating, verify the animator stops at the boundary
         // without faking an unreachable trajectory, and verify the coordinator reflects the true final position.
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 300f)
+        val coordinator = ScribeScrollCoordinator(totalScroll = 300f)
         val maxCanvasScroll = 500
 
         // Simulate physical scroll clamping at 450 (e.g. content restricts scroll before maxCanvasScroll)
@@ -2415,7 +2415,7 @@ class CursorAndCanvasGeometryTest {
         // Request target 600f (exceeding maxCanvasScroll 500)
         productionCoordinator.startAuthoritativeAnimation(
             targetTotalScroll = 600f,
-            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+            reason = ScrollAnimationReason.CARET_VISIBILITY,
             maxCanvasScroll = maxCanvasScroll
         )
 
@@ -2455,13 +2455,13 @@ class CursorAndCanvasGeometryTest {
         // Delta to reach target line bottom = 1400 - 1340 = 60px
         val predictiveTarget = 60f
 
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
+        val coordinator = ScribeScrollCoordinator(
             totalScroll = 0f,
             headerHeight = headerHeight,
             density = density
         )
         coordinator.isExpansionTransitionActive = true
-        coordinator.requestTarget(predictiveTarget, ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE)
+        coordinator.requestTarget(predictiveTarget, ScrollAnimationReason.PREDICTIVE_GLIDE)
         coordinator.applyStep(predictiveTarget)
         assertEquals(60f, coordinator.totalScroll, 0.001f)
         assertEquals(60f, coordinator.temporaryDisplacement, 0.001f)
@@ -2487,7 +2487,7 @@ class CursorAndCanvasGeometryTest {
         val correctedTarget = coordinator.totalScroll + validation.correctiveDeltaY // 360f
         coordinator.requestTarget(
             targetScroll = correctedTarget,
-            reason = ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION,
+            reason = ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION,
             forceRetarget = true
         )
         coordinator.applyStep(correctedTarget)
@@ -2510,7 +2510,7 @@ class CursorAndCanvasGeometryTest {
     fun testCorrectionOrdering_SafetyCorrectionSettlesBeforeCompensationRebase() {
         // Point 9.5: A safe boundary correction is required, the corrective animation starts,
         // and compensation is rebased only after the correction finishes.
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
+        val coordinator = ScribeScrollCoordinator(
             totalScroll = 200f,
             temporaryDisplacement = 150f,
             caretLine = 20,
@@ -2521,7 +2521,7 @@ class CursorAndCanvasGeometryTest {
         // During a corrective animation, temporary displacement is NOT prematurely rebased
         coordinator.requestTarget(
             targetScroll = 250f,
-            reason = ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION
+            reason = ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION
         )
         assertTrue(coordinator.isAnimationActive)
         assertEquals("Displacement must not be wiped out or rebased before correction settles", 150f, coordinator.temporaryDisplacement, 0.001f)
@@ -2570,7 +2570,7 @@ class CursorAndCanvasGeometryTest {
         val requiredTotalScroll = headerHeight + selectionBottomDocY - targetLineBottom // 200 + 4040 - 1040 = 3200px
         val upwardDelta = requiredTotalScroll - startScroll // 200px
 
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
+        val coordinator = ScribeScrollCoordinator(
             totalScroll = startScroll,
             caretLine = endLine,
             caretCol = 10,
@@ -2579,7 +2579,7 @@ class CursorAndCanvasGeometryTest {
         coordinator.isExpansionTransitionActive = true
 
         // Move upward to clear shortcut bar
-        coordinator.requestTarget(requiredTotalScroll, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        coordinator.requestTarget(requiredTotalScroll, ScrollAnimationReason.CARET_VISIBILITY)
         coordinator.applyStep(requiredTotalScroll)
         coordinator.finishAnimation()
 
@@ -2617,7 +2617,7 @@ class CursorAndCanvasGeometryTest {
         val restorationTarget = coordinator.totalScroll + restorationResult.deltaY // 3000f
         coordinator.requestTarget(
             targetScroll = restorationTarget,
-            reason = ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION
+            reason = ScrollAnimationReason.CONTRACTION_RESTORATION
         )
         coordinator.applyStep(restorationTarget)
         coordinator.finishAnimation()
@@ -2631,7 +2631,7 @@ class CursorAndCanvasGeometryTest {
     fun testProductionCoordinator_Replacement_StartsMovingTowardNewTargetWithoutHitchingOrRelativeAccumulation() {
         // Point 9.2: Replacing an animation immediately starts moving toward the new target
         // without hitching or relative-delta accumulation.
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 200f)
+        val coordinator = ScribeScrollCoordinator(totalScroll = 200f)
         val drivers = mutableListOf<TestAnimationDriver>()
         val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
             scrollCoordinator = coordinator,
@@ -2645,7 +2645,7 @@ class CursorAndCanvasGeometryTest {
         // Op 1: target 400f
         productionCoordinator.startAuthoritativeAnimation(
             targetTotalScroll = 400f,
-            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+            reason = ScrollAnimationReason.CARET_VISIBILITY
         )
         val driver1 = drivers[0]
         driver1.step(280f)
@@ -2654,7 +2654,7 @@ class CursorAndCanvasGeometryTest {
         // Replace mid-flight with Op 2: target 650f
         productionCoordinator.startAuthoritativeAnimation(
             targetTotalScroll = 650f,
-            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+            reason = ScrollAnimationReason.CARET_VISIBILITY
         )
         val driver2 = drivers[1]
         // Driver 2 must start precisely from current combined scroll (280f), NOT restarting at 200f or adding relative deltas
@@ -2674,7 +2674,7 @@ class CursorAndCanvasGeometryTest {
     fun testProductionCoordinator_UserTouchDuringMovement_CancelsOperationAndDropsLateCallbacks() {
         // Point 9.7: User touch during automatic movement immediately cancels the active operation
         // and prevents late callbacks from running.
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
+        val coordinator = ScribeScrollCoordinator(
             totalScroll = 300f,
             temporaryDisplacement = 120f,
             caretLine = 10,
@@ -2692,7 +2692,7 @@ class CursorAndCanvasGeometryTest {
 
         productionCoordinator.startAuthoritativeAnimation(
             targetTotalScroll = 500f,
-            reason = ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION
+            reason = ScrollAnimationReason.CONTRACTION_RESTORATION
         )
         val driver = drivers[0]
         driver.step(400f)
@@ -2720,7 +2720,7 @@ class CursorAndCanvasGeometryTest {
     @Test
     fun testProductionCoordinator_RapidTogglingBetweenExpandedAndCollapsed_NoDriftOrFighting() {
         // Point 9.8: Rapid toggling between expanded and collapsed states does not accumulate drift or fight itself.
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 1000f)
+        val coordinator = ScribeScrollCoordinator(totalScroll = 1000f)
         val drivers = mutableListOf<TestAnimationDriver>()
         val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
             scrollCoordinator = coordinator,
@@ -2732,23 +2732,23 @@ class CursorAndCanvasGeometryTest {
         )
 
         // Rapid toggle 1: expand (target 1200f)
-        productionCoordinator.startAuthoritativeAnimation(1200f, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        productionCoordinator.startAuthoritativeAnimation(1200f, ScrollAnimationReason.CARET_VISIBILITY)
         drivers.last().step(1050f)
 
         // Rapid toggle 2: collapse (target 1000f)
-        productionCoordinator.startAuthoritativeAnimation(1000f, ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION)
+        productionCoordinator.startAuthoritativeAnimation(1000f, ScrollAnimationReason.CONTRACTION_RESTORATION)
         drivers.last().step(1020f)
 
         // Rapid toggle 3: expand again (target 1200f)
-        productionCoordinator.startAuthoritativeAnimation(1200f, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        productionCoordinator.startAuthoritativeAnimation(1200f, ScrollAnimationReason.CARET_VISIBILITY)
         drivers.last().step(1100f)
 
         // Rapid toggle 4: collapse again (target 1000f)
-        productionCoordinator.startAuthoritativeAnimation(1000f, ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION)
+        productionCoordinator.startAuthoritativeAnimation(1000f, ScrollAnimationReason.CONTRACTION_RESTORATION)
         drivers.last().step(1040f)
 
         // Rapid toggle 5: expand again (target 1200f) and let it settle
-        productionCoordinator.startAuthoritativeAnimation(1200f, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        productionCoordinator.startAuthoritativeAnimation(1200f, ScrollAnimationReason.CARET_VISIBILITY)
         drivers.last().step(1200f)
         drivers.last().complete()
 
@@ -2765,7 +2765,7 @@ class CursorAndCanvasGeometryTest {
         val headerHeight = 200
         val rowHeight = 40f
 
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(
+        val coordinator = ScribeScrollCoordinator(
             totalScroll = 1000f,
             temporaryDisplacement = 0f,
             headerHeight = headerHeight,
@@ -2774,7 +2774,7 @@ class CursorAndCanvasGeometryTest {
         coordinator.isExpansionTransitionActive = true
 
         // Expansion pushes canvas upward by 180px
-        coordinator.requestTarget(1180f, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        coordinator.requestTarget(1180f, ScrollAnimationReason.CARET_VISIBILITY)
         coordinator.caretLine = 25
         coordinator.caretCol = 10
         coordinator.applyStep(1180f)
@@ -2814,7 +2814,7 @@ class CursorAndCanvasGeometryTest {
         // Verifies that after a user touches the screen (cancelling an in-flight animation),
         // the subsequent automatic animation (e.g. typing or keyboard/drawer expansion)
         // maintains matching operation IDs and applies update steps without being dropped.
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 100f)
+        val coordinator = ScribeScrollCoordinator(totalScroll = 100f)
         coordinator.onScrollBy = { delta -> 0f } // all delta consumed
         val drivers = mutableListOf<TestAnimationDriver>()
         val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
@@ -2829,7 +2829,7 @@ class CursorAndCanvasGeometryTest {
         // 1. Initial animation runs partially
         productionCoordinator.startAuthoritativeAnimation(
             targetTotalScroll = 300f,
-            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+            reason = ScrollAnimationReason.CARET_VISIBILITY
         )
         drivers.last().step(180f)
         assertEquals(180f, coordinator.totalScroll, 0.001f)
@@ -2841,7 +2841,7 @@ class CursorAndCanvasGeometryTest {
         // 3. User types or accessory drawer expands: initiates new animation
         val started = productionCoordinator.startAuthoritativeAnimation(
             targetTotalScroll = 450f,
-            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY
+            reason = ScrollAnimationReason.CARET_VISIBILITY
         )
         assertTrue("New animation must start successfully", started)
         assertTrue("Coordinator must be active", coordinator.isAnimationActive)
@@ -2863,10 +2863,10 @@ class CursorAndCanvasGeometryTest {
     fun testAuthoritativeScrollCoordinator_RetargetActiveOperation_ContinuousTargetUpdate() {
         // Verifies that retargetActiveOperation updates the active target and reason in-flight
         // without advancing operationId or disrupting step progression, ensuring continuous smooth glide.
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 100f)
+        val coordinator = ScribeScrollCoordinator(totalScroll = 100f)
         coordinator.onScrollBy = { 0f } // all delta consumed
 
-        val started = coordinator.requestTarget(200f, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        val started = coordinator.requestTarget(200f, ScrollAnimationReason.CARET_VISIBILITY)
         assertTrue(started)
         assertTrue(coordinator.isAnimationActive)
         val initialOpId = coordinator.activeOperationId
@@ -2877,7 +2877,7 @@ class CursorAndCanvasGeometryTest {
         assertEquals(140f, coordinator.totalScroll, 0.001f)
 
         // User pressed Enter again: new target 280f arrives while in flight
-        coordinator.retargetActiveOperation(280f, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        coordinator.retargetActiveOperation(280f, ScrollAnimationReason.CARET_VISIBILITY)
 
         // Invariant: operationId must remain unchanged so running loop is not invalidated
         assertEquals(initialOpId, coordinator.activeOperationId)
@@ -2894,7 +2894,7 @@ class CursorAndCanvasGeometryTest {
 
     @Test
     fun testProductionCoordinator_RetargetAuthoritativeAnimation_SmoothlyRetargetsWithoutNewDriver() {
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 500f)
+        val coordinator = ScribeScrollCoordinator(totalScroll = 500f)
         coordinator.onScrollBy = { 0f }
         val drivers = mutableListOf<TestAnimationDriver>()
         val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
@@ -2906,14 +2906,14 @@ class CursorAndCanvasGeometryTest {
             }
         )
 
-        productionCoordinator.startAuthoritativeAnimation(600f, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        productionCoordinator.startAuthoritativeAnimation(600f, ScrollAnimationReason.CARET_VISIBILITY)
         assertEquals(1, drivers.size)
         val driver = drivers[0]
         driver.step(550f)
         assertEquals(550f, coordinator.totalScroll, 0.001f)
 
         // Retarget in-flight to 750f
-        val retargeted = productionCoordinator.retargetAuthoritativeAnimation(750f, ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY)
+        val retargeted = productionCoordinator.retargetAuthoritativeAnimation(750f, ScrollAnimationReason.CARET_VISIBILITY)
         assertTrue(retargeted)
         assertEquals(1, drivers.size) // No extra driver instantiated!
         assertEquals(750f, coordinator.activeTargetTotalScroll ?: 0f, 0.001f)
@@ -3402,12 +3402,12 @@ class CursorAndCanvasGeometryTest {
     @Test
     fun testSpringFinishesBeforeGeometrySettles_TransactionRemainsActive() {
         // Requirement D: Spring reaching target must not end transaction while geometry transition is active.
-        val coordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator(totalScroll = 0f)
+        val coordinator = ScribeScrollCoordinator(totalScroll = 0f)
         val transaction = ScribeScrollPolicy.KeyboardTransaction(1L, true)
         var isExpansionTransitionActive = true
 
         // Request initial target
-        coordinator.requestTarget(500f, ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE)
+        coordinator.requestTarget(500f, ScrollAnimationReason.PREDICTIVE_GLIDE)
 
         // Simulate spring settling at 500f
         coordinator.applyStep(500f)
@@ -3421,7 +3421,7 @@ class CursorAndCanvasGeometryTest {
         assertTrue("Transaction must remain active while transition is in flight even if spring completes", isKeyboardTransactionActive)
 
         // Late IME update arrives: coordinator retargets active transaction
-        coordinator.requestTarget(580f, ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE)
+        coordinator.requestTarget(580f, ScrollAnimationReason.PREDICTIVE_GLIDE)
         assertEquals(580f, coordinator.activeTargetTotalScroll ?: 0f, 0.001f)
     }
 

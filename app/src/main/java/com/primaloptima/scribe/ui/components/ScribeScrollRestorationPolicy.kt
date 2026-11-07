@@ -48,13 +48,16 @@ object ScribeScrollRestorationPolicy {
     /**
      * Diagnostic logging toggle and callback for scroll & viewport coordination.
      */
-    var isDebugDiagnosticsEnabled: Boolean = false
-    var onScrollDiagnosticLog: ((String) -> Unit)? = null
+    var isDebugDiagnosticsEnabled: Boolean
+        get() = ScribeScrollDiagnostics.isDebugDiagnosticsEnabled
+        set(value) { ScribeScrollDiagnostics.isDebugDiagnosticsEnabled = value }
+
+    var onScrollDiagnosticLog: ((String) -> Unit)?
+        get() = ScribeScrollDiagnostics.onScrollDiagnosticLog
+        set(value) { ScribeScrollDiagnostics.onScrollDiagnosticLog = value }
 
     fun logDiagnostic(tag: String, message: String) {
-        if (isDebugDiagnosticsEnabled) {
-            onScrollDiagnosticLog?.invoke("[$tag] $message")
-        }
+        ScribeScrollDiagnostics.log(tag, message)
     }
 
     /**

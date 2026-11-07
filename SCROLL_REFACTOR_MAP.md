@@ -1,137 +1,121 @@
 # Scribe Native Scroll Architecture Refactor Map
+
 **Commit Reference:** `d0d39b5` ("fix(viewport): eliminate unnecessary scroll-and-return and coordinate fluid shortcut bar entry")  
-**Current Milestone:** Phase 2 Complete — Separated Pure Scroll Policies and Geometry  
-**Status:** Pure calculation policies and geometry extracted. **Zero behavioral changes, zero formula modifications, no builds/tests run.**
+**Current Milestone:** Phase 4 Complete — Extract Existing Scroll Animation Code  
+**Status:** Both scroll animation mechanisms extracted into dedicated `ScribeScrollAnimation.kt`. **Zero behavioral changes, zero formula modifications, no builds/tests run.**
 
 ---
 
 ## 1. Executive Summary & Extraction Status
 
-Following the Phase 1 inventory, **Phase 2** has successfully decoupled all pure geometry models, deletion policies, and downward contraction-restoration policies from `ScribeScrollPolicy.kt` and `UnifiedCanvasLayout.kt` into dedicated, single-responsibility files in `com.primaloptima.scribe.ui.components`.
+Following the Phase 1 inventory, Phase 2 policy/geometry separation, and Phase 3 coordinator extraction, **Phase 4** has separated the scroll animation implementations from `ScribeScrollPolicy.kt` and `UnifiedCanvasLayout.kt` into: **`ScribeScrollAnimation.kt`**.
 
-### Phase 2 Extracted & Updated Files
+As discovered during Phase 1 inspection, the baseline contained two distinct animation systems:
+1. **Testable Animation Coordinator (`AnimationDriver` & `ProductionScrollAnimationCoordinator`):**
+   - Originally in `ScribeScrollPolicy.kt`.
+   - Used by unit tests (`CursorAndCanvasGeometryTest.kt`) with `TestAnimationDriver`.
+   - Coordinates `AuthoritativeScrollCoordinator` with a driver factory, providing monotonic operation ID tracking and race-free retargeting.
+2. **Active Canvas Animation & Spring Glide (`ScribeCanvasGlideAnimator`):**
+   - Originally inline in `UnifiedCanvasLayout.kt` (`isGlideRunning`, `glidePosition`, `glideVelocity`, `glideTarget`, `glideFrameRunnable`, `activeCanvasAnimator`).
+   - Drives active document scrolling using a critically damped second-order spring ($\omega = 13.5\text{ rad/s}, \zeta = 1.0$) scheduled on `postOnAnimation(glideFrameRunnable)`.
+   - Integrates with `ScribeScrollCoordinator` via `applyStep`, `finishAnimation`, and `retargetActiveOperation`.
 
-| File Path | Status | Extracted Responsibilities / Changes |
-| :--- | :---: | :--- |
-| `com/primaloptima/scribe/ui/components/ScribeScrollGeometry.kt` | **NEW** | Reusable, pure geometry models: `SelectionGeometry`, `SoraCharGeometry`, `SafeTargetValidationResult`, `CursorTargetResolution`. Free of Android framework dependencies. |
-| `com/primaloptima/scribe/ui/components/ScribeScrollDeletionPolicy.kt` | **NEW** | Pure deletion calculations and models: `DURATION_DELETION_ANCHOR_MS`, `DeletionSnapshot`, `DeletionAnchorIntent`, `classifyDeletionIntent`, `calculateSafeDeletionDestination`, `calculateDeletionAnchorDelta`. |
-| `com/primaloptima/scribe/ui/components/ScribeScrollRestorationPolicy.kt` | **NEW** | Pure contraction restoration and safe boundary target validation: `ContractionRestorationRequest`, `ContractionRestorationResult`, `resolveContractionRestorationDelta`, `validateFinalTarget`, `calculateLastLineFollowDelta`, and scoped diagnostics callbacks. |
-| `com/primaloptima/scribe/ui/components/ScribeScrollPolicy.kt` | **UPDATED** | Retains core stateless rules: dimensions (`CURSOR_BOTTOM_MARGIN_DP`, `CURSOR_DEADBAND_DP`, `DRAG_THRESHOLD_DP`), durations, `allocateScrollDelta`, `reconcileScrollState`, `calculateMaxCanvasScroll`, `calculateMaxHeaderScroll`, `calculateSafeScrollMaxY`, `resolveCursorScrollDelta`, `resolveTargetCoordinates`, `SelectAllScrollMode`, `ZoomTransaction`, `KeyboardTransaction`. Forwards deletion/restoration/geometry to new single-source files for temporary compatibility. Stateful coordinator and simulation harness intentionally retained for Phases 4 & 5. |
-| `com/primaloptima/scribe/ui/components/UnifiedCanvasLayout.kt` | **UPDATED** | Removed duplicate inner `SoraCharGeometry`; migrated callers directly to `ScribeScrollDeletionPolicy`, `ScribeScrollRestorationPolicy`, and `SelectionGeometry`. |
-| `com/primaloptima/scribe/ui/components/ScribeBottomSurfaceCoordinator.kt` | **PRESERVED** | Preserved exact existing stateless keyboard/bottom-surface functions (`calculateMaxStandardBaselineDp`, `isValidStandardKeyboardHeight`, `shouldUpdateSavedBaseline`, `resolveEffectiveBottomSurfaceHeight`, `isKeyboardDismissing`, `isKeyboardSettled`, `shouldFollowDownward`). |
-| `com/primaloptima/scribe/ui/components/CursorAndCanvasGeometryTest.kt` | **UPDATED** | Migrated test callers directly to `ScribeScrollDeletionPolicy`, `ScribeScrollRestorationPolicy`, and `SelectionGeometry`. |
+Per Phase 4 mission requirements, **both mechanisms have been extracted without conflation or merging**:
+- `AnimationDriver` and `ProductionScrollAnimationCoordinator` have been moved to `ScribeScrollAnimation.kt`.
+- The cohesive canvas animation physics, frame scheduling, retargeting, and settling handling have been moved into `ScribeCanvasGlideAnimator` in `ScribeScrollAnimation.kt`.
+- `UnifiedCanvasLayout.kt` delegates animation state and lifecycle to `canvasAnimator: ScribeCanvasGlideAnimator`, while keeping View-boundary layout measurement and drawing at the ViewGroup level.
+- All animation constants, durations, spring formulas, monotonic operation IDs, and cancellation/retargeting semantics are 100% preserved.
+
+### Current Extraction Progress Matrix
+
+| Module / Component | Target Destination File | Status | Notes |
+| :--- | :--- | :--- | :--- |
+| Pure Geometry & Target Models | `ScribeScrollGeometry.kt` | **Extracted (Phase 2)** | `SelectionGeometry`, `SoraCharGeometry`, `SafeTargetValidationResult`, `CursorTargetResolution` |
+| Deletion Anchoring & Tail Calculations | `ScribeScrollDeletionPolicy.kt` | **Extracted (Phase 2)** | `DeletionSnapshot`, `classifyDeletionIntent`, `calculateSafeDeletionDestination`, `calculateDeletionAnchorDelta` |
+| Contraction Restoration Calculations | `ScribeScrollRestorationPolicy.kt` | **Extracted (Phase 2)** | `ContractionRestorationRequest/Result`, `resolveContractionRestorationDelta`, `validateFinalTarget`, `calculateLastLineFollowDelta` |
+| Bottom Surface Coordinates & Insets | `ScribeBottomSurfaceCoordinator.kt` | **Preserved (Phase 2)** | Stateless bottom-surface calculations; imports aligned |
+| General Viewport & Cursor Policy | `ScribeScrollPolicy.kt` | **Refactored (Phase 2-4)** | Central policy retaining stateless viewport thresholds, caret visibility formulas, and safe bounds |
+| Authoritative Scroll Coordination State | `ScribeScrollCoordinator.kt` | **Extracted (Phase 3)** | `ScribeScrollCoordinator`, `ScrollAnimationReason`, monotonic `activeOperationId`, causal compensation |
+| Scroll Diagnostics Helper | `ScribeScrollDiagnostics.kt` | **Extracted (Phase 3)** | `ScribeScrollDiagnostics` (`isDebugDiagnosticsEnabled`, `logDiagnostic`, `onScrollDiagnosticLog`) |
+| Scroll Animation Driver & Canvas Spring | `ScribeScrollAnimation.kt` | **Extracted (Phase 4)** | `AnimationDriver`, `ProductionScrollAnimationCoordinator`, `FastOutSlowInInterpolator`, `ScribeCanvasGlideAnimator` |
 
 ---
 
-## 2. Inventory of the 19 Scrolling Responsibilities & Phase 2 Placement
+## 2. Scroll Responsibilities Inventory & Current Status
 
-| Responsibility | Phase 2 Location | Mutable State Owner | Classification |
+| Responsibility | Baseline Location | Refactored Component | Classification & Notes |
 | :--- | :--- | :--- | :--- |
-| **1. Unified Canvas/Editor Scrolling & Delta Allocation** | `ScribeScrollPolicy.allocateScrollDelta`, `UnifiedCanvasLayout.scrollCanvasBy` | `UnifiedCanvasLayout` (`scrollD`, `scrollDFloat`), Sora `editor` (`offsetY`) | Pure Policy + UI Integration |
-| **2. Document Scroll Position & Header Displacement** | `ScribeScrollPolicy.reconcileScrollState`, `UnifiedCanvasLayout.applyTranslations` | `UnifiedCanvasLayout` (`scrollD`, `headerHeight`) | Pure Policy + View Layout |
-| **3. Caret and Selection Geometry** | `ScribeScrollGeometry.kt` (`SelectionGeometry`, `SoraCharGeometry`) | Sora `CodeEditor` (layout, cursor, text) | Pure Geometry Models |
-| **4. Caret Visibility Calculations** | `ScribeScrollPolicy.resolveCursorScrollDelta`, `resolveTargetCoordinates` | Pure calculations (stateless) | Pure Policy |
-| **5. Predictive Keyboard Scrolling** | `UnifiedCanvasLayout.predictivelyGlideCursorAboveKeyboard` | `UnifiedCanvasLayout` | State Coordination & Animation |
+| **1. Unified Canvas/Editor Scrolling & Delta Allocation** | `UnifiedCanvasLayout.scrollByTotal` | `UnifiedCanvasLayout.kt` (delegates to `ScribeScrollCoordinator`) | UI Integration & State Coordination |
+| **2. Document Scroll Position & Header Displacement** | `UnifiedCanvasLayout`, `ScribeScrollPolicy.reconcileScrollState` | `UnifiedCanvasLayout`, `ScribeScrollPolicy` | Pure Policy + View Layout |
+| **3. Caret & Selection Geometry** | `UnifiedCanvasLayout.getCharGeometry` | `ScribeScrollGeometry.kt` | Pure Geometry |
+| **4. Caret Visibility Calculations** | `ScribeScrollPolicy.resolveCursorScrollDelta`, `resolveTargetCoordinates` | `ScribeScrollPolicy.kt` | Pure Policy |
+| **5. Predictive Keyboard Scrolling** | `UnifiedCanvasLayout.predictivelyGlideCursorAboveKeyboard` | `UnifiedCanvasLayout` (via `ScribeCanvasGlideAnimator`) | State Coordination & Animation |
 | **6. Keyboard Viewport Transactions** | `ScribeScrollPolicy.KeyboardTransaction`, `UnifiedCanvasLayout` | `UnifiedCanvasLayout` (`activeKeyboardTransaction`) | Policy Models + State Coordination |
-| **7. Deletion and Last-Line Anchoring** | **`ScribeScrollDeletionPolicy.kt`** | `UnifiedCanvasLayout` (`activeDeletionSnapshot`) | Pure Policy (Extracted) |
-| **8. Contraction Restoration** | **`ScribeScrollRestorationPolicy.kt`** | `scrollCoordinator` (`AuthoritativeScrollCoordinator`) | Pure Policy (Extracted) |
+| **7. Deletion and Last-Line Anchoring** | `ScribeScrollDeletionPolicy.kt` | `ScribeScrollDeletionPolicy.kt` | Pure Policy |
+| **8. Contraction Restoration** | `ScribeScrollRestorationPolicy.kt` | `ScribeScrollRestorationPolicy.kt`, `ScribeScrollCoordinator` | Pure Policy + State Coordination |
 | **9. Manual Drag and Fling** | `UnifiedCanvasLayout.kt` (touch handlers, `OverScroller`) | `UnifiedCanvasLayout` (`scroller`, `velocityTracker`) | Input & Touch Integration |
 | **10. Sora Editor Scrolling Integration** | `ScribeCodeEditor.kt`, `UnifiedCanvasLayout.kt` | Sora `CodeEditor` (`offsetY`, `scroller`) | UI Integration (Custom View) |
-| **11. Automatic Scroll Animation** | `ScribeScrollPolicy` (`AuthoritativeScrollCoordinator`, `ProductionScrollAnimationCoordinator`) | `scrollCoordinator`, `UnifiedCanvasLayout.activeCanvasAnimator` | Animation & Coordinator *(Phase 4/5)* |
-| **12. Viewport Measurement & Layout Reconciliation** | `UnifiedCanvasLayout.onMeasure/onLayout`, `ScribeScrollPolicy.reconcileScrollState` | `UnifiedCanvasLayout` | Pure Policy + View Layout |
+| **11. Automatic Scroll Animation** | `ScribeScrollPolicy.kt`, `UnifiedCanvasLayout.kt` | **`ScribeScrollAnimation.kt`** (`ScribeCanvasGlideAnimator`, `ProductionScrollAnimationCoordinator`) | Animation & Physics Engine |
+| **12. Viewport Measurement & Layout Reconciliation** | `UnifiedCanvasLayout.onMeasure/onLayout`, `ScribeScrollPolicy.reconcileScrollState` | `UnifiedCanvasLayout`, `ScribeScrollPolicy` | Pure Policy + View Layout |
 | **13. Keyboard/IME State & Inset Integration** | `MainEditorScreen.kt`, `ScribeBottomSurfaceCoordinator.kt` | `MainEditorScreen` (Compose WindowInsets state) | UI Integration & Helper Policies |
-| **14. Standard Keyboard Height Persistence** | `MainEditorScreen.kt`, `ScribeBottomSurfaceCoordinator.kt`, `ScribeDataStore` | `MainEditorScreen.lastKeyboardHeightDp`, `ScribeDataStore` | Policy + Persistence *(Phase 3)* |
+| **14. Standard Keyboard Height Persistence** | `MainEditorScreen.kt`, `ScribeBottomSurfaceCoordinator.kt`, `ScribeDataStore` | `MainEditorScreen.lastKeyboardHeightDp`, `ScribeDataStore` | Policy + Persistence |
 | **15. Shortcut-Bar Layout Reservation** | `MainEditorScreen.kt`, `UnifiedCanvasLayout.kt` | `MainEditorScreen`, `UnifiedCanvasLayout.estimatedKeyboardHeightPx` | UI Layout Integration |
-| **16. Accessory Drawer State, Sizing, Dragging & Transitions** | `MainEditorScreen.kt`, `ScribeBottomSurfaceCoordinator.kt` | `MainEditorScreen` (local `remember` state) | UI State & Gesture *(Phase 3)* |
-| **17. Drawer-to-Keyboard Handoff** | `MainEditorScreen.kt`, `ScribeBottomSurfaceCoordinator.kt` | `MainEditorScreen` (`isAwaitingKeyboardOpen`, `isBarTransitionLatched`) | State Coordination *(Phase 3)* |
+| **16. Accessory Drawer State, Sizing, Dragging & Transitions** | `MainEditorScreen.kt`, `ScribeBottomSurfaceCoordinator.kt` | `MainEditorScreen` (local `remember` state) | UI State & Gesture |
+| **17. Drawer-to-Keyboard Handoff** | `MainEditorScreen.kt`, `ScribeBottomSurfaceCoordinator.kt` | `MainEditorScreen` (`isAwaitingKeyboardOpen`, `isBarTransitionLatched`) | State Coordination |
 | **18. Saved Viewport/Session Restoration** | `EditorSessionRestorationCoordinator.kt`, `UnifiedCanvasLayout.kt` | `EditorSessionRestorationCoordinator`, `EditorViewModel` | Navigation & Lifecycle Integration |
-| **19. Scroll Diagnostics** | `ScribeScrollRestorationPolicy.kt`, `ScribeScrollPolicy.kt` | Instance and callback listeners | Diagnostics & Test Support |
+| **19. Scroll Diagnostics** | `ScribeScrollDiagnostics.kt` | `ScribeScrollDiagnostics` (`isDebugDiagnosticsEnabled`, `onScrollDiagnosticLog`) | Diagnostics Helper |
 
 ---
 
-## 3. Deep-Dive Inspection of Extracted Components
+## 3. Deep-Dive Inspection of `ScribeScrollAnimation.kt`
 
-### A. `ScribeScrollGeometry.kt`
-- **Location:** `com.primaloptima.scribe.ui.components`
-- **Extracted Content:**
-  - `SelectionGeometry`: Clean document coordinate representation of caret/selection bounds (vertical `topDocY`/`bottomDocY`, horizontal `leftDocX`/`rightDocX`, selection endpoints `anchorLine`/`focusLine`).
-  - `SoraCharGeometry`: Strong typing for single character bounds extracted from Sora `Layout.getCharLayoutOffset`. Replaces private inner class in `UnifiedCanvasLayout`.
-  - `SafeTargetValidationResult`: Result model for boundary clearance checks (`isSafe`, `finalCaretScreenBottom`, `targetLineBottom`, `correctiveDeltaY`).
-  - `CursorTargetResolution`: Resolved target coordinate pair and scroll necessity flag.
-- **Design Rule:** 100% free of Android View or Sora editor framework dependencies. Pure Kotlin data structures.
+The newly extracted `ScribeScrollAnimation.kt` contains two cleanly isolated animation facilities:
 
-### B. `ScribeScrollDeletionPolicy.kt`
-- **Location:** `com.primaloptima.scribe.ui.components`
-- **Extracted Content:**
-  - `DURATION_DELETION_ANCHOR_MS = 140L`
-  - `DeletionSnapshot`: Complete pre-edit snapshot capturing transaction epoch, selection range, line count, document height, scroll offset, caret screen Y, and tail proximity.
-  - `DeletionAnchorIntent`: Enum with `TAIL_ANCHOR`, `CARET_ANCHOR`, and `RESET_TO_TOP`.
-  - `classifyDeletionIntent`: Strict classification logic ensuring tail anchoring occurs only when both pre-edit viewport was near the tail and the deletion affected document end.
-  - `calculateSafeDeletionDestination`: Exact calculation satisfying monotonic non-growth, hard 24dp breathing margin, and caret screen position invariance.
-  - `calculateDeletionAnchorDelta`: Bounds-respecting negative delta calculation when deleting lines or shrinking text.
-- **Formulas & Thresholds Preserved:** Exact 1:1 match with commit `d0d39b5`.
+### A. Testable Driver Abstractions
+- **`interface AnimationDriver`**:
+  Abstracts frame-based animation drivers (`ValueAnimator`, test drivers).
+  Signatures: `start(from, to, durationMs, onUpdate, onCancel, onEnd)`, `cancel()`, `isRunning`.
+- **`class ProductionScrollAnimationCoordinator`**:
+  Coordinating controller bridging `AuthoritativeScrollCoordinator` with an `AnimationDriver`.
+  Guarantees race-free monotonic `activeOperationId` tracking, automatic duration scaling based on distance, step forwarding, cancellation sequencing, and in-flight retargeting without stale callback interference.
 
-### C. `ScribeScrollRestorationPolicy.kt`
-- **Location:** `com.primaloptima.scribe.ui.components`
-- **Extracted Content:**
-  - `ContractionRestorationRequest`: Parameters model for contraction downward adjustments.
-  - `ContractionRestorationResult`: Output model (`deltaY`, `shouldScroll`, `remainingCompensation`, `reason`).
-  - `resolveContractionRestorationDelta`: Pure calculation enforcing the Pure Writer invariant (zero downward delta on keyboard dismiss), safe breathing margin clearance, and transition-aware compensation restoration.
-  - `validateFinalTarget`: Validates candidate scroll targets against the 24dp breathing margin, computing upward corrective deltas when violated.
-  - `calculateLastLineFollowDelta`: Helper calculation for downward canvas adjustment when expanding usable viewport.
-  - Diagnostics callback support (`isDebugDiagnosticsEnabled`, `onScrollDiagnosticLog`, `logDiagnostic`).
+### B. Production Canvas Spring Glide Animator (`ScribeCanvasGlideAnimator`)
+- **Physics Engine**:
+  - Critically damped second-order spring: $\omega = 13.5\text{ rad/s}, \zeta = 1.0$.
+  - $dt$ calculation clamped to $[0.001\text{s}, 0.032\text{s}]$.
+  - $accel = -\omega^2 \cdot displacement - 2\omega \cdot velocity$.
+  - Hard boundary invariant: deletion anchor glide is strictly clamped above the $24\text{dp}$ breathing line ($minSafeScroll$) without overshoot.
+- **State Encapsulation**:
+  - `activeCanvasAnimator: ValueAnimator?`
+  - `isGlideRunning: Boolean`
+  - `glidePosition: Float`, `glideVelocity: Float`, `glideTarget: Float`
+  - `activeGlideReason: ScrollAnimationReason?`
+  - `activeGlideOpId: Long`
+- **Execution & Lifecycle Methods**:
+  - `startAuthoritativeAnimation(...)`: Retargets in-flight glides continuously or requests a fresh target from `ScribeScrollCoordinator`, cancels previous frames/animators, clamps target, schedules `glideFrameRunnable` via `postOnAnimation`.
+  - `cancel(reason)`: Unregisters `glideFrameRunnable`, resets running state, cancels animator, and informs `scrollCoordinator.cancelAnimation`.
+  - `onSettledCallback`: Dispatches post-animation events (`CONTRACTION_RESTORATION` safety revalidation, `SAFE_BOUNDARY_CORRECTION` rebase, `PREDICTIVE_GLIDE` flag cleanup).
 
 ---
 
 ## 4. Caller Migration Summary
 
-All production and test callers have been migrated to the new files:
-
 1. **`UnifiedCanvasLayout.kt`:**
-   - Deletion snapshot state now typed as `ScribeScrollDeletionPolicy.DeletionSnapshot?`.
-   - Calls to `classifyDeletionIntent`, `calculateSafeDeletionDestination`, `calculateDeletionAnchorDelta`, and `DURATION_DELETION_ANCHOR_MS` point to `ScribeScrollDeletionPolicy`.
-   - Calls to `resolveContractionRestorationDelta`, `validateFinalTarget`, and `ContractionRestorationRequest` point to `ScribeScrollRestorationPolicy`.
-   - Removed local inner `SoraCharGeometry` and updated `getSelectionGeometry()` return type to `SelectionGeometry?`.
+   - Replaced inline mutable animation fields (`isGlideRunning`, `glidePosition`, `glideVelocity`, `glideTarget`, `glideLastTimeNs`, `activeGlideReason`, `activeGlideOnEnd`, `activeGlideOpId`, `activeCanvasAnimator`, `glideFrameRunnable`) with a single `canvasAnimator: ScribeCanvasGlideAnimator` instance.
+   - Kept delegating public/internal getters (`isGlideRunning`, `glideTarget`, `glidePosition`, `glideVelocity`, `activeGlideReason`) ensuring existing callers continue to resolve smoothly.
+   - Simplified `cancelCanvasAnimation()` and `cancelRestoration()` to call `canvasAnimator.cancel(...)`.
+   - `startAuthoritativeScrollAnimation()` delegates to `canvasAnimator.startAuthoritativeAnimation(...)`.
+   - Viewport measurement and drawing logic remains exclusively at the View boundary.
 
-2. **`CursorAndCanvasGeometryTest.kt`:**
-   - Deletion unit tests migrated to `ScribeScrollDeletionPolicy`.
-   - Contraction restoration unit tests migrated to `ScribeScrollRestorationPolicy`.
-   - Selection geometry tests migrated to `SelectionGeometry`.
-   - Diagnostics test updated to use `ScribeScrollRestorationPolicy` diagnostics flags.
+2. **`ScribeScrollPolicy.kt`:**
+   - Retains top-level and inner typealiases/bridges for `AnimationDriver` and `ProductionScrollAnimationCoordinator`.
+   - No breaking changes for any test or legacy callers.
 
-3. **`ScribeScrollPolicy.kt` Compatibility Layer:**
-   - Retains thin forwarding methods and typealiases (`typealias DeletionSnapshot = ...`, `typealias SelectionGeometry = ...`, etc.) so internal coordinator classes (`AuthoritativeScrollCoordinator`, `ContractionSimulationController`) continue operating without duplication.
-
----
-
-## 5. Remaining Work Plan (Phases 3–9)
-
-- [x] **Phase 1: Inventory & Architecture Mapping** *(Completed)*
-- [x] **Phase 2: Separate Scroll Policies and Geometry** *(Completed)*
-- [ ] **Phase 3: Bottom Surface State Machine Extraction**
-  - Extract `ScribeBottomSurfaceState.kt` to house `AccessoryDrawerMode`, `AccessoryDrawerState`, drawer heights, dragging state, and keyboard handoff latches (`isAwaitingKeyboardOpen`, `isBarTransitionLatched`).
-  - Move stateful drawer/keyboard coordination out of `MainEditorScreen.kt`.
-  - Align `ScribeBottomSurfaceCoordinator.kt` with the new state model.
-- [ ] **Phase 4: Authoritative Scroll Coordinator Decoupling**
-  - Extract `ScribeScrollCoordinator.kt` containing `AuthoritativeScrollCoordinator`.
-  - Migrate causal compensation bookkeeping (`temporaryDisplacement`) and operation IDs out of `ScribeScrollPolicy.kt`.
-  - Remove global mutable diagnostics flags in favor of instance-scoped listeners.
-- [ ] **Phase 5: Scroll Animation & Driver Unification**
-  - Extract `ScribeScrollAnimation.kt`.
-  - Connect `UnifiedCanvasLayout`'s inline `ValueAnimator` to `ProductionScrollAnimationCoordinator` and `AnimationDriver`.
-  - Relocate `ContractionSimulationController` to test harness.
-- [ ] **Phase 6: Touch, Gesture & Momentum Input Controller Extraction**
-  - Create `ScribeScrollInputController.kt`.
-  - Move touch interception (`onInterceptTouchEvent`), touch dispatch (`onTouchEvent`), dragging state, fling handling (`OverScroller`), and edge-effect overscroll out of `UnifiedCanvasLayout.kt`.
-- [ ] **Phase 7: UnifiedCanvasLayout Reassembly & State Consolidation**
-  - Streamline `UnifiedCanvasLayout.kt` as an edge-to-edge ViewGroup orchestrating the decoupled input, coordinator, and animation components.
-  - Consolidate redundant animation flags and eliminate float-to-int sub-pixel truncation drift.
-- [ ] **Phase 8: Editor & Navigation Integration Clean-Up**
-  - Decouple `ScribeCodeEditor.kt` vertical scroll delegation.
-  - Update `EditorSessionRestorationCoordinator.kt` and `MainEditorScreen.kt` bindings.
-- [ ] **Phase 9: Comprehensive Test Suite Alignment & Regression Hardening**
-  - Verify and run full test suites (`CursorAndCanvasGeometryTest.kt`, `EditorViewportRestorationTest.kt`).
-  - Verify zero visual or behavioral regressions against baseline `d0d39b5`.
+3. **`CursorAndCanvasGeometryTest.kt`:**
+   - Resolves `AnimationDriver` and `ProductionScrollAnimationCoordinator` cleanly from `ScribeScrollAnimation.kt` / `ScribeScrollPolicy`.
 
 ---
-*Report End — Phase 2 Execution Complete.*
+
+## 5. Next Steps
+
+- Continue to subsequent phases as directed by the user.

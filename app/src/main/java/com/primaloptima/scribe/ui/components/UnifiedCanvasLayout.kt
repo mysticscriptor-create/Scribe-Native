@@ -216,7 +216,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     /**
      * Authoritative single-owner scroll and animation coordinator.
      */
-    internal val scrollCoordinator = ScribeScrollPolicy.AuthoritativeScrollCoordinator().apply {
+    internal val scrollCoordinator = ScribeScrollCoordinator().apply {
         onScrollBy = { delta ->
             scrollCanvasBy(delta)
         }
@@ -251,97 +251,51 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     private var resetExpansionTransitionRunnable: Runnable? = null
 
     /**
-     * Authoritative single active animation tracking. Monotonic operation IDs
-     * are owned by scrollCoordinator to eliminate cancellation/retargeting races.
+     * Authoritative canvas animation coordinator delegating to ScribeCanvasGlideAnimator.
      */
-    private var activeCanvasAnimator: android.animation.ValueAnimator? = null
-    private var isGlideRunning = false
-    private var glidePosition = 0f
-    private var glideVelocity = 0f
-    private var glideTarget = 0f
-    private var glideLastTimeNs = 0L
-    private var activeGlideReason: ScribeScrollPolicy.ScrollAnimationReason? = null
-    private var activeGlideOnEnd: (() -> Unit)? = null
-    private var activeGlideOpId: Long = 0L
-
-    private val glideFrameRunnable: Runnable = object : Runnable {
-        override fun run() {
-            if (!isGlideRunning) return
-            val opId = activeGlideOpId
-            if (opId != scrollCoordinator.activeOperationId || !scrollCoordinator.isAnimationActive) {
-                isGlideRunning = false
-                return
-            }
-
-            val nowNs = System.nanoTime()
-            val dtSec = ((nowNs - glideLastTimeNs) / 1_000_000_000f).coerceIn(0.001f, 0.032f)
-            glideLastTimeNs = nowNs
-
-            // Critically damped second-order spring:
-            // Natural frequency omega = 13.5 rad/s gives ~300ms ultra-smooth gentle glide
-            // Damping ratio zeta = 1.0 (critically damped: zero overshoot, perfectly smooth asymptotic settling)
-            val omega = 13.5f
-            val displacement = glidePosition - glideTarget
-            val accel = -omega * omega * displacement - 2f * omega * glideVelocity
-            glideVelocity += accel * dtSec
-            glidePosition += glideVelocity * dtSec
-
-            // Hard boundary invariant: deletion glide must never cross the 24dp breathing margin
-            if (activeGlideReason == ScribeScrollPolicy.ScrollAnimationReason.DELETION_ANCHOR) {
-                val minSafeScroll = if (isDeletionTailAnchored) {
-                    (headerHeight + (editor.layout?.layoutHeight ?: 0) + breathingMarginPx - height).coerceAtLeast(0f)
-                } else {
-                    val cur = try { editor.cursor } catch (_: Throwable) { null }
-                    val lay = editor.layout
-                    val caretDocY = if (cur != null && lay != null) {
-                        getCharGeometry(lay, cur.leftLine, cur.leftColumn, editor.rowHeight.toFloat()).bottomDocY
-                    } else {
-                        0f
-                    }
-                    (headerHeight + caretDocY + breathingMarginPx - height).coerceAtLeast(0f)
-                }
-                if (glidePosition < minSafeScroll) {
-                    glidePosition = minSafeScroll
-                    if (glideVelocity < 0f) glideVelocity = 0f
-                }
-            }
-
-            scrollCoordinator.applyStep(glidePosition, opId)
-
-            val distToTarget = kotlin.math.abs(glidePosition - glideTarget)
-            val isSettled = distToTarget < 0.5f && kotlin.math.abs(glideVelocity) < 15f
-            val isStoppedByCoord = !scrollCoordinator.isAnimationActive
-
-            if (isSettled || isStoppedByCoord) {
-                isGlideRunning = false
-                if (scrollCoordinator.isAnimationActive && opId == scrollCoordinator.activeOperationId) {
-                    if (distToTarget < 1f) {
-                        scrollCoordinator.applyStep(glideTarget, opId)
-                    }
-                    scrollCoordinator.finishAnimation(opId)
-                }
-                val reason = activeGlideReason
-                val onEnd = activeGlideOnEnd
-                activeGlideOnEnd = null
-                activeGlideReason = null
-
-                if (reason == ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION) {
-                    revalidateFinalTargetSafety()
-                } else if (reason == ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION) {
-                    rebaseCompensationAfterSafeCorrection()
-                }
-                if (reason == ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE) {
-                    isPredictiveGlideRunning = false
-                    targetPredictedScrollTotal = -1f
-                }
-                onEnd?.invoke()
+    private val canvasAnimator: ScribeCanvasGlideAnimator = ScribeCanvasGlideAnimator(
+        scrollCoordinator = scrollCoordinator,
+        postOnAnimationAction = { runnable -> postOnAnimation(runnable) },
+        removeCallbacksAction = { runnable -> removeCallbacks(runnable) },
+        deletionBoundaryProvider = {
+            if (isDeletionTailAnchored) {
+                (headerHeight + (editor.layout?.layoutHeight ?: 0) + breathingMarginPx - height).coerceAtLeast(0f)
             } else {
-                postOnAnimation(this)
+                val cur = try { editor.cursor } catch (_: Throwable) { null }
+                val lay = editor.layout
+                val caretDocY = if (cur != null && lay != null) {
+                    getCharGeometry(lay, cur.leftLine, cur.leftColumn, editor.rowHeight.toFloat()).bottomDocY
+                } else {
+                    0f
+                }
+                (headerHeight + caretDocY + breathingMarginPx - height).coerceAtLeast(0f)
+            }
+        },
+        onSettledCallback = { reason ->
+            if (reason == ScrollAnimationReason.CONTRACTION_RESTORATION) {
+                revalidateFinalTargetSafety()
+            } else if (reason == ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION) {
+                rebaseCompensationAfterSafeCorrection()
+            }
+            if (reason == ScrollAnimationReason.PREDICTIVE_GLIDE) {
+                isPredictiveGlideRunning = false
+                targetPredictedScrollTotal = -1f
             }
         }
-    }
+    )
+
+    val isGlideRunning: Boolean
+        get() = canvasAnimator.isGlideRunning
+    val glideTarget: Float
+        get() = canvasAnimator.glideTarget
+    val glidePosition: Float
+        get() = canvasAnimator.glidePosition
+    val glideVelocity: Float
+        get() = canvasAnimator.glideVelocity
+    val activeGlideReason: ScrollAnimationReason?
+        get() = canvasAnimator.activeGlideReason
     val isRestorationActive: Boolean
-        get() = scrollCoordinator.isAnimationActive && scrollCoordinator.activeReason == ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION
+        get() = scrollCoordinator.isAnimationActive && scrollCoordinator.activeReason == ScrollAnimationReason.CONTRACTION_RESTORATION
     val activeRestorationTargetScroll: Float?
         get() = if (isRestorationActive) scrollCoordinator.activeTargetTotalScroll else null
     private var pendingRestorationRunnable: Runnable? = null
@@ -389,14 +343,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         pendingRestorationRunnable?.let { removeCallbacks(it) }
         pendingRestorationRunnable = null
         if (isRestorationActive) {
-            removeCallbacks(glideFrameRunnable)
-            isGlideRunning = false
-            activeGlideReason = null
-            activeGlideOnEnd = null
-            val oldAnimator = activeCanvasAnimator
-            activeCanvasAnimator = null
-            oldAnimator?.cancel()
-            scrollCoordinator.cancelAnimation("Restoration cancelled")
+            canvasAnimator.cancel("Restoration cancelled")
         }
     }
 
@@ -552,7 +499,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         } else if (kotlin.math.abs(target - currentScroll) >= 1f) {
             startAuthoritativeScrollAnimation(
                 targetTotalScroll = target,
-                reason = ScribeScrollPolicy.ScrollAnimationReason.DELETION_ANCHOR,
+                reason = ScrollAnimationReason.DELETION_ANCHOR,
                 durationMs = ScribeScrollDeletionPolicy.DURATION_DELETION_ANCHOR_MS,
                 forceRetarget = true,
                 onEnd = {
@@ -570,12 +517,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     companion object {
         val FastOutSlowInInterpolator: android.view.animation.Interpolator =
-            PathInterpolator(0.4f, 0f, 0.2f, 1f)
+            com.primaloptima.scribe.ui.components.FastOutSlowInInterpolator
     }
 
     fun startAuthoritativeScrollAnimation(
         targetTotalScroll: Float,
-        reason: ScribeScrollPolicy.ScrollAnimationReason,
+        reason: ScrollAnimationReason,
         durationMs: Long = 280L,
         interpolator: android.view.animation.Interpolator = FastOutSlowInInterpolator,
         forceRetarget: Boolean = false,
@@ -584,63 +531,19 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val currentScroll = (scrollDFloat + editor.offsetY)
         scrollCoordinator.totalScroll = currentScroll
         val maxBound = maxCanvasScroll
-        val clampedTarget = targetTotalScroll.coerceIn(0f, maxBound.toFloat())
-
-        // Continuous retargeting: if a glide is already running, seamlessly retarget in-flight!
-        if (isGlideRunning && scrollCoordinator.isAnimationActive) {
-            val currTarget = glideTarget
-            if (!forceRetarget && kotlin.math.abs(currTarget - clampedTarget) <= 1f) {
-                onEnd?.invoke()
-                return
-            }
-            glideTarget = clampedTarget
-            activeGlideReason = reason
-            if (onEnd != null) {
-                val prevOnEnd = activeGlideOnEnd
-                activeGlideOnEnd = {
-                    prevOnEnd?.invoke()
-                    onEnd.invoke()
-                }
-            }
-            scrollCoordinator.retargetActiveOperation(clampedTarget, reason, maxBound)
-            return
-        }
-
-        val shouldStart = scrollCoordinator.requestTarget(clampedTarget, reason, forceRetarget, maxBound)
-        if (!shouldStart) {
-            onEnd?.invoke()
-            return
-        }
-
-        val opId = scrollCoordinator.activeOperationId
-        val oldAnimator = activeCanvasAnimator
-        activeCanvasAnimator = null
-        oldAnimator?.cancel()
-        removeCallbacks(glideFrameRunnable)
-
-        val target = scrollCoordinator.activeTargetTotalScroll ?: clampedTarget
-        val distance = kotlin.math.abs(target - currentScroll)
-        if (distance < 1f) {
-            scrollCoordinator.finishAnimation(opId)
-            onEnd?.invoke()
-            return
-        }
-
-        isGlideRunning = true
-        glidePosition = currentScroll
-        glideVelocity = 0f
-        glideTarget = target
-        glideLastTimeNs = System.nanoTime()
-        activeGlideReason = reason
-        activeGlideOnEnd = onEnd
-        activeGlideOpId = opId
-
-        postOnAnimation(glideFrameRunnable)
+        canvasAnimator.startAuthoritativeAnimation(
+            currentScroll = currentScroll,
+            targetTotalScroll = targetTotalScroll,
+            reason = reason,
+            maxCanvasScroll = maxBound,
+            forceRetarget = forceRetarget,
+            onEnd = onEnd
+        )
     }
 
     fun smoothScrollCanvasBy(
         dy: Float,
-        reason: ScribeScrollPolicy.ScrollAnimationReason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+        reason: ScrollAnimationReason = ScrollAnimationReason.CARET_VISIBILITY,
         durationMs: Long = 280L,
         interpolator: android.view.animation.Interpolator = FastOutSlowInInterpolator,
         onEnd: (() -> Unit)? = null
@@ -742,7 +645,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     ) {
         startAuthoritativeScrollAnimation(
             targetTotalScroll = targetTotalScroll,
-            reason = ScribeScrollPolicy.ScrollAnimationReason.CONTRACTION_RESTORATION,
+            reason = ScrollAnimationReason.CONTRACTION_RESTORATION,
             durationMs = durationMs,
             interpolator = FastOutSlowInInterpolator
         )
@@ -772,7 +675,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             if (target > currentScroll + 0.5f) {
                 startAuthoritativeScrollAnimation(
                     targetTotalScroll = target,
-                    reason = ScribeScrollPolicy.ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION,
+                    reason = ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION,
                     durationMs = 120L
                 )
             } else {
@@ -805,14 +708,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     fun cancelCanvasAnimation() {
         cancelRestoration()
-        removeCallbacks(glideFrameRunnable)
-        isGlideRunning = false
-        activeGlideReason = null
-        activeGlideOnEnd = null
-        val oldAnimator = activeCanvasAnimator
-        activeCanvasAnimator = null
-        oldAnimator?.cancel()
-        scrollCoordinator.cancelAnimation("cancelCanvasAnimation")
+        canvasAnimator.cancel("cancelCanvasAnimation")
         isPredictiveGlideRunning = false
         targetPredictedScrollTotal = -1f
         endKeyboardTransaction()
@@ -848,7 +744,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             if (smooth) {
                 smoothScrollCanvasBy(
                     dy = deltaY,
-                    reason = ScribeScrollPolicy.ScrollAnimationReason.DELETION_ANCHOR,
+                    reason = ScrollAnimationReason.DELETION_ANCHOR,
                     durationMs = ScribeScrollDeletionPolicy.DURATION_DELETION_ANCHOR_MS,
                     interpolator = FastOutSlowInInterpolator
                 )
@@ -886,7 +782,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             if (smooth) {
                 smoothScrollCanvasBy(
                     dy = -totalScroll.toFloat(),
-                    reason = ScribeScrollPolicy.ScrollAnimationReason.RESET_TOP,
+                    reason = ScrollAnimationReason.RESET_TOP,
                     durationMs = ScribeScrollPolicy.DURATION_RESET_TOP_MS,
                     interpolator = FastOutSlowInInterpolator
                 )
@@ -973,7 +869,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     val clampedTarget = targetTotalScroll.coerceIn(0f, maxBound)
                     startAuthoritativeScrollAnimation(
                         targetTotalScroll = clampedTarget,
-                        reason = ScribeScrollPolicy.ScrollAnimationReason.PROGRAMMATIC,
+                        reason = ScrollAnimationReason.PROGRAMMATIC,
                         durationMs = 320L
                     )
                 } else {
@@ -1203,7 +1099,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             targetPredictedScrollTotal = desiredTarget
             smoothScrollCanvasBy(
                 dy = deltaY,
-                reason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE,
+                reason = ScrollAnimationReason.PREDICTIVE_GLIDE,
                 durationMs = ScribeScrollPolicy.DURATION_PREDICTIVE_GLIDE_MS,
                 interpolator = FastOutSlowInInterpolator
             ) {
@@ -1343,13 +1239,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 val desiredTarget = (currentScroll + resolution.deltaY).coerceIn(0f, maxCanvasScroll.toFloat())
                 startAuthoritativeScrollAnimation(
                     targetTotalScroll = desiredTarget,
-                    reason = if (isKeyboardTransactionActive) ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE else ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+                    reason = if (isKeyboardTransactionActive) ScrollAnimationReason.PREDICTIVE_GLIDE else ScrollAnimationReason.CARET_VISIBILITY,
                     forceRetarget = true
                 )
             } else if (smooth) {
                 smoothScrollCanvasBy(
                     dy = resolution.deltaY,
-                    reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+                    reason = ScrollAnimationReason.CARET_VISIBILITY,
                     durationMs = duration,
                     interpolator = FastOutSlowInInterpolator
                 )
@@ -1529,7 +1425,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                                 if (targetDelta > deadbandPx) {
                                     startAuthoritativeScrollAnimation(
                                         targetTotalScroll = desiredTarget,
-                                        reason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE,
+                                        reason = ScrollAnimationReason.PREDICTIVE_GLIDE,
                                         forceRetarget = true,
                                         onEnd = {
                                             checkKeyboardTransactionSettled()
@@ -1542,7 +1438,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                                 if (scrollDelta > deadbandPx) {
                                     startAuthoritativeScrollAnimation(
                                         targetTotalScroll = desiredTarget,
-                                        reason = ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE,
+                                        reason = ScrollAnimationReason.PREDICTIVE_GLIDE,
                                         durationMs = ScribeScrollPolicy.DURATION_PREDICTIVE_GLIDE_MS,
                                         onEnd = {
                                             checkKeyboardTransactionSettled()
@@ -1711,13 +1607,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 if (isKeyboardTransactionActive || (isGlideRunning && scrollCoordinator.isAnimationActive)) {
                     startAuthoritativeScrollAnimation(
                         targetTotalScroll = desiredTarget,
-                        reason = if (isKeyboardTransactionActive) ScribeScrollPolicy.ScrollAnimationReason.PREDICTIVE_GLIDE else ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+                        reason = if (isKeyboardTransactionActive) ScrollAnimationReason.PREDICTIVE_GLIDE else ScrollAnimationReason.CARET_VISIBILITY,
                         forceRetarget = true
                     )
                 } else if (!immediate) {
                     smoothScrollCanvasBy(
                         dy = delta,
-                        reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+                        reason = ScrollAnimationReason.CARET_VISIBILITY,
                         durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
                     )
                 } else {
@@ -1731,7 +1627,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 if (isGlideRunning && scrollCoordinator.isAnimationActive) {
                     startAuthoritativeScrollAnimation(
                         targetTotalScroll = desiredTarget,
-                        reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+                        reason = ScrollAnimationReason.CARET_VISIBILITY,
                         durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
                     )
                 } else {
