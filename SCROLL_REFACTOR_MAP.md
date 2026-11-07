@@ -1,8 +1,8 @@
 # Scribe Native Scroll Architecture Refactor Map
 
 **Commit Reference:** `d0d39b5` ("fix(viewport): eliminate unnecessary scroll-and-return and coordinate fluid shortcut bar entry")  
-**Current Milestone:** Phase 4 Complete — Extract Existing Scroll Animation Code  
-**Status:** Both scroll animation mechanisms extracted into dedicated `ScribeScrollAnimation.kt`. **Zero behavioral changes, zero formula modifications, no builds/tests run.**
+**Current Milestone:** Phase 5 Complete — Extract Scroll Input and Fling Handling  
+**Status:** Input, drag, fling, and momentum coordination extracted into `ScribeScrollInputController.kt`. **Zero behavioral changes, zero formula modifications, no builds/tests run.**
 
 ---
 
@@ -38,6 +38,7 @@ Per Phase 4 mission requirements, **both mechanisms have been extracted without 
 | Authoritative Scroll Coordination State | `ScribeScrollCoordinator.kt` | **Extracted (Phase 3)** | `ScribeScrollCoordinator`, `ScrollAnimationReason`, monotonic `activeOperationId`, causal compensation |
 | Scroll Diagnostics Helper | `ScribeScrollDiagnostics.kt` | **Extracted (Phase 3)** | `ScribeScrollDiagnostics` (`isDebugDiagnosticsEnabled`, `logDiagnostic`, `onScrollDiagnosticLog`) |
 | Scroll Animation Driver & Canvas Spring | `ScribeScrollAnimation.kt` | **Extracted (Phase 4)** | `AnimationDriver`, `ProductionScrollAnimationCoordinator`, `FastOutSlowInInterpolator`, `ScribeCanvasGlideAnimator` |
+| Scroll Input & Fling Handling | `ScribeScrollInputController.kt` | **Extracted (Phase 5)** | `ScribeScrollInputController` (`OverScroller`, `VelocityTracker`, touch-slop arbitration), `ScribeEditorScrollInputHelper` |
 
 ---
 
@@ -53,7 +54,7 @@ Per Phase 4 mission requirements, **both mechanisms have been extracted without 
 | **6. Keyboard Viewport Transactions** | `ScribeScrollPolicy.KeyboardTransaction`, `UnifiedCanvasLayout` | `UnifiedCanvasLayout` (`activeKeyboardTransaction`) | Policy Models + State Coordination |
 | **7. Deletion and Last-Line Anchoring** | `ScribeScrollDeletionPolicy.kt` | `ScribeScrollDeletionPolicy.kt` | Pure Policy |
 | **8. Contraction Restoration** | `ScribeScrollRestorationPolicy.kt` | `ScribeScrollRestorationPolicy.kt`, `ScribeScrollCoordinator` | Pure Policy + State Coordination |
-| **9. Manual Drag and Fling** | `UnifiedCanvasLayout.kt` (touch handlers, `OverScroller`) | `UnifiedCanvasLayout` (`scroller`, `velocityTracker`) | Input & Touch Integration |
+| **9. Manual Drag and Fling** | `UnifiedCanvasLayout.kt` (touch handlers, `OverScroller`) | `ScribeScrollInputController.kt` (delegated from `UnifiedCanvasLayout`) | Input & Touch Integration |
 | **10. Sora Editor Scrolling Integration** | `ScribeCodeEditor.kt`, `UnifiedCanvasLayout.kt` | Sora `CodeEditor` (`offsetY`, `scroller`) | UI Integration (Custom View) |
 | **11. Automatic Scroll Animation** | `ScribeScrollPolicy.kt`, `UnifiedCanvasLayout.kt` | **`ScribeScrollAnimation.kt`** (`ScribeCanvasGlideAnimator`, `ProductionScrollAnimationCoordinator`) | Animation & Physics Engine |
 | **12. Viewport Measurement & Layout Reconciliation** | `UnifiedCanvasLayout.onMeasure/onLayout`, `ScribeScrollPolicy.reconcileScrollState` | `UnifiedCanvasLayout`, `ScribeScrollPolicy` | Pure Policy + View Layout |
@@ -146,5 +147,34 @@ Integration containers (`UnifiedCanvasLayout`, `ScribeCodeEditor`, `MainEditorSc
 
 ---
 
-## 6. Next Steps
-- Proceed with Phase 5 as directed.
+## 6. Phase 5 — Extract Scroll Input and Fling Handling
+
+The document scrolling input, gesture arbitration, and fling handling have been extracted from `UnifiedCanvasLayout.kt` and `ScribeCodeEditor.kt` into:
+- **`ScribeScrollInputController.kt`** (`com.primaloptima.scribe.ui.editor.scroll`)
+
+### A. UnifiedCanvasLayout Delegation
+1. **Encapsulated State**:
+   - `OverScroller` instance and `lastScrollerY`.
+   - `VelocityTracker` lifecycle (obtain, movement tracking, velocity computation, and recycling).
+   - Touch coordinates and states (`initialDownX/Y`, `lastTouchX/Y`, `isDraggingCanvas`, `isTouchOnHandleActive`, `isMultiTouchLatched`).
+   - Touch slop and fling velocities (`touchSlop`, `minFlingVelocity`, `maxFlingVelocity`).
+2. **Gesture and Event Arbitration**:
+   - `dispatchTouchEvent(ev)`: Tracks velocity, detects handle drags, absorbs movement during active canvas drag, and triggers flings on finger lift.
+   - `onInterceptTouchEvent(ev)`: Implements the central 3-tier interception invariant (header visibility, top-of-editor downward pull, short document bounds) without disturbing handle or multi-touch gestures.
+   - `onTouchEvent(ev)`: Consumes intercepted drags and drives `scrollCanvasBy(dy)`.
+   - `computeScroll()`: Drives momentum scrolling and absorbs overscroll into `topEdgeEffect` on API 31+.
+   - `continueFlingFromEditor(velocity)`: Seamlessly accepts downward flings when editor reaches offset Y <= 0.
+   - `settleOrCancelFling()` / `stopFling()` / `abortAnimation()`: Halts active fling momentum.
+
+### B. ScribeCodeEditor Helpers (`ScribeEditorScrollInputHelper`)
+1. **Handle Auto-Scroll Calculation**:
+   - Extracted `calculateHandleAutoScrollVelocity(touchY, viewHeight, headerOffset, density, canScrollUp)` calculating continuous auto-scroll when selection handles are dragged into top/bottom hot zones.
+2. **Editor-to-Canvas Fling Handoff**:
+   - Extracted `shouldHandoffFlingToCanvas(wasFinished, currY, prevY, velocity, isFlingActive, isUserTouching)` isolating the condition for transferring momentum from Sora Editor to canvas header upon reaching document top.
+3. **Preserved Editing and Sora Hooks**:
+   - All text selection, typing, formatting, paste, zoom, image clicks, and Sora View overrides remain intact in `ScribeCodeEditor`.
+
+---
+
+## 7. Next Steps
+- Proceed with Phase 6 as directed.

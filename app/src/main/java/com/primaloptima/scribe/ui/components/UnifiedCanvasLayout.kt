@@ -170,28 +170,46 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         onViewportScrollChanged?.invoke(scrollD, editor.offsetY, scrollD + editor.offsetY)
     }
 
-    private val scroller = OverScroller(context)
-    private var lastScrollerY = 0
+    private val inputController: ScribeScrollInputController by lazy {
+        ScribeScrollInputController(context, object : ScribeScrollInputController.Host {
+            override val scrollD: Int get() = this@UnifiedCanvasLayout.scrollD
+            override val headerHeight: Int get() = this@UnifiedCanvasLayout.headerHeight
+            override val editorOffsetY: Int get() = this@UnifiedCanvasLayout.editor.offsetY
+            override val maxCanvasScroll: Int get() = this@UnifiedCanvasLayout.maxCanvasScroll
+            override var isUserTouching: Boolean
+                get() = this@UnifiedCanvasLayout.isUserTouching
+                set(value) { this@UnifiedCanvasLayout.isUserTouching = value }
+            override val isAnyHandleActive: Boolean get() = this@UnifiedCanvasLayout.isAnyHandleActive
+            override val isMultiTouchActive: Boolean get() = this@UnifiedCanvasLayout.isMultiTouchActive
+            override fun isTouchOnHandle(editorX: Float, editorY: Float): Boolean =
+                this@UnifiedCanvasLayout.editor.isTouchOnHandle(editorX, editorY)
+            override fun editorLeft(): Int = this@UnifiedCanvasLayout.editor.left
+            override fun editorIsHandleDragging(): Boolean = this@UnifiedCanvasLayout.editor.isHandleDragging
+            override fun scrollCanvasBy(dy: Float) { this@UnifiedCanvasLayout.scrollCanvasBy(dy) }
+            override fun postInvalidateOnAnimation() { this@UnifiedCanvasLayout.postInvalidateOnAnimation() }
+            override fun stopEditorFling() { this@UnifiedCanvasLayout.editor.stopFling() }
+            override fun requestDisallowInterceptTouchEvent(disallow: Boolean) {
+                this@UnifiedCanvasLayout.parent?.requestDisallowInterceptTouchEvent(disallow)
+            }
+            override fun onTopEdgeEffectRelease() {
+                this@UnifiedCanvasLayout.topEdgeEffect?.onRelease()
+            }
+            override fun onTopEdgeEffectAbsorb(velocity: Int) {
+                this@UnifiedCanvasLayout.topEdgeEffect?.onAbsorb(velocity)
+            }
+            override val isTopEdgeEffectFinished: Boolean
+                get() = this@UnifiedCanvasLayout.topEdgeEffect?.isFinished ?: true
+        })
+    }
 
-    private var velocityTracker: VelocityTracker? = null
-    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
-    private val minFlingVelocity = ViewConfiguration.get(context).scaledMinimumFlingVelocity
-    private val maxFlingVelocity = ViewConfiguration.get(context).scaledMaximumFlingVelocity
-
-    private var initialDownX = 0f
-    private var initialDownY = 0f
-    private var lastTouchX = 0f
-    private var lastTouchY = 0f
-    private var isDraggingCanvas = false
-    private var isTouchOnHandleActive = false
-
-    private var isMultiTouchLatched = false
+    val scroller: OverScroller get() = inputController.scroller
+    val isDraggingCanvas: Boolean get() = inputController.isDraggingCanvas
 
     val isAnyHandleActive: Boolean
-        get() = editor.isHandleDragging || isTouchOnHandleActive
+        get() = editor.isHandleDragging || inputController.isTouchOnHandleActive
 
     val isMultiTouchActive: Boolean
-        get() = isMultiTouchLatched || (editor as? ScribeCodeEditor)?.isZoomGestureActiveOnly == true || editor.isPinchScaling
+        get() = inputController.isMultiTouchLatched || (editor as? ScribeCodeEditor)?.isZoomGestureActiveOnly == true || editor.isPinchScaling
 
     private val topEdgeEffect: EdgeEffect? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         EdgeEffectCompat.create(context, null)
@@ -715,9 +733,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         targetPredictedScrollTotal = -1f
         endKeyboardTransaction()
         activeDeletionSnapshot = null
-        if (!scroller.isFinished) {
-            scroller.forceFinished(true)
-        }
+        inputController.stopFling()
     }
 
     /**
@@ -956,20 +972,15 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     fun settleOrCancelFling() {
-        if (!scroller.isFinished) {
-            scroller.forceFinished(true)
-        }
-        editor.stopFling()
+        inputController.settleOrCancelFling()
     }
 
     fun resetScroll() {
-        if (!scroller.isFinished) {
-            scroller.forceFinished(true)
-        }
+        inputController.stopFling()
         editor.stopFling()
         scrollDFloat = 0f
         scrollD = 0
-        isDraggingCanvas = false
+        inputController.isDraggingCanvas = false
         applyTranslations()
         onUnifiedScrollChanged?.invoke(0, headerHeight)
         notifyViewportScrollChanged()
@@ -983,15 +994,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * Called by ScribeCodeEditor when flinging towards the top and offsetY hits 0.
      */
     fun continueFlingFromEditor(velocity: Float) {
-        if (isUserTouching || isDraggingCanvas) return
-        if (scrollD <= 0) return
-        if (!scroller.isFinished) {
-            scroller.forceFinished(true)
-        }
-        val vy = -abs(velocity).toInt()
-        lastScrollerY = scrollD
-        scroller.fling(0, scrollD, 0, vy, 0, 0, 0, headerHeight, 0, 0)
-        postInvalidateOnAnimation()
+        inputController.continueFlingFromEditor(velocity)
     }
 
     /**
@@ -1574,12 +1577,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     applyTranslations()
                     onUnifiedScrollChanged?.invoke(0, headerHeight)
                 } else {
-                    if (!scroller.isFinished) {
-                        scroller.abortAnimation()
-                    }
-                    lastScrollerY = scrollD
-                    scroller.startScroll(0, scrollD, 0, -scrollD, 250)
-                    postInvalidateOnAnimation()
+                    inputController.abortAnimation()
+                    inputController.startScroll(0, scrollD, 0, -scrollD, 250)
                 }
             }
             return true
@@ -1745,222 +1744,22 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
-        velocityTracker?.addMovement(ev)
-
-        when (ev.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                isMultiTouchLatched = false
-                isUserTouching = true
-                lastTouchDownY = ev.y
-                lastTouchDownTime = System.currentTimeMillis()
-                onUserTouchDown?.invoke()
-                cancelCanvasAnimation()
-                invalidateCompensation()
-                editor.stopFling()
-                initialDownX = ev.x
-                initialDownY = ev.y
-                lastTouchX = ev.x
-                lastTouchY = ev.y
-                isDraggingCanvas = false
-                val editorX = ev.x - editor.left
-                val editorY = ev.y - (headerHeight - scrollD)
-                isTouchOnHandleActive = editor.isHandleDragging || editor.isTouchOnHandle(editorX, editorY)
-                velocityTracker?.clear() ?: run { velocityTracker = VelocityTracker.obtain() }
-                velocityTracker?.addMovement(ev)
-            }
-
-            MotionEvent.ACTION_POINTER_DOWN -> {
-                isMultiTouchLatched = true
-            }
-
-            MotionEvent.ACTION_MOVE -> {
-                if (ev.pointerCount > 1) {
-                    isMultiTouchLatched = true
-                }
-                if (!isTouchOnHandleActive && editor.isHandleDragging) {
-                    isTouchOnHandleActive = true
-                }
-                val dy = lastTouchY - ev.y
-                lastTouchX = ev.x
-                lastTouchY = ev.y
-
-                if (isDraggingCanvas) {
-                    scrollCanvasBy(dy)
-                    return true
-                }
-            }
-
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                isMultiTouchLatched = false
-                isTouchOnHandleActive = false
-                isUserTouching = false
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null && !topEdgeEffect.isFinished) {
-                    topEdgeEffect.onRelease()
-                    postInvalidateOnAnimation()
-                }
-                val wasDragging = isDraggingCanvas
-                if (wasDragging && ev.actionMasked == MotionEvent.ACTION_UP) {
-                    velocityTracker?.computeCurrentVelocity(1000, maxFlingVelocity.toFloat())
-                    val vy = velocityTracker?.yVelocity ?: 0f
-                    if (abs(vy) > minFlingVelocity) {
-                        val scrollerVy = -vy.toInt()
-                        lastScrollerY = scrollD + editor.offsetY
-                        val maxScroll = maxCanvasScroll
-                        if (maxScroll > 0) {
-                            scroller.fling(0, lastScrollerY, 0, scrollerVy, 0, 0, 0, maxScroll, 0, 0)
-                        }
-                        postInvalidateOnAnimation()
-                    }
-                }
-                isDraggingCanvas = false
-                velocityTracker?.recycle()
-                velocityTracker = null
-                if (wasDragging) {
-                    return true
-                }
-            }
-        }
+        val handled = inputController.dispatchTouchEvent(ev)
+        if (handled != null) return handled
         return super.dispatchTouchEvent(ev)
     }
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
-        if (isAnyHandleActive || isMultiTouchActive || ev.pointerCount > 1) return false
-        if (isDraggingCanvas) return true
-
-        when (ev.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                isMultiTouchLatched = false
-                initialDownX = ev.x
-                initialDownY = ev.y
-                lastTouchX = ev.x
-                lastTouchY = ev.y
-                isDraggingCanvas = false
-                val editorX = ev.x - editor.left
-                val editorY = ev.y - (headerHeight - scrollD)
-                isTouchOnHandleActive = editor.isHandleDragging || editor.isTouchOnHandle(editorX, editorY)
-                velocityTracker?.clear() ?: run { velocityTracker = VelocityTracker.obtain() }
-                velocityTracker?.addMovement(ev)
-                return false
-            }
-
-            MotionEvent.ACTION_POINTER_DOWN -> {
-                isMultiTouchLatched = true
-                isDraggingCanvas = false
-                return false
-            }
-
-            MotionEvent.ACTION_MOVE -> {
-                if (isAnyHandleActive || isMultiTouchActive || ev.pointerCount > 1) return false
-                velocityTracker?.addMovement(ev)
-                val totalDx = ev.x - initialDownX
-                val totalDy = initialDownY - ev.y
-
-                if (abs(totalDy) > touchSlop && abs(totalDy) > abs(totalDx)) {
-                    // Central touch interception invariant:
-                    // 1. If header is visible (scrollD < headerHeight), UnifiedCanvasLayout MUST intercept
-                    //    all vertical dragging because the outer canvas owns all movement before handoff.
-                    // 2. If editor is at top (editor.offsetY <= 0) and user drags down (totalDy < 0),
-                    //    UnifiedCanvasLayout MUST intercept to pull header back into view.
-                    // 3. If maxCanvasScroll <= 0, UnifiedCanvasLayout intercepts so editor cannot scroll short documents.
-                    if (scrollD < headerHeight || editor.offsetY <= 0 || maxCanvasScroll <= 0) {
-                        isDraggingCanvas = true
-                        lastTouchX = ev.x
-                        lastTouchY = ev.y
-                        parent?.requestDisallowInterceptTouchEvent(true)
-                        return true
-                    }
-                }
-            }
-
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                isDraggingCanvas = false
-                isTouchOnHandleActive = false
-                isMultiTouchLatched = false
-            }
-        }
-        return isDraggingCanvas
+        return inputController.onInterceptTouchEvent(ev)
     }
 
     override fun onTouchEvent(ev: MotionEvent): Boolean {
-        velocityTracker?.addMovement(ev)
-
-        when (ev.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                isUserTouching = true
-                if (!scroller.isFinished) {
-                    scroller.forceFinished(true)
-                }
-                editor.stopFling()
-                lastTouchX = ev.x
-                lastTouchY = ev.y
-                initialDownY = ev.y
-                initialDownX = ev.x
-                isDraggingCanvas = true
-                return true
-            }
-
-            MotionEvent.ACTION_MOVE -> {
-                val dy = lastTouchY - ev.y
-                lastTouchX = ev.x
-                lastTouchY = ev.y
-                scrollCanvasBy(dy)
-                return true
-            }
-
-            MotionEvent.ACTION_UP -> {
-                isUserTouching = false
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null && !topEdgeEffect.isFinished) {
-                    topEdgeEffect.onRelease()
-                    postInvalidateOnAnimation()
-                }
-                velocityTracker?.computeCurrentVelocity(1000, maxFlingVelocity.toFloat())
-                val vy = velocityTracker?.yVelocity ?: 0f
-                if (abs(vy) > minFlingVelocity) {
-                    val scrollerVy = -vy.toInt()
-                    lastScrollerY = scrollD + editor.offsetY
-                    val maxScroll = maxCanvasScroll
-                    if (maxScroll > 0) {
-                        scroller.fling(0, lastScrollerY, 0, scrollerVy, 0, 0, 0, maxScroll, 0, 0)
-                    }
-                    postInvalidateOnAnimation()
-                }
-                isDraggingCanvas = false
-                velocityTracker?.recycle()
-                velocityTracker = null
-                return true
-            }
-
-            MotionEvent.ACTION_CANCEL -> {
-                isUserTouching = false
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null && !topEdgeEffect.isFinished) {
-                    topEdgeEffect.onRelease()
-                    postInvalidateOnAnimation()
-                }
-                isDraggingCanvas = false
-                velocityTracker?.recycle()
-                velocityTracker = null
-                return true
-            }
-        }
+        if (inputController.onTouchEvent(ev)) return true
         return super.onTouchEvent(ev)
     }
 
     override fun computeScroll() {
-        if (scroller.computeScrollOffset()) {
-            val currY = scroller.currY
-            val dy = (currY - lastScrollerY).toFloat()
-            lastScrollerY = currY
-            scrollCanvasBy(dy)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && topEdgeEffect != null) {
-                if ((scroller.isOverScrolled() || currY <= 0) && scrollD <= 0 && editor.offsetY <= 0 && topEdgeEffect.isFinished) {
-                    val velocity = scroller.currVelocity.toInt()
-                    if (velocity > 0) {
-                        topEdgeEffect.onAbsorb(velocity)
-                    }
-                }
-            }
-            postInvalidateOnAnimation()
-        }
+        inputController.computeScroll()
     }
 
     override fun onDetachedFromWindow() {

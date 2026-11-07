@@ -1404,20 +1404,14 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 }
                 if (parentCanvas != null && isHandleDragging && parentCanvas.scrollD < parentCanvas.headerHeight) {
                     val headerOffset = (parentCanvas.headerHeight - parentCanvas.scrollD).coerceAtLeast(0)
-                    val visibleBottom = height - headerOffset
-                    val hotZone = 40f * density
-                    val y = event.y
-                    val newVelocity = when {
-                        y > visibleBottom - hotZone -> {
-                            val ratio = ((y - (visibleBottom - hotZone)) / hotZone).coerceIn(0.1f, 2.0f)
-                            (ratio * 14f * density)
-                        }
-                        y < hotZone && (parentCanvas.scrollD > 0 || offsetY > 0) -> {
-                            val ratio = ((hotZone - y) / hotZone).coerceIn(0.1f, 2.0f)
-                            -(ratio * 14f * density)
-                        }
-                        else -> 0f
-                    }
+                    val canScrollUp = parentCanvas.scrollD > 0 || offsetY > 0
+                    val newVelocity = ScribeEditorScrollInputHelper.calculateHandleAutoScrollVelocity(
+                        touchY = event.y,
+                        viewHeight = height,
+                        headerOffset = headerOffset,
+                        density = density,
+                        canScrollUp = canScrollUp
+                    )
                     if (newVelocity != handleAutoScrollVelocity) {
                         val wasRunning = handleAutoScrollVelocity != 0f
                         handleAutoScrollVelocity = newVelocity
@@ -1715,13 +1709,19 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
         // When flinging towards the top of the text (offsetY reaching 0):
         // Only transfer fling to canvas header if this is a genuine fling and user is not holding finger down
-        if (!wasFinished && scroller != null && scroller.currY <= 0 && prevY > 0) {
+        if (scroller != null && ScribeEditorScrollInputHelper.shouldHandoffFlingToCanvas(
+                wasFinished = wasFinished,
+                currY = scroller.currY,
+                prevY = prevY,
+                velocity = scroller.currVelocity,
+                isFlingActive = isFlingActive,
+                isUserTouching = parentCanvas?.isUserTouching == true
+            )
+        ) {
             val velocity = scroller.currVelocity
-            if (velocity > 0f && isFlingActive && parentCanvas?.isUserTouching != true) {
-                isFlingActive = false
-                scroller.forceFinished(true)
-                parentCanvas?.continueFlingFromEditor(velocity)
-            }
+            isFlingActive = false
+            scroller.forceFinished(true)
+            parentCanvas?.continueFlingFromEditor(velocity)
         }
         if (scroller != null && scroller.isFinished) {
             isFlingActive = false
