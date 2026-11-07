@@ -37,7 +37,11 @@ class ScribeBottomSurfaceStateTest {
 
         // Upper bound clamp (e.g. large baseline 500dp -> clamps to 480dp on 800dp screen)
         state.lastKeyboardHeightDp = 500.dp
-        assertEquals(480.dp, state.compactHeightDp)
+        assertEquals(
+            480f,
+            state.compactHeightDp.value,
+            0.001f
+        )
     }
 
     @Test
