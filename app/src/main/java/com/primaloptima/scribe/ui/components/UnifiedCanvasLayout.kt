@@ -2434,7 +2434,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             origin = origin
         )
 
-        if (!decision.isSafe) {
+        if (decision.requiresMovement(currentScroll)) {
             lastEnsureCursorTime = now
             val duration = customDurationMs
             if (smooth) {

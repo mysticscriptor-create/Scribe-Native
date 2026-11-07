@@ -62,6 +62,10 @@ object ScribeScrollPolicy {
         val isBottomOccluded: Boolean = (!isSafe && neededUpwardDisplacement > 0f)
     ) {
         val requiredCorrectionDy: Float get() = neededUpwardDisplacement
+
+        fun requiresMovement(currentScroll: Float, tolerancePx: Float = 1f): Boolean {
+            return !isSafe && kotlin.math.abs(targetTotalScroll - currentScroll) > tolerancePx
+        }
     }
 
     /**
