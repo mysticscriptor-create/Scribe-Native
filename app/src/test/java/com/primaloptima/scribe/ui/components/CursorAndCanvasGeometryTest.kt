@@ -108,7 +108,7 @@ class CursorAndCanvasGeometryTest {
         val density = 2.5f
 
         // totalScroll = 200 + 800 = 1000px. maxCanvasScroll = 500px. Excess = 500px.
-        val delta = ScribeScrollPolicy.calculateDeletionAnchorDelta(
+        val delta = ScribeScrollDeletionPolicy.calculateDeletionAnchorDelta(
             headerHeight = headerHeight,
             scrollD = scrollD,
             layoutHeight = layoutHeight,
@@ -133,7 +133,7 @@ class CursorAndCanvasGeometryTest {
         val density = 2.5f
 
         // totalScroll = 1000px. maxCanvasScroll = 800px. Excess = 200px.
-        val delta = ScribeScrollPolicy.calculateDeletionAnchorDelta(
+        val delta = ScribeScrollDeletionPolicy.calculateDeletionAnchorDelta(
             headerHeight = headerHeight,
             scrollD = scrollD,
             layoutHeight = layoutHeight,
@@ -156,7 +156,7 @@ class CursorAndCanvasGeometryTest {
         val density = 2.5f
 
         // textBottom = 0 + 3500 - 800 = 2700px (far below 1140px).
-        val delta = ScribeScrollPolicy.calculateDeletionAnchorDelta(
+        val delta = ScribeScrollDeletionPolicy.calculateDeletionAnchorDelta(
             headerHeight = headerHeight,
             scrollD = scrollD,
             layoutHeight = layoutHeight,
@@ -179,7 +179,7 @@ class CursorAndCanvasGeometryTest {
         val density = 2.5f
 
         // totalScroll = 200 + 800 = 1000px.
-        val delta = ScribeScrollPolicy.calculateDeletionAnchorDelta(
+        val delta = ScribeScrollDeletionPolicy.calculateDeletionAnchorDelta(
             headerHeight = headerHeight,
             scrollD = scrollD,
             layoutHeight = layoutHeight,
@@ -548,7 +548,7 @@ class CursorAndCanvasGeometryTest {
         val newExpandedViewport = 1200
         val targetLineBottom = newExpandedViewport - marginPx // 1140px
 
-        val deltaDown = ScribeScrollPolicy.calculateLastLineFollowDelta(
+        val deltaDown = ScribeScrollRestorationPolicy.calculateLastLineFollowDelta(
             lastLineDocBottom = lastLineDocBottom,
             headerHeight = headerHeight,
             scrollD = scrollD,
@@ -573,7 +573,7 @@ class CursorAndCanvasGeometryTest {
         val newExpandedViewport = 1200
 
         // When editing in the middle of document (isAtLastLine = false):
-        val delta = ScribeScrollPolicy.calculateLastLineFollowDelta(
+        val delta = ScribeScrollRestorationPolicy.calculateLastLineFollowDelta(
             lastLineDocBottom = lastLineDocBottom,
             headerHeight = headerHeight,
             scrollD = scrollD,
@@ -606,7 +606,7 @@ class CursorAndCanvasGeometryTest {
 
         // In UnifiedCanvasLayout, when keyboard is dismissed (isImeClosing is true or isBottomActive is false),
         // the downward pull is strictly suppressed, keeping the document rock-solid stationary at saved margin.
-        val delta = if (isImeClosing || !isBottomActive) 0f else ScribeScrollPolicy.calculateLastLineFollowDelta(
+        val delta = if (isImeClosing || !isBottomActive) 0f else ScribeScrollRestorationPolicy.calculateLastLineFollowDelta(
             lastLineDocBottom = lastLineDocBottom,
             headerHeight = headerHeight,
             scrollD = scrollD,
@@ -635,7 +635,7 @@ class CursorAndCanvasGeometryTest {
         val isBottomActive = hasBottomObstruction // would be true if only obstruction checked
 
         // Thanks to isImeClosing guard, downward pull is suppressed even before keyboard fully closes
-        val delta = if (isImeClosing || !isBottomActive) 0f else ScribeScrollPolicy.calculateLastLineFollowDelta(
+        val delta = if (isImeClosing || !isBottomActive) 0f else ScribeScrollRestorationPolicy.calculateLastLineFollowDelta(
             lastLineDocBottom = lastLineDocBottom,
             headerHeight = headerHeight,
             scrollD = scrollD,
@@ -666,7 +666,7 @@ class CursorAndCanvasGeometryTest {
         val isKeyboardVisible = true
         val isBottomActive = true
 
-        val delta = if (isImeClosing || !isBottomActive) 0f else ScribeScrollPolicy.calculateLastLineFollowDelta(
+        val delta = if (isImeClosing || !isBottomActive) 0f else ScribeScrollRestorationPolicy.calculateLastLineFollowDelta(
             lastLineDocBottom = lastLineDocBottom,
             headerHeight = headerHeight,
             scrollD = scrollD,
@@ -1360,8 +1360,8 @@ class CursorAndCanvasGeometryTest {
         val totalScroll = 800f
         val tempDisplacement = 200f
 
-        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(
-            ScribeScrollPolicy.ContractionRestorationRequest(
+        val result = ScribeScrollRestorationPolicy.resolveContractionRestorationDelta(
+            ScribeScrollRestorationPolicy.ContractionRestorationRequest(
                 caretScreenBottom = caretScreenBottom,
                 caretScreenTop = caretScreenBottom - 50f,
                 viewportHeight = visibleHeight,
@@ -1387,8 +1387,8 @@ class CursorAndCanvasGeometryTest {
     fun testContractionRestoration_EarlyLine_ClampsToTotalScroll() {
         // Line 2 (early line): totalScroll = 80px, but temporaryDisplacement was 150px.
         // Restoration cannot scroll past top of document (totalScroll reaches 0).
-        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(
-            ScribeScrollPolicy.ContractionRestorationRequest(
+        val result = ScribeScrollRestorationPolicy.resolveContractionRestorationDelta(
+            ScribeScrollRestorationPolicy.ContractionRestorationRequest(
                 caretScreenBottom = 300f,
                 caretScreenTop = 260f,
                 viewportHeight = 1100,
@@ -1410,8 +1410,8 @@ class CursorAndCanvasGeometryTest {
     fun testContractionRestoration_MiddleOfDocument_WithoutDisplacement_RemainsStationary() {
         // Line 50 with no prior displacement recorded (user was typing mid-document).
         // Must remain stationary (returns 0f).
-        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(
-            ScribeScrollPolicy.ContractionRestorationRequest(
+        val result = ScribeScrollRestorationPolicy.resolveContractionRestorationDelta(
+            ScribeScrollRestorationPolicy.ContractionRestorationRequest(
                 caretScreenBottom = 600f,
                 caretScreenTop = 560f,
                 viewportHeight = 1100,
@@ -1432,8 +1432,8 @@ class CursorAndCanvasGeometryTest {
     fun testContractionRestoration_FullKeyboardDismissal_StrictlyReturnsZeroDelta() {
         // Keyboard is completely dismissing (Pure Writer stationary invariant):
         // Even if temporary displacement exists and caret is on last line, delta must be 0f!
-        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(
-            ScribeScrollPolicy.ContractionRestorationRequest(
+        val result = ScribeScrollRestorationPolicy.resolveContractionRestorationDelta(
+            ScribeScrollRestorationPolicy.ContractionRestorationRequest(
                 caretScreenBottom = 600f,
                 caretScreenTop = 560f,
                 viewportHeight = 1500,
@@ -1457,8 +1457,8 @@ class CursorAndCanvasGeometryTest {
         // Slack is only 40px (1040 - 1000 = 40px).
         // If temporaryDisplacement = 120px, full restoration would push caret to 1120px (behind shortcut bar!).
         // The policy MUST clamp downward movement to -40px.
-        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(
-            ScribeScrollPolicy.ContractionRestorationRequest(
+        val result = ScribeScrollRestorationPolicy.resolveContractionRestorationDelta(
+            ScribeScrollRestorationPolicy.ContractionRestorationRequest(
                 caretScreenBottom = 1000f,
                 caretScreenTop = 960f,
                 viewportHeight = 1100,
@@ -1490,8 +1490,8 @@ class CursorAndCanvasGeometryTest {
         val caretScreenBottom = 800f
         val totalScroll = 600f
 
-        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(
-            ScribeScrollPolicy.ContractionRestorationRequest(
+        val result = ScribeScrollRestorationPolicy.resolveContractionRestorationDelta(
+            ScribeScrollRestorationPolicy.ContractionRestorationRequest(
                 caretScreenBottom = caretScreenBottom,
                 caretScreenTop = caretScreenBottom - 40f,
                 viewportHeight = visibleHeight,
@@ -1538,12 +1538,12 @@ class CursorAndCanvasGeometryTest {
     @Test
     fun testContractionRestoration_DiagnosticsLogging() {
         var loggedMessage: String? = null
-        ScribeScrollPolicy.isDebugDiagnosticsEnabled = true
-        ScribeScrollPolicy.onScrollDiagnosticLog = { msg -> loggedMessage = msg }
+        ScribeScrollRestorationPolicy.isDebugDiagnosticsEnabled = true
+        ScribeScrollRestorationPolicy.onScrollDiagnosticLog = { msg -> loggedMessage = msg }
 
         try {
-            ScribeScrollPolicy.resolveContractionRestorationDelta(
-                ScribeScrollPolicy.ContractionRestorationRequest(
+            ScribeScrollRestorationPolicy.resolveContractionRestorationDelta(
+                ScribeScrollRestorationPolicy.ContractionRestorationRequest(
                     caretScreenBottom = 600f,
                     caretScreenTop = 560f,
                     viewportHeight = 1100,
@@ -1558,8 +1558,8 @@ class CursorAndCanvasGeometryTest {
             val msg = loggedMessage
             assertTrue("Diagnostic log must be called", msg != null && msg.contains("Applied"))
         } finally {
-            ScribeScrollPolicy.isDebugDiagnosticsEnabled = false
-            ScribeScrollPolicy.onScrollDiagnosticLog = null
+            ScribeScrollRestorationPolicy.isDebugDiagnosticsEnabled = false
+            ScribeScrollRestorationPolicy.onScrollDiagnosticLog = null
         }
     }
 
@@ -1570,8 +1570,8 @@ class CursorAndCanvasGeometryTest {
         // Viewport: 1100, density: 2.5 (margin = 60px, targetLine = 1040px).
         // Caret bottom is at 1080px (40px below breathing margin, inside unsafe zone!).
         // The policy MUST calculate an upward corrective delta (+40px) to restore safe visibility.
-        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(
-            ScribeScrollPolicy.ContractionRestorationRequest(
+        val result = ScribeScrollRestorationPolicy.resolveContractionRestorationDelta(
+            ScribeScrollRestorationPolicy.ContractionRestorationRequest(
                 caretScreenBottom = 1080f,
                 caretScreenTop = 1040f,
                 viewportHeight = 1100,
@@ -1593,7 +1593,7 @@ class CursorAndCanvasGeometryTest {
         // Header height: 200, caretDocBottom: 1500, viewport: 1100, density: 2.5 (targetLine = 1040).
         // Target total scroll = 600.
         // Final caret screen bottom = 200 + 1500 - 600 = 1100 (which is 60px below targetLine 1040!).
-        val validation = ScribeScrollPolicy.validateFinalTarget(
+        val validation = ScribeScrollRestorationPolicy.validateFinalTarget(
             targetTotalScroll = 600f,
             caretDocBottom = 1500f,
             headerHeight = 200,
@@ -1603,7 +1603,7 @@ class CursorAndCanvasGeometryTest {
         assertFalse("Target that places caret at 1100px must be flagged unsafe", validation.isSafe)
         assertEquals("Corrective delta must be +60px", 60f, validation.correctiveDeltaY, 0.001f)
         val safeTarget = 600f + validation.correctiveDeltaY // 660f
-        val revalidation = ScribeScrollPolicy.validateFinalTarget(
+        val revalidation = ScribeScrollRestorationPolicy.validateFinalTarget(
             targetTotalScroll = safeTarget,
             caretDocBottom = 1500f,
             headerHeight = 200,
@@ -1619,7 +1619,7 @@ class CursorAndCanvasGeometryTest {
         // Multi-line selection spanning lines 10 to 15.
         // Start of selection is at line 10, end of selection is at line 15.
         // Bottom-most coordinate is at line 15, NOT line 10!
-        val geom = ScribeScrollPolicy.SelectionGeometry(
+        val geom = SelectionGeometry(
             topDocY = 400f,
             bottomDocY = 650f,
             leftDocX = 120f,
@@ -2045,7 +2045,7 @@ class CursorAndCanvasGeometryTest {
         // Current caret bottom = 200 + 1200 - 400 = 1000px.
         // Available slack to 1040 is 40px!
         // Suppose temporaryDisplacement was 150px.
-        val req = ScribeScrollPolicy.ContractionRestorationRequest(
+        val req = ScribeScrollRestorationPolicy.ContractionRestorationRequest(
             caretScreenBottom = 1000f,
             caretScreenTop = 960f,
             viewportHeight = 1100,
@@ -2056,14 +2056,14 @@ class CursorAndCanvasGeometryTest {
             isKeyboardDismissing = false,
             isBottomSurfaceActive = true
         )
-        val result = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
+        val result = ScribeScrollRestorationPolicy.resolveContractionRestorationDelta(req)
         assertTrue(result.shouldScroll)
         assertEquals("Downward movement clamped to available slack (-40px)", -40f, result.deltaY, 0.001f)
         assertEquals("Remaining compensation is 110px", 110f, result.remainingCompensation, 0.001f)
 
         // Validate final target safety
         val target = 400f + result.deltaY // 360f
-        val validation = ScribeScrollPolicy.validateFinalTarget(target, 1200f, 200, 1100, 2.5f)
+        val validation = ScribeScrollRestorationPolicy.validateFinalTarget(target, 1200f, 200, 1100, 2.5f)
         assertTrue("Settled target at breathing margin is safe", validation.isSafe)
         assertEquals(1040f, validation.finalCaretScreenBottom, 0.001f)
     }
@@ -2159,7 +2159,7 @@ class CursorAndCanvasGeometryTest {
 
         // targetTotalScroll = 259f -> finalCaretBottom = 200 + 1000 - 259 = 941px
         // slack = 940 - 941 = -1px (1px into the breathing margin)
-        val validation = ScribeScrollPolicy.validateFinalTarget(
+        val validation = ScribeScrollRestorationPolicy.validateFinalTarget(
             targetTotalScroll = 259f,
             caretDocBottom = caretDocBottom,
             headerHeight = headerHeight,
@@ -2170,7 +2170,7 @@ class CursorAndCanvasGeometryTest {
         assertEquals(1f, validation.correctiveDeltaY, 0.001f)
 
         // With targetTotalScroll = 260f -> finalCaretBottom = 940px -> slack = 0px
-        val safeValidation = ScribeScrollPolicy.validateFinalTarget(
+        val safeValidation = ScribeScrollRestorationPolicy.validateFinalTarget(
             targetTotalScroll = 260f,
             caretDocBottom = caretDocBottom,
             headerHeight = headerHeight,
@@ -2473,7 +2473,7 @@ class CursorAndCanvasGeometryTest {
 
         // Caret screen bottom is currently 200 + 1200 - 60 = 1340px
         // In the new 1100px viewport, caret is 300px below the breathing line!
-        val validation = ScribeScrollPolicy.validateFinalTarget(
+        val validation = ScribeScrollRestorationPolicy.validateFinalTarget(
             targetTotalScroll = coordinator.totalScroll,
             caretDocBottom = caretDocBottom,
             headerHeight = headerHeight,
@@ -2494,7 +2494,7 @@ class CursorAndCanvasGeometryTest {
 
         // Final position check
         assertEquals(360f, coordinator.totalScroll, 0.001f)
-        val finalValidation = ScribeScrollPolicy.validateFinalTarget(
+        val finalValidation = ScribeScrollRestorationPolicy.validateFinalTarget(
             targetTotalScroll = coordinator.totalScroll,
             caretDocBottom = caretDocBottom,
             headerHeight = headerHeight,
@@ -2596,8 +2596,8 @@ class CursorAndCanvasGeometryTest {
         val slack = contractedTargetLineBottom - screenBottomSettled // 1940 - 1040 = 900px
 
         // Available slack (900px) exceeds temporary displacement (200px)
-        val restorationResult = ScribeScrollPolicy.resolveContractionRestorationDelta(
-            ScribeScrollPolicy.ContractionRestorationRequest(
+        val restorationResult = ScribeScrollRestorationPolicy.resolveContractionRestorationDelta(
+            ScribeScrollRestorationPolicy.ContractionRestorationRequest(
                 caretScreenBottom = screenBottomSettled,
                 caretScreenTop = screenBottomSettled - rowHeight,
                 viewportHeight = initialViewportHeight,
@@ -2792,7 +2792,7 @@ class CursorAndCanvasGeometryTest {
         // Surface now collapses back
         val caretDocBottom = (12 + 1) * rowHeight // line 12 bottom = 520px
         val screenBottom = headerHeight + caretDocBottom - coordinator.totalScroll // 200 + 520 - 1180 = -460px
-        val req = ScribeScrollPolicy.ContractionRestorationRequest(
+        val req = ScribeScrollRestorationPolicy.ContractionRestorationRequest(
             caretScreenBottom = screenBottom,
             caretScreenTop = screenBottom - rowHeight,
             viewportHeight = 2000,
@@ -2803,7 +2803,7 @@ class CursorAndCanvasGeometryTest {
             isKeyboardDismissing = false,
             isBottomSurfaceActive = true
         )
-        val restorationResult = ScribeScrollPolicy.resolveContractionRestorationDelta(req)
+        val restorationResult = ScribeScrollRestorationPolicy.resolveContractionRestorationDelta(req)
 
         assertFalse("Must NOT scroll downward when compensation was invalidated", restorationResult.shouldScroll)
         assertEquals(0f, restorationResult.deltaY, 0.001f)
@@ -3025,7 +3025,7 @@ class CursorAndCanvasGeometryTest {
     @Test
     fun testDeletionIntent_RequiresTailProximityAndAffectedTail() {
         // Issue 4: Tail follow requires BOTH pre-edit tail proximity AND that the deletion affected the end
-        val tailSnapshot = ScribeScrollPolicy.DeletionSnapshot(
+        val tailSnapshot = ScribeScrollDeletionPolicy.DeletionSnapshot(
             transactionEpoch = 1L,
             isSelection = true,
             selectionStartLine = 18,
@@ -3037,30 +3037,30 @@ class CursorAndCanvasGeometryTest {
             wasAtTail = true,
             affectsDocumentTail = true
         )
-        val tailIntent = ScribeScrollPolicy.classifyDeletionIntent(
+        val tailIntent = ScribeScrollDeletionPolicy.classifyDeletionIntent(
             snapshot = tailSnapshot,
             newDocLineCount = 18,
             newDocHeight = 1600f,
             usableViewportHeight = 800f
         )
-        assertEquals(ScribeScrollPolicy.DeletionAnchorIntent.TAIL_ANCHOR, tailIntent)
+        assertEquals(ScribeScrollDeletionPolicy.DeletionAnchorIntent.TAIL_ANCHOR, tailIntent)
 
         // If user was near tail but deleted in the middle (does not affect tail):
         val middleSnapshot = tailSnapshot.copy(selectionStartLine = 5, selectionEndLine = 7, affectsDocumentTail = false)
-        val middleIntent = ScribeScrollPolicy.classifyDeletionIntent(
+        val middleIntent = ScribeScrollDeletionPolicy.classifyDeletionIntent(
             snapshot = middleSnapshot,
             newDocLineCount = 18,
             newDocHeight = 1600f,
             usableViewportHeight = 800f
         )
-        assertEquals(ScribeScrollPolicy.DeletionAnchorIntent.CARET_ANCHOR, middleIntent)
+        assertEquals(ScribeScrollDeletionPolicy.DeletionAnchorIntent.CARET_ANCHOR, middleIntent)
     }
 
     @Test
     fun testDeletionDestination_TailFollowPreservesBreathingMargin() {
         // Issue 3: Exercises production calculateSafeDeletionDestination for tail-follow
-        val target = ScribeScrollPolicy.calculateSafeDeletionDestination(
-            intent = ScribeScrollPolicy.DeletionAnchorIntent.TAIL_ANCHOR,
+        val target = ScribeScrollDeletionPolicy.calculateSafeDeletionDestination(
+            intent = ScribeScrollDeletionPolicy.DeletionAnchorIntent.TAIL_ANCHOR,
             currentScroll = 900f,
             headerHeight = 100f,
             newDocHeight = 1200f,
@@ -3086,8 +3086,8 @@ class CursorAndCanvasGeometryTest {
         val headerHeight = 100f
         val currentScroll = 500f
 
-        val target = ScribeScrollPolicy.calculateSafeDeletionDestination(
-            intent = ScribeScrollPolicy.DeletionAnchorIntent.CARET_ANCHOR,
+        val target = ScribeScrollDeletionPolicy.calculateSafeDeletionDestination(
+            intent = ScribeScrollDeletionPolicy.DeletionAnchorIntent.CARET_ANCHOR,
             currentScroll = currentScroll,
             headerHeight = headerHeight,
             newDocHeight = 1500f,
@@ -3106,8 +3106,8 @@ class CursorAndCanvasGeometryTest {
     @Test
     fun testDeletionDestination_ResetToTopWhenContentFits() {
         // Issue 4: Deletion that leaves document fitting in viewport resets cleanly to 0
-        val target = ScribeScrollPolicy.calculateSafeDeletionDestination(
-            intent = ScribeScrollPolicy.DeletionAnchorIntent.RESET_TO_TOP,
+        val target = ScribeScrollDeletionPolicy.calculateSafeDeletionDestination(
+            intent = ScribeScrollDeletionPolicy.DeletionAnchorIntent.RESET_TO_TOP,
             currentScroll = 300f,
             headerHeight = 100f,
             newDocHeight = 400f,
@@ -3157,8 +3157,8 @@ class CursorAndCanvasGeometryTest {
         val breathingMargin = 48f
         val targetLineBottom = usableHeight - breathingMargin // 652f
 
-        val target = ScribeScrollPolicy.calculateSafeDeletionDestination(
-            intent = ScribeScrollPolicy.DeletionAnchorIntent.CARET_ANCHOR,
+        val target = ScribeScrollDeletionPolicy.calculateSafeDeletionDestination(
+            intent = ScribeScrollDeletionPolicy.DeletionAnchorIntent.CARET_ANCHOR,
             currentScroll = currentScroll,
             headerHeight = headerHeight,
             newDocHeight = 1500f,
@@ -3271,7 +3271,7 @@ class CursorAndCanvasGeometryTest {
     fun testTailDeletion_RequiresBothWasAtTailAndAffectsTail() {
         // Issue A.4: Verifies that tail-follow deletion strictly requires BOTH wasAtTail AND affectsTail.
         // If viewport is scrolled to tail but edit is in the middle, classify as CARET_ANCHOR.
-        val snapshotMiddleEditAtTailViewport = ScribeScrollPolicy.DeletionSnapshot(
+        val snapshotMiddleEditAtTailViewport = ScribeScrollDeletionPolicy.DeletionSnapshot(
             transactionEpoch = 1L,
             isSelection = false,
             selectionStartLine = 5,
@@ -3284,7 +3284,7 @@ class CursorAndCanvasGeometryTest {
             affectsDocumentTail = false // Cursor is at line 5, document has 50 lines!
         )
 
-        val intent = ScribeScrollPolicy.classifyDeletionIntent(
+        val intent = ScribeScrollDeletionPolicy.classifyDeletionIntent(
             snapshot = snapshotMiddleEditAtTailViewport,
             newDocLineCount = 50,
             newDocHeight = 3000f,
@@ -3292,7 +3292,7 @@ class CursorAndCanvasGeometryTest {
         )
 
         assertEquals("Middle edit must be classified as CARET_ANCHOR even if viewport was at tail",
-            ScribeScrollPolicy.DeletionAnchorIntent.CARET_ANCHOR, intent)
+            ScribeScrollDeletionPolicy.DeletionAnchorIntent.CARET_ANCHOR, intent)
     }
 
     @Test

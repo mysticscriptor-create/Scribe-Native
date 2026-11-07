@@ -437,7 +437,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     // ── Coordinated Deletion Viewport Transaction ─────────────────────────────
-    private var activeDeletionSnapshot: ScribeScrollPolicy.DeletionSnapshot? = null
+    private var activeDeletionSnapshot: ScribeScrollDeletionPolicy.DeletionSnapshot? = null
     private var deletionTransactionGeneration: Long = 0L
     private var isDeletionTailAnchored: Boolean = false
 
@@ -456,7 +456,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         affectsDocumentTail: Boolean
     ) {
         deletionTransactionGeneration++
-        activeDeletionSnapshot = ScribeScrollPolicy.DeletionSnapshot(
+        activeDeletionSnapshot = ScribeScrollDeletionPolicy.DeletionSnapshot(
             transactionEpoch = deletionTransactionGeneration,
             isSelection = isSelection,
             selectionStartLine = selectionStartLine,
@@ -517,7 +517,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val maxBound = maxCanvasScroll.toFloat()
         val breathingMargin = breathingMarginPx
 
-        val intent = ScribeScrollPolicy.classifyDeletionIntent(
+        val intent = ScribeScrollDeletionPolicy.classifyDeletionIntent(
             snapshot = snapshot,
             newDocLineCount = newDocLineCount,
             newDocHeight = headerHeight + newDocHeight,
@@ -531,7 +531,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             0f
         }
 
-        val target = ScribeScrollPolicy.calculateSafeDeletionDestination(
+        val target = ScribeScrollDeletionPolicy.calculateSafeDeletionDestination(
             intent = intent,
             currentScroll = currentScroll,
             headerHeight = headerHeight.toFloat(),
@@ -543,9 +543,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             maxCanvasScroll = maxBound
         )
 
-        isDeletionTailAnchored = (intent == ScribeScrollPolicy.DeletionAnchorIntent.TAIL_ANCHOR)
+        isDeletionTailAnchored = (intent == ScribeScrollDeletionPolicy.DeletionAnchorIntent.TAIL_ANCHOR)
 
-        if (intent == ScribeScrollPolicy.DeletionAnchorIntent.RESET_TO_TOP) {
+        if (intent == ScribeScrollDeletionPolicy.DeletionAnchorIntent.RESET_TO_TOP) {
             activeDeletionSnapshot = null
             isDeletionTailAnchored = false
             resetDocumentToTop(smooth = smooth)
@@ -553,7 +553,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             startAuthoritativeScrollAnimation(
                 targetTotalScroll = target,
                 reason = ScribeScrollPolicy.ScrollAnimationReason.DELETION_ANCHOR,
-                durationMs = ScribeScrollPolicy.DURATION_DELETION_ANCHOR_MS,
+                durationMs = ScribeScrollDeletionPolicy.DURATION_DELETION_ANCHOR_MS,
                 forceRetarget = true,
                 onEnd = {
                     if (deletionTransactionGeneration == currentGen) {
@@ -660,15 +660,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         )
     }
 
-    /**
-     * Clean, strongly typed abstraction for character and layout geometry from Sora Editor.
-     * Eliminates confusion between vertical doc Y and horizontal doc X.
-     */
-    data class SoraCharGeometry(
-        val bottomDocY: Float,
-        val topDocY: Float,
-        val leftDocX: Float
-    )
+
 
     internal fun getCharGeometry(
         lay: io.github.rosemoe.sora.widget.layout.Layout,
@@ -698,7 +690,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     internal fun getSelectionGeometry(
         cur: io.github.rosemoe.sora.text.Cursor?,
         lay: io.github.rosemoe.sora.widget.layout.Layout?
-    ): ScribeScrollPolicy.SelectionGeometry? {
+    ): SelectionGeometry? {
         if (lay == null) return null
         val rowHeight = editor.rowHeight.toFloat()
         val lineCount = try { editor.text.lineCount } catch (_: Throwable) { 1 }
@@ -712,7 +704,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val leftGeom = getCharGeometry(lay, leftLine, leftCol, rowHeight)
             val rightGeom = getCharGeometry(lay, rightLine, rightCol, rowHeight)
 
-            return ScribeScrollPolicy.SelectionGeometry(
+            return SelectionGeometry(
                 topDocY = minOf(leftGeom.topDocY, rightGeom.topDocY),
                 bottomDocY = maxOf(leftGeom.bottomDocY, rightGeom.bottomDocY),
                 leftDocX = minOf(leftGeom.leftDocX, rightGeom.leftDocX),
@@ -727,7 +719,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val col = (cur?.leftColumn ?: 0).coerceAtLeast(0)
         val geom = getCharGeometry(lay, line, col, rowHeight)
 
-        return ScribeScrollPolicy.SelectionGeometry(
+        return SelectionGeometry(
             topDocY = geom.topDocY,
             bottomDocY = geom.bottomDocY,
             leftDocX = geom.leftDocX,
@@ -767,7 +759,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val geom = getSelectionGeometry(cur, lay) ?: return
         val currentScroll = (scrollD + editor.offsetY).toFloat()
         val density = resources.displayMetrics.density
-        val validation = ScribeScrollPolicy.validateFinalTarget(
+        val validation = ScribeScrollRestorationPolicy.validateFinalTarget(
             targetTotalScroll = currentScroll,
             caretDocBottom = geom.bottomDocY,
             headerHeight = headerHeight,
@@ -843,7 +835,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             handleDeletionSettlement(smooth = smooth)
             return
         }
-        val deltaY = ScribeScrollPolicy.calculateDeletionAnchorDelta(
+        val deltaY = ScribeScrollDeletionPolicy.calculateDeletionAnchorDelta(
             headerHeight = headerHeight,
             scrollD = scrollD,
             layoutHeight = editor.layout?.layoutHeight ?: 0,
@@ -857,7 +849,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 smoothScrollCanvasBy(
                     dy = deltaY,
                     reason = ScribeScrollPolicy.ScrollAnimationReason.DELETION_ANCHOR,
-                    durationMs = ScribeScrollPolicy.DURATION_DELETION_ANCHOR_MS,
+                    durationMs = ScribeScrollDeletionPolicy.DURATION_DELETION_ANCHOR_MS,
                     interpolator = FastOutSlowInInterpolator
                 )
             } else {
@@ -1336,7 +1328,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (resolution.shouldScroll) {
             lastEnsureCursorTime = now
             val duration = if (resolution.isAnchorDownward) {
-                ScribeScrollPolicy.DURATION_DELETION_ANCHOR_MS
+                ScribeScrollDeletionPolicy.DURATION_DELETION_ANCHOR_MS
             } else {
                 customDurationMs
             }
@@ -1620,8 +1612,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     val caretScreenTop = headerRemaining + caretDocTop - editor.offsetY
                     val totalScroll = (scrollD + editor.offsetY).toFloat()
 
-                    val result = ScribeScrollPolicy.resolveContractionRestorationDelta(
-                        ScribeScrollPolicy.ContractionRestorationRequest(
+                    val result = ScribeScrollRestorationPolicy.resolveContractionRestorationDelta(
+                        ScribeScrollRestorationPolicy.ContractionRestorationRequest(
                             caretScreenBottom = caretScreenBottom,
                             caretScreenTop = caretScreenTop,
                             viewportHeight = height,
@@ -1636,7 +1628,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
                     if (result.shouldScroll) {
                         val candidateTarget = (totalScroll + result.deltaY).coerceAtLeast(0f)
-                        val validation = ScribeScrollPolicy.validateFinalTarget(
+                        val validation = ScribeScrollRestorationPolicy.validateFinalTarget(
                             targetTotalScroll = candidateTarget,
                             caretDocBottom = caretDocBottom,
                             headerHeight = headerHeight,

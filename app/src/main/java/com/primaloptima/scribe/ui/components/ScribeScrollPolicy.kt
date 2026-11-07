@@ -310,26 +310,9 @@ object ScribeScrollPolicy {
         viewportHeight: Int,
         density: Float,
         maxCanvasScroll: Int
-    ): Float {
-        val totalScroll = scrollD + offsetY
-        if (totalScroll <= 0 || viewportHeight <= 0) return 0f
-
-        // 1. Full document fit: If remaining document content fits completely within viewport
-        val totalContentHeight = headerHeight + layoutHeight
-        if (totalContentHeight <= viewportHeight) {
-            return -totalScroll.toFloat()
-        }
-
-        // 2. Physical bounds clamp: If total scroll exceeds maxCanvasScroll,
-        // smoothly clamp excess scroll so content naturally settles at maxCanvasScroll.
-        if (totalScroll > maxCanvasScroll) {
-            val excess = (totalScroll - maxCanvasScroll).toFloat()
-            if (excess >= 1f) {
-                return -excess
-            }
-        }
-        return 0f
-    }
+    ): Float = ScribeScrollDeletionPolicy.calculateDeletionAnchorDelta(
+        headerHeight, scrollD, layoutHeight, offsetY, viewportHeight, density, maxCanvasScroll
+    )
 
     // ── Zoom & Multi-Touch Gesture Arbitration Policy ────────────────────────
     data class ZoomTransaction(
@@ -391,52 +374,19 @@ object ScribeScrollPolicy {
         }
     }
 
-    // ── Deletion Transaction & Intent Reconciliation Model ───────────────────
-    data class DeletionSnapshot(
-        val transactionEpoch: Long,
-        val isSelection: Boolean,
-        val selectionStartLine: Int,
-        val selectionEndLine: Int,
-        val preEditDocLineCount: Int,
-        val preEditDocHeight: Float,
-        val preEditScrollY: Float,
-        val preEditCaretScreenY: Float,
-        val wasAtTail: Boolean,
-        val affectsDocumentTail: Boolean
-    )
+    // ── Deletion Policies (Delegated to ScribeScrollDeletionPolicy) ────────────
+    typealias DeletionSnapshot = ScribeScrollDeletionPolicy.DeletionSnapshot
+    typealias DeletionAnchorIntent = ScribeScrollDeletionPolicy.DeletionAnchorIntent
 
-    enum class DeletionAnchorIntent {
-        TAIL_ANCHOR,   // User was editing at document end -> follow tail preserving breathing margin
-        CARET_ANCHOR,  // User was editing in the middle -> keep collapsed caret screen Y stationary
-        RESET_TO_TOP   // Document empty or fits entirely in view -> smoothly restore title and top
-    }
-
-    /**
-     * Issue 4: Accurately classifies deletion intent using verified pre-edit snapshot.
-     * Tail follow requires BOTH that the viewport was near the tail AND that the deletion affected the end.
-     */
     fun classifyDeletionIntent(
         snapshot: DeletionSnapshot,
         newDocLineCount: Int,
         newDocHeight: Float,
         usableViewportHeight: Float
-    ): DeletionAnchorIntent {
-        if (newDocLineCount <= 0 || newDocHeight <= usableViewportHeight) {
-            return DeletionAnchorIntent.RESET_TO_TOP
-        }
-        if (snapshot.wasAtTail && snapshot.affectsDocumentTail) {
-            return DeletionAnchorIntent.TAIL_ANCHOR
-        }
-        return DeletionAnchorIntent.CARET_ANCHOR
-    }
+    ): DeletionAnchorIntent = ScribeScrollDeletionPolicy.classifyDeletionIntent(
+        snapshot, newDocLineCount, newDocHeight, usableViewportHeight
+    )
 
-    /**
-     * Issue 3 & 4: Calculates safe deletion destination satisfying both physical bounds and breathing margin.
-     * Invariants:
-     * 1. Monotonic Non-Growth: Deletion must never scroll downward beyond current scroll.
-     * 2. Hard Breathing Margin: Last line bottom + breathing margin must not exceed usable viewport.
-     * 3. Caret Screen Invariant: Middle deletions preserve exact collapsed caret screen Y.
-     */
     fun calculateSafeDeletionDestination(
         intent: DeletionAnchorIntent,
         currentScroll: Float,
@@ -447,239 +397,45 @@ object ScribeScrollPolicy {
         usableViewportHeight: Float,
         breathingMarginPx: Float,
         maxCanvasScroll: Float
-    ): Float {
-        return when (intent) {
-            DeletionAnchorIntent.RESET_TO_TOP -> 0f
-            DeletionAnchorIntent.TAIL_ANCHOR -> {
-                // Hard 24dp breathing margin constraint above the shortcut bar / keyboard:
-                // lastLineBottom + breathingMarginPx <= usableBottom
-                val minimumSafeScroll = (headerHeight + newDocHeight + breathingMarginPx - usableViewportHeight).coerceAtLeast(0f)
-                minimumSafeScroll.coerceIn(0f, maxCanvasScroll)
-            }
-            DeletionAnchorIntent.CARET_ANCHOR -> {
-                val desiredTarget = (headerHeight + newCaretDocY - preEditCaretScreenY).coerceIn(0f, maxCanvasScroll)
-                val bounded = desiredTarget.coerceAtMost(currentScroll)
-                val targetLineBottom = (usableViewportHeight - breathingMarginPx).coerceAtLeast(0f)
-                val minSafeScroll = (headerHeight + newCaretDocY - targetLineBottom).coerceAtLeast(0f)
-                bounded.coerceAtLeast(minSafeScroll).coerceIn(0f, maxCanvasScroll)
-            }
-        }
-    }
-
-    // ── Transition-Aware Contraction Restoration Model ─────────────────────────
-
-    /**
-     * Request model for calculating automatic downward restoration when an expanded
-     * keyboard (e.g. emoji picker) or accessory drawer contracts back to normal height.
-     */
-    data class ContractionRestorationRequest(
-        val caretScreenBottom: Float,
-        val caretScreenTop: Float,
-        val viewportHeight: Int,
-        val density: Float,
-        val totalScroll: Float,
-        val temporaryDisplacement: Float = 0f,
-        val isAtLastLine: Boolean = false,
-        val isKeyboardDismissing: Boolean = false,
-        val isBottomSurfaceActive: Boolean = true
+    ): Float = ScribeScrollDeletionPolicy.calculateSafeDeletionDestination(
+        intent, currentScroll, headerHeight, newDocHeight, newCaretDocY, preEditCaretScreenY,
+        usableViewportHeight, breathingMarginPx, maxCanvasScroll
     )
 
-    /**
-     * Authoritative result model for downward contraction restoration.
-     */
-    data class ContractionRestorationResult(
-        val deltaY: Float,
-        val shouldScroll: Boolean,
-        val remainingCompensation: Float,
-        val reason: String
-    )
+    // ── Restoration Policies (Delegated to ScribeScrollRestorationPolicy) ──────
+    typealias ContractionRestorationRequest = ScribeScrollRestorationPolicy.ContractionRestorationRequest
+    typealias ContractionRestorationResult = ScribeScrollRestorationPolicy.ContractionRestorationResult
 
-    /**
-     * Diagnostic logging toggle and callback for scroll & viewport coordination.
-     */
-    var isDebugDiagnosticsEnabled: Boolean = false
-    var onScrollDiagnosticLog: ((String) -> Unit)? = null
+    var isDebugDiagnosticsEnabled: Boolean
+        get() = ScribeScrollRestorationPolicy.isDebugDiagnosticsEnabled
+        set(value) { ScribeScrollRestorationPolicy.isDebugDiagnosticsEnabled = value }
+
+    var onScrollDiagnosticLog: ((String) -> Unit)?
+        get() = ScribeScrollRestorationPolicy.onScrollDiagnosticLog
+        set(value) { ScribeScrollRestorationPolicy.onScrollDiagnosticLog = value }
 
     fun logDiagnostic(tag: String, message: String) {
-        if (isDebugDiagnosticsEnabled) {
-            onScrollDiagnosticLog?.invoke("[$tag] $message")
-        }
+        ScribeScrollRestorationPolicy.logDiagnostic(tag, message)
     }
 
-    /**
-     * Authoritative calculation for downward canvas adjustment when an expanded keyboard
-     * or accessory drawer contracts back to normal height.
-     *
-     * Invariants:
-     * 1. Pure Writer Invariant: When the keyboard is dismissing to 0dp or no bottom surface
-     *    remains active, downward scroll is STRICTLY prohibited (returns 0f). Canvas stays stationary.
-     * 2. Safe Bottom Boundary: The active caret/selection row must NEVER settle behind the
-     *    shortcut bar or keyboard surface. It settles comfortably with CURSOR_BOTTOM_MARGIN_DP (24dp).
-     * 3. Transition-Aware Compensation: If temporaryDisplacement > 0f was recorded during expansion,
-     *    it is safely restored down across ALL caret positions (first line, middle line, second-to-last, etc.).
-     * 4. 1-DOF & Bounds Respect: Clamped against totalScroll (cannot scroll past top of document)
-     *    and available slack above the breathing target line.
-     * 5. Last Line Anchor: If isAtLastLine and no temporaryDisplacement is set, the document end
-     *    smoothly anchors to the breathing margin.
-     */
     fun resolveContractionRestorationDelta(
         request: ContractionRestorationRequest
-    ): ContractionRestorationResult {
-        if (request.viewportHeight <= 0) {
-            return ContractionRestorationResult(0f, false, request.temporaryDisplacement, "Invalid viewport height")
-        }
-        if (request.isKeyboardDismissing) {
-            logDiagnostic("ContractionRestoration", "Rejected: keyboard is dismissing (Pure Writer stationary invariant)")
-            return ContractionRestorationResult(0f, false, 0f, "Keyboard dismissing")
-        }
-        if (!request.isBottomSurfaceActive) {
-            logDiagnostic("ContractionRestoration", "Rejected: no bottom surface active")
-            return ContractionRestorationResult(0f, false, 0f, "Bottom surface inactive")
-        }
-        if (request.totalScroll <= 0f) {
-            return ContractionRestorationResult(0f, false, 0f, "Document already at top")
-        }
+    ): ContractionRestorationResult = ScribeScrollRestorationPolicy.resolveContractionRestorationDelta(request)
 
-        val marginPx = (CURSOR_BOTTOM_MARGIN_DP * request.density).roundToInt()
-        val deadbandPx = (CURSOR_DEADBAND_DP * request.density).roundToInt()
-        val targetLineBottom = (request.viewportHeight - marginPx).toFloat()
-
-        // Slack between target line bottom and caret bottom.
-        // Slack between target line bottom and caret bottom.
-        // Positive slack means caret is currently sitting above targetLineBottom.
-        // Negative slack means caret is currently sitting below targetLineBottom (UNSAFE!).
-        val slack = targetLineBottom - request.caretScreenBottom
-
-        // Safety Invariant: If caret is currently below safe boundary (slack < 0f),
-        // we must not do nothing! Calculate corrective upward delta.
-        if (slack < 0f) {
-            val correctiveUp = -slack // positive upward delta
-            logDiagnostic("ContractionRestoration", "Corrective upward applied: slack=$slack, correctiveUp=$correctiveUp")
-            return ContractionRestorationResult(
-                deltaY = correctiveUp,
-                shouldScroll = true,
-                remainingCompensation = request.temporaryDisplacement,
-                reason = "Corrective upward to safe boundary"
-            )
-        }
-
-        // Caret is sitting right at the safe boundary (within deadband above targetLineBottom)
-        if (slack <= deadbandPx) {
-            logDiagnostic("ContractionRestoration", "Zero delta: caret already at safe boundary (slack=$slack)")
-            return ContractionRestorationResult(0f, false, request.temporaryDisplacement, "Caret already at safe boundary")
-        }
-
-        // Determine intended downward delta (negative deltaY moves canvas down)
-        val intendedDown = when {
-            request.temporaryDisplacement > 0f -> -request.temporaryDisplacement
-            request.isAtLastLine -> -slack
-            else -> 0f
-        }
-
-        if (intendedDown >= 0f) {
-            return ContractionRestorationResult(0f, false, request.temporaryDisplacement, "No intended downward movement")
-        }
-
-        // Safe clamping:
-        // 1. Must never move caret lower than targetLineBottom: maximum safe downward is -slack
-        val safeDown = maxOf(intendedDown, -slack)
-
-        // 2. Must never scroll past the document top: maximum downward is -totalScroll
-        val clampedDown = maxOf(safeDown, -request.totalScroll)
-
-        if (clampedDown < -deadbandPx) {
-            val restoredAmount = -clampedDown
-            val remaining = (request.temporaryDisplacement - restoredAmount).coerceAtLeast(0f)
-            logDiagnostic(
-                "ContractionRestoration",
-                "Applied: deltaY=$clampedDown, intended=$intendedDown, slack=$slack, remainingCompensation=$remaining"
-            )
-            return ContractionRestorationResult(
-                deltaY = clampedDown,
-                shouldScroll = true,
-                remainingCompensation = remaining,
-                reason = "Restoration applied"
-            )
-        }
-
-        return ContractionRestorationResult(0f, false, request.temporaryDisplacement, "Delta within deadband")
-    }
-
-    /**
-     * Calculates the downward canvas adjustment when the viewport expands (e.g. accessory drawer collapses,
-     * emoji keyboard closes, or bottom obstruction shrinks).
-     *
-     * If the cursor is positioned on the last line of the document, the last line smoothly follows
-     * the shortcut bar downward maintaining the breathing gap (24dp).
-     * If the user is editing in the middle or upper parts of the document, no downward adjustment is made (returns 0f).
-     *
-     * @param lastLineDocBottom The measured bottom coordinate of the last line in document coordinates
-     * @param headerHeight Measured height of the document header view
-     * @param scrollD Current header displacement
-     * @param offsetY Current editor scroll offset
-     * @param viewportHeight The new, expanded usable viewport height
-     * @param density Screen display metrics density
-     * @param isAtLastLine Whether the cursor is currently on the final line of the document
-     * @return Negative deltaY to smoothly pull the canvas down, or 0f if no adjustment needed
-     */
-
-    // ── Selection & Caret Coordinate Models ───────────────────────────────────
-
-    /**
-     * Unified geometry description for cursor or selection bounds in document coordinates.
-     * Accurately distinguishes vertical top/bottom from horizontal left/right,
-     * and accounts for multi-line selection endpoints.
-     */
-    data class SelectionGeometry(
-        val topDocY: Float,
-        val bottomDocY: Float,
-        val leftDocX: Float,
-        val rightDocX: Float,
-        val isSelected: Boolean,
-        val anchorLine: Int,
-        val focusLine: Int
-    )
-
-    data class SafeTargetValidationResult(
-        val isSafe: Boolean,
-        val finalCaretScreenBottom: Float,
-        val targetLineBottom: Float,
-        val correctiveDeltaY: Float
-    )
-
-    /**
-     * Validates whether a proposed total scroll position places the caret safely at or above
-     * the breathing margin line. If the final position would violate the boundary (slack < 0f),
-     * calculates the necessary corrective upward delta so the caret settles with at least 24dp of clearance.
-     */
     fun validateFinalTarget(
         targetTotalScroll: Float,
         caretDocBottom: Float,
         headerHeight: Int,
         viewportHeight: Int,
         density: Float
-    ): SafeTargetValidationResult {
-        val marginPx = (CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
-        val targetLineBottom = (viewportHeight - marginPx).toFloat()
-        val finalCaretBottom = (headerHeight + caretDocBottom - targetTotalScroll)
-        val slack = targetLineBottom - finalCaretBottom
+    ): SafeTargetValidationResult = ScribeScrollRestorationPolicy.validateFinalTarget(
+        targetTotalScroll, caretDocBottom, headerHeight, viewportHeight, density
+    )
 
-        return if (slack < 0f) {
-            SafeTargetValidationResult(
-                isSafe = false,
-                finalCaretScreenBottom = finalCaretBottom,
-                targetLineBottom = targetLineBottom,
-                correctiveDeltaY = -slack
-            )
-        } else {
-            SafeTargetValidationResult(
-                isSafe = true,
-                finalCaretScreenBottom = finalCaretBottom,
-                targetLineBottom = targetLineBottom,
-                correctiveDeltaY = 0f
-            )
-        }
-    }
+    // ── Geometry Models (Delegated to ScribeScrollGeometry) ───────────────────
+    typealias SelectionGeometry = com.primaloptima.scribe.ui.components.SelectionGeometry
+    typealias SafeTargetValidationResult = com.primaloptima.scribe.ui.components.SafeTargetValidationResult
+    typealias CursorTargetResolution = com.primaloptima.scribe.ui.components.CursorTargetResolution
 
     enum class ScrollAnimationReason {
         CARET_VISIBILITY,
@@ -1114,27 +870,9 @@ object ScribeScrollPolicy {
         viewportHeight: Int,
         density: Float,
         isAtLastLine: Boolean
-    ): Float {
-        if (!isAtLastLine || viewportHeight <= 0) return 0f
-        val totalScroll = (scrollD + offsetY).toFloat()
-        if (totalScroll <= 0f) return 0f
-
-        val screenBottom = (headerHeight - scrollD) + lastLineDocBottom - offsetY
-        val result = resolveContractionRestorationDelta(
-            ContractionRestorationRequest(
-                caretScreenBottom = screenBottom,
-                caretScreenTop = screenBottom - (20f * density),
-                viewportHeight = viewportHeight,
-                density = density,
-                totalScroll = totalScroll,
-                temporaryDisplacement = 0f,
-                isAtLastLine = isAtLastLine,
-                isKeyboardDismissing = false,
-                isBottomSurfaceActive = true
-            )
-        )
-        return result.deltaY
-    }
+    ): Float = ScribeScrollRestorationPolicy.calculateLastLineFollowDelta(
+        lastLineDocBottom, headerHeight, scrollD, offsetY, viewportHeight, density, isAtLastLine
+    )
 
     /**
      * Calculates the safe maximum vertical scroll for the editor layout, accounting for
@@ -1235,12 +973,6 @@ object ScribeScrollPolicy {
         return leftLine == 0 && leftCol == 0 &&
                 (rightLine > lineCount - 1 || (rightLine == lineCount - 1 && rightCol >= lastLineColCount))
     }
-
-    data class CursorTargetResolution(
-        val line: Int,
-        val column: Int,
-        val shouldScroll: Boolean
-    )
 
     /**
      * Resolves the coordinate target for cursor visibility positioning.
