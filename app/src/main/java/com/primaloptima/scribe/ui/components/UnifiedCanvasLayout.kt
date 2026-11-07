@@ -204,6 +204,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     val scroller: OverScroller get() = inputController.scroller
     val isDraggingCanvas: Boolean get() = inputController.isDraggingCanvas
+    val lastTouchX: Float get() = inputController.lastTouchX
+    val lastTouchY: Float get() = inputController.lastTouchY
 
     val isAnyHandleActive: Boolean
         get() = editor.isHandleDragging || inputController.isTouchOnHandleActive
