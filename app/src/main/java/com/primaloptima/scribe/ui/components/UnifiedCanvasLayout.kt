@@ -519,7 +519,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     companion object {
         val FastOutSlowInInterpolator: android.view.animation.Interpolator =
-            com.primaloptima.scribe.ui.components.FastOutSlowInInterpolator
+            com.primaloptima.scribe.ui.editor.scroll.FastOutSlowInInterpolator
     }
 
     fun startAuthoritativeScrollAnimation(
