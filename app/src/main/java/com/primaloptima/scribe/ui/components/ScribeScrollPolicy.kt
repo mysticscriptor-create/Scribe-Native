@@ -688,11 +688,27 @@ object ScribeScrollPolicy {
 
         val screenBottom = headerHeight + caretDocBottom - currentScrollY
         val screenTop = headerHeight + caretDocTop - currentScrollY
-        val isSafeAtCurrent = screenTop >= -deadbandPx && screenBottom <= (targetLineBottom + deadbandPx)
 
+        // If planned target is heading towards a safe resting position in settled viewport,
+        // let the glide complete smoothly rather than cancelling prematurely!
+        if (plannedTargetScrollY >= 0f) {
+            val plannedScreenBottom = headerHeight + caretDocBottom - plannedTargetScrollY
+            val plannedScreenTop = headerHeight + caretDocTop - plannedTargetScrollY
+            val isPlannedSafe = plannedScreenTop >= -deadbandPx && plannedScreenBottom <= (targetLineBottom + deadbandPx)
+            if (isPlannedSafe) {
+                return SettledReconciliationResult.NoOp
+            }
+        }
+
+        val isSafeAtCurrent = screenTop >= -deadbandPx && screenBottom <= (targetLineBottom + deadbandPx)
         if (isSafeAtCurrent) {
             return if (plannedTargetScrollY >= 0f && kotlin.math.abs(plannedTargetScrollY - currentScrollY) > 1f) {
-                SettledReconciliationResult.CancelOvershoot
+                val plannedScreenTop = headerHeight + caretDocTop - plannedTargetScrollY
+                if (plannedScreenTop < -deadbandPx) {
+                    SettledReconciliationResult.CancelOvershoot
+                } else {
+                    SettledReconciliationResult.NoOp
+                }
             } else {
                 SettledReconciliationResult.NoOp
             }
@@ -946,7 +962,7 @@ object ScribeScrollPolicy {
         val targetTemp = if (request.isSurfaceExpanded) {
             requiredFromPersistent
         } else {
-            (safety.targetTotalScroll - request.currentPersistentScroll).coerceAtLeast(0f)
+            0f
         }
 
         val maxAllowed = maxOf(0f, request.maxCanvasScroll)
@@ -1565,6 +1581,13 @@ object ScribeScrollPolicy {
         fun recordUserScrollDelta(actualMoved: Float, maxCanvasScroll: Float = Float.MAX_VALUE) {
             cancelAnimation("User manual scroll", activeOperationId)
             persistentScrollPosition = (persistentScrollPosition + actualMoved).coerceIn(0f, maxOf(0f, maxCanvasScroll))
+            // If user manually scrolls during expanded state, fold temporary displacement into persistent
+            // so subsequent retraction does not move or leave document stuck:
+            if (temporaryViewportAdjustment > 0f) {
+                persistentScrollPosition = (persistentScrollPosition + temporaryViewportAdjustment).coerceIn(0f, maxOf(0f, maxCanvasScroll))
+                temporaryViewportAdjustment = 0f
+                isAnchorValid = false
+            }
         }
 
         fun onViewportAdjustmentSettled(isSurfaceExpanded: Boolean, forceFold: Boolean = false) {

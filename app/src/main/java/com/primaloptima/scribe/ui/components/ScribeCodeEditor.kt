@@ -1544,21 +1544,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
             isZoomGestureActive = false
         }
         if (event.actionMasked == MotionEvent.ACTION_UP) {
-            val dt = System.currentTimeMillis() - touchDownTime
-            val wasTap = !isTouchMoved && dt < 450L
-            if (wasTap && !isPinchScaling && !isHandleDragging && !isInteractingWithImage) {
-                val pCanvas = parentCanvas
-                if (pCanvas != null && (pCanvas.isKeyboardVisible || pCanvas.isBottomSurfaceActive) && !pCanvas.isKeyboardTransactionActive) {
-                    // Viewport is already contracted: perform ordinary caret visibility check with TAP_PLACEMENT origin
-                    // using current committed cursor geometry rather than pre-tap estimate
-                    pCanvas.ensureCursorVisibleAboveKeyboard(
-                        targetLine = null,
-                        targetCol = null,
-                        smooth = true,
-                        origin = ScribeScrollPolicy.CursorCorrectionOrigin.TAP_PLACEMENT
-                    )
-                }
-            }
+            // Sora's super.onTouchEvent already synchronously positions caret and invokes
+            // ensurePositionVisible(line, column) with TAP_PLACEMENT origin.
+            // Removing redundant secondary call prevents double-firing competing animations.
             pendingTapTargetState = ScribeScrollPolicy.TapTargetState.None
             if (isInteractingWithImage) {
                 post { isInteractingWithImage = false }
@@ -1901,7 +1889,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
             parentCanvas.ensureCursorVisibleAboveKeyboard(
                 targetLine = line,
                 targetCol = column,
-                smooth = !noAnimation,
+                smooth = !noAnimation || origin == ScribeScrollPolicy.CursorCorrectionOrigin.TAP_PLACEMENT,
                 force = true,
                 origin = origin
             )
