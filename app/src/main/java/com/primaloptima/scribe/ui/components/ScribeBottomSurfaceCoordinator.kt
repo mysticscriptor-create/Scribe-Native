@@ -257,7 +257,7 @@ object ScribeBottomSurfaceCoordinator {
                     0L
                 }
             } else if (type == TransitionType.DRAWER_CONTRACTION) {
-                if (currentTransition.type == TransitionType.DRAWER_EXPANSION || currentTransition.type == TransitionType.DRAWER_OPENING) {
+                if (currentTransition.type == TransitionType.DRAWER_EXPANSION) {
                     currentTransition.generation
                 } else if (currentTransition.type == TransitionType.DRAWER_CONTRACTION &&
                     currentTransition.linkedExpansionGeneration != 0L &&

@@ -946,7 +946,7 @@ object ScribeScrollPolicy {
         val targetTemp = if (request.isSurfaceExpanded) {
             requiredFromPersistent
         } else {
-            0f
+            (safety.targetTotalScroll - request.currentPersistentScroll).coerceAtLeast(0f)
         }
 
         val maxAllowed = maxOf(0f, request.maxCanvasScroll)

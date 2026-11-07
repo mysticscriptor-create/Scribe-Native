@@ -427,7 +427,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     fun notifyDrawerOpeningStarting(targetObstructionPx: Float) {
         contractionRestoredBudgetPx = 0f
-        isExpansionTransitionActive = true
+        isExpansionTransitionActive = false
         transitionCoordinator.startTransition(
             type = ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_OPENING,
             startingObstructionPx = 0f,
@@ -546,6 +546,17 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
         val usableWritingHeight = h.coerceAtLeast(0f)
+
+        val currentScroll = (scrollD + editor.offsetY).toFloat()
+        val caretScreenTop = headerHeight + caretDocTop - currentScroll
+        val caretScreenBottom = headerHeight + caretDocBottom - currentScroll
+        val isCaretInView = caretScreenBottom >= 0f && caretScreenTop <= h
+        if (!isCaretInView) {
+            if (!isExpanded) {
+                scrollCoordinator.onViewportAdjustmentSettled(isSurfaceExpanded = false, forceFold = true)
+            }
+            return
+        }
 
         val maxCanvas = maxCanvasScroll.toFloat()
         val request = ScribeScrollPolicy.ViewportAdjustmentRequest(
@@ -2268,8 +2279,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
         if (deltaY > ScribeScrollPolicy.DRAG_THRESHOLD_DP) {
             val isActualExpansion = transitionCoordinator.currentTransition.type == ScribeBottomSurfaceCoordinator.TransitionType.KEYBOARD_EXPANDED ||
-                                    transitionCoordinator.currentTransition.type == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_EXPANSION ||
-                                    transitionCoordinator.currentTransition.type == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_OPENING
+                                    transitionCoordinator.currentTransition.type == ScribeBottomSurfaceCoordinator.TransitionType.DRAWER_EXPANSION
             isExpansionTransitionActive = isActualExpansion
             if (isActualExpansion) {
                 resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
@@ -2648,31 +2658,39 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                                     }
 
                                     val currentScroll = (scrollD + editor.offsetY).toFloat()
-                                    val decision = ScribeScrollPolicy.resolveCursorSafety(
-                                        rectTop = caretDocTop,
-                                        rectBottom = caretDocBottom,
-                                        headerHeight = headerHeight.toFloat(),
-                                        currentTotalScroll = currentScroll,
-                                        usableViewportHeight = h.toFloat(),
-                                        density = resources.displayMetrics.density,
-                                        maxCanvasScroll = maxCanvasScroll.toFloat(),
-                                        allowDownwardForTopUnderflow = false
-                                    )
+                                    val caretScreenTop = headerHeight + caretDocTop - currentScroll
+                                    val caretScreenBottom = headerHeight + caretDocBottom - currentScroll
+                                    val isCaretInView = caretScreenBottom >= 0f && caretScreenTop <= oldh.toFloat()
 
-                                    if (!decision.isSafe && decision.neededUpwardDisplacement > (ScribeScrollPolicy.CURSOR_DEADBAND_DP * resources.displayMetrics.density)) {
-                                        val targetLine = if (isAllSelected) cur.rightLine else cur.leftLine
-                                        val targetCol = if (isAllSelected) cur.rightColumn else cur.leftColumn
-                                        val preAnimationScroll = (scrollD + editor.offsetY).toFloat()
-                                        if (isExpansionTransitionActive) {
-                                            scrollCoordinator.setCompensationAnchor(targetLine, targetCol, targetLine, targetCol, cur.isSelected, currentTx.generation)
-                                        }
-                                        startAuthoritativeScrollAnimation(
-                                            targetTotalScroll = decision.targetTotalScroll,
-                                            reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
-                                            durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
+                                    if (isActualExpansion && !isCaretInView) {
+                                        // Caret was scrolled out of view during expanded state; do not move document
+                                    } else {
+                                        val decision = ScribeScrollPolicy.resolveCursorSafety(
+                                            rectTop = caretDocTop,
+                                            rectBottom = caretDocBottom,
+                                            headerHeight = headerHeight.toFloat(),
+                                            currentTotalScroll = currentScroll,
+                                            usableViewportHeight = h.toFloat(),
+                                            density = resources.displayMetrics.density,
+                                            maxCanvasScroll = maxCanvasScroll.toFloat(),
+                                            allowDownwardForTopUnderflow = false
                                         )
+
+                                        if (!decision.isSafe && decision.neededUpwardDisplacement > (ScribeScrollPolicy.CURSOR_DEADBAND_DP * resources.displayMetrics.density)) {
+                                            val targetLine = if (isAllSelected) cur.rightLine else cur.leftLine
+                                            val targetCol = if (isAllSelected) cur.rightColumn else cur.leftColumn
+                                            val preAnimationScroll = (scrollD + editor.offsetY).toFloat()
+                                            if (isExpansionTransitionActive) {
+                                                scrollCoordinator.setCompensationAnchor(targetLine, targetCol, targetLine, targetCol, cur.isSelected, currentTx.generation)
+                                            }
+                                            startAuthoritativeScrollAnimation(
+                                                targetTotalScroll = decision.targetTotalScroll,
+                                                reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+                                                durationMs = ScribeScrollPolicy.DURATION_ENSURE_CURSOR_MS
+                                            )
+                                        }
+                                        // Strict Invariant: If isCurrentlySafe, do ABSOLUTELY NOTHING. Safe cursor never moves!
                                     }
-                                    // Strict Invariant: If isCurrentlySafe, do ABSOLUTELY NOTHING. Safe cursor never moves!
                                 }
                             }
                         }
