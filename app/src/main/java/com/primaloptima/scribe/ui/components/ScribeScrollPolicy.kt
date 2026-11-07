@@ -2,16 +2,6 @@ package com.primaloptima.scribe.ui.components
 
 import kotlin.math.roundToInt
 
-typealias SelectionGeometry = com.primaloptima.scribe.ui.components.SelectionGeometry
-typealias SafeTargetValidationResult = com.primaloptima.scribe.ui.components.SafeTargetValidationResult
-typealias CursorTargetResolution = com.primaloptima.scribe.ui.components.CursorTargetResolution
-typealias ScrollAnimationReason = com.primaloptima.scribe.ui.components.ScrollAnimationReason
-typealias ScribeScrollCoordinator = com.primaloptima.scribe.ui.components.ScribeScrollCoordinator
-typealias AuthoritativeScrollCoordinator = com.primaloptima.scribe.ui.components.AuthoritativeScrollCoordinator
-typealias AnimationDriver = com.primaloptima.scribe.ui.components.AnimationDriver
-typealias ProductionScrollAnimationCoordinator = com.primaloptima.scribe.ui.components.ProductionScrollAnimationCoordinator
-typealias ScribeCanvasGlideAnimator = com.primaloptima.scribe.ui.components.ScribeCanvasGlideAnimator
-
 /**
  * Unified Scroll & Viewport Positioning Policy for Scribe.
  *
@@ -417,15 +407,15 @@ object ScribeScrollPolicy {
     typealias ContractionRestorationResult = ScribeScrollRestorationPolicy.ContractionRestorationResult
 
     var isDebugDiagnosticsEnabled: Boolean
-        get() = ScribeScrollRestorationPolicy.isDebugDiagnosticsEnabled
-        set(value) { ScribeScrollRestorationPolicy.isDebugDiagnosticsEnabled = value }
+        get() = ScribeScrollDiagnostics.isDebugDiagnosticsEnabled
+        set(value) { ScribeScrollDiagnostics.isDebugDiagnosticsEnabled = value }
 
     var onScrollDiagnosticLog: ((String) -> Unit)?
-        get() = ScribeScrollRestorationPolicy.onScrollDiagnosticLog
-        set(value) { ScribeScrollRestorationPolicy.onScrollDiagnosticLog = value }
+        get() = ScribeScrollDiagnostics.onScrollDiagnosticLog
+        set(value) { ScribeScrollDiagnostics.onScrollDiagnosticLog = value }
 
     fun logDiagnostic(tag: String, message: String) {
-        ScribeScrollRestorationPolicy.logDiagnostic(tag, message)
+        ScribeScrollDiagnostics.log(tag, message)
     }
 
     fun resolveContractionRestorationDelta(
@@ -446,17 +436,6 @@ object ScribeScrollPolicy {
     typealias SelectionGeometry = com.primaloptima.scribe.ui.components.SelectionGeometry
     typealias SafeTargetValidationResult = com.primaloptima.scribe.ui.components.SafeTargetValidationResult
     typealias CursorTargetResolution = com.primaloptima.scribe.ui.components.CursorTargetResolution
-
-    typealias ScrollAnimationReason = com.primaloptima.scribe.ui.components.ScrollAnimationReason
-    typealias ScribeScrollCoordinator = com.primaloptima.scribe.ui.components.ScribeScrollCoordinator
-    typealias AuthoritativeScrollCoordinator = com.primaloptima.scribe.ui.components.AuthoritativeScrollCoordinator
-
-    // ── Animation Abstractions (Delegated to ScribeScrollAnimation) ───────────
-    interface AnimationDriver : com.primaloptima.scribe.ui.components.AnimationDriver
-    open class ProductionScrollAnimationCoordinator(
-        scrollCoordinator: AuthoritativeScrollCoordinator,
-        animationDriverFactory: (() -> com.primaloptima.scribe.ui.components.AnimationDriver)? = null
-    ) : com.primaloptima.scribe.ui.components.ProductionScrollAnimationCoordinator(scrollCoordinator, animationDriverFactory)
 
     /**
      * Deterministic simulation controller for testing contraction restoration, retargeting,

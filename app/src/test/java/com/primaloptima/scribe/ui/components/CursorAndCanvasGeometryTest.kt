@@ -2220,7 +2220,7 @@ class CursorAndCanvasGeometryTest {
      * Test animation driver simulating Android's ValueAnimator lifecycle
      * where cancel() synchronously triggers onAnimationCancel followed by onAnimationEnd.
      */
-    private class TestAnimationDriver : ScribeScrollPolicy.AnimationDriver {
+    private class TestAnimationDriver : AnimationDriver {
         var isStarted = false
         var fromVal = 0f
         var toVal = 0f
@@ -2278,7 +2278,7 @@ class CursorAndCanvasGeometryTest {
         // and verify the coordinator continues driving to the new destination.
         val coordinator = ScribeScrollCoordinator(totalScroll = 100f)
         val drivers = mutableListOf<TestAnimationDriver>()
-        val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
+        val productionCoordinator = ProductionScrollAnimationCoordinator(
             scrollCoordinator = coordinator,
             animationDriverFactory = {
                 val d = TestAnimationDriver()
@@ -2338,7 +2338,7 @@ class CursorAndCanvasGeometryTest {
         // without accumulating relative errors, and verify sub-deadband changes do not restart or hitch.
         val coordinator = ScribeScrollCoordinator(totalScroll = 100f)
         val drivers = mutableListOf<TestAnimationDriver>()
-        val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
+        val productionCoordinator = ProductionScrollAnimationCoordinator(
             scrollCoordinator = coordinator,
             animationDriverFactory = {
                 val d = TestAnimationDriver()
@@ -2403,7 +2403,7 @@ class CursorAndCanvasGeometryTest {
         }
 
         val drivers = mutableListOf<TestAnimationDriver>()
-        val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
+        val productionCoordinator = ProductionScrollAnimationCoordinator(
             scrollCoordinator = coordinator,
             animationDriverFactory = {
                 val d = TestAnimationDriver()
@@ -2633,7 +2633,7 @@ class CursorAndCanvasGeometryTest {
         // without hitching or relative-delta accumulation.
         val coordinator = ScribeScrollCoordinator(totalScroll = 200f)
         val drivers = mutableListOf<TestAnimationDriver>()
-        val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
+        val productionCoordinator = ProductionScrollAnimationCoordinator(
             scrollCoordinator = coordinator,
             animationDriverFactory = {
                 val d = TestAnimationDriver()
@@ -2681,7 +2681,7 @@ class CursorAndCanvasGeometryTest {
             caretCol = 4
         )
         val drivers = mutableListOf<TestAnimationDriver>()
-        val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
+        val productionCoordinator = ProductionScrollAnimationCoordinator(
             scrollCoordinator = coordinator,
             animationDriverFactory = {
                 val d = TestAnimationDriver()
@@ -2722,7 +2722,7 @@ class CursorAndCanvasGeometryTest {
         // Point 9.8: Rapid toggling between expanded and collapsed states does not accumulate drift or fight itself.
         val coordinator = ScribeScrollCoordinator(totalScroll = 1000f)
         val drivers = mutableListOf<TestAnimationDriver>()
-        val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
+        val productionCoordinator = ProductionScrollAnimationCoordinator(
             scrollCoordinator = coordinator,
             animationDriverFactory = {
                 val d = TestAnimationDriver()
@@ -2817,7 +2817,7 @@ class CursorAndCanvasGeometryTest {
         val coordinator = ScribeScrollCoordinator(totalScroll = 100f)
         coordinator.onScrollBy = { delta -> 0f } // all delta consumed
         val drivers = mutableListOf<TestAnimationDriver>()
-        val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
+        val productionCoordinator = ProductionScrollAnimationCoordinator(
             scrollCoordinator = coordinator,
             animationDriverFactory = {
                 val d = TestAnimationDriver()
@@ -2897,7 +2897,7 @@ class CursorAndCanvasGeometryTest {
         val coordinator = ScribeScrollCoordinator(totalScroll = 500f)
         coordinator.onScrollBy = { 0f }
         val drivers = mutableListOf<TestAnimationDriver>()
-        val productionCoordinator = ScribeScrollPolicy.ProductionScrollAnimationCoordinator(
+        val productionCoordinator = ProductionScrollAnimationCoordinator(
             scrollCoordinator = coordinator,
             animationDriverFactory = {
                 val d = TestAnimationDriver()

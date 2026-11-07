@@ -326,8 +326,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     fun invalidateCompensation(reason: String? = null) {
         cancelRestoration()
         scrollCoordinator.invalidateCompensation(reason)
-        if (reason != null && ScribeScrollPolicy.isDebugDiagnosticsEnabled) {
-            ScribeScrollPolicy.logDiagnostic("Compensation", "Invalidated: $reason")
+        if (reason != null && ScribeScrollDiagnostics.isDebugDiagnosticsEnabled) {
+            ScribeScrollDiagnostics.log("Compensation", "Invalidated: $reason")
         }
     }
 

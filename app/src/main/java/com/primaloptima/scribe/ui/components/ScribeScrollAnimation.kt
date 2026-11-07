@@ -32,7 +32,7 @@ interface AnimationDriver {
  * with an AnimationDriver. Enforces monotonic operation ID tracking and race-free
  * cancellation / retargeting without stale callback interference.
  */
-open class ProductionScrollAnimationCoordinator(
+class ProductionScrollAnimationCoordinator(
     val scrollCoordinator: AuthoritativeScrollCoordinator,
     var animationDriverFactory: (() -> AnimationDriver)? = null
 ) {

@@ -108,11 +108,12 @@ The newly extracted `ScribeScrollAnimation.kt` contains two cleanly isolated ani
    - Viewport measurement and drawing logic remains exclusively at the View boundary.
 
 2. **`ScribeScrollPolicy.kt`:**
-   - Retains top-level and inner typealiases/bridges for `AnimationDriver` and `ProductionScrollAnimationCoordinator`.
-   - No breaking changes for any test or legacy callers.
+   - Kept pure and stateless: removed redundant package-level typealiases to eliminate Kotlin redeclaration conflicts.
+   - Delegates scoped diagnostics directly to `ScribeScrollDiagnostics`.
+   - Delegates geometry and restoration models cleanly to their dedicated policy/geometry files.
 
 3. **`CursorAndCanvasGeometryTest.kt`:**
-   - Resolves `AnimationDriver` and `ProductionScrollAnimationCoordinator` cleanly from `ScribeScrollAnimation.kt` / `ScribeScrollPolicy`.
+   - Updated test callers to resolve `AnimationDriver` and `ProductionScrollAnimationCoordinator` directly from `ScribeScrollAnimation.kt` without intermediate shims.
 
 ---
 
