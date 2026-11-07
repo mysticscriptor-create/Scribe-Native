@@ -409,3 +409,405 @@ Do **not** perform a large-scale refactor or introduce a third scrolling coordin
 1. **Remove Vestigial Ledger Mutations**: Cleanly deprecate and remove the obsolete `transitionCoordinator.recordExpansionDisplacement()` and `consumeAppliedMovement()` callbacks inside `UnifiedCanvasLayout.kt`, leaving `AuthoritativeScrollCoordinator` as the sole owner of `temporaryViewportAdjustment`.
 2. **Consolidate Preserved Dismissal Scroll**: Eliminate `genericRetainedScroll` in `UnifiedCanvasLayout.kt` and standardize on `transitionCoordinator.preservedDismissalScroll` as the single authoritative storage for stationary dismissal positions.
 3. **Eliminate Redundant Post-Tap Dispatch**: In `ScribeCodeEditor.onTouchEvent(ACTION_UP)`, remove the redundant call to `pCanvas.ensureCursorVisibleAboveKeyboard()`, relying on Sora's standard `ensurePositionVisible()` dispatch to avoid double-evaluating cursor safety on every tap.
+
+# SCROLL_TAP_REGRESSION_ADDENDUM: Scribe Native Tap & Viewport Regression Audit
+
+---
+
+## 1. Current Repository HEAD
+
+- **Inspected Commit SHA**: `7b4d88ece2e3fad43ef69cfa1d6f00cd4273000f`
+- **Branch**: `main`
+- **Sora Editor Dependency**: `io.github.rosemoe.sora:editor:0.24.6` (declared in `gradle/libs.versions.toml:44, 102`)
+- **Inspection Constraints**: Strictly read-only static analysis and mathematical coordinate verification against production sources.
+
+---
+
+## 2. Verified Tap Event Sequence
+
+### Sequence A: Soft Keyboard Currently Hidden (Entrance Flow)
+
+When the user taps text in the editor while the keyboard is dismissed, the exact production sequence is:
+
+1. **`UnifiedCanvasLayout.dispatchTouchEvent(ACTION_DOWN)`** (`UnifiedCanvasLayout.kt:2934`):
+   - Sets `isUserTouching = true` (`line 2936`).
+   - `cancelViewportSafetyAnimation()` aborts active `CARET_VISIBILITY` or `PREDICTIVE_GLIDE` glides (`line 2946`).
+   - Forwards event to children (`line 3020`).
+2. **`ScribeCodeEditor.onTouchEvent(ACTION_DOWN)`** (`ScribeCodeEditor.kt:1443`):
+   - Records `touchDownX`, `touchDownY`, `touchDownTime`.
+   - `isTouchMoved = false`.
+   - Invokes `parentCanvas?.cancelCanvasAnimation()` and `stopFling()`.
+3. **`UnifiedCanvasLayout.dispatchTouchEvent(ACTION_UP)`** (`UnifiedCanvasLayout.kt:2990`):
+   - Sets **`isUserTouching = false`** (`line 2993`) **before** calling `super.dispatchTouchEvent(ev)` (`line 3020`).
+4. **`ScribeCodeEditor.onTouchEvent(ACTION_UP)`** (`ScribeCodeEditor.kt:1487`):
+   - Detects short tap: `dt < 450ms`, `!isTouchMoved`.
+   - Sets `pendingCorrectionOrigin = CursorCorrectionOrigin.TAP_PLACEMENT` (`line 1513`).
+   - Resolves **pre-tap estimated caret** via `getPointVisualPositionOnScreen(event.x, event.y)` (`line 1515`).
+   - Sets `pendingTapTargetState = TapTargetState.Resolved(visualPos.line, visualPos.column)` (`line 1520`).
+   - Calls Sora's **`super.onTouchEvent(event)`** (`line 1526`).
+5. **Sora `EditorTouchEventHandler.onSingleTapUp()`** (`sora-editor:0.24.6:878-896`):
+   - **Step 5a**: Calls `editor.showSoftInput()`.
+     - In `ScribeCodeEditor.showSoftInput()` (`ScribeCodeEditor.kt:1835`):
+       - Because keyboard is hidden, calls `pCanvas.notifyKeyboardEntranceStarting(targetLine = pendingTapTargetLine, targetCol = pendingTapTargetCol)`.
+       - `UnifiedCanvasLayout.notifyKeyboardEntranceStarting()` (`UnifiedCanvasLayout.kt:1161`):
+         - Begins `KeyboardTransaction` with `targetLine`, `targetCol`.
+         - Calls `predictivelyGlideCursorAboveKeyboard()` (`UnifiedCanvasLayout.kt:2159`).
+         - **Viewport**: Uses **predicted future viewport** (`targetEditorViewportHeightPx` or `height - estimatedKeyboardHeightPx`).
+         - **Caret**: Uses **pre-tap estimated caret** (`targetLine`/`targetCol`).
+         - Starts `startAuthoritativeScrollAnimation(reason = PREDICTIVE_GLIDE)` (`line 2287`).
+     - Calls `super.showSoftInput()`.
+   - **Step 5b**: Calls `editor.setSelection(line, column, CAUSE_TAP)` (`EditorTouchEventHandler.java:886`).
+     - Updates internal caret to **committed Sora caret**.
+     - Because `makeItVisible = true`, calls `editor.ensurePositionVisible(line, column)` (`CodeEditor.java:3565`).
+     - In `ScribeCodeEditor.ensurePositionVisible()` (`ScribeCodeEditor.kt:1848`):
+       - Sees `parentCanvas.isKeyboardTransactionActive == true` (`line 1894`).
+       - Reconciles transaction target with the committed caret: `parentCanvas.reconcileActiveTransactionTarget(line, column)` (`line 1897`).
+     - Fires `SelectionChangeEvent` (`CodeEditor.java:3568`).
+   - **Step 5c**: Selection listener in `ScribeCodeEditor.kt:251`:
+     - Calls `UnifiedCanvasLayout.notifySelectionChangedWithProvenance(...)`.
+     - Updates `scrollCoordinator.caretLine` and `caretCol`.
+     - Checks `if (!isUserTouching && !isDraggingCanvas)`. Since `isUserTouching` was already cleared in step 3, calls `evaluateViewportAdjustment()`.
+     - In `evaluateViewportAdjustment()`: `if (isKeyboardTransactionActive) return` guards against starting a competing glide.
+6. **`ScribeCodeEditor.onTouchEvent(ACTION_UP)` continues** (`ScribeCodeEditor.kt:1546`):
+   - Checks `if (!pCanvas.isKeyboardTransactionActive)` (`line 1551`). Since transaction is active, skips the secondary dispatch.
+   - Clears `pendingTapTargetState = None`.
+7. **`onSizeChanged()` runs as OS animates IME insets** (`UnifiedCanvasLayout.kt:2570`):
+   - `dh > 0` (viewport shrinks).
+   - Because `isKeyboardTransactionActive == true`, intermediate frames do not start generic visibility glides (`line 2610`).
+8. **IME settlement via `snapshotFlow`** (`MainEditorScreen.kt:403`):
+   - Calls `unifiedCanvasRef.notifyImeSettledAtTarget()`.
+   - `reconcileActiveTransactionSettledViewport()` (`line 1415`) checks final layout against **actual measured viewport** (`height`), bleeding residual velocity or performing a final retarget if necessary.
+
+---
+
+### Sequence B: Soft Keyboard Already Visible and Settled
+
+When the user taps another line while the keyboard is already open:
+
+1. **`UnifiedCanvasLayout.dispatchTouchEvent(ACTION_DOWN)`**:
+   - `isUserTouching = true`.
+   - `cancelViewportSafetyAnimation()` aborts any active `CARET_VISIBILITY` or `PREDICTIVE_GLIDE` animation (`line 2946`).
+2. **`UnifiedCanvasLayout.dispatchTouchEvent(ACTION_UP)`**:
+   - `isUserTouching = false` (`line 2993`).
+3. **`ScribeCodeEditor.onTouchEvent(ACTION_UP)`**:
+   - Sets `pendingCorrectionOrigin = TAP_PLACEMENT`.
+   - Calls `super.onTouchEvent(event)`.
+4. **Sora's `super.onTouchEvent(event)`**:
+   - `EditorTouchEventHandler.onSingleTapUp()` calls `editor.showSoftInput()` (no-op since keyboard is visible).
+   - Calls `editor.setSelection(line, column, CAUSE_TAP)`.
+   - Commits cursor to `(line, column)`.
+   - **Dispatch 1 (`ensurePositionVisible`)**:
+     - `ensurePositionVisible(line, column)` is called.
+     - `ScribeCodeEditor.ensurePositionVisible()` (`line 1884`):
+       - Since `isKeyboardTransactionActive == false`, calls:
+         `parentCanvas.ensureCursorVisibleAboveKeyboard(targetLine = line, targetCol = column, smooth = true, force = true, origin = TAP_PLACEMENT)`.
+       - **Caret**: Uses **committed Sora caret** `(line, column)`.
+       - **Viewport**: Uses **current measured viewport** (`height`).
+       - `resolveCursorSafety()` evaluates caret safety. If unsafe, calls `startAuthoritativeScrollAnimation(reason = CARET_VISIBILITY)`.
+   - **Dispatch 2 (`SelectionChangeEvent`)**:
+     - `SelectionChangeEvent` fires.
+     - Handler calls `notifySelectionChangedWithProvenance()` (`UnifiedCanvasLayout.kt:1049`).
+     - Because `isUserTouching == false`, runs `evaluateViewportAdjustment()`.
+     - In `evaluateViewportAdjustment()`: `resolveViewportAdjustment()` evaluates whether surface is expanded. If not expanded, `shouldScroll = false` (no-op).
+5. **`ScribeCodeEditor.onTouchEvent(ACTION_UP)` resumes after `super`** (`ScribeCodeEditor.kt:1546`):
+   - **Dispatch 3 (`post-ACTION_UP` fallback)** (`line 1554`):
+     - Checks `if ((pCanvas.isKeyboardVisible || pCanvas.isBottomSurfaceActive) && !pCanvas.isKeyboardTransactionActive)`.
+     - Calls `parentCanvas.ensureCursorVisibleAboveKeyboard(targetLine = null, targetCol = null, smooth = true, origin = TAP_PLACEMENT)`.
+     - Passes `targetLine = null, targetCol = null`, which resolves against `editor.cursor` (the committed caret).
+     - Inside `startAuthoritativeScrollAnimation()`: checks `if (|currTarget - clampedTarget| <= 1f) return`.
+
+---
+
+## 3. Last-Paragraph Downward/Upward Jump Analysis
+
+### Coordinate Proof: Can a Last-Paragraph Tap Produce `screenTop < -deadbandPx`?
+
+In `predictivelyGlideCursorAboveKeyboard()` (`UnifiedCanvasLayout.kt:2250`):
+```kotlin
+val overflow = if (screenBottom > targetLineBottom + deadbandPx) {
+    screenBottom - targetLineBottom
+} else if (screenTop < -deadbandPx) {
+    screenTop
+} else {
+    0f
+}
+```
+Where:
+$$\text{screenTop} = \text{headerHeight} - \text{scrollD} + \text{yOffsetTop} - \text{editor.offsetY} = (\text{headerHeight} + \text{yOffsetTop}) - \text{currentScroll}$$
+$$\text{deadbandPx} = 4\text{dp}$$
+
+#### Finding: A tap directly targeting text in the last paragraph CANNOT produce `screenTop < -deadbandPx`.
+- When a user touches the screen, the touch event's visual Y coordinate is bounded by the window: $0 \le y_{\text{touch}} \le \text{height}$.
+- The text row under the finger therefore has $\text{screenTop} \approx y_{\text{touch}} - \text{rowHeight} \ge -10\text{px}$.
+- For the last paragraph, $y_{\text{touch}}$ is located in the lower half of the screen ($y > 400\text{px}$). Its $\text{screenTop}$ is positive ($+300\text{px}$ to $+700\text{px}$).
+- Therefore, mathematical calculation confirms that a tap directly targeting the last paragraph will **never** satisfy `screenTop < -deadbandPx`.
+
+### Confirmed Mechanism of the Downward/Upward Jump
+
+The observed downward-then-upward jump is produced by **three specific edge cases**:
+
+#### 1. Unresolved Tap / Virtual Bottom Space Tap Falling Back to Stale Pre-Tap Caret
+- **Classification**: Confirmed source-level behavior.
+- **Trace**:
+  1. If the user taps in the virtual bottom space below the last paragraph (the `persistentBottomSpacePx` region), Sora's `getPointVisualPositionOnScreen(x, y)` cannot resolve a visual position on lines that don't exist.
+  2. If `pendingTapTargetState` evaluates to `TapTargetState.Resolved` on an empty line boundary or if `targetLine` is null, line 2194 evaluates:
+     `val line = targetLine ?: cursor?.leftLine ?: return`
+  3. If the user previously had the cursor placed at the top of the document (e.g. line 0) and scrolled down to view the last paragraph, `cursor.leftLine` is line 0.
+  4. For line 0 with document scrolled down by $1500\text{px}$:
+     $$\text{screenTop} = 0 - 1500 = -1500\text{px} \ll -4\text{dp}$$
+  5. `overflow = screenTop = -1500\text{px}`!
+  6. `desiredTarget = (1500 - 1500) = 0f`.
+  7. Predictive glide immediately launches a **downward animation** towards the top of the document!
+  8. A few frames later, Sora commits the tap to the last line (e.g. line 95), and the IME physical resize arrives.
+  9. `onSizeChanged` sees the caret at line 95 is completely occluded below the newly shrunken viewport bottom.
+  10. It fires an immediate upward correction, causing the document to **plunge downward and then violently jump upward**.
+
+#### 2. Overshoot Cancellation via Settled Reconciliation
+- **Classification**: Confirmed source-level behavior.
+- **Trace**:
+  1. In `predictivelyGlideCursorAboveKeyboard()`, predictive glide uses `futureViewportHeight` based on `estimatedKeyboardHeightPx` (fallback 270dp).
+  2. If the user's actual keyboard is shorter than the fallback (e.g., floating keyboard or standard keyboard at 220dp), the predictive glide overshoots upward by 50dp.
+  3. When the keyboard physically settles, `reconcileActiveTransactionSettledViewport()` calls `ScribeScrollPolicy.evaluateSettledReconciliation()` (`line 687`).
+  4. If `screenTop < -deadbandPx` or `isSafeAtCurrent` with `plannedTarget > currentScroll`, it emits `SettledReconciliationResult.CancelOvershoot` or retargets downward (`line 1442`).
+  5. This causes the in-flight upward glide to decelerate or pull downward, followed by a subsequent visibility correction if typing immediately starts.
+
+---
+
+## 4. Already-Safe Tap and Zero-Movement Decision Analysis
+
+### Inspection of `ScribeScrollPolicy.resolveCursorSafety()`
+
+In `ScribeScrollPolicy.kt:188-207`:
+```kotlin
+if (screenTop < -deadbandPx) {
+    if (allowDownwardForTopUnderflow && currentTotalScroll > 0f) {
+        val underflow = screenTop
+        val target = (currentTotalScroll + underflow).coerceAtLeast(0f)
+        return CursorSafetyDecision(
+            isSafe = false,
+            screenTop = screenTop,
+            screenBottom = screenBottom,
+            neededUpwardDisplacement = underflow,
+            targetTotalScroll = target
+        )
+    }
+    return CursorSafetyDecision(
+        isSafe = false,
+        screenTop = screenTop,
+        screenBottom = screenBottom,
+        neededUpwardDisplacement = 0f,
+        targetTotalScroll = currentTotalScroll
+    )
+}
+```
+
+### What the Production Caller Does With This Result
+
+- **Classification**: Confirmed source-level defect / architectural hazard.
+- **Caller Trace**:
+  In `UnifiedCanvasLayout.kt:2437`:
+  ```kotlin
+  val decision = ScribeScrollPolicy.resolveCursorSafety(...)
+  if (!decision.isSafe) {
+      ...
+      startAuthoritativeScrollAnimation(
+          targetTotalScroll = decision.targetTotalScroll, // EQUALS currentTotalScroll!
+          reason = ScribeScrollPolicy.ScrollAnimationReason.CARET_VISIBILITY,
+          ...
+      )
+  }
+  ```
+- **Consequence When Animation Is Already Running**:
+  1. Suppose an automatic glide (e.g., predictive entrance glide or previous visibility glide) is in flight towards `target = 600px`, and the canvas is currently passing `400px`.
+  2. A tap, selection change, or layout callback invokes `ensureCursorVisibleAboveKeyboard()`.
+  3. If `screenTop < -deadbandPx` and downward correction is disabled (`allowDownwardForTopUnderflow == false`), the decision returns:
+     - `isSafe = false`
+     - `targetTotalScroll = currentTotalScroll` (400px).
+  4. The caller checks `if (!decision.isSafe)` $\implies$ **true**!
+  5. It calls `startAuthoritativeScrollAnimation(targetTotalScroll = 400f)`.
+  6. In `startAuthoritativeScrollAnimation()` (`line 1631`):
+     ```kotlin
+     if (isGlideRunning && scrollCoordinator.isAnimationActive) {
+         val currTarget = glideTarget // 600px
+         if (!forceRetarget && abs(currTarget - clampedTarget) <= 1f) { return }
+         glideTarget = clampedTarget // RETARGETS TO 400px!
+         scrollCoordinator.retargetActiveOperation(clampedTarget, reason, maxBound)
+         return
+     }
+     ```
+  7. **Confirmed Result**: Because `abs(600 - 400) = 200 > 1f`, **the in-flight animation is abruptly aborted and retargeted to `currentScroll`**, freezing the document mid-glide even though the calculation determined that zero movement was needed!
+
+### Call Paths to `ensureCursorVisibleAboveKeyboard()`
+
+| Caller Path | File & Line | `force` | Origin | Target Coordinates | Animation Reason |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Sora `ensurePositionVisible`** | `ScribeCodeEditor.kt:1901` | `true` | Forwarded `pendingCorrectionOrigin` (or `PROGRAMMATIC_NAVIGATION`) | Explicit `(line, col)` | `CARET_VISIBILITY` |
+| **Tap `ACTION_UP`** | `ScribeCodeEditor.kt:1554` | `false` | `TAP_PLACEMENT` | `null, null` (resolves to committed `cursor`) | `CARET_VISIBILITY` |
+| **Predictive Glide Fallback** | `UnifiedCanvasLayout.kt:2173` | `false` | `KEYBOARD_ENTRANCE` | Forwarded `(targetLine, targetCol)` | `CARET_VISIBILITY` |
+| **Deferred Frame Post** | `ScribeCodeEditor.kt:1890` | `true` | Forwarded origin | Explicit `(line, col)` | `CARET_VISIBILITY` |
+| **Focus Gained** | `ScribeCodeEditor.kt:494` | `true` | `FOCUS_ACQUISITION` | `(cur.leftLine, cur.leftColumn)` | `CARET_VISIBILITY` |
+| **Hardware Key Event** | `ScribeCodeEditor.kt:1317` | `true` | `TEXT_EDIT` | `null, null` | `CARET_VISIBILITY` |
+
+---
+
+## 5. Duplicate Sora/Scribe Visibility Dispatch Assessment
+
+### Verification Against Sora Editor 0.24.6 Source
+
+1. **Does an ordinary text tap invoke `ensurePositionVisible()` inside Sora?**
+   - **YES (Confirmed Source Behavior)**: In `sora-editor:0.24.6`, `EditorTouchEventHandler.onSingleTapUp()` (`line 886, 894`) calls `editor.setSelection(line, column, CAUSE_TAP)`. Inside `CodeEditor.java` (`line 3565`), `setSelection(..., makeItVisible = true)` explicitly executes:
+     ```java
+     if (makeItVisible) {
+         ensurePositionVisible(line, column);
+     }
+     ```
+2. **Does Scribe's override route that request into `UnifiedCanvasLayout`?**
+   - **YES (Confirmed Source Behavior)**: `ScribeCodeEditor` overrides `ensurePositionVisible(line, column, noAnimation)` (`line 1947`), calling `parentCanvas.ensureCursorVisibleAboveKeyboard(targetLine = line, targetCol = column, smooth = !noAnimation, force = true, origin = origin)` (`line 1901`).
+3. **Does the post-ACTION_UP call repeat the same geometry and decision?**
+   - **YES (Confirmed Source Behavior)**: After Sora's `super.onTouchEvent(event)` completes, `ScribeCodeEditor.kt:1554` executes `pCanvas.ensureCursorVisibleAboveKeyboard(targetLine = null, targetCol = null, smooth = true, origin = TAP_PLACEMENT)`.
+4. **Can either call use stale or different caret information?**
+   - In Sora's call, it passes `(line, column)` directly from the hit test.
+   - In Scribe's post-ACTION_UP call, it passes `targetLine = null, targetCol = null`, which resolves via `ScribeScrollPolicy.resolveTargetCoordinates(...)` against `editor.cursor`. In ordinary text taps, both evaluate to the exact same line and column.
+5. **Can the second call retarget or cancel the first call's animation?**
+   - In commit `6585cca`, line 1554 was updated to use committed coordinates. Because `startAuthoritativeScrollAnimation` checks `abs(currTarget - clampedTarget) <= 1f`, if both targets agree within 1px, the second call returns immediately. However, if layout or word-wrap changes occurred between the two calls, the second call can retarget the first.
+
+### Recommendation on Duplicate Dispatch
+
+- **Do NOT remove Sora's `ensurePositionVisible()` override**: Sora relies on `ensurePositionVisible` for keyboard arrow navigation, programmatic selections, and IME text composition.
+- **The post-ACTION_UP call in `ScribeCodeEditor.kt:1554` is redundant for single taps**: It was originally added as a fallback before Sora's `ensurePositionVisible` was wired to `UnifiedCanvasLayout`. However, keeping it as a defensive fallback is only safe if it is guarded against firing when Sora's `ensurePositionVisible` already executed during the current gesture.
+
+---
+
+## 6. 1-DOF Forced-Jump Assessment
+
+### Production Locations Executing `editor.jumpScrollTo(editor.offsetX, 0)`
+
+1. `ScribeCodeEditor.kt:1568`: Inside `onTouchEvent()` on `ACTION_UP`.
+2. `ScribeCodeEditor.kt:1810`: Inside `computeScroll()`.
+3. `UnifiedCanvasLayout.kt:2128`: Inside `scrollToTop()`.
+4. `UnifiedCanvasLayout.kt:2469`: Inside `applyTranslations()`.
+5. `UnifiedCanvasLayout.kt:2524`: Inside `onLayout()` when `editor.text.isEmpty()`.
+
+### When Can `scrollD < headerHeight && editor.offsetY > 0` Occur?
+
+| Condition | Can It Cause `scrollD < headerHeight && editor.offsetY > 0`? | Source Evidence & Verification |
+| :--- | :--- | :--- |
+| **Manual Drag / Fling** | **NO** | `allocateScrollDelta()` (`ScribeScrollPolicy.kt:452, 477`) strictly allocates inner delta to `0` whenever `scrollD < headerHeight`, and returns `editorOffsetY` to `0` before allowing `scrollD` to decrease below `headerHeight`. |
+| **Ordinary Text Tap** | **NO** | Text taps route through `ensureCursorVisibleAboveKeyboard()`, which delegates vertical displacement to `allocateScrollDelta()`. |
+| **Last-Paragraph Tap** | **NO** | Document position is deep in text; `scrollD == headerHeight`. |
+| **Selection Handle Drag** | **YES (Confirmed)** | When dragging a selection handle, `UnifiedCanvasLayout.onInterceptTouchEvent()` returns `false` (`line 3024`). Sora handles the touch natively and scrolls `offsetY` directly without updating `UnifiedCanvasLayout.scrollD`. |
+| **Hardware Fling Overrun** | **YES (Plausible)** | If Sora's internal `EditorScroller` has remaining vertical velocity when `scrollD` transitions back onto the screen, `computeScroll()` catches it. |
+| **Pinch-to-Zoom** | **YES (Confirmed)** | Multi-touch bypasses canvas interception (`line 3024`). Sora adjusts text size and can modify `offsetY` internally. |
+
+### Assessment
+
+- `jumpScrollTo(editor.offsetX, 0)` is a **necessary invariant repair** protecting against external mutations from Sora's unintercepted handle dragging and pinch scaling.
+- However, calling it synchronously inside `onTouchEvent(ACTION_UP)` (`ScribeCodeEditor.kt:1568`) without checking if the touch was a handle drag can create an unexpected abrupt visual jump if `offsetY` had any sub-pixel floating-point leakage.
+
+---
+
+## 7. Compensation-Ledger Ownership and Dependency Assessment
+
+### Comparative Audit of the Two Ledgers
+
+| Aspect | `AuthoritativeScrollCoordinator` (`ScribeScrollPolicy.kt`) | `BottomSurfaceTransitionCoordinator` (`ScribeBottomSurfaceCoordinator.kt`) |
+| :--- | :--- | :--- |
+| **Live Temporary Adjustment** | `temporaryViewportAdjustment` (lines 1496, 1516) | `compensation.remainingDisplacement` (lines 371, 406) |
+| **Historical Displacement** | `recordedDisplacement` (lines 1518, 1522) | `compensation.recordedDisplacement` (lines 370, 375) |
+| **Generation Linkage** | `originatingExpansionGeneration` (line 1545) | `linkedExpansionGeneration` (lines 246, 301) |
+| **Anchor Validation** | `isAnchorValid`, `caretLine`, `caretCol` (lines 1530, 1599) | `compensation.isAnchorValid`, `anchorLine`, `anchorCol` |
+| **Contraction Authorization** | Stateless via `resolveViewportAdjustment()` | `isContractionActive`, `hasCurrentCompensation` |
+
+### Reader/Writer Analysis
+
+1. **Writers**:
+   - `scrollCoordinator` updates its own `temporaryViewportAdjustment` during `applyStep()` (`line 1754`) and `resolveViewportAdjustment()`.
+   - `UnifiedCanvasLayout` hooks `onCompensationConsumed` and `onExpansionDisplacementApplied` (`lines 821, 825`) to mirror deltas into `transitionCoordinator`.
+2. **Readers in Production**:
+   - **`scrollCoordinator.temporaryViewportAdjustment`** is read by `displayedTotalScroll`, `evaluateViewportAdjustment()`, and `UnifiedCanvasLayout.dispatchDraw()`.
+   - **`transitionCoordinator.compensation` is NEVER read by any production scrolling calculation**. It is read only within `ScribeBottomSurfaceCoordinator.kt` for transition generation inheritance, and by unit tests (`CursorAndCanvasGeometryTest.kt`).
+3. **Ledger Disagreement / Desynchronization**:
+   - In `UnifiedCanvasLayout.invalidateCompensation()` (`line 1035`), the method logs "Ignored legacy invalidate" and resets `contractionRestoredBudgetPx = 0f`. It **does not update either ledger**.
+   - As a result, if an invalidation occurs, `scrollCoordinator.temporaryViewportAdjustment` retains its geometry-driven value while `transitionCoordinator.compensation` is left untouched.
+   - **Conclusion**: `transitionCoordinator.compensation` is a legacy shadow ledger. While not currently breaking production (because production only reads `scrollCoordinator`), maintaining two parallel ledgers creates substantial maintenance hazard.
+
+---
+
+## 8. Dismissal-Preservation Ownership Assessment
+
+### Detailed Lifecycle Trace of `preservedDismissalScroll` and `genericRetainedScroll`
+
+- **Finding**: **They are NOT redundant; they serve distinct, sequential lifecycle phases.**
+
+1. **Phase 1 (In-Flight)**: While the keyboard is actively collapsing, `transitionCoordinator.preservedDismissalScroll` locks `maxCanvasScroll` to prevent the document from shrinking.
+2. **Phase 2 (Settlement Handoff)**: In `UnifiedCanvasLayout.completeTerminalDismissal()` (`line 608`), `transitionCoordinator.completeTransition()` resets the transition state to neutral. If the scroll position is beyond `naturalMaxCanvasScroll`, it copies the value into `genericRetainedScroll` (`line 613`).
+3. **Phase 3 (Post-Dismissal Stationary Resting)**: `genericRetainedScroll` maintains the Pure Writer stationary document invariant after the transition has completely finished, until the user scrolls back.
+
+---
+
+## 9. Expansion-Transition Classification Assessment
+
+### Inspection of `isExpansionTransitionActive` Assignments
+
+| Path / Method | File & Line | Sets `isExpansionTransitionActive` to | Treatment of `DRAWER_OPENING` |
+| :--- | :--- | :--- | :--- |
+| **`notifyDrawerOpeningStarting()`** | `UnifiedCanvasLayout.kt:430` | **`true`** | **Treated as Expansion** (Incorrect) |
+| **`notifyDrawerExpansionStarting()`** | `UnifiedCanvasLayout.kt:442` | `true` | Treated as Expansion |
+| **`notifyKeyboardExpansionStarting()`** | `UnifiedCanvasLayout.kt:406` | `true` | Treated as Expansion |
+| **`notifyDrawerContractionStarting()`** | `UnifiedCanvasLayout.kt:454` | `false` | Not Expansion |
+| **`predictivelyGlideCursorAboveKeyboard()`** | `UnifiedCanvasLayout.kt:2273` | `isActualExpansion` | **Includes `DRAWER_OPENING`** (`line 2272`) |
+| **`onSizeChanged()`** | `UnifiedCanvasLayout.kt:2600` | `isActualExpansion` | **EXCLUDES `DRAWER_OPENING`** (`line 2598`) |
+
+### Confirmed Inconsistency & Architectural Defect
+
+- **Classification**: Confirmed source-level inconsistency.
+- **Impact**:
+  1. Opening an accessory drawer in `COMPACT` mode (180dp) is an ordinary bottom surface appearance, exactly like opening a standard QWERTY keyboard. It is **not** an expanded surface.
+  2. Because `notifyDrawerOpeningStarting()` sets `isExpansionTransitionActive = true`, any caret visibility scroll that occurs while the compact drawer is opening is classified by `scrollCoordinator.applyStep()` (`line 1754`) as an expansion displacement:
+     `temporaryViewportAdjustment += actualMoved`.
+  3. When the drawer subsequently contracts or closes, the system treats this displacement as temporary and attempts to restore it downward, pulling the document down unexpectedly.
+  4. Furthermore, `onSizeChanged()` explicitly excludes `DRAWER_OPENING` from `isActualExpansion` (`line 2598`), creating a direct conflict with `notifyDrawerOpeningStarting()`.
+
+---
+
+## 10. Ranked Root-Cause Candidates
+
+### Candidate 1: Zero-Movement Unsafe Decision Interrupting In-Flight Glides
+- **Status**: **Confirmed source-level behavior.**
+- **Mechanism**: In `ScribeScrollPolicy.resolveCursorSafety()`, when `screenTop < -deadbandPx` and `allowDownwardForTopUnderflow == false`, it returns `isSafe = false` with `targetTotalScroll = currentTotalScroll`. In `UnifiedCanvasLayout.kt:2437`, the caller interprets `!isSafe` as an instruction to start an animation. If an animation is already running towards an upward target, `startAuthoritativeScrollAnimation()` retargets the active glide to `currentTotalScroll`, instantly stalling the scroll in mid-air.
+- **Affected Symptoms**: Symptom 2 (unnecessary movement on already-safe tap), Symptom 3 (multiple corrections fighting), Symptom 4 (manual or existing animation interrupted).
+- **Minimum Functions to Change**:
+  - `ScribeScrollPolicy.resolveCursorSafety()` (`lines 188-207`): When `neededUpwardDisplacement == 0f`, return `isSafe = true`.
+  - `UnifiedCanvasLayout.ensureCursorVisibleAboveKeyboard()` (`lines 2437-2440`): Check `if (!decision.isSafe && abs(decision.targetTotalScroll - currentScroll) > 1f)`.
+- **Existing Behaviors Affected**: Prevents mid-flight stalling of predictive glides and eliminates false retargets.
+
+---
+
+### Candidate 2: Inconsistent Expansion Classification on Compact Drawer Opening
+- **Status**: **Confirmed source-level defect.**
+- **Mechanism**: `notifyDrawerOpeningStarting()` sets `isExpansionTransitionActive = true`, misclassifying compact drawer opening as an expansion. This diverts permanent scroll deltas into `temporaryViewportAdjustment`, causing erroneous downward restoration when the drawer closes.
+- **Affected Symptoms**: Symptom 1 (downward jump on contraction), Symptom 3 (competing adjustments).
+- **Minimum Functions to Change**:
+  - `UnifiedCanvasLayout.notifyDrawerOpeningStarting()` (`line 430`): Set `isExpansionTransitionActive = false`.
+  - `UnifiedCanvasLayout.predictivelyGlideCursorAboveKeyboard()` (`line 2272`): Remove `DRAWER_OPENING` from `isActualExpansion`.
+- **Existing Behaviors Affected**: Aligns compact drawer opening with standard keyboard entrance; ensures only genuine expanded drawers (350dp+) accrue temporary displacement.
+
+---
+
+### Candidate 3: Unresolved / Virtual Bottom Space Tap Falling Back to Stale Caret
+- **Status**: **Confirmed source-level behavior.**
+- **Mechanism**: When tapping near the bottom edge or in the virtual bottom space below the last paragraph, `getPointVisualPositionOnScreen()` can return `null` or an unresolved target. `predictivelyGlideCursorAboveKeyboard()` line 2194 falls back to `cursor.leftLine`. If the previous caret was at the top of the document, `screenTop` evaluates to a large negative number, launching a downward glide towards line 0. Moments later, the committed tap and IME resize arrive, forcing an emergency upward correction.
+- **Affected Symptoms**: Symptom 1 (tapping last paragraph moves downward then jumps upward).
+- **Minimum Functions to Change**:
+  - `UnifiedCanvasLayout.predictivelyGlideCursorAboveKeyboard()` (`lines 2194, 2252`): If `targetLine == null` and tap provenance is active, clamp or suppress negative top underflow glides.
+- **Existing Behaviors Affected**: Eliminates the downward plunge when tapping near the bottom of the document.
+
+---
+
+### Candidate 4: Triplicate Visibility Dispatch on Settled Keyboard Tap
+- **Status**: **Confirmed architectural duplication.**
+- **Mechanism**: A single tap when the keyboard is visible triggers: (1) Sora's `ensurePositionVisible()` override, (2) `SelectionChangeEvent` triggering `evaluateViewportAdjustment()`, and (3) `ScribeCodeEditor.onTouchEvent(ACTION_UP)` line 1554. While 1px deadbands prevent most duplicate animations, sub-pixel rounding or intermediate layout passes can cause Dispatch 3 to retarget Dispatch 1 mid-flight.
+- **Affected Symptoms**: Symptom 2 (unnecessary movement on tap), Symptom 3 (multiple corrections fighting).
+- **Minimum Functions to Change**:
+  - `ScribeCodeEditor.onTouchEvent(ACTION_UP)` (`lines 1550-1561`): Guard post-tap dispatch with a flag verifying whether `ensurePositionVisible()` already executed during the current gesture.
+- **Existing Behaviors Affected**: Reduces touch event dispatch overhead and prevents duplicate animation scheduling.
