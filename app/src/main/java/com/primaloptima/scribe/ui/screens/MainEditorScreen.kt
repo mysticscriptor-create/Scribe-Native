@@ -219,7 +219,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import com.primaloptima.scribe.ui.components.UnifiedCanvasLayout
 import com.primaloptima.scribe.ui.components.ScribeCodeEditor
-import com.primaloptima.scribe.ui.components.ScribeBottomSurfaceCoordinator
+import com.primaloptima.scribe.ui.editor.scroll.ScribeBottomSurfaceCoordinator
+import com.primaloptima.scribe.ui.editor.scroll.ScribeScrollPolicy
 import com.primaloptima.scribe.navigation.EditorSessionClient
 import com.primaloptima.scribe.navigation.LocalEditorRestorationCoordinator
 import com.primaloptima.scribe.navigation.Route
@@ -806,7 +807,7 @@ fun MainEditorScreen(
 
     LaunchedEffect(selectAllScrollModeStr) {
         (soraEditorRef as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.selectAllScrollMode =
-            com.primaloptima.scribe.ui.components.ScribeScrollPolicy.SelectAllScrollMode.fromString(selectAllScrollModeStr)
+            com.primaloptima.scribe.ui.editor.scroll.ScribeScrollPolicy.SelectAllScrollMode.fromString(selectAllScrollModeStr)
     }
 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -1716,7 +1717,7 @@ fun MainEditorScreen(
                                     }
                                     setEditorLanguage(ScribeProseLanguage(activeTheme?.documentFontWeight ?: 500))
                                     (this as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.selectAllScrollMode =
-                                        com.primaloptima.scribe.ui.components.ScribeScrollPolicy.SelectAllScrollMode.fromString(selectAllScrollModeStr)
+                                        com.primaloptima.scribe.ui.editor.scroll.ScribeScrollPolicy.SelectAllScrollMode.fromString(selectAllScrollModeStr)
                                     isNestedScrollingEnabled = true
                                     try {
                                         getComponent(

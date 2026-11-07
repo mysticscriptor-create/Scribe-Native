@@ -1,4 +1,4 @@
-package com.primaloptima.scribe.ui.components
+package com.primaloptima.scribe.ui.editor.scroll
 
 /**
  * ScribeBottomSurfaceCoordinator — Unified single source of truth for keyboard,

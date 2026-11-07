@@ -1,4 +1,4 @@
-package com.primaloptima.scribe.ui.components
+package com.primaloptima.scribe.ui.editor.scroll
 
 /**
  * Reasons for automatic or programmatic canvas positioning operations.

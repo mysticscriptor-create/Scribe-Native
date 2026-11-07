@@ -3,7 +3,7 @@ package com.primaloptima.scribe.navigation
 import androidx.compose.runtime.compositionLocalOf
 import androidx.lifecycle.Lifecycle
 import androidx.navigation3.runtime.NavKey
-import com.primaloptima.scribe.ui.components.ScribeScrollPolicy
+import com.primaloptima.scribe.ui.editor.scroll.ScribeScrollPolicy
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 

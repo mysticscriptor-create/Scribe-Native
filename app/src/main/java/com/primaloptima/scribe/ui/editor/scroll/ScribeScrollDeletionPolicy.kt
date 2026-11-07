@@ -1,4 +1,4 @@
-package com.primaloptima.scribe.ui.components
+package com.primaloptima.scribe.ui.editor.scroll
 
 /**
  * Pure policy rules and calculations for document deletions and downward tail anchoring.

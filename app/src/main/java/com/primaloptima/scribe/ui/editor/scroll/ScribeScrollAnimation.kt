@@ -1,4 +1,4 @@
-package com.primaloptima.scribe.ui.components
+package com.primaloptima.scribe.ui.editor.scroll
 
 import android.animation.ValueAnimator
 import android.view.animation.Interpolator

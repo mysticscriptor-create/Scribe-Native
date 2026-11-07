@@ -1,5 +1,7 @@
 package com.primaloptima.scribe.ui.components
 
+import com.primaloptima.scribe.ui.editor.scroll.*
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull

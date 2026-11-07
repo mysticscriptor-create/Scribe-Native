@@ -1,5 +1,7 @@
 package com.primaloptima.scribe.ui.components
 
+import com.primaloptima.scribe.ui.editor.scroll.*
+
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color

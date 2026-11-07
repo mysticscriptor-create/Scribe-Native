@@ -2,7 +2,7 @@ package com.primaloptima.scribe.navigation
 
 import androidx.lifecycle.Lifecycle
 import androidx.navigation3.runtime.NavKey
-import com.primaloptima.scribe.ui.components.ScribeScrollPolicy
+import com.primaloptima.scribe.ui.editor.scroll.ScribeScrollPolicy
 import com.primaloptima.scribe.util.AppJson
 import com.primaloptima.scribe.util.model.DocumentCursorState
 import com.primaloptima.scribe.util.model.EditingTarget

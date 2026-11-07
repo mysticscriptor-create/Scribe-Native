@@ -1,4 +1,4 @@
-package com.primaloptima.scribe.ui.components
+package com.primaloptima.scribe.ui.editor.scroll
 
 /**
  * Scoped diagnostic logging toggle and callback for scroll & viewport coordination.

@@ -1,4 +1,4 @@
-package com.primaloptima.scribe.ui.components
+package com.primaloptima.scribe.ui.editor.scroll
 
 /**
  * Reusable, pure geometry models and data structures for cursor, selection,

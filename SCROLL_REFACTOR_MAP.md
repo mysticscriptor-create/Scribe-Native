@@ -117,6 +117,34 @@ The newly extracted `ScribeScrollAnimation.kt` contains two cleanly isolated ani
 
 ---
 
-## 5. Next Steps
+## 5. Scroll Subsystem Dedicated Package Relocation
 
-- Continue to subsequent phases as directed by the user.
+All 8 extracted scroll subsystem files have been consolidated into their dedicated architectural domain:
+- **Package:** `com.primaloptima.scribe.ui.editor.scroll`
+- **Location:** `app/src/main/java/com/primaloptima/scribe/ui/editor/scroll/`
+
+### Relocated Components (8 files):
+1. `ScribeScrollPolicy.kt`: Stateless core rules, bounds, and viewport calculations.
+2. `ScribeScrollGeometry.kt`: Reusable caret, selection, and character geometry models.
+3. `ScribeScrollDeletionPolicy.kt`: Pure deletion anchor classification and destination mathematics.
+4. `ScribeScrollRestorationPolicy.kt`: Contraction restoration compensation calculations.
+5. `ScribeScrollCoordinator.kt`: Authoritative mutable scroll state coordination engine.
+6. `ScribeScrollAnimation.kt`: Spring glide physics engine and testable animation driver bridges.
+7. `ScribeScrollDiagnostics.kt`: Scoped scroll diagnostic logger.
+8. `ScribeBottomSurfaceCoordinator.kt`: Stateless bottom-surface and keyboard inset calculations.
+
+### Caller Import Updates:
+- `UnifiedCanvasLayout.kt`: Added `import com.primaloptima.scribe.ui.editor.scroll.*`
+- `ScribeCodeEditor.kt`: Added `import com.primaloptima.scribe.ui.editor.scroll.*`
+- `MainEditorScreen.kt`: Updated imports and inline FQCNs to `com.primaloptima.scribe.ui.editor.scroll.*`
+- `EditorSessionRestorationCoordinator.kt`: Updated import to `com.primaloptima.scribe.ui.editor.scroll.ScribeScrollPolicy`
+- `CursorAndCanvasGeometryTest.kt`: Added `import com.primaloptima.scribe.ui.editor.scroll.*`
+- `EditorViewportRestorationTest.kt`: Updated import to `com.primaloptima.scribe.ui.editor.scroll.ScribeScrollPolicy`
+
+Zero legacy forwarding shims or duplicate typealiases remain in `com.primaloptima.scribe.ui.components`.
+Integration containers (`UnifiedCanvasLayout`, `ScribeCodeEditor`, `MainEditorScreen`, `EditorSessionRestorationCoordinator`) remain in their original packages, cleanly consuming the scroll subsystem.
+
+---
+
+## 6. Next Steps
+- Proceed with Phase 5 as directed.
