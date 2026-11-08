@@ -12,125 +12,6 @@ val FastOutSlowInInterpolator: Interpolator =
     PathInterpolator(0.4f, 0f, 0.2f, 1f)
 
 /**
- * Testable animation driver abstraction for production ValueAnimator and JUnit test drivers.
- */
-interface AnimationDriver {
-    fun start(
-        from: Float,
-        to: Float,
-        durationMs: Long,
-        onUpdate: (Float) -> Unit,
-        onCancel: () -> Unit,
-        onEnd: () -> Unit
-    )
-    fun cancel()
-    val isRunning: Boolean
-}
-
-/**
- * Production-grade animation controller coordinating ScribeScrollCoordinator
- * with an AnimationDriver. Enforces monotonic operation ID tracking and race-free
- * cancellation / retargeting without stale callback interference.
- */
-class ProductionScrollAnimationCoordinator(
-    val scrollCoordinator: ScribeScrollCoordinator,
-    var animationDriverFactory: (() -> AnimationDriver)? = null
-) {
-    val activeOperationId: Long
-        get() = scrollCoordinator.activeOperationId
-
-    var activeDriver: AnimationDriver? = null
-        private set
-
-    fun startAuthoritativeAnimation(
-        targetTotalScroll: Float,
-        reason: ScrollAnimationReason,
-        durationMs: Long = 280L,
-        forceRetarget: Boolean = false,
-        maxCanvasScroll: Int? = null,
-        onEnd: (() -> Unit)? = null
-    ): Boolean {
-        val currentScroll = scrollCoordinator.totalScroll
-        val maxBound = maxCanvasScroll?.toFloat()?.coerceAtLeast(0f)
-        val clampedTarget = if (maxBound != null) targetTotalScroll.coerceIn(0f, maxBound) else targetTotalScroll.coerceAtLeast(0f)
-
-        // Step 1: Request target in coordinator (advances scrollCoordinator.activeOperationId)
-        val shouldStart = scrollCoordinator.requestTarget(clampedTarget, reason, forceRetarget, maxCanvasScroll)
-        if (!shouldStart) {
-            onEnd?.invoke()
-            return false
-        }
-
-        val newOpId = scrollCoordinator.activeOperationId
-
-        // Step 2: Safely cancel previous driver (its cancel/end will see oldOpId != activeOperationId)
-        val oldDriver = activeDriver
-        activeDriver = null
-        oldDriver?.cancel()
-
-        val target = scrollCoordinator.activeTargetTotalScroll ?: clampedTarget
-        val distance = abs(target - currentScroll)
-        if (distance < 1f) {
-            scrollCoordinator.finishAnimation(newOpId)
-            onEnd?.invoke()
-            return false
-        }
-
-        val scaledDuration = (distance * 1.2f).toLong().coerceIn(120L, durationMs)
-        val driver = animationDriverFactory?.invoke()
-        if (driver == null) {
-            scrollCoordinator.applyStep(target, newOpId)
-            scrollCoordinator.finishAnimation(newOpId)
-            onEnd?.invoke()
-            return true
-        }
-
-        activeDriver = driver
-        driver.start(
-            from = currentScroll,
-            to = target,
-            durationMs = scaledDuration,
-            onUpdate = { curr ->
-                if (newOpId == scrollCoordinator.activeOperationId) {
-                    scrollCoordinator.applyStep(curr, newOpId)
-                }
-            },
-            onCancel = {
-                if (newOpId == scrollCoordinator.activeOperationId) {
-                    activeDriver = null
-                    scrollCoordinator.cancelAnimation("Driver cancelled", newOpId)
-                }
-            },
-            onEnd = {
-                if (newOpId == scrollCoordinator.activeOperationId) {
-                    activeDriver = null
-                    scrollCoordinator.finishAnimation(newOpId)
-                    onEnd?.invoke()
-                }
-            }
-        )
-        return true
-    }
-
-    fun cancelActiveAnimation(reason: String? = null) {
-        val oldDriver = activeDriver
-        activeDriver = null
-        oldDriver?.cancel()
-        scrollCoordinator.cancelAnimation(reason)
-    }
-
-    fun retargetAuthoritativeAnimation(
-        newTarget: Float,
-        reason: ScrollAnimationReason,
-        maxCanvasScroll: Int? = null
-    ): Boolean {
-        if (!scrollCoordinator.isAnimationActive) return false
-        scrollCoordinator.retargetActiveOperation(newTarget, reason, maxCanvasScroll)
-        return true
-    }
-}
-
-/**
  * Encapsulates the critically damped spring glide physics, frame scheduling,
  * and retargeting lifecycle for UnifiedCanvasLayout.
  */
@@ -206,7 +87,6 @@ class ScribeCanvasGlideAnimator(
                 val onEnd = activeGlideOnEnd
                 activeGlideOnEnd = null
                 activeGlideReason = null
-
                 onSettledCallback?.invoke(reason)
                 onEnd?.invoke()
             } else {
@@ -250,8 +130,8 @@ class ScribeCanvasGlideAnimator(
             onEnd?.invoke()
             return false
         }
-
         val opId = scrollCoordinator.activeOperationId
+
         val oldAnimator = activeCanvasAnimator
         activeCanvasAnimator = null
         oldAnimator?.cancel()

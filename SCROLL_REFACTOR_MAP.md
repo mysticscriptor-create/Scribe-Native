@@ -2,7 +2,7 @@
 
 **Commit Reference Baseline:** `d0d39b5` ("fix(viewport): eliminate unnecessary scroll-and-return and coordinate fluid shortcut bar entry")  
 **Starting HEAD:** `59c3537`  
-**Milestone:** Phase 8 Corrective Audit Applied (Awaiting CI Verification)  
+**Milestone:** Phase 9 Complete — Final Scroll Architecture Separation & Documentation  
 **Verification Scope:** Exhaustive static source code inspection and repository-wide symbol reference verification. (Local Gradle/tests intentionally not executed per bounded instructions; remote verification deferred to GitHub Actions CI).
 
 ---
@@ -42,17 +42,23 @@ Across Phases 1 through 6 and the preceding **Correction Pass**, Scribe's monoli
 | **`ScribeScrollDeletionPolicy.kt`** | `object ScribeScrollDeletionPolicy` | Pure deletion classification (`classifyDeletionIntent`), safe destination math (`calculateSafeDeletionDestination`), and downward tail follow (`calculateDeletionAnchorDelta`). |
 | **`ScribeScrollRestorationPolicy.kt`** | `object ScribeScrollRestorationPolicy` | Pure contraction restoration delta calculations (`resolveContractionRestorationDelta`), safe boundary validation (`validateFinalTarget`), and last-line follow delta. |
 | **`ScribeScrollCoordinator.kt`** | `class ScribeScrollCoordinator` | Authoritative single-owner scroll state, monotonic `activeOperationId`, causal expansion tracking, smooth in-flight retargeting, and compensation lifecycle. |
-| **`ScribeScrollAnimation.kt`** | `ScribeCanvasGlideAnimator`, `ProductionScrollAnimationCoordinator` | Critically damped spring glide physics engine ($\omega=13.5\text{ rad/s}, \zeta=1.0$) and testable `AnimationDriver` coordinating controller. |
+| **`ScribeScrollAnimation.kt`** | `ScribeCanvasGlideAnimator`, `FastOutSlowInInterpolator` | Critically damped spring glide physics engine ($\omega=13.5\text{ rad/s}, \zeta=1.0$) driving 120Hz `postOnAnimation` frame scheduling with in-flight retargeting. |
 | **`ScribeScrollInputController.kt`** | `class ScribeScrollInputController`, `ScribeEditorScrollInputHelper` | `OverScroller`, `VelocityTracker`, touch-slop arbitration, gesture interception, momentum fling handoff, and selection-handle auto-scroll velocity. |
 | **`ScribeScrollDiagnostics.kt`** | `object ScribeScrollDiagnostics` | Scoped diagnostics logger (`isDebugDiagnosticsEnabled`, `onScrollDiagnosticLog`, `log`). |
 | **`ScribeBottomSurfaceCoordinator.kt`** | `object ScribeBottomSurfaceCoordinator` | Stateless keyboard baseline validation, standard keyboard clamping, and Pure Writer stationary invariant rules. |
 | **`ScribeBottomSurfaceState.kt`** | `class ScribeBottomSurfaceState`, `rememberScribeBottomSurfaceState` | Compose lifecycle state holder for IME insets, debounced DataStore baseline persistence, entrance settling, transition latching, and bottom surface sizing delegation. |
 
-### Test Support Files (2 Files in `com.primaloptima.scribe.ui.editor.scroll`)
-| Component / File | Primary Class | Location |
+### Test Files & Test Support (com.primaloptima.scribe.ui.editor.scroll)
+| Component / File | Primary Class / Purpose | Location |
 | :--- | :--- | :--- |
-| **`ContractionSimulationController.kt`** | `class ContractionSimulationController` | `app/src/test/java/com/primaloptima/scribe/ui/editor/scroll/` |
-| **`ScribeBottomSurfaceStateTest.kt`** | `class ScribeBottomSurfaceStateTest` | `app/src/test/java/com/primaloptima/scribe/ui/editor/scroll/` |
+| **`ScribeScrollTestSupport.kt`** | `ContractionSimulationController`, `AnimationDriver`, `TestAnimationDriver`, `ProductionScrollAnimationCoordinator` | `app/src/test/java/com/primaloptima/scribe/ui/editor/scroll/` |
+| **`ScribeScrollPolicyTest.kt`** | `class ScribeScrollPolicyTest` (31 tests: breathing margin, centering, predictive glide, transactions, tap heuristics) | `app/src/test/java/com/primaloptima/scribe/ui/editor/scroll/` |
+| **`ScribeScrollDeletionPolicyTest.kt`** | `class ScribeScrollDeletionPolicyTest` (16 tests: deletion intent, tail follow, paragraph deletions) | `app/src/test/java/com/primaloptima/scribe/ui/editor/scroll/` |
+| **`ScribeScrollRestorationPolicyTest.kt`** | `class ScribeScrollRestorationPolicyTest` (24 tests: contraction restoration delta, safe target validation, simulation) | `app/src/test/java/com/primaloptima/scribe/ui/editor/scroll/` |
+| **`ScribeScrollCoordinatorTest.kt`** | `class ScribeScrollCoordinatorTest` (8 tests: authoritative state ownership, in-flight retargeting, monotonic op ID) | `app/src/test/java/com/primaloptima/scribe/ui/editor/scroll/` |
+| **`ScribeScrollAnimationTest.kt`** | `class ScribeScrollAnimationTest` (9 tests: animation coordinator, driver steps, in-flight retargeting) | `app/src/test/java/com/primaloptima/scribe/ui/editor/scroll/` |
+| **`ScribeBottomSurfacePolicyTest.kt`** | `class ScribeBottomSurfacePolicyTest` (13 tests: keyboard baseline bounds, dismiss states, drawer collapses) | `app/src/test/java/com/primaloptima/scribe/ui/editor/scroll/` |
+| **`ScribeBottomSurfaceStateTest.kt`** | `class ScribeBottomSurfaceStateTest` (17 tests: Compose state holder, animations, `estimatedBottomSurfaceHeightDp`) | `app/src/test/java/com/primaloptima/scribe/ui/editor/scroll/` |
 
 ---
 
@@ -181,6 +187,31 @@ In Phase 8, the remaining integration files (`UnifiedCanvasLayout.kt`, `ScribeCo
 
 ---
 
+---
+
+## 5.3 Final Architecture Separation & Test Suite Modularization (Phase 9 Complete)
+
+In Phase 9, the scroll architecture extraction was finalized across production and test codebases:
+
+### 1. Production Purity & Test Support Separation
+- Relocated test-only animation abstractions (`AnimationDriver`, `ProductionScrollAnimationCoordinator`, `TestAnimationDriver`) and simulation harness (`ContractionSimulationController`) completely out of production source and into dedicated test-support file:
+  `app/src/test/java/com/primaloptima/scribe/ui/editor/scroll/ScribeScrollTestSupport.kt`.
+- Production `ScribeScrollAnimation.kt` now strictly contains production code: `FastOutSlowInInterpolator` and `ScribeCanvasGlideAnimator`.
+
+### 2. Test Suite Modularization
+- Split monolithic `CursorAndCanvasGeometryTest.kt` (3,970 lines, 133 tests) into 7 focused, single-responsibility test files:
+  - `CursorAndCanvasGeometryTest.kt` (32 tests): Geometry and 1-DOF canvas/editor allocation invariants.
+  - `ScribeScrollPolicyTest.kt` (31 tests): General scroll policy, caret visibility, centering, transactions, tap heuristics.
+  - `ScribeScrollDeletionPolicyTest.kt` (16 tests): Deletion intent, tail follow, paragraph deletion, boundary clamping.
+  - `ScribeScrollRestorationPolicyTest.kt` (24 tests): Contraction restoration delta, safe target validation, simulation cycles.
+  - `ScribeScrollCoordinatorTest.kt` (8 tests): Authoritative coordinator state, retargeting, monotonic operation IDs.
+  - `ScribeScrollAnimationTest.kt` (9 tests): Animation coordinator, driver steps, in-flight retargeting.
+  - `ScribeBottomSurfacePolicyTest.kt` (13 tests): Stateless bottom surface policy, keyboard baseline, dismiss states.
+- All 133 test cases, comments, and assertions preserved with 100% fidelity. Combined with `ScribeBottomSurfaceStateTest` (17 tests), the scroll test suite contains 150 automated unit tests.
+
+### 3. Architecture Documentation
+- Created `SCROLL_ARCHITECTURE.md` documenting the concrete, as-implemented system: package structure, state ownership, lifecycle connections, Sora Editor boundaries, animation physics, and navigation viewport restoration.
+
 ## 6. Observed Defects and Questionable Implementations Backlog
 
 ### A. Phase 5 Regression (Resolved by Correction Pass)
@@ -192,8 +223,8 @@ In Phase 8, the remaining integration files (`UnifiedCanvasLayout.kt`, `ScribeCo
    - `resolveContractionRestorationDelta` internally invokes `ScribeScrollDiagnostics.log(...)`. While the configuration facade was removed, the calculation function still emits diagnostic logs as a side-effect. Decoupling this into the coordinator layer should be considered in later passes.
 2. **Touch Heuristic Coupling in UnifiedCanvasLayout (Resolved in Phase 8):**
    - Hardcoded 500ms threshold codified as `ScribeScrollPolicy.RECENT_TOUCH_SUPPRESSION_WINDOW_MS`, and tap suppression decision logic centralized in `ScribeScrollPolicy.calculatePredictiveGlideDecision`.
-3. **Dual Animation Systems (`ScribeCanvasGlideAnimator` vs `ProductionScrollAnimationCoordinator`):**
-   - Production canvas scrolling uses the critically damped spring glide (`ScribeCanvasGlideAnimator`), while `ProductionScrollAnimationCoordinator` is only exercised in test suites with `AnimationDriver`. Unifying the production spring into an `AnimationDriver` implementation remains an optimization opportunity for Phase 9 or later.
+3. **Dual Animation Systems (`ScribeCanvasGlideAnimator` vs `ProductionScrollAnimationCoordinator`) (Separated in Phase 9):**
+   - In Phase 9, `ProductionScrollAnimationCoordinator` and `AnimationDriver` were cleanly moved out of production source into `ScribeScrollTestSupport.kt`. Production canvas scrolling exclusively uses `ScribeCanvasGlideAnimator`. Test suites continue to validate multi-step coordination via `ProductionScrollAnimationCoordinator`.
 4. **Hardcoded Breathing Margins in Multiple Locations (Resolved in Phase 8):**
    - `UnifiedCanvasLayout.breathingMarginPx` now evaluates directly against `ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density`.
 
@@ -209,6 +240,7 @@ In Phase 8, the remaining integration files (`UnifiedCanvasLayout.kt`, `ScribeCo
 - [x] **Correction Pass:** Complete across all 4 steps.
 - [x] **Phase 6 — Extract Keyboard and IME Viewport State:** Complete (committed in `7388a91`, verified in CI workflow #804; precision assertion calibrated).
 - [x] **Phase 7 — Extract Accessory Drawer Viewport and Transition State:** Complete (committed in `9481217`, lexical-scope fix `fde0518` verified in CI workflow #806; `AccessoryDrawerState`, `AccessoryDrawerMode`, dragging, snapping, and spring height transitions extracted into `ScribeBottomSurfaceState.kt` and `ScribeBottomSurfaceCoordinator.kt`).
-- [/] **Phase 8 — Finish Scroll Subsystem Integration:** Corrective Audit Applied (Initial integration `9e7ca2f` verified in CI workflow #807; corrective follow-up applied and test inputs calibrated following workflow #808, awaiting CI verification).
+- [x] **Phase 8 — Finish Scroll Subsystem Integration:** Complete (Initial integration `9e7ca2f` verified in CI workflow #807; corrective follow-up `7b8e039` and calibrated test inputs `a80451d` verified in CI workflow #809).
+- [x] **Phase 9 — Finalize Scroll Architecture Separation:** Complete (Production source purified; test-only support extracted to `ScribeScrollTestSupport.kt`; monolithic `CursorAndCanvasGeometryTest.kt` split into 7 focused suites preserving all 133 tests; comprehensive `SCROLL_ARCHITECTURE.md` created; refactor map finalized).
 
-**Next Milestone:** Proceed to **Phase 9 — Repository-Wide Architecture, Call-Graph, Reference, and Test Audit** as directed by the user.
+**Next Milestone:** All 9 refactor phases complete. Scroll subsystem successfully extracted into decoupled, single-responsibility architecture.
