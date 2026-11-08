@@ -134,11 +134,15 @@ class ScribeCodeEditor @JvmOverloads constructor(
     override fun canScrollVertically(direction: Int): Boolean {
         val pCanvas = parent as? UnifiedCanvasLayout
         if (pCanvas != null) {
-            return ScribeScrollPolicy.canScrollVertically(
+            val canScroll = ScribeScrollPolicy.canScrollVertically(
                 direction = direction,
-                currentScroll = pCanvas.scrollD + offsetY,
+                scrollD = pCanvas.scrollD,
+                offsetY = offsetY,
                 maxCanvasScroll = pCanvas.maxCanvasScroll
             )
+            if (canScroll != null) {
+                return canScroll
+            }
         }
         return super.canScrollVertically(direction)
     }

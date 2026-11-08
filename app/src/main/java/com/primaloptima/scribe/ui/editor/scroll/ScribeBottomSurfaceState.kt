@@ -233,6 +233,18 @@ class ScribeBottomSurfaceState(
         get() = resolveEffectiveBottomSurfaceHeight()
 
     /**
+     * Estimated bottom surface height reservation in Dp for canvas layout and predictive scroll math.
+     * Retains the compact keyboard baseline even when the soft keyboard is not actively visible,
+     * while allowing the active accessory drawer or oversized IME to expand the reservation.
+     */
+    val estimatedBottomSurfaceHeightDp: Dp
+        get() = if (isAccessoryDrawerActive) {
+            effectiveBottomSurfaceHeight
+        } else {
+            maxOf(compactHeightDp, imeAboveNavDp)
+        }
+
+    /**
      * Resolves whether the soft keyboard is currently in the process of dismissing.
      */
     fun isKeyboardDismissing(

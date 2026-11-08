@@ -2,7 +2,7 @@
 
 **Commit Reference Baseline:** `d0d39b5` ("fix(viewport): eliminate unnecessary scroll-and-return and coordinate fluid shortcut bar entry")  
 **Starting HEAD:** `59c3537`  
-**Milestone:** Phase 8 Complete (Awaiting CI Verification)  
+**Milestone:** Phase 8 Corrective Audit Applied (Awaiting CI Verification)  
 **Verification Scope:** Exhaustive static source code inspection and repository-wide symbol reference verification. (Local Gradle/tests intentionally not executed per bounded instructions; remote verification deferred to GitHub Actions CI).
 
 ---
@@ -132,9 +132,9 @@ In Phase 6, soft keyboard, IME viewport integration, and transition latching wer
 
 ---
 
-## 5.1 Accessory Drawer Viewport & Transition Architecture (Phase 7 Source-Extracted, Awaiting CI Verification)
+## 5.1 Accessory Drawer Viewport & Transition Architecture (Phase 7 Complete, Verified in CI Workflow #806)
 
-In Phase 7, accessory drawer state and viewport transition logic were extracted from `MainEditorScreen.kt` into **`ScribeBottomSurfaceState.kt`** and **`ScribeBottomSurfaceCoordinator.kt`** (parent commit `7388a91`, with follow-up fix resolving `handleUserTouchDown` callback lexical scope in `MainEditorScreen.kt` pending CI verification).
+In Phase 7, accessory drawer state and viewport transition logic were extracted from `MainEditorScreen.kt` into **`ScribeBottomSurfaceState.kt`** and **`ScribeBottomSurfaceCoordinator.kt`** (parent commit `7388a91`, lexical-scope follow-up commit `fde0518` verified in CI workflow #806).
 
 ### Architecture & Responsibilities
 - **Enums Extracted:** `AccessoryDrawerState` (COMPACT, EXPANDED, FULL) and `AccessoryDrawerMode` (SNIPPETS, TEMPLATES) located in `com.primaloptima.scribe.ui.editor.scroll`.
@@ -155,23 +155,26 @@ In Phase 7, accessory drawer state and viewport transition logic were extracted 
 
 ---
 
-## 5.2 Thin UI/Platform Adapters & Final Integration (Phase 8 Complete)
+## 5.2 Thin UI/Platform Adapters & Final Integration (Phase 8 Initial Verified in #807; Corrective Audit Applied)
 
-In Phase 8, the remaining integration files (`UnifiedCanvasLayout.kt`, `ScribeCodeEditor.kt`, `MainEditorScreen.kt`) were reduced to thin UI/platform adapters:
+In Phase 8, the remaining integration files (`UnifiedCanvasLayout.kt`, `ScribeCodeEditor.kt`, `MainEditorScreen.kt`) were reduced to thin UI/platform adapters (committed in `9e7ca2f`, initial integration verified in CI workflow #807). Following the initial integration, a focused corrective audit was applied to resolve behavior-preservation edge cases:
 
 ### Architecture & Delegations
 - **`UnifiedCanvasLayout.kt`:**
   - Retains Android View/FrameLayout lifecycle, measurement (`onMeasure`), layout (`onLayout`), translations (`applyTranslations`), and touch dispatching.
   - Delegates `centerCursorInViewport` target calculations to `ScribeScrollPolicy.calculateCenterCursorTarget`.
   - Delegates predictive glide heuristics and suppression to `ScribeScrollPolicy.calculatePredictiveGlideDecision`.
-  - Replaced manual cursor bounds and overflow checks in `requestChildRectangleOnScreen` with `ScribeScrollPolicy.resolveCursorScrollDelta`, eliminating redundant logic.
+  - Replaced manual cursor bounds and overflow checks in `requestChildRectangleOnScreen` with `ScribeScrollPolicy.resolveCursorScrollDelta`, while restoring direction-specific dispatch:
+    - Downward overflow (`deltaY > 0`): respects deletion transactions, initiates authoritative glide for keyboard transactions / active animations, smooth-scrolls, or immediate-scrolls.
+    - Upward underflow (`deltaY < 0`): directly scrolls canvas unless an authoritative glide animation is already active.
   - Replaced hardcoded `24f * density` in `breathingMarginPx` with `ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density`.
+  - Purged dead local variables in `predictivelyGlideCursorAboveKeyboard` (`headerRemaining`, `screenBottom`, `deadbandPx`, `targetLineBottom`).
 - **`ScribeCodeEditor.kt`:**
-  - Delegates vertical scroll permission to `ScribeScrollPolicy.canScrollVertically`.
+  - Delegates vertical scroll permission to `ScribeScrollPolicy.canScrollVertically`, passing `scrollD` and `offsetY` distinctly and falling back to `super.canScrollVertically(direction)` when direction is 0.
   - Delegates canvas forward scroll evaluation to `ScribeScrollPolicy.shouldForwardScrollToCanvas`.
   - Retains mandatory Sora Editor overrides and text editing behavior.
 - **`MainEditorScreen.kt`:**
-  - Replaced manual estimated keyboard height calculations in `factory` and `update` with `bottomSurfaceState.calculateEstimatedKeyboardHeightPx`.
+  - Restored persistent keyboard height reservation in `factory` and `update` by delegating to `bottomSurfaceState.estimatedBottomSurfaceHeightDp.value` instead of `effectiveBottomSurfaceHeight.value`. This maintains the compact keyboard reservation baseline (e.g. 280dp) even when keyboard and drawer are closed, avoiding collapsing the canvas viewport and corrupting restoration math.
   - Removed unused lingering variables (`imeBottomDp`) and unused legacy imports (`ScribeBottomSurfaceCoordinator`, `Animatable`, `animateDpAsState`, `draggable`, `rememberDraggableState`, `imePadding`, `isImeVisible`).
 - **`EditorSessionRestorationCoordinator.kt`:**
   - Retained in `navigation` package preserving session restoration role.
@@ -190,7 +193,7 @@ In Phase 8, the remaining integration files (`UnifiedCanvasLayout.kt`, `ScribeCo
 2. **Touch Heuristic Coupling in UnifiedCanvasLayout (Resolved in Phase 8):**
    - Hardcoded 500ms threshold codified as `ScribeScrollPolicy.RECENT_TOUCH_SUPPRESSION_WINDOW_MS`, and tap suppression decision logic centralized in `ScribeScrollPolicy.calculatePredictiveGlideDecision`.
 3. **Dual Animation Systems (`ScribeCanvasGlideAnimator` vs `ProductionScrollAnimationCoordinator`):**
-   - Production canvas scrolling uses the critically damped spring glide (`ScribeCanvasGlideAnimator`), while `ProductionScrollAnimationCoordinator` is only exercised in test suites with `AnimationDriver`. Unifying the production spring into an `AnimationDriver` implementation remains an optimization opportunity for Phase 8.
+   - Production canvas scrolling uses the critically damped spring glide (`ScribeCanvasGlideAnimator`), while `ProductionScrollAnimationCoordinator` is only exercised in test suites with `AnimationDriver`. Unifying the production spring into an `AnimationDriver` implementation remains an optimization opportunity for Phase 9 or later.
 4. **Hardcoded Breathing Margins in Multiple Locations (Resolved in Phase 8):**
    - `UnifiedCanvasLayout.breathingMarginPx` now evaluates directly against `ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density`.
 
@@ -205,7 +208,7 @@ In Phase 8, the remaining integration files (`UnifiedCanvasLayout.kt`, `ScribeCo
 - [x] **Phase 5 — Extract Scroll Input and Fling Handling:** Complete (`ACTION_DOWN` lifecycle fully restored).
 - [x] **Correction Pass:** Complete across all 4 steps.
 - [x] **Phase 6 — Extract Keyboard and IME Viewport State:** Complete (committed in `7388a91`, verified in CI workflow #804; precision assertion calibrated).
-- [x] **Phase 7 — Extract Accessory Drawer Viewport and Transition State:** Complete (`AccessoryDrawerState`, `AccessoryDrawerMode`, dragging, snapping, and spring height transitions extracted into `ScribeBottomSurfaceState.kt` and `ScribeBottomSurfaceCoordinator.kt`; `MainEditorScreen.kt` updated to delegate cleanly).
-- [x] **Phase 8 — Finish Scroll Subsystem Integration:** Complete (`UnifiedCanvasLayout`, `ScribeCodeEditor`, and `MainEditorScreen` reduced to thin UI/platform adapters; all remaining scroll policy calculations, touch heuristics, and margin evaluations centralized in `ScribeScrollPolicy`; duplicate calculations in `requestChildRectangleOnScreen` and `AndroidView` factory/update eliminated; unused drawer/keyboard imports and state variables pruned).
+- [x] **Phase 7 — Extract Accessory Drawer Viewport and Transition State:** Complete (committed in `9481217`, lexical-scope fix `fde0518` verified in CI workflow #806; `AccessoryDrawerState`, `AccessoryDrawerMode`, dragging, snapping, and spring height transitions extracted into `ScribeBottomSurfaceState.kt` and `ScribeBottomSurfaceCoordinator.kt`).
+- [/] **Phase 8 — Finish Scroll Subsystem Integration:** Corrective Audit Applied (Initial integration `9e7ca2f` verified in CI workflow #807; corrective follow-up restoring persistent keyboard reservation, direction-specific cursor correction, and exact `canScrollVertically` semantics applied, awaiting CI verification).
 
 **Next Milestone:** Proceed to **Phase 9 — Repository-Wide Architecture, Call-Graph, Reference, and Test Audit** as directed by the user.

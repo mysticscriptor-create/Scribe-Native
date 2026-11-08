@@ -3707,4 +3707,264 @@ class CursorAndCanvasGeometryTest {
             )
         )
     }
+
+    // ── Phase 8 Policy & Adapter Helpers Unit Tests ─────────────────────────
+
+    @Test
+    fun testCalculateCenterCursorTarget() {
+        val viewportH = 1000f
+        val headerH = 300
+        val maxScroll = 2000
+
+        // 1. Boundary: distance <= 1dp is NOT smooth eligible (already centered)
+        // targetTotalScroll = 800 - 500 = 300f. If currentScroll = 300f -> distance = 0f <= 1f
+        val atTarget = ScribeScrollPolicy.calculateCenterCursorTarget(
+            cursorCanvasY = 800f,
+            viewportHeight = viewportH,
+            currentScroll = 300f,
+            headerHeight = headerH,
+            maxCanvasScroll = maxScroll
+        )
+        assertEquals(300f, atTarget.targetTotalScroll, 0.001f)
+        assertFalse(atTarget.isSmoothEligible)
+        assertEquals(300, atTarget.targetScrollD)
+        assertEquals(0, atTarget.targetScrollY)
+
+        // 2. Boundary: distance at 1.5 * viewportHeight (1500f) IS smooth eligible
+        // targetTotalScroll = 2000 - 500 = 1500f. currentScroll = 0f -> distance = 1500f
+        val maxSmooth = ScribeScrollPolicy.calculateCenterCursorTarget(
+            cursorCanvasY = 2000f,
+            viewportHeight = viewportH,
+            currentScroll = 0f,
+            headerHeight = headerH,
+            maxCanvasScroll = maxScroll
+        )
+        assertEquals(1500f, maxSmooth.targetTotalScroll, 0.001f)
+        assertTrue(maxSmooth.isSmoothEligible)
+
+        // 3. Boundary: distance > 1.5 * viewportHeight (1502f) is NOT smooth eligible (too far -> jump)
+        // targetTotalScroll = 2002 - 500 = 1502f. currentScroll = 0f -> distance = 1502f
+        val tooFar = ScribeScrollPolicy.calculateCenterCursorTarget(
+            cursorCanvasY = 2002f,
+            viewportHeight = viewportH,
+            currentScroll = 0f,
+            headerHeight = headerH,
+            maxCanvasScroll = maxScroll
+        )
+        assertEquals(1502f, tooFar.targetTotalScroll, 0.001f)
+        assertFalse(tooFar.isSmoothEligible)
+
+        // 4. Clamping to maxCanvasScroll
+        val clamped = ScribeScrollPolicy.calculateCenterCursorTarget(
+            cursorCanvasY = 3000f, // raw target 2500f
+            viewportHeight = viewportH,
+            currentScroll = 0f,
+            headerHeight = headerH,
+            maxCanvasScroll = 1200 // clamped to 1200
+        )
+        assertEquals(1200f, clamped.targetTotalScroll, 0.001f)
+
+        // 5. Immediate header/editor scroll split
+        // targetTotalScroll = 750f. Header takes 300, Editor takes 450
+        val split = ScribeScrollPolicy.calculateCenterCursorTarget(
+            cursorCanvasY = 1250f,
+            viewportHeight = viewportH,
+            currentScroll = 0f,
+            headerHeight = headerH,
+            maxCanvasScroll = maxScroll
+        )
+        assertEquals(750f, split.targetTotalScroll, 0.001f)
+        assertEquals(300, split.targetScrollD)
+        assertEquals(450, split.targetScrollY)
+
+        // 6. Target at or above the top boundary (<= 0f)
+        val atTop = ScribeScrollPolicy.calculateCenterCursorTarget(
+            cursorCanvasY = 200f, // raw target 200 - 500 = -300f
+            viewportHeight = viewportH,
+            currentScroll = 100f,
+            headerHeight = headerH,
+            maxCanvasScroll = maxScroll
+        )
+        assertEquals(0f, atTop.targetTotalScroll, 0.001f)
+        assertEquals(0, atTop.targetScrollD)
+        assertEquals(0, atTop.targetScrollY)
+    }
+
+    @Test
+    fun testCalculatePredictiveGlideDecision() {
+        val density = 2.0f
+        val futureViewportH = 600f
+        val headerH = 100
+        val maxFuture = 500f
+        // targetLineBottom = 600 - (24 * 2) = 552f.
+        // deadbandPx = 4 * 2 = 8f. Safe boundary = 552 + 8 = 560f.
+
+        // 1. Safe recent tap suppression (tap at 500f <= 560f)
+        val safeTap = ScribeScrollPolicy.calculatePredictiveGlideDecision(
+            currentScroll = 50f,
+            yOffset = 400f,
+            headerHeight = headerH,
+            futureViewportHeight = futureViewportH,
+            recentTouchY = 500f,
+            scrollD = 50,
+            density = density,
+            maxScrollFuture = maxFuture
+        )
+        assertTrue(safeTap.isTapSuppressed)
+        assertFalse(safeTap.shouldGlide)
+        assertEquals(50f, safeTap.desiredTarget, 0.001f)
+        assertEquals(0f, safeTap.deltaY, 0.001f)
+
+        // 2. Safe title-area tap suppression (scrollD == 0, tap within future viewport at 580f <= 600f)
+        val titleSafeTap = ScribeScrollPolicy.calculatePredictiveGlideDecision(
+            currentScroll = 0f,
+            yOffset = 400f,
+            headerHeight = headerH,
+            futureViewportHeight = futureViewportH,
+            recentTouchY = 580f,
+            scrollD = 0,
+            density = density,
+            maxScrollFuture = maxFuture
+        )
+        assertTrue(titleSafeTap.isTapSuppressed)
+        assertFalse(titleSafeTap.shouldGlide)
+
+        // 3. Recent tap below safe boundary (unsafe tap: scrollD > 0, tap at 580f > 560f)
+        // touchOverflow = 580 - 552 = 28f. desiredTarget = 50 + 28 = 78f. deltaY = 28f
+        val unsafeTap = ScribeScrollPolicy.calculatePredictiveGlideDecision(
+            currentScroll = 50f,
+            yOffset = 400f,
+            headerHeight = headerH,
+            futureViewportHeight = futureViewportH,
+            recentTouchY = 580f,
+            scrollD = 50,
+            density = density,
+            maxScrollFuture = maxFuture
+        )
+        assertFalse(unsafeTap.isTapSuppressed)
+        assertTrue(unsafeTap.isTargetOccluded)
+        assertTrue(unsafeTap.shouldGlide)
+        assertEquals(78f, unsafeTap.desiredTarget, 0.001f)
+        assertEquals(28f, unsafeTap.deltaY, 0.001f)
+
+        // 4. No recent tap, occluded target:
+        // headerH(100) + yOffset(600) - targetLineBottom(552) = 148f.
+        // currentScroll = 50f -> deltaY = 98f. screenBottom = 100 + 600 - 50 = 650f > 560f (occluded)
+        val noTapOccluded = ScribeScrollPolicy.calculatePredictiveGlideDecision(
+            currentScroll = 50f,
+            yOffset = 600f,
+            headerHeight = headerH,
+            futureViewportHeight = futureViewportH,
+            recentTouchY = null,
+            scrollD = 50,
+            density = density,
+            maxScrollFuture = maxFuture
+        )
+        assertFalse(noTapOccluded.isTapSuppressed)
+        assertTrue(noTapOccluded.isTargetOccluded)
+        assertTrue(noTapOccluded.shouldGlide)
+        assertEquals(148f, noTapOccluded.desiredTarget, 0.001f)
+        assertEquals(98f, noTapOccluded.deltaY, 0.001f)
+
+        // 5. No recent tap, non-occluded target:
+        // headerH(100) + yOffset(300) - currentScroll(50) = screenBottom(350f) <= 560f (not occluded)
+        val noTapSafe = ScribeScrollPolicy.calculatePredictiveGlideDecision(
+            currentScroll = 50f,
+            yOffset = 300f,
+            headerHeight = headerH,
+            futureViewportHeight = futureViewportH,
+            recentTouchY = null,
+            scrollD = 50,
+            density = density,
+            maxScrollFuture = maxFuture
+        )
+        assertFalse(noTapSafe.isTapSuppressed)
+        assertFalse(noTapSafe.isTargetOccluded)
+        assertFalse(noTapSafe.shouldGlide)
+
+        // 6. Positive delta around drag threshold (2f):
+        // deltaY <= 2f must not glide; deltaY > 2f must glide
+        val subThreshold = ScribeScrollPolicy.calculatePredictiveGlideDecision(
+            currentScroll = 146.5f,
+            yOffset = 600f, // target = 148f -> deltaY = 1.5f <= 2f
+            headerHeight = headerH,
+            futureViewportHeight = futureViewportH,
+            recentTouchY = null,
+            scrollD = 50,
+            density = density,
+            maxScrollFuture = maxFuture
+        )
+        assertTrue(subThreshold.isTargetOccluded)
+        assertFalse(subThreshold.shouldGlide)
+
+        val superThreshold = ScribeScrollPolicy.calculatePredictiveGlideDecision(
+            currentScroll = 145f,
+            yOffset = 600f, // target = 148f -> deltaY = 3.0f > 2f
+            headerHeight = headerH,
+            futureViewportHeight = futureViewportH,
+            recentTouchY = null,
+            scrollD = 50,
+            density = density,
+            maxScrollFuture = maxFuture
+        )
+        assertTrue(superThreshold.isTargetOccluded)
+        assertTrue(superThreshold.shouldGlide)
+
+        // 7. Maximum future scroll clamping
+        val clampedFuture = ScribeScrollPolicy.calculatePredictiveGlideDecision(
+            currentScroll = 0f,
+            yOffset = 2000f,
+            headerHeight = headerH,
+            futureViewportHeight = futureViewportH,
+            recentTouchY = null,
+            scrollD = 0,
+            density = density,
+            maxScrollFuture = 300f
+        )
+        assertEquals(300f, clampedFuture.desiredTarget, 0.001f)
+    }
+
+    @Test
+    fun testCanScrollVertically() {
+        val maxScroll = 500
+
+        // Positive direction (scrolling down into content)
+        // scrollD + offsetY < maxCanvasScroll
+        assertEquals(true, ScribeScrollPolicy.canScrollVertically(direction = 1, scrollD = 100, offsetY = 200, maxCanvasScroll = maxScroll))
+        assertEquals(false, ScribeScrollPolicy.canScrollVertically(direction = 1, scrollD = 200, offsetY = 300, maxCanvasScroll = maxScroll))
+        assertEquals(false, ScribeScrollPolicy.canScrollVertically(direction = 1, scrollD = 300, offsetY = 300, maxCanvasScroll = maxScroll))
+
+        // Negative direction (scrolling up towards header)
+        // scrollD > 0 || offsetY > 0
+        assertEquals(true, ScribeScrollPolicy.canScrollVertically(direction = -1, scrollD = 50, offsetY = 0, maxCanvasScroll = maxScroll))
+        assertEquals(true, ScribeScrollPolicy.canScrollVertically(direction = -1, scrollD = 0, offsetY = 50, maxCanvasScroll = maxScroll))
+        assertEquals(true, ScribeScrollPolicy.canScrollVertically(direction = -1, scrollD = 50, offsetY = 50, maxCanvasScroll = maxScroll))
+        assertEquals(false, ScribeScrollPolicy.canScrollVertically(direction = -1, scrollD = 0, offsetY = 0, maxCanvasScroll = maxScroll))
+
+        // Zero direction -> returns null for superclass fallback at adapter boundary
+        assertNull(ScribeScrollPolicy.canScrollVertically(direction = 0, scrollD = 100, offsetY = 100, maxCanvasScroll = maxScroll))
+    }
+
+    @Test
+    fun testShouldForwardScrollToCanvas() {
+        val headerH = 100
+
+        // 1. Header still visible (scrollD < headerHeight) -> always forward to canvas
+        assertTrue(ScribeScrollPolicy.shouldForwardScrollToCanvas(scrollD = 50, headerHeight = headerH, offsetY = 0, deltaY = 10))
+        assertTrue(ScribeScrollPolicy.shouldForwardScrollToCanvas(scrollD = 50, headerHeight = headerH, offsetY = 0, deltaY = -10))
+        assertTrue(ScribeScrollPolicy.shouldForwardScrollToCanvas(scrollD = 0, headerHeight = headerH, offsetY = 0, deltaY = 10))
+
+        // 2. Header hidden with downward movement and editor at top -> forward to reveal header
+        assertTrue(ScribeScrollPolicy.shouldForwardScrollToCanvas(scrollD = 100, headerHeight = headerH, offsetY = 0, deltaY = -10))
+
+        // 3. Header hidden while editor has positive offset -> editor consumes downward movement
+        assertFalse(ScribeScrollPolicy.shouldForwardScrollToCanvas(scrollD = 100, headerHeight = headerH, offsetY = 50, deltaY = -10))
+
+        // 4. Header hidden with upward (forward) movement -> editor consumes forward movement
+        assertFalse(ScribeScrollPolicy.shouldForwardScrollToCanvas(scrollD = 100, headerHeight = headerH, offsetY = 0, deltaY = 10))
+        assertFalse(ScribeScrollPolicy.shouldForwardScrollToCanvas(scrollD = 100, headerHeight = headerH, offsetY = 50, deltaY = 10))
+
+        // 5. Zero vertical delta (horizontal-only movement)
+        assertFalse(ScribeScrollPolicy.shouldForwardScrollToCanvas(scrollD = 100, headerHeight = headerH, offsetY = 0, deltaY = 0))
+    }
 }

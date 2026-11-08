@@ -1031,9 +1031,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val geom = getCharGeometry(layout, line, col, editor.rowHeight.toFloat())
         val yOffset = geom.bottomDocY
 
-        val headerRemaining = headerHeight - scrollD
-        val screenBottom = headerRemaining + yOffset - editor.offsetY
-
         val futureViewportHeight = if (isKeyboardOrDrawerActive && height > 0) {
             height.toFloat()
         } else {
@@ -1041,8 +1038,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
         val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
-        val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
-        val targetLineBottom = futureViewportHeight - marginPx
 
         // Authoritative future max canvas scroll matching post-resize onSizeChanged exactly
         val maxScrollFuture = ScribeScrollPolicy.calculateMaxCanvasScroll(
@@ -1600,28 +1595,45 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             )
 
             if (resolution.shouldScroll) {
-                if (resolution.deltaY > 0f && isDeletionTransactionActive) {
+                if (resolution.deltaY > 0f) {
+                    // Bottom overflow
+                    if (isDeletionTransactionActive) {
+                        return true
+                    }
+                    val currentScroll = (scrollD + editor.offsetY).toFloat()
+                    val desiredTarget = (currentScroll + resolution.deltaY).coerceIn(0f, maxCanvasScroll.toFloat())
+
+                    if (isKeyboardTransactionActive || (isGlideRunning && scrollCoordinator.isAnimationActive)) {
+                        startAuthoritativeScrollAnimation(
+                            targetTotalScroll = desiredTarget,
+                            reason = if (isKeyboardTransactionActive) ScrollAnimationReason.PREDICTIVE_GLIDE else ScrollAnimationReason.CARET_VISIBILITY,
+                            forceRetarget = true
+                        )
+                    } else if (!immediate) {
+                        smoothScrollCanvasBy(
+                            dy = resolution.deltaY,
+                            reason = ScrollAnimationReason.CARET_VISIBILITY,
+                            durationMs = resolution.recommendedDurationMs
+                        )
+                    } else {
+                        scrollCanvasBy(resolution.deltaY)
+                    }
+                    return true
+                } else if (resolution.deltaY < 0f) {
+                    // Top underflow
+                    val currentScroll = (scrollD + editor.offsetY).toFloat()
+                    val desiredTarget = (currentScroll + resolution.deltaY).coerceAtLeast(0f)
+                    if (isGlideRunning && scrollCoordinator.isAnimationActive) {
+                        startAuthoritativeScrollAnimation(
+                            targetTotalScroll = desiredTarget,
+                            reason = ScrollAnimationReason.CARET_VISIBILITY,
+                            durationMs = resolution.recommendedDurationMs
+                        )
+                    } else {
+                        scrollCanvasBy(resolution.deltaY)
+                    }
                     return true
                 }
-                val currentScroll = (scrollD + editor.offsetY).toFloat()
-                val desiredTarget = (currentScroll + resolution.deltaY).coerceIn(0f, maxCanvasScroll.toFloat())
-
-                if (isKeyboardTransactionActive || (isGlideRunning && scrollCoordinator.isAnimationActive)) {
-                    startAuthoritativeScrollAnimation(
-                        targetTotalScroll = desiredTarget,
-                        reason = if (isKeyboardTransactionActive) ScrollAnimationReason.PREDICTIVE_GLIDE else ScrollAnimationReason.CARET_VISIBILITY,
-                        forceRetarget = true
-                    )
-                } else if (!immediate) {
-                    smoothScrollCanvasBy(
-                        dy = resolution.deltaY,
-                        reason = ScrollAnimationReason.CARET_VISIBILITY,
-                        durationMs = resolution.recommendedDurationMs
-                    )
-                } else {
-                    scrollCanvasBy(resolution.deltaY)
-                }
-                return true
             }
         }
         return false

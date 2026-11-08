@@ -1417,7 +1417,7 @@ fun MainEditorScreen(
                             lastAppliedThemeId = activeTheme?.id
 
                             val curEstimatedKbPx = bottomSurfaceState.calculateEstimatedKeyboardHeightPx(
-                                bottomSurfaceHeightDp = effectiveBottomSurfaceHeight.value,
+                                bottomSurfaceHeightDp = bottomSurfaceState.estimatedBottomSurfaceHeightDp.value,
                                 hasShortcuts = shortcuts.isNotEmpty(),
                                 densityVal = density
                             )
@@ -1653,7 +1653,7 @@ fun MainEditorScreen(
                             layout.onUserTouchDown = handleUserTouchDown
                             val density = layout.context.resources.displayMetrics.density
                             val curEstimatedKbPx = bottomSurfaceState.calculateEstimatedKeyboardHeightPx(
-                                bottomSurfaceHeightDp = effectiveBottomSurfaceHeight.value,
+                                bottomSurfaceHeightDp = bottomSurfaceState.estimatedBottomSurfaceHeightDp.value,
                                 hasShortcuts = shortcuts.isNotEmpty(),
                                 densityVal = density
                             )

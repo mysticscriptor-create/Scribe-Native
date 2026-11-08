@@ -321,4 +321,54 @@ class ScribeBottomSurfaceStateTest {
         state.onDrawerDragDelta(deltaPx = 2000f, densityVal = 2.0f)
         assertEquals(280f, state.dragLiveHeightDp, 0.001f)
     }
+
+    @Test
+    fun testEstimatedBottomSurfaceHeightDp() {
+        val state = ScribeBottomSurfaceState(initialKeyboardHeightDp = 280.dp)
+        state.screenHeightDp = 800.dp
+        state.screenHeightDpFloat = 800f
+        state.densityValue = 2.0f
+
+        // 1. Keyboard closed, drawer closed -> retain compact keyboard baseline (280dp)
+        assertFalse(state.isKeyboardVisible)
+        assertFalse(state.isAccessoryDrawerActive)
+        assertEquals(280.dp, state.estimatedBottomSurfaceHeightDp)
+        // Notice visible spacer is 0dp when closed, while reservation remains 280dp
+        assertEquals(0.dp, state.effectiveBottomSurfaceHeight)
+
+        // 2. Keyboard dismissing (isKeyboardVisible = false, imeAboveNavDp > 0) -> retain at least compact baseline
+        state.imeAboveNavDp = 150.dp
+        assertEquals(280.dp, state.estimatedBottomSurfaceHeightDp)
+
+        // 3. Standard keyboard visible -> retain compact baseline
+        state.isKeyboardVisible = true
+        state.imeAboveNavDp = 280.dp
+        assertEquals(280.dp, state.estimatedBottomSurfaceHeightDp)
+
+        // 4. Oversized keyboard / picker visible -> allow imeAboveNavDp to exceed compact baseline
+        state.imeAboveNavDp = 350.dp
+        assertEquals(350.dp, state.estimatedBottomSurfaceHeightDp)
+
+        // 5. Accessory drawer active -> use actual drawer height (ignoring compact/ime)
+        state.openDrawer(AccessoryDrawerMode.SNIPPETS)
+        assertTrue(state.isAccessoryDrawerActive)
+        assertEquals(state.effectiveBottomSurfaceHeight, state.estimatedBottomSurfaceHeightDp)
+
+        // 6. Shortcut-bar addition verification in calculateEstimatedKeyboardHeightPx
+        val withShortcutsPx = state.calculateEstimatedKeyboardHeightPx(
+            bottomSurfaceHeightDp = 280f,
+            hasShortcuts = true,
+            densityVal = 2.0f
+        )
+        // (280dp + 36dp) * 2.0 = 632px
+        assertEquals(632f, withShortcutsPx, 0.001f)
+
+        val withoutShortcutsPx = state.calculateEstimatedKeyboardHeightPx(
+            bottomSurfaceHeightDp = 280f,
+            hasShortcuts = false,
+            densityVal = 2.0f
+        )
+        // 280dp * 2.0 = 560px (no 36dp shortcut reservation)
+        assertEquals(560f, withoutShortcutsPx, 0.001f)
+    }
 }

@@ -519,18 +519,20 @@ object ScribeScrollPolicy {
     /**
      * Determines whether vertical scrolling is permitted in the given direction.
      * @param direction > 0 for scrolling down (content moves up), < 0 for scrolling up (content moves down).
+     * @return true/false for non-zero directions, or null if direction is zero (signaling caller to delegate to superclass).
      */
     fun canScrollVertically(
         direction: Int,
-        currentScroll: Int,
+        scrollD: Int,
+        offsetY: Int,
         maxCanvasScroll: Int
-    ): Boolean {
+    ): Boolean? {
         return if (direction > 0) {
-            currentScroll < maxCanvasScroll
+            (scrollD + offsetY) < maxCanvasScroll
         } else if (direction < 0) {
-            currentScroll > 0
+            scrollD > 0 || offsetY > 0
         } else {
-            false
+            null
         }
     }
 
