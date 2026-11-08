@@ -157,7 +157,7 @@ In Phase 7, accessory drawer state and viewport transition logic were extracted 
 
 ## 5.2 Thin UI/Platform Adapters & Final Integration (Phase 8 Initial Verified in #807; Corrective Audit Applied)
 
-In Phase 8, the remaining integration files (`UnifiedCanvasLayout.kt`, `ScribeCodeEditor.kt`, `MainEditorScreen.kt`) were reduced to thin UI/platform adapters (committed in `9e7ca2f`, initial integration verified in CI workflow #807). Following the initial integration, a focused corrective audit was applied to resolve behavior-preservation edge cases:
+In Phase 8, the remaining integration files (`UnifiedCanvasLayout.kt`, `ScribeCodeEditor.kt`, `MainEditorScreen.kt`) were reduced to thin UI/platform adapters (committed in `9e7ca2f`, initial integration verified in CI workflow #807). Following the initial integration, a focused corrective audit was applied to resolve behavior-preservation edge cases (committed in `7b8e039`, CI workflow #808 identified test geometry calibration in `testCalculatePredictiveGlideDecision`; calibrated test follow-up awaiting verification):
 
 ### Architecture & Delegations
 - **`UnifiedCanvasLayout.kt`:**
@@ -209,6 +209,6 @@ In Phase 8, the remaining integration files (`UnifiedCanvasLayout.kt`, `ScribeCo
 - [x] **Correction Pass:** Complete across all 4 steps.
 - [x] **Phase 6 — Extract Keyboard and IME Viewport State:** Complete (committed in `7388a91`, verified in CI workflow #804; precision assertion calibrated).
 - [x] **Phase 7 — Extract Accessory Drawer Viewport and Transition State:** Complete (committed in `9481217`, lexical-scope fix `fde0518` verified in CI workflow #806; `AccessoryDrawerState`, `AccessoryDrawerMode`, dragging, snapping, and spring height transitions extracted into `ScribeBottomSurfaceState.kt` and `ScribeBottomSurfaceCoordinator.kt`).
-- [/] **Phase 8 — Finish Scroll Subsystem Integration:** Corrective Audit Applied (Initial integration `9e7ca2f` verified in CI workflow #807; corrective follow-up restoring persistent keyboard reservation, direction-specific cursor correction, and exact `canScrollVertically` semantics applied, awaiting CI verification).
+- [/] **Phase 8 — Finish Scroll Subsystem Integration:** Corrective Audit Applied (Initial integration `9e7ca2f` verified in CI workflow #807; corrective follow-up applied and test inputs calibrated following workflow #808, awaiting CI verification).
 
 **Next Milestone:** Proceed to **Phase 9 — Repository-Wide Architecture, Call-Graph, Reference, and Test Audit** as directed by the user.

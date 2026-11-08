@@ -3716,7 +3716,7 @@ class CursorAndCanvasGeometryTest {
         val headerH = 300
         val maxScroll = 2000
 
-        // 1. Boundary: distance <= 1dp is NOT smooth eligible (already centered)
+        // 1. Distance = 0f: already centered (distance <= 1f -> not smooth eligible)
         // targetTotalScroll = 800 - 500 = 300f. If currentScroll = 300f -> distance = 0f <= 1f
         val atTarget = ScribeScrollPolicy.calculateCenterCursorTarget(
             cursorCanvasY = 800f,
@@ -3730,8 +3730,32 @@ class CursorAndCanvasGeometryTest {
         assertEquals(300, atTarget.targetScrollD)
         assertEquals(0, atTarget.targetScrollY)
 
-        // 2. Boundary: distance at 1.5 * viewportHeight (1500f) IS smooth eligible
-        // targetTotalScroll = 2000 - 500 = 1500f. currentScroll = 0f -> distance = 1500f
+        // 2. Boundary: Distance exactly 1f -> not smooth eligible (distance <= 1f)
+        // targetTotalScroll = 800 - 500 = 300f. currentScroll = 299f -> distance = 1.0f <= 1f
+        val exact1f = ScribeScrollPolicy.calculateCenterCursorTarget(
+            cursorCanvasY = 800f,
+            viewportHeight = viewportH,
+            currentScroll = 299f,
+            headerHeight = headerH,
+            maxCanvasScroll = maxScroll
+        )
+        assertEquals(300f, exact1f.targetTotalScroll, 0.001f)
+        assertFalse(exact1f.isSmoothEligible)
+
+        // 3. Boundary: Distance just above 1f -> smooth eligible (distance > 1f && distance <= 1500f)
+        // targetTotalScroll = 800 - 500 = 300f. currentScroll = 298.5f -> distance = 1.5f > 1f
+        val justAbove1f = ScribeScrollPolicy.calculateCenterCursorTarget(
+            cursorCanvasY = 800f,
+            viewportHeight = viewportH,
+            currentScroll = 298.5f,
+            headerHeight = headerH,
+            maxCanvasScroll = maxScroll
+        )
+        assertEquals(300f, justAbove1f.targetTotalScroll, 0.001f)
+        assertTrue(justAbove1f.isSmoothEligible)
+
+        // 4. Boundary: Distance exactly at 1.5 * viewportHeight (1500f) IS smooth eligible
+        // targetTotalScroll = 2000 - 500 = 1500f. currentScroll = 0f -> distance = 1500f <= 1500f
         val maxSmooth = ScribeScrollPolicy.calculateCenterCursorTarget(
             cursorCanvasY = 2000f,
             viewportHeight = viewportH,
@@ -3742,8 +3766,8 @@ class CursorAndCanvasGeometryTest {
         assertEquals(1500f, maxSmooth.targetTotalScroll, 0.001f)
         assertTrue(maxSmooth.isSmoothEligible)
 
-        // 3. Boundary: distance > 1.5 * viewportHeight (1502f) is NOT smooth eligible (too far -> jump)
-        // targetTotalScroll = 2002 - 500 = 1502f. currentScroll = 0f -> distance = 1502f
+        // 5. Boundary: Distance just above 1.5 * viewportHeight (1502f) is NOT smooth eligible (too far -> jump)
+        // targetTotalScroll = 2002 - 500 = 1502f. currentScroll = 0f -> distance = 1502f > 1500f
         val tooFar = ScribeScrollPolicy.calculateCenterCursorTarget(
             cursorCanvasY = 2002f,
             viewportHeight = viewportH,
@@ -3883,30 +3907,45 @@ class CursorAndCanvasGeometryTest {
         assertFalse(noTapSafe.shouldGlide)
 
         // 6. Positive delta around drag threshold (2f):
-        // deltaY <= 2f must not glide; deltaY > 2f must glide
+        // Use a threshold configuration where rounded deadband (1px) < drag threshold (2px)
+        // margin = round(24 * 0.25) = 6px; deadband = round(4 * 0.25) = 1px
+        // targetLineBottom = 600 - 6 = 594px; occlusion boundary = 594 + 1 = 595px
+        // desiredTarget = 100 + 600 - 594 = 106px
+        val thresholdDensity = 0.25f
+        val thresholdViewport = 600f
+        val thresholdHeader = 100
+        val thresholdYOffset = 600f
+        val thresholdMaxScroll = 500f
+
+        // Sub-threshold case: deltaY = 106 - 104.5 = 1.5f <= 2f; screenBottom = 100 + 600 - 104.5 = 595.5f > 595f (occluded)
         val subThreshold = ScribeScrollPolicy.calculatePredictiveGlideDecision(
-            currentScroll = 146.5f,
-            yOffset = 600f, // target = 148f -> deltaY = 1.5f <= 2f
-            headerHeight = headerH,
-            futureViewportHeight = futureViewportH,
+            currentScroll = 104.5f,
+            yOffset = thresholdYOffset,
+            headerHeight = thresholdHeader,
+            futureViewportHeight = thresholdViewport,
             recentTouchY = null,
             scrollD = 50,
-            density = density,
-            maxScrollFuture = maxFuture
+            density = thresholdDensity,
+            maxScrollFuture = thresholdMaxScroll
         )
+        assertEquals(106f, subThreshold.desiredTarget, 0.001f)
+        assertEquals(1.5f, subThreshold.deltaY, 0.001f)
         assertTrue(subThreshold.isTargetOccluded)
         assertFalse(subThreshold.shouldGlide)
 
+        // Super-threshold case: deltaY = 106 - 103 = 3.0f > 2f; screenBottom = 100 + 600 - 103 = 597.0f > 595f (occluded)
         val superThreshold = ScribeScrollPolicy.calculatePredictiveGlideDecision(
-            currentScroll = 145f,
-            yOffset = 600f, // target = 148f -> deltaY = 3.0f > 2f
-            headerHeight = headerH,
-            futureViewportHeight = futureViewportH,
+            currentScroll = 103f,
+            yOffset = thresholdYOffset,
+            headerHeight = thresholdHeader,
+            futureViewportHeight = thresholdViewport,
             recentTouchY = null,
             scrollD = 50,
-            density = density,
-            maxScrollFuture = maxFuture
+            density = thresholdDensity,
+            maxScrollFuture = thresholdMaxScroll
         )
+        assertEquals(106f, superThreshold.desiredTarget, 0.001f)
+        assertEquals(3.0f, superThreshold.deltaY, 0.001f)
         assertTrue(superThreshold.isTargetOccluded)
         assertTrue(superThreshold.shouldGlide)
 
