@@ -2,7 +2,7 @@
 
 **Commit Reference Baseline:** `d0d39b5` ("fix(viewport): eliminate unnecessary scroll-and-return and coordinate fluid shortcut bar entry")  
 **Starting HEAD:** `59c3537`  
-**Milestone:** Phase 6 Source-Extracted (Awaiting CI Verification)  
+**Milestone:** Phase 7 Source-Extracted (Awaiting CI Verification)  
 **Verification Scope:** Exhaustive static source code inspection and repository-wide symbol reference verification. (Local Gradle/tests intentionally not executed per bounded instructions; remote verification deferred to GitHub Actions CI).
 
 ---
@@ -132,9 +132,9 @@ In Phase 6, soft keyboard, IME viewport integration, and transition latching wer
 
 ---
 
-## 5.1 Accessory Drawer Viewport & Transition Architecture (Phase 7 Complete)
+## 5.1 Accessory Drawer Viewport & Transition Architecture (Phase 7 Source-Extracted, Awaiting CI Verification)
 
-In Phase 7, accessory drawer state and viewport transition logic were extracted from `MainEditorScreen.kt` into **`ScribeBottomSurfaceState.kt`** and **`ScribeBottomSurfaceCoordinator.kt`**.
+In Phase 7, accessory drawer state and viewport transition logic were extracted from `MainEditorScreen.kt` into **`ScribeBottomSurfaceState.kt`** and **`ScribeBottomSurfaceCoordinator.kt`** (parent commit `7388a91`, with follow-up fix resolving `handleUserTouchDown` callback lexical scope in `MainEditorScreen.kt` pending CI verification).
 
 ### Architecture & Responsibilities
 - **Enums Extracted:** `AccessoryDrawerState` (COMPACT, EXPANDED, FULL) and `AccessoryDrawerMode` (SNIPPETS, TEMPLATES) located in `com.primaloptima.scribe.ui.editor.scroll`.
@@ -181,7 +181,7 @@ In Phase 7, accessory drawer state and viewport transition logic were extracted 
 - [x] **Phase 4 — Extract Scroll Animation Code:** Complete.
 - [x] **Phase 5 — Extract Scroll Input and Fling Handling:** Complete (`ACTION_DOWN` lifecycle fully restored).
 - [x] **Correction Pass:** Complete across all 4 steps.
-- [x] **Phase 6 — Extract Keyboard and IME Viewport State:** Complete (CI workflow #803 verified, precision assertion calibrated).
-- [x] **Phase 7 — Extract Accessory Drawer Viewport and Transition State:** Complete (`AccessoryDrawerState`, `AccessoryDrawerMode`, dragging, snapping, and spring height transitions extracted into `ScribeBottomSurfaceState.kt` and `ScribeBottomSurfaceCoordinator.kt`; `MainEditorScreen.kt` updated to delegate cleanly).
+- [x] **Phase 6 — Extract Keyboard and IME Viewport State:** Complete (committed in `7388a91`, verified in CI workflow #804; precision assertion calibrated).
+- [/] **Phase 7 — Extract Accessory Drawer Viewport and Transition State:** Source-Extracted (Awaiting CI Verification; parent commit `7388a91`, follow-up commit fixing `handleUserTouchDown` callback lexical scope in `MainEditorScreen.kt` pending verification; `AccessoryDrawerState`, `AccessoryDrawerMode`, dragging, snapping, and spring height transitions extracted into `ScribeBottomSurfaceState.kt` and `ScribeBottomSurfaceCoordinator.kt`; `MainEditorScreen.kt` updated to delegate cleanly).
 
-**Next Milestone:** Proceed to **Phase 8 — Saved Viewport & Session Restoration Separation** as directed by the user.
+**Next Milestone:** Proceed to **Phase 8 — Thin UI/Platform Adapters** (reducing remaining integration files such as `MainEditorScreen.kt`, `UnifiedCanvasLayout.kt`, etc. to thin UI/platform adapters) and subsequently **Phase 9 — Repository-Wide Architecture, Call-Graph, Reference, and Test Audit** as directed by the user.

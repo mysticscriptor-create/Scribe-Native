@@ -1387,6 +1387,26 @@ fun MainEditorScreen(
                     var isApplyingIndent by remember { mutableStateOf(false) }
                     var indentJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
+                    val handleUserTouchDown: () -> Unit = {
+                        updateEditingTarget(EditingTarget.EDITOR_BODY)
+                        if (bottomSurfaceState.isAccessoryDrawerActive) {
+                            bottomSurfaceState.closeDrawerAndRestoreKeyboard(
+                                unifiedCanvas = unifiedCanvasRef,
+                                scope = scope,
+                                onRestore = {
+                                    isWritingBarSearchActive = false
+                                    drawerSearchQuery = ""
+                                    previewItem = null
+                                    soraEditorRef?.requestFocus()
+                                    keyboardController?.show()
+                                    try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+                                }
+                            )
+                        } else if (!isKeyboardVisible) {
+                            bottomSurfaceState.startAwaitingKeyboard(unifiedCanvasRef)
+                        }
+                    }
+
                     AndroidView(
                         factory = { ctx ->
                             val density = ctx.resources.displayMetrics.density
@@ -1410,25 +1430,6 @@ fun MainEditorScreen(
                             val isDrawerOrTransitionActive = bottomSurfaceState.isDrawerOrTransitionActive()
                             val curIsKeyboardVisible = bottomSurfaceState.curIsKeyboardVisible()
                             val curIsBottomSurfaceActive = bottomSurfaceState.curIsBottomSurfaceActive(hasShortcuts = shortcuts.isNotEmpty())
-                            val handleUserTouchDown: () -> Unit = {
-                                updateEditingTarget(EditingTarget.EDITOR_BODY)
-                                if (bottomSurfaceState.isAccessoryDrawerActive) {
-                                    bottomSurfaceState.closeDrawerAndRestoreKeyboard(
-                                        unifiedCanvas = unifiedCanvasRef,
-                                        scope = scope,
-                                        onRestore = {
-                                            isWritingBarSearchActive = false
-                                            drawerSearchQuery = ""
-                                            previewItem = null
-                                            soraEditorRef?.requestFocus()
-                                            keyboardController?.show()
-                                            try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
-                                        }
-                                    )
-                                } else if (!isKeyboardVisible) {
-                                    bottomSurfaceState.startAwaitingKeyboard(unifiedCanvasRef)
-                                }
-                            }
                             UnifiedCanvasLayout(ctx).apply {
                                 horizontalPaddingDp = initialPadH
                                 setBackgroundColor(bgArgb)
