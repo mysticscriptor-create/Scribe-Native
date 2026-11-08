@@ -29,6 +29,13 @@ object ScribeScrollPolicy {
      */
     const val DRAG_THRESHOLD_DP = 2f
 
+    /**
+     * Recent tap heuristic window (500ms):
+     * If the user initiated cursor focus via a recent tap on the canvas,
+     * checks whether the tap is already above the breathing margin to prevent false bouncing.
+     */
+    const val RECENT_TOUCH_SUPPRESSION_WINDOW_MS = 500L
+
     // ── Unified Animation Durations ─────────────────────────────────────────────
 
     /** Predictive glide duration synchronized with standard keyboard entrance curves */
@@ -504,6 +511,135 @@ object ScribeScrollPolicy {
             line = targetLine,
             column = targetCol,
             shouldScroll = true
+        )
+    }
+
+    // ── Integration Helpers for View & Editor Adapters ───────────────────────
+
+    /**
+     * Determines whether vertical scrolling is permitted in the given direction.
+     * @param direction > 0 for scrolling down (content moves up), < 0 for scrolling up (content moves down).
+     */
+    fun canScrollVertically(
+        direction: Int,
+        currentScroll: Int,
+        maxCanvasScroll: Int
+    ): Boolean {
+        return if (direction > 0) {
+            currentScroll < maxCanvasScroll
+        } else if (direction < 0) {
+            currentScroll > 0
+        } else {
+            false
+        }
+    }
+
+    /**
+     * Determines whether a scroll event received by Sora Editor should be forwarded to the outer canvas layout.
+     */
+    fun shouldForwardScrollToCanvas(
+        scrollD: Int,
+        headerHeight: Int,
+        offsetY: Int,
+        deltaY: Int
+    ): Boolean {
+        return scrollD < headerHeight || (deltaY < 0 && scrollD > 0 && offsetY <= 0)
+    }
+
+    data class CenterCursorTarget(
+        val targetTotalScroll: Float,
+        val isSmoothEligible: Boolean,
+        val targetScrollD: Int,
+        val targetScrollY: Int
+    )
+
+    /**
+     * Calculates the target scroll position and restoration split to center a cursor line in the viewport.
+     */
+    fun calculateCenterCursorTarget(
+        cursorCanvasY: Float,
+        viewportHeight: Float,
+        currentScroll: Float,
+        headerHeight: Int,
+        maxCanvasScroll: Int
+    ): CenterCursorTarget {
+        val targetTotalScroll = cursorCanvasY - (viewportHeight / 2f)
+        val distance = kotlin.math.abs(targetTotalScroll - currentScroll)
+        val maxSmoothDistance = 1.5f * viewportHeight
+        val isSmoothEligible = distance <= maxSmoothDistance && distance > 1f
+        val targetScrollD = if (targetTotalScroll <= 0f) 0 else targetTotalScroll.toInt().coerceIn(0, headerHeight)
+        val targetScrollY = if (targetTotalScroll <= 0f) 0 else (targetTotalScroll.toInt() - targetScrollD).coerceAtLeast(0)
+        return CenterCursorTarget(
+            targetTotalScroll = targetTotalScroll.coerceIn(0f, maxCanvasScroll.toFloat().coerceAtLeast(0f)),
+            isSmoothEligible = isSmoothEligible,
+            targetScrollD = targetScrollD,
+            targetScrollY = targetScrollY
+        )
+    }
+
+    data class PredictiveGlideDecision(
+        val desiredTarget: Float,
+        val deltaY: Float,
+        val isTargetOccluded: Boolean,
+        val isTapSuppressed: Boolean,
+        val shouldGlide: Boolean
+    )
+
+    /**
+     * Evaluates predictive keyboard glide decisions, incorporating recent touch heuristics
+     * and occluded boundary checks.
+     */
+    fun calculatePredictiveGlideDecision(
+        currentScroll: Float,
+        yOffset: Float,
+        headerHeight: Int,
+        futureViewportHeight: Float,
+        recentTouchY: Float?,
+        scrollD: Int,
+        density: Float,
+        maxScrollFuture: Float
+    ): PredictiveGlideDecision {
+        val marginPx = (CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
+        val deadbandPx = (CURSOR_DEADBAND_DP * density).roundToInt()
+        val targetLineBottom = (futureViewportHeight - marginPx).toFloat()
+
+        if (recentTouchY != null) {
+            val isTapAboveMargin = recentTouchY <= (targetLineBottom + deadbandPx)
+            val isTitleSafe = (scrollD == 0 && recentTouchY <= futureViewportHeight)
+            if (isTapAboveMargin || isTitleSafe) {
+                return PredictiveGlideDecision(
+                    desiredTarget = currentScroll,
+                    deltaY = 0f,
+                    isTargetOccluded = false,
+                    isTapSuppressed = true,
+                    shouldGlide = false
+                )
+            }
+        }
+
+        val desiredTarget = if (recentTouchY != null) {
+            val touchOverflow = recentTouchY - targetLineBottom
+            (currentScroll + touchOverflow).coerceIn(0f, maxScrollFuture)
+        } else {
+            (headerHeight + yOffset - targetLineBottom).coerceIn(0f, maxScrollFuture)
+        }
+        val deltaY = desiredTarget - currentScroll
+
+        val isTargetOccluded = if (recentTouchY != null) {
+            recentTouchY > (targetLineBottom + deadbandPx)
+        } else {
+            val screenBottom = headerHeight + yOffset - currentScroll
+            screenBottom > (targetLineBottom + deadbandPx)
+        }
+
+        val shouldGlide = deltaY > DRAG_THRESHOLD_DP && isTargetOccluded
+
+        return PredictiveGlideDecision(
+            desiredTarget = desiredTarget,
+            deltaY = deltaY,
+            isTargetOccluded = isTargetOccluded,
+            isTapSuppressed = false,
+            shouldGlide = shouldGlide
         )
     }
 }

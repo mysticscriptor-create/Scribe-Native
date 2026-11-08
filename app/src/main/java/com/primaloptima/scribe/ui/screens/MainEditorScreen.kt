@@ -47,8 +47,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.material3.ripple
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.lerp
@@ -67,7 +65,6 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.Spring
 import androidx.compose.foundation.background
@@ -82,7 +79,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -146,8 +142,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -221,7 +215,6 @@ import com.primaloptima.scribe.ui.components.UnifiedCanvasLayout
 import com.primaloptima.scribe.ui.components.ScribeCodeEditor
 import com.primaloptima.scribe.ui.editor.scroll.AccessoryDrawerMode
 import com.primaloptima.scribe.ui.editor.scroll.AccessoryDrawerState
-import com.primaloptima.scribe.ui.editor.scroll.ScribeBottomSurfaceCoordinator
 import com.primaloptima.scribe.ui.editor.scroll.ScribeBottomSurfaceState
 import com.primaloptima.scribe.ui.editor.scroll.rememberScribeBottomSurfaceState
 import com.primaloptima.scribe.ui.editor.scroll.ScribeScrollPolicy
@@ -1225,7 +1218,6 @@ fun MainEditorScreen(
     val isKeyboardVisible = bottomSurfaceState.isKeyboardVisible
     val hazeState = LocalHazeState.current ?: dev.chrisbanes.haze.HazeState()
     val density = LocalDensity.current
-    val imeBottomDp = bottomSurfaceState.imeBottomDp
     val docBottomNavInset = bottomSurfaceState.docBottomNavInset
     val imeAboveNavDp = bottomSurfaceState.imeAboveNavDp
     val configuration = LocalConfiguration.current
@@ -1424,9 +1416,11 @@ fun MainEditorScreen(
                             lastAppliedBgArgb = bgArgb
                             lastAppliedThemeId = activeTheme?.id
 
-                            val bottomSurfaceHeightDp = if (bottomSurfaceState.isAccessoryDrawerActive) effectiveBottomSurfaceHeight.value else maxOf(compactHeightDp.value, imeAboveNavDp.value)
-                            val shortcutBarDp = if (shortcuts.isNotEmpty()) 36.dp.value else 0f
-                            val curEstimatedKbPx = (bottomSurfaceHeightDp + shortcutBarDp) * density
+                            val curEstimatedKbPx = bottomSurfaceState.calculateEstimatedKeyboardHeightPx(
+                                bottomSurfaceHeightDp = effectiveBottomSurfaceHeight.value,
+                                hasShortcuts = shortcuts.isNotEmpty(),
+                                densityVal = density
+                            )
                             val isDrawerOrTransitionActive = bottomSurfaceState.isDrawerOrTransitionActive()
                             val curIsKeyboardVisible = bottomSurfaceState.curIsKeyboardVisible()
                             val curIsBottomSurfaceActive = bottomSurfaceState.curIsBottomSurfaceActive(hasShortcuts = shortcuts.isNotEmpty())
@@ -1658,9 +1652,11 @@ fun MainEditorScreen(
                         update = { layout ->
                             layout.onUserTouchDown = handleUserTouchDown
                             val density = layout.context.resources.displayMetrics.density
-                            val bottomSurfaceHeightDp = if (bottomSurfaceState.isAccessoryDrawerActive) effectiveBottomSurfaceHeight.value else maxOf(compactHeightDp.value, imeAboveNavDp.value)
-                            val shortcutBarDp = if (shortcuts.isNotEmpty()) 36.dp.value else 0f
-                            val curEstimatedKbPx = (bottomSurfaceHeightDp + shortcutBarDp) * density
+                            val curEstimatedKbPx = bottomSurfaceState.calculateEstimatedKeyboardHeightPx(
+                                bottomSurfaceHeightDp = effectiveBottomSurfaceHeight.value,
+                                hasShortcuts = shortcuts.isNotEmpty(),
+                                densityVal = density
+                            )
                             layout.estimatedKeyboardHeightPx = curEstimatedKbPx
                             layout.onKeyboardEntranceStarted = {
                                 bottomSurfaceState.onKeyboardEntranceStarted(unifiedCanvasRef)

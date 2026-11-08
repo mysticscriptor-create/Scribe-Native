@@ -2,7 +2,7 @@
 
 **Commit Reference Baseline:** `d0d39b5` ("fix(viewport): eliminate unnecessary scroll-and-return and coordinate fluid shortcut bar entry")  
 **Starting HEAD:** `59c3537`  
-**Milestone:** Phase 7 Source-Extracted (Awaiting CI Verification)  
+**Milestone:** Phase 8 Complete (Awaiting CI Verification)  
 **Verification Scope:** Exhaustive static source code inspection and repository-wide symbol reference verification. (Local Gradle/tests intentionally not executed per bounded instructions; remote verification deferred to GitHub Actions CI).
 
 ---
@@ -155,6 +155,29 @@ In Phase 7, accessory drawer state and viewport transition logic were extracted 
 
 ---
 
+## 5.2 Thin UI/Platform Adapters & Final Integration (Phase 8 Complete)
+
+In Phase 8, the remaining integration files (`UnifiedCanvasLayout.kt`, `ScribeCodeEditor.kt`, `MainEditorScreen.kt`) were reduced to thin UI/platform adapters:
+
+### Architecture & Delegations
+- **`UnifiedCanvasLayout.kt`:**
+  - Retains Android View/FrameLayout lifecycle, measurement (`onMeasure`), layout (`onLayout`), translations (`applyTranslations`), and touch dispatching.
+  - Delegates `centerCursorInViewport` target calculations to `ScribeScrollPolicy.calculateCenterCursorTarget`.
+  - Delegates predictive glide heuristics and suppression to `ScribeScrollPolicy.calculatePredictiveGlideDecision`.
+  - Replaced manual cursor bounds and overflow checks in `requestChildRectangleOnScreen` with `ScribeScrollPolicy.resolveCursorScrollDelta`, eliminating redundant logic.
+  - Replaced hardcoded `24f * density` in `breathingMarginPx` with `ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density`.
+- **`ScribeCodeEditor.kt`:**
+  - Delegates vertical scroll permission to `ScribeScrollPolicy.canScrollVertically`.
+  - Delegates canvas forward scroll evaluation to `ScribeScrollPolicy.shouldForwardScrollToCanvas`.
+  - Retains mandatory Sora Editor overrides and text editing behavior.
+- **`MainEditorScreen.kt`:**
+  - Replaced manual estimated keyboard height calculations in `factory` and `update` with `bottomSurfaceState.calculateEstimatedKeyboardHeightPx`.
+  - Removed unused lingering variables (`imeBottomDp`) and unused legacy imports (`ScribeBottomSurfaceCoordinator`, `Animatable`, `animateDpAsState`, `draggable`, `rememberDraggableState`, `imePadding`, `isImeVisible`).
+- **`EditorSessionRestorationCoordinator.kt`:**
+  - Retained in `navigation` package preserving session restoration role.
+
+---
+
 ## 6. Observed Defects and Questionable Implementations Backlog
 
 ### A. Phase 5 Regression (Resolved by Correction Pass)
@@ -164,12 +187,12 @@ In Phase 7, accessory drawer state and viewport transition logic were extracted 
 ### B. Pre-Existing Baseline Questionable Implementations (Recorded for Later Phases)
 1. **Side-Effect in Pure Policy (`ScribeScrollRestorationPolicy`):**
    - `resolveContractionRestorationDelta` internally invokes `ScribeScrollDiagnostics.log(...)`. While the configuration facade was removed, the calculation function still emits diagnostic logs as a side-effect. Decoupling this into the coordinator layer should be considered in later passes.
-2. **Touch Heuristic Coupling in UnifiedCanvasLayout:**
-   - Lines 1060–1065 in `UnifiedCanvasLayout.kt` check `if (now - lastTouchDownTime < 500L)` to suppress or bias cursor visibility glides. This hardcoded time threshold should eventually be codified as a named policy constant in `ScribeScrollPolicy`.
+2. **Touch Heuristic Coupling in UnifiedCanvasLayout (Resolved in Phase 8):**
+   - Hardcoded 500ms threshold codified as `ScribeScrollPolicy.RECENT_TOUCH_SUPPRESSION_WINDOW_MS`, and tap suppression decision logic centralized in `ScribeScrollPolicy.calculatePredictiveGlideDecision`.
 3. **Dual Animation Systems (`ScribeCanvasGlideAnimator` vs `ProductionScrollAnimationCoordinator`):**
    - Production canvas scrolling uses the critically damped spring glide (`ScribeCanvasGlideAnimator`), while `ProductionScrollAnimationCoordinator` is only exercised in test suites with `AnimationDriver`. Unifying the production spring into an `AnimationDriver` implementation remains an optimization opportunity for Phase 8.
-4. **Hardcoded Breathing Margins in Multiple Locations:**
-   - While `CURSOR_BOTTOM_MARGIN_DP` (24dp) is centralized in `ScribeScrollPolicy`, certain layout bounds calculations in `UnifiedCanvasLayout` compute `24f * density` independently.
+4. **Hardcoded Breathing Margins in Multiple Locations (Resolved in Phase 8):**
+   - `UnifiedCanvasLayout.breathingMarginPx` now evaluates directly against `ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density`.
 
 ---
 
@@ -182,6 +205,7 @@ In Phase 7, accessory drawer state and viewport transition logic were extracted 
 - [x] **Phase 5 — Extract Scroll Input and Fling Handling:** Complete (`ACTION_DOWN` lifecycle fully restored).
 - [x] **Correction Pass:** Complete across all 4 steps.
 - [x] **Phase 6 — Extract Keyboard and IME Viewport State:** Complete (committed in `7388a91`, verified in CI workflow #804; precision assertion calibrated).
-- [/] **Phase 7 — Extract Accessory Drawer Viewport and Transition State:** Source-Extracted (Awaiting CI Verification; parent commit `7388a91`, follow-up commit fixing `handleUserTouchDown` callback lexical scope in `MainEditorScreen.kt` pending verification; `AccessoryDrawerState`, `AccessoryDrawerMode`, dragging, snapping, and spring height transitions extracted into `ScribeBottomSurfaceState.kt` and `ScribeBottomSurfaceCoordinator.kt`; `MainEditorScreen.kt` updated to delegate cleanly).
+- [x] **Phase 7 — Extract Accessory Drawer Viewport and Transition State:** Complete (`AccessoryDrawerState`, `AccessoryDrawerMode`, dragging, snapping, and spring height transitions extracted into `ScribeBottomSurfaceState.kt` and `ScribeBottomSurfaceCoordinator.kt`; `MainEditorScreen.kt` updated to delegate cleanly).
+- [x] **Phase 8 — Finish Scroll Subsystem Integration:** Complete (`UnifiedCanvasLayout`, `ScribeCodeEditor`, and `MainEditorScreen` reduced to thin UI/platform adapters; all remaining scroll policy calculations, touch heuristics, and margin evaluations centralized in `ScribeScrollPolicy`; duplicate calculations in `requestChildRectangleOnScreen` and `AndroidView` factory/update eliminated; unused drawer/keyboard imports and state variables pruned).
 
-**Next Milestone:** Proceed to **Phase 8 — Thin UI/Platform Adapters** (reducing remaining integration files such as `MainEditorScreen.kt`, `UnifiedCanvasLayout.kt`, etc. to thin UI/platform adapters) and subsequently **Phase 9 — Repository-Wide Architecture, Call-Graph, Reference, and Test Audit** as directed by the user.
+**Next Milestone:** Proceed to **Phase 9 — Repository-Wide Architecture, Call-Graph, Reference, and Test Audit** as directed by the user.
