@@ -15,21 +15,21 @@ interface AnimationDriver {
         onEnd: () -> Unit
     )
     fun cancel()
+    val isRunning: Boolean
 }
 
 /**
- * Test animation driver implementation simulating frame steps and completions in tests.
+ * Test animation driver simulating Android's ValueAnimator lifecycle
+ * where cancel() synchronously triggers onAnimationCancel followed by onAnimationEnd.
  */
 class TestAnimationDriver : AnimationDriver {
-    var from: Float = 0f
-    var to: Float = 0f
-    var durationMs: Long = 0L
-    var onUpdate: ((Float) -> Unit)? = null
-    var onCancel: (() -> Unit)? = null
-    var onEnd: (() -> Unit)? = null
-    var isRunning: Boolean = false
-    var isCancelled: Boolean = false
-    var isEnded: Boolean = false
+    var isStarted = false
+    var fromVal = 0f
+    var toVal = 0f
+    var updateCb: ((Float) -> Unit)? = null
+    var cancelCb: (() -> Unit)? = null
+    var endCb: (() -> Unit)? = null
+    override var isRunning = false
 
     override fun start(
         from: Float,
@@ -39,105 +39,66 @@ class TestAnimationDriver : AnimationDriver {
         onCancel: () -> Unit,
         onEnd: () -> Unit
     ) {
-        this.from = from
-        this.to = to
-        this.durationMs = durationMs
-        this.onUpdate = onUpdate
-        this.onCancel = onCancel
-        this.onEnd = onEnd
-        this.isRunning = true
-        this.isCancelled = false
-        this.isEnded = false
+        isStarted = true
+        isRunning = true
+        fromVal = from
+        toVal = to
+        updateCb = onUpdate
+        cancelCb = onCancel
+        endCb = onEnd
     }
 
     override fun cancel() {
-        if (!isRunning) return
-        isRunning = false
-        isCancelled = true
-        onCancel?.invoke()
+        if (isRunning) {
+            isRunning = false
+            // Android ValueAnimator lifecycle: onAnimationCancel then onAnimationEnd
+            cancelCb?.invoke()
+            endCb?.invoke()
+        }
     }
 
-    fun step(progress: Float) {
-        if (!isRunning) return
-        val current = from + (to - from) * progress.coerceIn(0f, 1f)
-        onUpdate?.invoke(current)
+    fun step(value: Float) {
+        if (isRunning) {
+            updateCb?.invoke(value)
+        }
     }
 
     fun complete() {
-        if (!isRunning) return
-        isRunning = false
-        isEnded = true
-        onUpdate?.invoke(to)
-        onEnd?.invoke()
+        if (isRunning) {
+            isRunning = false
+            endCb?.invoke()
+        }
     }
 }
 
 /**
- * Test-support animation coordinator driving ScribeScrollCoordinator
+ * Production-grade animation controller coordinating ScribeScrollCoordinator
  * with an AnimationDriver. Enforces monotonic operation ID tracking and race-free
- * multi-step simulation in unit test suites.
+ * cancellation / retargeting without stale callback interference.
  */
 class ProductionScrollAnimationCoordinator(
     val scrollCoordinator: ScribeScrollCoordinator,
     var animationDriverFactory: (() -> AnimationDriver)? = null
 ) {
+    val activeOperationId: Long
+        get() = scrollCoordinator.activeOperationId
+
     var activeDriver: AnimationDriver? = null
+        private set
 
     fun startAuthoritativeAnimation(
         targetTotalScroll: Float,
         reason: ScrollAnimationReason,
+        durationMs: Long = 280L,
         forceRetarget: Boolean = false,
-        durationMs: Long = 300L,
-        currentScroll: Float = scrollCoordinator.totalScroll,
-        maxCanvasScroll: Int = 10000,
+        maxCanvasScroll: Int? = null,
         onEnd: (() -> Unit)? = null
     ): Boolean {
-        val clampedTarget = targetTotalScroll.coerceIn(0f, maxCanvasScroll.toFloat())
+        val currentScroll = scrollCoordinator.totalScroll
+        val maxBound = maxCanvasScroll?.toFloat()?.coerceAtLeast(0f)
+        val clampedTarget = if (maxBound != null) targetTotalScroll.coerceIn(0f, maxBound) else targetTotalScroll.coerceAtLeast(0f)
 
-        // Continuous retargeting: if an animation is already active, seamlessly update target in-flight!
-        if (scrollCoordinator.isAnimationActive) {
-            val currTarget = scrollCoordinator.activeTargetTotalScroll
-            if (!forceRetarget && currTarget != null && abs(currTarget - clampedTarget) <= 1f) {
-                onEnd?.invoke()
-                return false
-            }
-            scrollCoordinator.retargetActiveOperation(clampedTarget, reason, maxCanvasScroll)
-            val driver = activeDriver
-            if (driver != null) {
-                driver.cancel()
-                val newDriver = animationDriverFactory?.invoke()
-                activeDriver = newDriver
-                val opId = scrollCoordinator.activeOperationId
-                val distance = abs(clampedTarget - currentScroll)
-                val scaledDuration = (distance * 1.2f).toLong().coerceIn(120L, durationMs)
-                newDriver?.start(
-                    from = currentScroll,
-                    to = clampedTarget,
-                    durationMs = scaledDuration,
-                    onUpdate = { curr ->
-                        if (opId == scrollCoordinator.activeOperationId) {
-                            scrollCoordinator.applyStep(curr, opId)
-                        }
-                    },
-                    onCancel = {
-                        if (opId == scrollCoordinator.activeOperationId) {
-                            activeDriver = null
-                            scrollCoordinator.cancelAnimation("Driver cancelled", opId)
-                        }
-                    },
-                    onEnd = {
-                        if (opId == scrollCoordinator.activeOperationId) {
-                            activeDriver = null
-                            scrollCoordinator.finishAnimation(opId)
-                            onEnd?.invoke()
-                        }
-                    }
-                )
-            }
-            return true
-        }
-
-        // Step 1: Secure exclusive single-owner target from authoritative coordinator
+        // Step 1: Request target in coordinator (advances scrollCoordinator.activeOperationId)
         val shouldStart = scrollCoordinator.requestTarget(clampedTarget, reason, forceRetarget, maxCanvasScroll)
         if (!shouldStart) {
             onEnd?.invoke()
@@ -295,6 +256,7 @@ class ContractionSimulationController(
             val safeTarget = if (!validation.isSafe) candidateTarget + validation.correctiveDeltaY else candidateTarget
             coordinator.requestTarget(safeTarget, ScrollAnimationReason.CONTRACTION_RESTORATION)
         }
+
         return result
     }
 

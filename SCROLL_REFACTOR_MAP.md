@@ -2,7 +2,7 @@
 
 **Commit Reference Baseline:** `d0d39b5` ("fix(viewport): eliminate unnecessary scroll-and-return and coordinate fluid shortcut bar entry")  
 **Starting HEAD:** `59c3537`  
-**Milestone:** Phase 9 Complete — Final Scroll Architecture Separation & Documentation  
+**Milestone:** Phase 9 Corrective Audit Applied (Awaiting CI Verification)  
 **Verification Scope:** Exhaustive static source code inspection and repository-wide symbol reference verification. (Local Gradle/tests intentionally not executed per bounded instructions; remote verification deferred to GitHub Actions CI).
 
 ---
@@ -161,9 +161,9 @@ In Phase 7, accessory drawer state and viewport transition logic were extracted 
 
 ---
 
-## 5.2 Thin UI/Platform Adapters & Final Integration (Phase 8 Initial Verified in #807; Corrective Audit Applied)
+## 5.2 Thin UI/Platform Adapters & Final Integration (Phase 8 Verified in CI Workflow #809)
 
-In Phase 8, the remaining integration files (`UnifiedCanvasLayout.kt`, `ScribeCodeEditor.kt`, `MainEditorScreen.kt`) were reduced to thin UI/platform adapters (committed in `9e7ca2f`, initial integration verified in CI workflow #807). Following the initial integration, a focused corrective audit was applied to resolve behavior-preservation edge cases (committed in `7b8e039`, CI workflow #808 identified test geometry calibration in `testCalculatePredictiveGlideDecision`; calibrated test follow-up awaiting verification):
+In Phase 8, the remaining integration files (`UnifiedCanvasLayout.kt`, `ScribeCodeEditor.kt`, `MainEditorScreen.kt`) were reduced to thin UI/platform adapters (committed in `9e7ca2f`, initial integration verified in CI workflow #807). Following the initial integration, a focused corrective audit was applied to resolve behavior-preservation edge cases (committed in `7b8e039`, calibrated test follow-up `a80451d` passed CI workflow #809):
 
 ### Architecture & Delegations
 - **`UnifiedCanvasLayout.kt`:**
@@ -189,13 +189,15 @@ In Phase 8, the remaining integration files (`UnifiedCanvasLayout.kt`, `ScribeCo
 
 ---
 
-## 5.3 Final Architecture Separation & Test Suite Modularization (Phase 9 Complete)
+## 5.3 Final Architecture Separation & Test Suite Modularization (Phase 9 Implemented; Corrective Audit Applied)
 
 In Phase 9, the scroll architecture extraction was finalized across production and test codebases:
 
 ### 1. Production Purity & Test Support Separation
 - Relocated test-only animation abstractions (`AnimationDriver`, `ProductionScrollAnimationCoordinator`, `TestAnimationDriver`) and simulation harness (`ContractionSimulationController`) completely out of production source and into dedicated test-support file:
   `app/src/test/java/com/primaloptima/scribe/ui/editor/scroll/ScribeScrollTestSupport.kt`.
+  - *Corrective Audit:* Restored exact baseline public contract and lifecycle semantics for `AnimationDriver` (with `isRunning`), `TestAnimationDriver` (`fromVal`, `toVal`, ValueAnimator cancel/end callback ordering, un-normalized `step(value)`), and `ProductionScrollAnimationCoordinator` (`activeOperationId`, 280ms duration, nullable `maxCanvasScroll: Int? = null`, and target request preceding cancellation), resolving compile errors in `:app:compileDebugUnitTestKotlin`.
+  - Removed duplicate unused `TestAnimationDriver` nested in `ScribeScrollCoordinatorTest.kt`.
 - Production `ScribeScrollAnimation.kt` now strictly contains production code: `FastOutSlowInInterpolator` and `ScribeCanvasGlideAnimator`.
 
 ### 2. Test Suite Modularization
@@ -241,6 +243,6 @@ In Phase 9, the scroll architecture extraction was finalized across production a
 - [x] **Phase 6 — Extract Keyboard and IME Viewport State:** Complete (committed in `7388a91`, verified in CI workflow #804; precision assertion calibrated).
 - [x] **Phase 7 — Extract Accessory Drawer Viewport and Transition State:** Complete (committed in `9481217`, lexical-scope fix `fde0518` verified in CI workflow #806; `AccessoryDrawerState`, `AccessoryDrawerMode`, dragging, snapping, and spring height transitions extracted into `ScribeBottomSurfaceState.kt` and `ScribeBottomSurfaceCoordinator.kt`).
 - [x] **Phase 8 — Finish Scroll Subsystem Integration:** Complete (Initial integration `9e7ca2f` verified in CI workflow #807; corrective follow-up `7b8e039` and calibrated test inputs `a80451d` verified in CI workflow #809).
-- [x] **Phase 9 — Finalize Scroll Architecture Separation:** Complete (Production source purified; test-only support extracted to `ScribeScrollTestSupport.kt`; monolithic `CursorAndCanvasGeometryTest.kt` split into 7 focused suites preserving all 133 tests; comprehensive `SCROLL_ARCHITECTURE.md` created; refactor map finalized).
+- [x] **Phase 9 — Finalize Scroll Architecture Separation:** Implemented (Production source purified; test-only support extracted to `ScribeScrollTestSupport.kt`; monolithic `CursorAndCanvasGeometryTest.kt` split into 7 focused suites preserving all 133 tests; comprehensive `SCROLL_ARCHITECTURE.md` created; corrective audit applied to restore test-support contract compatibility; awaiting CI verification).
 
-**Next Milestone:** All 9 refactor phases complete. Scroll subsystem successfully extracted into decoupled, single-responsibility architecture.
+**Next Milestone:** CI verification of Phase 9 corrective audit (workflow #811).

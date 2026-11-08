@@ -158,58 +158,6 @@ class ScribeScrollCoordinatorTest {
         assertEquals(-1, coordinator.caretLine)
     }
 
-    /**
-     * Test animation driver simulating Android's ValueAnimator lifecycle
-     * where cancel() synchronously triggers onAnimationCancel followed by onAnimationEnd.
-     */
-    private class TestAnimationDriver : AnimationDriver {
-        var isStarted = false
-        var fromVal = 0f
-        var toVal = 0f
-        var updateCb: ((Float) -> Unit)? = null
-        var cancelCb: (() -> Unit)? = null
-        var endCb: (() -> Unit)? = null
-        override var isRunning = false
-
-        override fun start(
-            from: Float,
-            to: Float,
-            durationMs: Long,
-            onUpdate: (Float) -> Unit,
-            onCancel: () -> Unit,
-            onEnd: () -> Unit
-        ) {
-            isStarted = true
-            isRunning = true
-            fromVal = from
-            toVal = to
-            updateCb = onUpdate
-            cancelCb = onCancel
-            endCb = onEnd
-        }
-
-        override fun cancel() {
-            if (isRunning) {
-                isRunning = false
-                // Android ValueAnimator lifecycle: onAnimationCancel then onAnimationEnd
-                cancelCb?.invoke()
-                endCb?.invoke()
-            }
-        }
-
-        fun step(value: Float) {
-            if (isRunning) {
-                updateCb?.invoke(value)
-            }
-        }
-
-        fun complete() {
-            if (isRunning) {
-                isRunning = false
-                endCb?.invoke()
-            }
-        }
-    }
 
     // --- Production Scroll Architecture Regression Tests (Point 9) ---
 

@@ -24,7 +24,7 @@ The subsystem is organized under the architectural package:
 | **`ScribeScrollGeometry.kt`** | `com.primaloptima.scribe.ui.editor.scroll` | Pure data classes for character and selection handle geometry (`SoraCharGeometry`, `SelectionHandleGeometry`) and geometric extraction utilities. |
 | **`ScribeScrollPolicy.kt`** | `com.primaloptima.scribe.ui.editor.scroll` | Pure mathematical policies: 1-DOF delta allocation, caret visibility breathing margins & deadbands, viewport centering, predictive keyboard glide heuristics, scroll permission arbitration, and transaction models (`KeyboardTransaction`, `ZoomTransaction`, `PasteTransaction`). |
 | **`ScribeScrollDeletionPolicy.kt`** | `com.primaloptima.scribe.ui.editor.scroll` | Pure mathematical rules governing text deletion scrolling: `DeletionSnapshot` capture, intent classification (`classifyDeletionIntent`), safe destination calculation, and tail anchoring. |
-| **`ScribeScrollRestorationPolicy.kt`** | `com.primaloptima.scribe.ui.editor.scroll` | Pure policy for viewport contraction restoration: enforces the Pure Writer stationary invariant, calculates upward corrective deltas when caret is occluded, and validates safe targets. |
+| **`ScribeScrollRestorationPolicy.kt`** | `com.primaloptima.scribe.ui.editor.scroll` | Pure policy for viewport contraction restoration: enforces the Pure Writer stationary invariant, calculates upward corrective deltas when caret is occluded, and validates safe targets. Note: `resolveContractionRestorationDelta()` internally calls `ScribeScrollDiagnostics.log()` when diagnostics are enabled; this existing diagnostic side effect is intentionally preserved. |
 | **`ScribeScrollCoordinator.kt`** | `com.primaloptima.scribe.ui.editor.scroll` | Authoritative single-owner scroll state coordinator: owns monotonic `activeOperationId`, target updates, in-flight retargeting, and causal expansion compensation tracking (`temporaryDisplacement`). |
 | **`ScribeScrollAnimation.kt`** | `com.primaloptima.scribe.ui.editor.scroll` | Production animation execution: houses `FastOutSlowInInterpolator` and `ScribeCanvasGlideAnimator` (critically damped second-order spring glide engine, $\omega=13.5	ext{ rad/s}, \zeta=1.0$). |
 | **`ScribeScrollInputController.kt`** | `com.primaloptima.scribe.ui.editor.scroll` | Input and gesture execution: encapsulates `OverScroller`, `VelocityTracker`, touch slop arbitration, drag gestures, and momentum flings via the `Host` interface. |
@@ -36,7 +36,7 @@ The subsystem is organized under the architectural package:
 
 | File | Package | Primary Role |
 | :--- | :--- | :--- |
-| **`UnifiedCanvasLayout.kt`** | `com.primaloptima.scribe.ui.components` | Custom Android `FrameLayout` hosting Child 0 (`ComposeView` header) and Child 1 (`ScribeCodeEditor`). Implements measurement, layout, translation updates, and bridges View touch/animation lifecycles with the scroll subsystem. |
+| **`UnifiedCanvasLayout.kt`** | `com.primaloptima.scribe.ui.components` | Custom Android `FrameLayout` hosting Child 0 (`ComposeView` header) and Child 1 (`ScribeCodeEditor`). Serves as the Android integration and orchestration boundary: owns View-side scroll state (`scrollD`), direct immediate correction paths, measurement (`onMeasure`), layout (`onLayout`), translations (`applyTranslations`), and touch dispatching. |
 | **`ScribeCodeEditor.kt`** | `com.primaloptima.scribe.ui.components` | Sora `CodeEditor` subclass. Delegates vertical scroll permissions and canvas forward scroll arbitration to `ScribeScrollPolicy`. |
 | **`MainEditorScreen.kt`** | `com.primaloptima.scribe.ui.screens` | Top-level Compose editor screen. Owns shortcut bar, accessory drawer UI, and binds `bottomSurfaceState` estimated height to `UnifiedCanvasLayout` via `AndroidView`. |
 
@@ -56,7 +56,7 @@ The subsystem is organized under the architectural package:
 | **`ScribeScrollDeletionPolicyTest.kt`** | `com.primaloptima.scribe.ui.editor.scroll` | Tests for deletion intent classification, tail follow, paragraph deletions, and boundary clamping (16 tests). |
 | **`ScribeScrollRestorationPolicyTest.kt`** | `com.primaloptima.scribe.ui.editor.scroll` | Tests for contraction restoration delta, safe target validation, and simulated multi-step contraction cycles (24 tests). |
 | **`ScribeScrollCoordinatorTest.kt`** | `com.primaloptima.scribe.ui.editor.scroll` | Tests for authoritative state ownership, in-flight retargeting, monotonic operation IDs, and compensation invalidation (8 tests). |
-| **`ScribeScrollAnimationTest.kt`** | `com.primaloptima.scribe.ui.editor.scroll` | Tests for animation coordinator steps, driver cancellations, in-flight retargeting, and boundary clamps (9 tests). |
+| **`ScribeScrollAnimationTest.kt`** | `com.primaloptima.scribe.ui.editor.scroll` | Tests for animation coordinator steps, driver cancellations, in-flight retargeting, and boundary clamps (9 tests). Exercises the test-only `ProductionScrollAnimationCoordinator` harness; does not directly test the production `ScribeCanvasGlideAnimator`. |
 | **`ScribeBottomSurfacePolicyTest.kt`** | `com.primaloptima.scribe.ui.editor.scroll` | Tests for stateless bottom surface policy: keyboard baseline bounds, dismiss states, drawer collapses, and settling predicates (13 tests). |
 | **`ScribeBottomSurfaceStateTest.kt`** | `com.primaloptima.scribe.ui.editor.scroll` | Tests for Compose state holder: drawer animations, drag tracking, settled detection, and `estimatedBottomSurfaceHeightDp` (17 tests). |
 | **`EditorViewportRestorationTest.kt`** | `com.primaloptima.scribe.navigation` | Tests for Navigation 3 lifecycle and session viewport restoration across screen pops and sheet dismissals. |
@@ -108,7 +108,7 @@ The subsystem is organized under the architectural package:
 - Tapping outside the drawer invokes `bottomSurfaceState.closeDrawerAndRestoreKeyboard`.
 
 ### B. Canvas to Scroll Coordination Connection
-- `UnifiedCanvasLayout` delegates all programmatic and automatic movement targeting to `ScribeScrollCoordinator`.
+- `UnifiedCanvasLayout` delegates authoritative glide animations and continuous retargeting to `ScribeScrollCoordinator` and `ScribeCanvasGlideAnimator`. Certain immediate cursor visibility corrections and direct boundary clamping continue to be executed directly by `UnifiedCanvasLayout`.
 - Before starting an animation, `UnifiedCanvasLayout` calls `scrollCoordinator.requestTarget(target, reason, forceRetarget, maxCanvasScroll)`.
 - If accepted, `ScribeScrollCoordinator` increments `activeOperationId` and sets `activeTargetTotalScroll`.
 - `ScribeCanvasGlideAnimator` executes the spring differential equation on each `postOnAnimation` tick, invoking `scrollCoordinator.applyStep(position, opId)`.
@@ -161,8 +161,9 @@ The subsystem is organized under the architectural package:
 
 ## 5. Summary of Architecture Health
 
-The Scribe Native scroll subsystem is fully modularized into single-responsibility components:
+The Scribe Native scroll subsystem is modularized into dedicated single-responsibility components:
 - Pure mathematical policies and geometries contain zero mutable state and zero Android framework dependencies.
-- State coordination is centralized on `ScribeScrollCoordinator`, eliminating race conditions and competing animation drivers.
-- Platform boundaries (`UnifiedCanvasLayout`, `ScribeCodeEditor`, `MainEditorScreen`) act strictly as thin adapters.
-- Test-only abstractions are completely separated from production source into `ScribeScrollTestSupport.kt`.
+- Central document scroll state is coordinated by `ScribeScrollCoordinator`, with monotonic operation IDs protecting against stale callbacks.
+- `UnifiedCanvasLayout` acts as the Android integration/orchestration boundary, maintaining View-side measurement, touch dispatch, and immediate corrections while delegating smooth glide animations to the scroll subsystem.
+- Test-only abstractions (`ProductionScrollAnimationCoordinator`, `AnimationDriver`, `TestAnimationDriver`, `ContractionSimulationController`) are completely segregated into test source (`ScribeScrollTestSupport.kt`).
+- Note: While code architecture is cleanly separated, actual device runtime behavior and hardware interaction remain unverified and require separate validation.
