@@ -20,8 +20,8 @@ package com.primaloptima.scribe.ui.editor.scroll
  */
 object ScribeBottomSurfaceCoordinator {
 
-    const val MIN_STANDARD_KEYBOARD_DP = 200f
-    const val MAX_STANDARD_KEYBOARD_DP = 330f
+    const val MIN_STANDARD_KEYBOARD_DP = 160f
+    const val MAX_STANDARD_KEYBOARD_DP = 450f
     const val DEFAULT_KEYBOARD_DP = 280f
 
     /**
@@ -32,12 +32,21 @@ object ScribeBottomSurfaceCoordinator {
     }
 
     /**
+     * Resolves the minimum lower bound for a standard text keyboard based on screen orientation/height.
+     * Accommodates landscape phone keyboards (~120-180dp) while guarding against micro-toolbars.
+     */
+    fun calculateMinStandardBaselineDp(screenHeightDp: Float): Float {
+        return if (screenHeightDp in 1f..500f) 120f else MIN_STANDARD_KEYBOARD_DP
+    }
+
+    /**
      * Validates whether a settled keyboard height qualifies as a standard typing keyboard.
-     * Rejects transient expanded pickers (emojis, stickers, GIFs, clipboard) > 330dp.
+     * Rejects transient expanded pickers (emojis, stickers, GIFs, clipboard) or oversized sheets.
      */
     fun isValidStandardKeyboardHeight(heightDp: Float, screenHeightDp: Float): Boolean {
+        val minBaseline = calculateMinStandardBaselineDp(screenHeightDp)
         val maxBaseline = calculateMaxStandardBaselineDp(screenHeightDp)
-        return heightDp in MIN_STANDARD_KEYBOARD_DP..maxBaseline
+        return heightDp in minBaseline..maxBaseline
     }
 
     /**
@@ -67,14 +76,15 @@ object ScribeBottomSurfaceCoordinator {
         if (isAccessoryDrawerActive) {
             return drawerHeightDp
         }
-        if (isAwaitingKeyboardOpen || isBarTransitionLatched) {
-            return maxOf(compactHeightDp, imeAboveNavDp)
-        }
         if (isKeyboardVisible) {
             // Standard keyboard: locks at compactHeightDp to prevent 60fps layout thrashing.
             // Emoji keyboard: expands smoothly to imeAboveNavDp when > compactHeightDp.
             // Return to standard: drops immediately to compactHeightDp with ZERO delay or floating!
             return maxOf(compactHeightDp, imeAboveNavDp)
+        }
+        if (isAwaitingKeyboardOpen || isBarTransitionLatched) {
+            // In-flight transition: follow live arriving IME insets rather than prematurely bloating layout
+            return imeAboveNavDp
         }
         if (imeAboveNavDp > 10f) {
             // Keyboard is dismissing: allows the visual shortcut bar to follow IME down

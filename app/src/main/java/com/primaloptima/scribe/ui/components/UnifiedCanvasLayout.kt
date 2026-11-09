@@ -104,10 +104,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             // comfortably above shortcut bar without double-counting keyboard height or scrolling empty space.
             val bottomSpace = if (isKeyboardVisible || isBottomSurfaceActive) {
                 breathingMargin
-            } else if (editor.isFocused || editor.offsetY > 0 || scrollD > 0 || isRestoringViewport) {
-                persistentBottomSpacePx.roundToInt()
             } else {
-                0
+                persistentBottomSpacePx.roundToInt()
             }
             return ScribeScrollPolicy.calculateMaxCanvasScroll(
                 headerHeight = headerHeight,
@@ -1356,25 +1354,28 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (oldh > 0 && kotlin.math.abs(h - oldh) > 2) {
             val dh = oldh - h
             if (dh > 0) {
-                // Viewport shrinking (keyboard appearing or accessory drawer opening)
-                isExpansionTransitionActive = true
-                isKeyboardDismissing = false // Opening/expanding: clear any stale dismissal flag
-                resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
-                val rReset = Runnable {
-                    isExpansionTransitionActive = false
-                    checkKeyboardTransactionSettled()
-                }
-                resetExpansionTransitionRunnable = rReset
-                postDelayed(rReset, 600L)
-                val curC = try { editor.cursor } catch (_: Throwable) { null }
-                if (curC != null) {
-                    expansionCaretLine = curC.leftLine
-                    expansionCaretCol = curC.leftColumn
-                    expansionHadSelection = curC.isSelected
-                }
                 val isTitleTargetActive = activeEditingTarget == EditingTarget.PRIMARY_TITLE ||
                     activeEditingTarget == EditingTarget.SECONDARY_TITLE
-                if (!isTitleTargetActive && (editor.isFocused || isBottomSurfaceActive)) {
+                val isAuthorizedTransition = isKeyboardTransactionActive || isBottomSurfaceActive
+                if (isAuthorizedTransition) {
+                    // Viewport shrinking during authorized keyboard entrance or accessory drawer opening
+                    isExpansionTransitionActive = true
+                    isKeyboardDismissing = false // Opening/expanding: clear any stale dismissal flag
+                    resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
+                    val rReset = Runnable {
+                        isExpansionTransitionActive = false
+                        checkKeyboardTransactionSettled()
+                    }
+                    resetExpansionTransitionRunnable = rReset
+                    postDelayed(rReset, 600L)
+                    val curC = try { editor.cursor } catch (_: Throwable) { null }
+                    if (curC != null) {
+                        expansionCaretLine = curC.leftLine
+                        expansionCaretCol = curC.leftColumn
+                        expansionHadSelection = curC.isSelected
+                    }
+                }
+                if (!isTitleTargetActive && isAuthorizedTransition) {
                     val density = resources.displayMetrics.density
                     val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
                     val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
@@ -1403,18 +1404,19 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                             val targetLineBottom = (h - marginPx).toFloat()
 
                             val isCurrentlySafe = screenBottom <= (targetLineBottom + deadbandPx)
-                            val wasTransactionActive = isKeyboardTransactionActive
-                            if (!isKeyboardTransactionActive) {
-                                beginKeyboardTransaction()
+                            val desiredTarget = if (isKeyboardTransactionActive) {
+                                activeKeyboardTransaction?.calculateRetargetedDestination(
+                                    caretDocBottom = caretDocBottom,
+                                    headerHeight = headerHeight.toFloat(),
+                                    usableViewportHeight = h.toFloat(),
+                                    breathingMarginPx = marginPx.toFloat(),
+                                    maxCanvasScroll = maxCanvasScroll.toFloat()
+                                ) ?: ((headerHeight + caretDocBottom - targetLineBottom).coerceAtLeast(0f)
+                                    .coerceIn(0f, maxCanvasScroll.toFloat()))
+                            } else {
+                                ((headerHeight + caretDocBottom - targetLineBottom).coerceAtLeast(0f)
+                                    .coerceIn(0f, maxCanvasScroll.toFloat()))
                             }
-                            val desiredTarget = activeKeyboardTransaction?.calculateRetargetedDestination(
-                                caretDocBottom = caretDocBottom,
-                                headerHeight = headerHeight.toFloat(),
-                                usableViewportHeight = h.toFloat(),
-                                breathingMarginPx = marginPx.toFloat(),
-                                maxCanvasScroll = maxCanvasScroll.toFloat()
-                            ) ?: ((headerHeight + caretDocBottom - targetLineBottom).coerceAtLeast(0f)
-                                .coerceIn(0f, maxCanvasScroll.toFloat()))
 
                             if (isGlideRunning && scrollCoordinator.isAnimationActive) {
                                 val targetDelta = kotlin.math.abs(glideTarget - desiredTarget)
@@ -1557,7 +1559,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * so that the typing cursor is strictly kept above the keyboard and shortcut bar.
      */
     override fun requestChildRectangleOnScreen(child: View, rectangle: Rect, immediate: Boolean): Boolean {
-        if (isKeyboardDismissing || suppressCursorVisibilityScroll || isRestoringViewport) {
+        if (isKeyboardDismissing || suppressCursorVisibilityScroll || isRestoringViewport || inputController.isDraggingCanvas) {
             return true
         }
         if (child !== editor) {
@@ -1581,10 +1583,14 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             ) {
                 return false
             }
+            if (!isKeyboardVisible && !isBottomSurfaceActive && !isKeyboardTransactionActive) {
+                // When keyboard is hidden and no drawer is active, do not allow stale cursor requests to re-anchor scroll
+                return true
+            }
             val screenTop = (headerHeight - scrollD) + rectangle.top
             val screenBottom = (headerHeight - scrollD) + rectangle.bottom
             val density = resources.displayMetrics.density
-            val hasScrollOffset = (scrollD > 0 || editor.offsetY > 0) && (isKeyboardVisible || isBottomSurfaceActive || isUserTouching)
+            val hasScrollOffset = (scrollD > 0 || editor.offsetY > 0) && (isKeyboardVisible || isBottomSurfaceActive)
 
             val resolution = ScribeScrollPolicy.resolveCursorScrollDelta(
                 screenBottom = screenBottom.toFloat(),

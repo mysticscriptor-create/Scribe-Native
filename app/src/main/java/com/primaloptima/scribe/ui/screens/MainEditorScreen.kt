@@ -1360,11 +1360,19 @@ fun MainEditorScreen(
                     val isKeyboardDismissing = bottomSurfaceState.isKeyboardDismissing()
                     val isKeyboardSettled = bottomSurfaceState.isKeyboardSettled()
                     val isShortcutBarVisuallyVisible = (bottomSurfaceState.isAccessoryDrawerActive || isKeyboardSettled) && shortcuts.isNotEmpty()
-                    val isBarVisible = (isKeyboardVisible || imeAboveNavDp > 10.dp || bottomSurfaceState.isAccessoryDrawerActive || bottomSurfaceState.isAwaitingKeyboardOpen || bottomSurfaceState.isBarTransitionLatched) && shortcuts.isNotEmpty()
-                    val docBottomPadding = if (!isBarVisible) {
-                        docBottomNavInset
-                    } else {
-                        shortcutBarHeight + docBottomNavInset + effectiveBottomSurfaceHeight
+                    val isBarVisible = (isKeyboardVisible || imeAboveNavDp > 10.dp || bottomSurfaceState.isAccessoryDrawerActive || bottomSurfaceState.isAwaitingKeyboardOpen) && (shortcuts.isNotEmpty() || bottomSurfaceState.isAccessoryDrawerActive)
+                    val hasShortcutBar = shortcuts.isNotEmpty()
+                    val actualShortcutBarHeight = if (hasShortcutBar && isShortcutBarVisuallyVisible) shortcutBarHeight else 0.dp
+                    val docBottomPadding = when {
+                        bottomSurfaceState.isAccessoryDrawerActive -> {
+                            bottomSurfaceState.effectiveBottomSurfaceHeight + docBottomNavInset + (if (hasShortcutBar) shortcutBarHeight else 0.dp)
+                        }
+                        isKeyboardVisible || imeAboveNavDp > 0.dp -> {
+                            imeAboveNavDp + docBottomNavInset + actualShortcutBarHeight
+                        }
+                        else -> {
+                            docBottomNavInset
+                        }
                     }
 
                     var lastAppliedPadding by remember { mutableFloatStateOf(-1f) }
@@ -1381,22 +1389,6 @@ fun MainEditorScreen(
 
                     val handleUserTouchDown: () -> Unit = {
                         updateEditingTarget(EditingTarget.EDITOR_BODY)
-                        if (bottomSurfaceState.isAccessoryDrawerActive) {
-                            bottomSurfaceState.closeDrawerAndRestoreKeyboard(
-                                unifiedCanvas = unifiedCanvasRef,
-                                scope = scope,
-                                onRestore = {
-                                    isWritingBarSearchActive = false
-                                    drawerSearchQuery = ""
-                                    previewItem = null
-                                    soraEditorRef?.requestFocus()
-                                    keyboardController?.show()
-                                    try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
-                                }
-                            )
-                        } else if (!isKeyboardVisible) {
-                            bottomSurfaceState.startAwaitingKeyboard(unifiedCanvasRef)
-                        }
                     }
 
                     AndroidView(
@@ -1421,9 +1413,8 @@ fun MainEditorScreen(
                                 hasShortcuts = shortcuts.isNotEmpty(),
                                 densityVal = density
                             )
-                            val isDrawerOrTransitionActive = bottomSurfaceState.isDrawerOrTransitionActive()
-                            val curIsKeyboardVisible = bottomSurfaceState.curIsKeyboardVisible()
-                            val curIsBottomSurfaceActive = bottomSurfaceState.curIsBottomSurfaceActive(hasShortcuts = shortcuts.isNotEmpty())
+                            val curIsKeyboardVisible = isKeyboardVisible
+                            val curIsBottomSurfaceActive = bottomSurfaceState.isAccessoryDrawerActive
                             UnifiedCanvasLayout(ctx).apply {
                                 horizontalPaddingDp = initialPadH
                                 setBackgroundColor(bgArgb)
@@ -1434,7 +1425,22 @@ fun MainEditorScreen(
                                 this.isKeyboardDismissing = isKeyboardDismissing
                                 onUserTouchDown = handleUserTouchDown
                                 onKeyboardEntranceStarted = {
-                                    bottomSurfaceState.onKeyboardEntranceStarted(unifiedCanvasRef)
+                                    if (bottomSurfaceState.isAccessoryDrawerActive) {
+                                        bottomSurfaceState.closeDrawerAndRestoreKeyboard(
+                                            unifiedCanvas = unifiedCanvasRef,
+                                            scope = scope,
+                                            onRestore = {
+                                                isWritingBarSearchActive = false
+                                                drawerSearchQuery = ""
+                                                previewItem = null
+                                                soraEditorRef?.requestFocus()
+                                                keyboardController?.show()
+                                                try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+                                            }
+                                        )
+                                    } else {
+                                        bottomSurfaceState.onKeyboardEntranceStarted(unifiedCanvasRef)
+                                    }
                                 }
                                 onScrollDelta = { dy ->
                                     if (dy > 2f) {
@@ -1659,13 +1665,25 @@ fun MainEditorScreen(
                             )
                             layout.estimatedKeyboardHeightPx = curEstimatedKbPx
                             layout.onKeyboardEntranceStarted = {
-                                bottomSurfaceState.onKeyboardEntranceStarted(unifiedCanvasRef)
+                                if (bottomSurfaceState.isAccessoryDrawerActive) {
+                                    bottomSurfaceState.closeDrawerAndRestoreKeyboard(
+                                        unifiedCanvas = unifiedCanvasRef,
+                                        scope = scope,
+                                        onRestore = {
+                                            isWritingBarSearchActive = false
+                                            drawerSearchQuery = ""
+                                            previewItem = null
+                                            soraEditorRef?.requestFocus()
+                                            keyboardController?.show()
+                                            try { soraEditorRef?.showSoftInput() } catch (_: Exception) {}
+                                        }
+                                    )
+                                } else {
+                                    bottomSurfaceState.onKeyboardEntranceStarted(unifiedCanvasRef)
+                                }
                             }
-                            val isDrawerOrTransitionActive = bottomSurfaceState.isDrawerOrTransitionActive()
-                            val curIsKeyboardVisible = bottomSurfaceState.curIsKeyboardVisible()
-                            val curIsBottomSurfaceActive = bottomSurfaceState.curIsBottomSurfaceActive(hasShortcuts = shortcuts.isNotEmpty())
-                            layout.isKeyboardVisible = curIsKeyboardVisible
-                            layout.isBottomSurfaceActive = curIsBottomSurfaceActive
+                            layout.isKeyboardVisible = isKeyboardVisible
+                            layout.isBottomSurfaceActive = bottomSurfaceState.isAccessoryDrawerActive
                             layout.isKeyboardDismissing = isKeyboardDismissing
                             layout.activeEditingTarget = lastActiveTarget
                             val editor = layout.editor
@@ -2449,10 +2467,17 @@ fun MainEditorScreen(
                                 }
 
                                 // ── Persistent Bottom Surface Container (Zero Unmounting) ──
+                                val bottomBoxHeight = if (bottomSurfaceState.isAccessoryDrawerActive) {
+                                    effectiveBottomSurfaceHeight
+                                } else if (isKeyboardVisible || imeAboveNavDp > 0.dp) {
+                                    imeAboveNavDp
+                                } else {
+                                    0.dp
+                                }
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(effectiveBottomSurfaceHeight)
+                                        .height(bottomBoxHeight)
                                 ) {
                                     if (bottomSurfaceState.isAccessoryDrawerActive) {
                                         AccessoryDrawer(

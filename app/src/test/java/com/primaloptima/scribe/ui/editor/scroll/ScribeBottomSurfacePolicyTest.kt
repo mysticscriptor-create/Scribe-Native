@@ -226,20 +226,87 @@ class ScribeBottomSurfacePolicyTest {
     fun testBottomSurfaceCoordinatorStandardKeyboardBaselineBounds() {
         val screenHeightDp = 800f
         val maxBaseline = ScribeBottomSurfaceCoordinator.calculateMaxStandardBaselineDp(screenHeightDp)
-        assertEquals(330f, maxBaseline)
+        assertEquals(360f, maxBaseline)
 
-        // Valid standard keyboard heights in range [200, 330]
-        assertEquals(true, ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(270f, screenHeightDp))
+        // Valid standard keyboard heights in range [160, 360]
+        assertEquals(true, ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(280f, screenHeightDp))
         assertEquals(true, ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(220f, screenHeightDp))
-        assertEquals(true, ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(330f, screenHeightDp))
+        assertEquals(true, ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(360f, screenHeightDp))
 
-        // Oversized pickers (emojis/stickers/clipboard) > 330dp must be rejected
+        // Oversized pickers (emojis/stickers/clipboard) > 360dp on 800dp screen must be rejected
         assertEquals(false, ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(380f, screenHeightDp))
         assertEquals(false, ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(420f, screenHeightDp))
 
-        // Too small / closing heights must be rejected
+        // Too small / closing heights must be rejected (< 160dp on portrait)
         assertEquals(false, ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(100f, screenHeightDp))
         assertEquals(false, ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(0f, screenHeightDp))
+    }
+
+    @Test
+    fun testLandscapeStandardBaselineBounds() {
+        val landscapeScreenHeightDp = 380f
+        val minBaseline = ScribeBottomSurfaceCoordinator.calculateMinStandardBaselineDp(landscapeScreenHeightDp)
+        assertEquals(120f, minBaseline)
+
+        // A 140dp keyboard is valid in landscape
+        assertTrue(ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(140f, landscapeScreenHeightDp))
+        // Under 120dp is rejected
+        assertFalse(ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(100f, landscapeScreenHeightDp))
+    }
+
+    @Test
+    fun testTabletStandardBaselineBounds() {
+        val tabletScreenHeightDp = 1000f
+        val maxBaseline = ScribeBottomSurfaceCoordinator.calculateMaxStandardBaselineDp(tabletScreenHeightDp)
+        assertEquals(450f, maxBaseline) // 1000 * 0.45 = 450
+        assertTrue(ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(380f, tabletScreenHeightDp))
+    }
+
+    @Test
+    fun testEffectiveBottomSurfaceHeightAwaitingKeyboardDoesNotPreBloatLayout() {
+        val heightAwaiting = ScribeBottomSurfaceCoordinator.resolveEffectiveBottomSurfaceHeight(
+            isAccessoryDrawerActive = false,
+            drawerHeightDp = 0f,
+            isAwaitingKeyboardOpen = true,
+            isBarTransitionLatched = false,
+            isKeyboardVisible = false,
+            compactHeightDp = 280f,
+            imeAboveNavDp = 0f
+        )
+        // Must follow actual arriving IME insets (0f) instead of prematurely allocating 280dp
+        assertEquals(0f, heightAwaiting)
+    }
+
+    @Test
+    fun testUnconditionalGlobalVirtualTailMatchesEditorMaxScroll() {
+        val headerHeight = 200
+        val layoutHeight = 1200
+        val viewportHeight = 800
+        val persistentBottomSpacePx = 700 // ~280dp at 2.5x density
+
+        val maxCanvas = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = layoutHeight,
+            viewportHeight = viewportHeight,
+            bottomSpace = persistentBottomSpacePx,
+            isTextEmpty = false
+        )
+        // totalContentHeight = 200 + 1200 + 700 = 2100. maxCanvas = 2100 - 800 = 1300.
+        assertEquals(1300, maxCanvas)
+
+        // After header is fully scrolled out, remaining inner editor scroll:
+        val remainingInnerScroll = maxCanvas - headerHeight // 1100
+
+        val safeEditorMax = ScribeScrollPolicy.calculateSafeScrollMaxY(
+            layoutHeight = layoutHeight,
+            viewportHeight = viewportHeight,
+            persistentBottomSpacePx = persistentBottomSpacePx,
+            isKeyboardVisible = false,
+            isTextEmpty = false
+        )
+        // layoutHeight + persistentBottomSpacePx - viewportHeight = 1200 + 700 - 800 = 1100
+        assertEquals(1100, safeEditorMax)
+        assertEquals("Inner editor max scroll matches outer canvas remaining capacity with zero mismatch", remainingInnerScroll, safeEditorMax)
     }
 
     @Test

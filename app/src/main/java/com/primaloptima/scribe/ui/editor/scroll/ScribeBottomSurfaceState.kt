@@ -280,22 +280,22 @@ class ScribeBottomSurfaceState(
     }
 
     /**
-     * Effective keyboard visibility accounting for in-flight transitions.
+     * True soft keyboard visibility reported by window insets.
      */
     fun curIsKeyboardVisible(
         isAccessoryDrawerActive: Boolean = this.isAccessoryDrawerActive
     ): Boolean {
-        return isKeyboardVisible || isDrawerOrTransitionActive(isAccessoryDrawerActive)
+        return isKeyboardVisible
     }
 
     /**
-     * Effective bottom surface active state for canvas layout reservation.
+     * Active bottom surface state for drawer reservations.
      */
     fun curIsBottomSurfaceActive(
         isAccessoryDrawerActive: Boolean = this.isAccessoryDrawerActive,
         hasShortcuts: Boolean = true
     ): Boolean {
-        return (isKeyboardVisible || isDrawerOrTransitionActive(isAccessoryDrawerActive)) && hasShortcuts
+        return isAccessoryDrawerActive && hasShortcuts
     }
 
     /**
@@ -312,6 +312,7 @@ class ScribeBottomSurfaceState(
 
     /**
      * Initiates awaiting keyboard open transition, latching bottom surface state.
+     * Does NOT mutate actual canvas keyboard visibility before IME arrives.
      */
     fun startAwaitingKeyboard(
         unifiedCanvas: UnifiedCanvasLayout? = null,
@@ -319,8 +320,6 @@ class ScribeBottomSurfaceState(
     ) {
         isAwaitingKeyboardOpen = true
         isBarTransitionLatched = true
-        unifiedCanvas?.isBottomSurfaceActive = true
-        unifiedCanvas?.isKeyboardVisible = true
         onLatched?.invoke()
     }
 

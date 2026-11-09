@@ -55,7 +55,7 @@ class ScribeBottomSurfaceStateTest {
         assertTrue(state.isBarTransitionLatched)
         assertTrue(callbackInvoked)
         assertTrue(state.isDrawerOrTransitionActive(isAccessoryDrawerActive = false))
-        assertTrue(state.curIsKeyboardVisible(isAccessoryDrawerActive = false))
+        assertFalse(state.curIsKeyboardVisible(isAccessoryDrawerActive = false))
 
         state.cancelAwaitingKeyboard()
         assertFalse(state.isAwaitingKeyboardOpen)
@@ -93,15 +93,17 @@ class ScribeBottomSurfaceStateTest {
 
         // No shortcuts active -> bottom surface inactive
         assertFalse(state.curIsBottomSurfaceActive(isAccessoryDrawerActive = false, hasShortcuts = false))
+        assertFalse(state.curIsBottomSurfaceActive(isAccessoryDrawerActive = false, hasShortcuts = true))
 
-        // Keyboard visible and shortcuts present -> active
+        // Keyboard visible without drawer -> bottom surface inactive (keyboard is tracked by isKeyboardVisible)
         state.isKeyboardVisible = true
-        assertTrue(state.curIsBottomSurfaceActive(isAccessoryDrawerActive = false, hasShortcuts = true))
+        assertFalse(state.curIsBottomSurfaceActive(isAccessoryDrawerActive = false, hasShortcuts = true))
         assertFalse(state.curIsBottomSurfaceActive(isAccessoryDrawerActive = false, hasShortcuts = false))
 
         // Drawer active and shortcuts present -> active
         state.isKeyboardVisible = false
         assertTrue(state.curIsBottomSurfaceActive(isAccessoryDrawerActive = true, hasShortcuts = true))
+        assertFalse(state.curIsBottomSurfaceActive(isAccessoryDrawerActive = true, hasShortcuts = false))
     }
 
     @Test

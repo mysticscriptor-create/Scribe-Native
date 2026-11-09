@@ -392,11 +392,14 @@ object ScribeScrollPolicy {
             (viewportHeight * 0.45f).toInt()
         }
 
+        // Authoritative extra bottom-space policy:
+        // Scribe's calculated global virtual tail and caret breathing margin are authoritative,
+        // preventing uncoordinated Sora superclass extra space from creating an inner/outer boundary mismatch.
         val maxScrollWithBottomSpace = (layoutHeight + space - viewportHeight).coerceAtLeast(0)
         val retainedOffset = if (currentOffsetY > 0 && isFocused) currentOffsetY else 0
         val glideTarget = if (activeGlideTargetY > 0) activeGlideTargetY else 0
 
-        return maxOf(maxOf(baseSoraMaxY.coerceAtLeast(0), maxScrollWithBottomSpace), maxOf(retainedOffset, glideTarget))
+        return maxOf(maxScrollWithBottomSpace, maxOf(retainedOffset, glideTarget))
     }
 
     /**

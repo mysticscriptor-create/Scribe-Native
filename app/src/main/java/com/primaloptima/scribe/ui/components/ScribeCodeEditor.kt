@@ -227,6 +227,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         props.autoIndent = false
         props.deleteEmptyLineFast = false
         props.deleteMultiSpaces = 1
+        verticalExtraSpaceFactor = 0f
         try {
             cursorAnimator = ScribeCursorAnimator(this)
             isCursorAnimationEnabled = true
@@ -1476,12 +1477,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
             val wasTap = !isTouchMoved && dt < 450L
             if (wasTap && !isPinchScaling && !isHandleDragging && !isInteractingWithImage) {
                 val pCanvas = parentCanvas
-                if (pCanvas != null && !pCanvas.isKeyboardVisible && !pCanvas.isBottomSurfaceActive) {
-                    // Only start keyboard-appearance transaction when keyboard is appearing
-                    pCanvas.predictivelyGlideCursorAboveKeyboard()
-                } else {
+                if (pCanvas != null && (pCanvas.isKeyboardVisible || pCanvas.isBottomSurfaceActive)) {
                     // Keyboard is already open: perform ordinary caret visibility scroll
-                    pCanvas?.ensureCursorVisibleAboveKeyboard(smooth = true)
+                    pCanvas.ensureCursorVisibleAboveKeyboard(smooth = true)
                 }
             }
             if (isInteractingWithImage) {
@@ -1742,10 +1740,15 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
 
     override fun showSoftInput() {
-        if (isInteractingWithImage) return
+        if (!isEditable || isInteractingWithImage) return
         val pCanvas = parentCanvas
         if (pCanvas != null && !pCanvas.isKeyboardVisible && !pCanvas.isBottomSurfaceActive) {
-            pCanvas.notifyKeyboardEntranceStarting()
+            post {
+                val canvas = parentCanvas
+                if (canvas != null && !canvas.isKeyboardVisible && !canvas.isBottomSurfaceActive && !canvas.isKeyboardTransactionActive) {
+                    canvas.notifyKeyboardEntranceStarting()
+                }
+            }
         }
         super.showSoftInput()
     }

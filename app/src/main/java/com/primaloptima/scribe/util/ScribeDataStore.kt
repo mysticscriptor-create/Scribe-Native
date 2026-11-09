@@ -190,7 +190,7 @@ class ScribeDataStore(private val context: Context) {
     val lineSpacingFlow: Flow<String>        = store.data.map { it[LINE_SPACING] ?: "comfortable" }
     val editorFontSizeFlow: Flow<Int>        = store.data.map { it[EDITOR_FONT_SIZE] ?: 16 }
     val manuscriptOrnamentIdFlow: Flow<String> = store.data.map { it[MANUSCRIPT_ORNAMENT_ID] ?: "classic_diamond" }
-    val lastKeyboardHeightFlow: Flow<Float>    = store.data.map { it[LAST_KEYBOARD_HEIGHT] ?: 270f }
+    val lastKeyboardHeightFlow: Flow<Float>    = store.data.map { it[LAST_KEYBOARD_HEIGHT] ?: 280f }
     val selectAllScrollModeFlow: Flow<String>  = store.data.map { it[SELECT_ALL_SCROLL_MODE] ?: "KEEP_CURRENT_POSITION" }
 
     val dailyGoalFlow: Flow<Int>             = store.data.map { it[DAILY_GOAL] ?: 500 }
