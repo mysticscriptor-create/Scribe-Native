@@ -752,8 +752,10 @@ fun rememberScribeBottomSurfaceState(
         }
     }
 
-    // Explicitly track IME dismissal, drawer handoff completion, and steady-state dock modes
-    LaunchedEffect(isKeyboardVisible, imeAboveNavDp, state.activeAccessoryDrawer, state.activeTransition) {
+    var lastSettledImeHeightDp by remember { mutableFloatStateOf(0f) }
+
+    // Explicitly track IME dismissal, drawer handoff completion, IME resizing, and steady-state dock modes
+    LaunchedEffect(isKeyboardVisible, imeAboveNavDp.value, state.activeAccessoryDrawer, state.activeTransition) {
         if (state.activeAccessoryDrawer != null) {
             // IME-to-drawer handoff completes when IME has released the slot
             if (state.activeTransition == ScribeDockTransition.IME_TO_DRAWER_HANDOFF) {
@@ -773,11 +775,41 @@ fun rememberScribeBottomSurfaceState(
                 if (state.activeTransition != ScribeDockTransition.DRAWER_TO_IME_HANDOFF &&
                     state.activeTransition != ScribeDockTransition.IME_ENTRANCE) {
                     state.dockMode = ScribeDockMode.IME
+
+                    // Establish IME_RESIZE provenance when active keyboard height changes (e.g. emoji picker toggle)
+                    if (!state.isAwaitingKeyboardOpen) {
+                        if (lastSettledImeHeightDp == 0f) {
+                            lastSettledImeHeightDp = imeAboveNavDp.value
+                        } else if (kotlin.math.abs(imeAboveNavDp.value - lastSettledImeHeightDp) > 8f) {
+                            if (state.activeTransition == ScribeDockTransition.NONE) {
+                                state.activeTransition = ScribeDockTransition.IME_RESIZE
+                                state.transitionGeneration++
+                            }
+                        }
+                    }
+                }
+
+                // Settle IME_RESIZE once target height has stabilized
+                if (state.activeTransition == ScribeDockTransition.IME_RESIZE) {
+                    val capturedGen = state.transitionGeneration
+                    delay(150L)
+                    if (state.activeTransition == ScribeDockTransition.IME_RESIZE &&
+                        state.transitionGeneration == capturedGen) {
+                        state.activeTransition = ScribeDockTransition.NONE
+                        state.transitionGeneration++
+                        state.dockMode = ScribeDockMode.IME
+                        lastSettledImeHeightDp = imeAboveNavDp.value
+                    }
                 }
             } else if (!isKeyboardVisible && imeAboveNavDp.value > 0f && !state.isAwaitingKeyboardOpen) {
-                state.activeTransition = ScribeDockTransition.IME_DISMISSAL
+                lastSettledImeHeightDp = 0f
+                if (state.activeTransition != ScribeDockTransition.IME_DISMISSAL) {
+                    state.activeTransition = ScribeDockTransition.IME_DISMISSAL
+                    state.transitionGeneration++
+                }
                 state.dockMode = ScribeDockMode.HIDDEN
             } else if (!isKeyboardVisible && imeAboveNavDp.value == 0f && !state.isAwaitingKeyboardOpen) {
+                lastSettledImeHeightDp = 0f
                 if (state.activeTransition == ScribeDockTransition.IME_DISMISSAL) {
                     state.activeTransition = ScribeDockTransition.NONE
                     state.transitionGeneration++
