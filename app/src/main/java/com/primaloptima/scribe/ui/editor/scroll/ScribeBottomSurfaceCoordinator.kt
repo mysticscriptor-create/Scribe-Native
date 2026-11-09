@@ -72,31 +72,102 @@ object ScribeBottomSurfaceCoordinator {
         isKeyboardVisible: Boolean,
         compactHeightDp: Float,
         imeAboveNavDp: Float,
-        activeTransition: ScribeDockTransition = ScribeDockTransition.NONE
+        activeTransition: ScribeDockTransition = ScribeDockTransition.NONE,
+        capturedHandoffImeHeightDp: Float? = null
     ): Float {
+        // 1. Hand-off priority: exchange occupancy of one stable bottom-surface slot without gaps
+        if (activeTransition == ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
+            activeTransition == ScribeDockTransition.IME_TO_DRAWER_HANDOFF
+        ) {
+            val handoffBaseline = capturedHandoffImeHeightDp ?: maxOf(compactHeightDp, imeAboveNavDp)
+            return maxOf(handoffBaseline, imeAboveNavDp, drawerHeightDp)
+        }
+
+        // 2. Active accessory drawer (steady-state)
         if (isAccessoryDrawerActive) {
             return drawerHeightDp
         }
-        if (activeTransition == ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
-            activeTransition == ScribeDockTransition.IME_TO_DRAWER_HANDOFF) {
-            // Shared slot invariant: hold stable compact height while surfaces exchange
-            return maxOf(compactHeightDp, imeAboveNavDp)
-        }
+
+        // 3. Active keyboard typing (steady-state)
         if (isKeyboardVisible) {
             // Standard keyboard: locks at compactHeightDp to prevent 60fps layout thrashing.
             // Emoji keyboard: expands smoothly to imeAboveNavDp when > compactHeightDp.
             // Return to standard: drops immediately to compactHeightDp with ZERO delay or floating!
             return maxOf(compactHeightDp, imeAboveNavDp)
         }
+
+        // 4. In-flight transitions
         if (isAwaitingKeyboardOpen || isBarTransitionLatched) {
             // In-flight transition: follow live arriving IME insets rather than prematurely bloating layout
             return imeAboveNavDp
         }
+
+        // 5. Soft keyboard dismissing
         if (imeAboveNavDp > 10f) {
             // Keyboard is dismissing: allows the visual shortcut bar to follow IME down
             return imeAboveNavDp
         }
+
         return 0f
+    }
+
+    /**
+     * Authoritatively creates an immutable ScribeDockGeometry snapshot for unified canvas and screen layout.
+     */
+    fun calculateDockGeometry(
+        dockMode: ScribeDockMode,
+        activeTransition: ScribeDockTransition,
+        transitionGeneration: Long,
+        compactHeightDp: Float,
+        imeAboveNavDp: Float,
+        currentDrawerHeightDp: Float,
+        isAccessoryDrawerActive: Boolean,
+        isKeyboardVisible: Boolean,
+        isAwaitingKeyboardOpen: Boolean,
+        isBarTransitionLatched: Boolean,
+        capturedHandoffImeHeightDp: Float?,
+        hasShortcuts: Boolean,
+        density: Float,
+        breathingMarginPx: Float
+    ): ScribeDockGeometry {
+        val standardKeyboardBaselinePx = compactHeightDp * density
+        val shortcutBarHeightPx = (if (hasShortcuts) 36f else 0f) * density
+        val currentImeObstructionPx = imeAboveNavDp * density
+        val currentDrawerHeightPx = currentDrawerHeightDp * density
+
+        val effectiveSlotDp = resolveEffectiveBottomSurfaceHeight(
+            isAccessoryDrawerActive = isAccessoryDrawerActive,
+            drawerHeightDp = currentDrawerHeightDp,
+            isAwaitingKeyboardOpen = isAwaitingKeyboardOpen,
+            isBarTransitionLatched = isBarTransitionLatched,
+            isKeyboardVisible = isKeyboardVisible,
+            compactHeightDp = compactHeightDp,
+            imeAboveNavDp = imeAboveNavDp,
+            activeTransition = activeTransition,
+            capturedHandoffImeHeightDp = capturedHandoffImeHeightDp
+        )
+
+        val physicalDockClearanceAppliedPx = (effectiveSlotDp * density) + (if (effectiveSlotDp > 0f) shortcutBarHeightPx else 0f)
+
+        val virtualTailPx = ScribeScrollPolicy.calculateAuthoritativeVirtualTailPx(
+            keyboardBaselinePx = standardKeyboardBaselinePx,
+            shortcutBarHeightPx = shortcutBarHeightPx,
+            breathingMarginPx = breathingMarginPx,
+            physicalDockClearanceAppliedPx = physicalDockClearanceAppliedPx
+        )
+
+        return ScribeDockGeometry(
+            dockMode = dockMode,
+            activeTransition = activeTransition,
+            transitionGeneration = transitionGeneration,
+            standardKeyboardBaselinePx = standardKeyboardBaselinePx,
+            currentImeObstructionPx = currentImeObstructionPx,
+            currentDrawerHeightPx = currentDrawerHeightPx,
+            shortcutBarHeightPx = shortcutBarHeightPx,
+            isShortcutBarOccupied = hasShortcuts,
+            physicalDockClearanceAppliedPx = physicalDockClearanceAppliedPx,
+            virtualTailPx = virtualTailPx
+        )
     }
 
     /**

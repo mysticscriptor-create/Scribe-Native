@@ -195,6 +195,7 @@ class ScribeScrollInputController(
         velocityTracker?.addMovement(ev)
         when (ev.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                isMultiTouchLatched = false
                 host.isUserTouching = true
                 if (!scroller.isFinished) {
                     scroller.forceFinished(true)
@@ -204,15 +205,35 @@ class ScribeScrollInputController(
                 lastTouchY = ev.y
                 initialDownY = ev.y
                 initialDownX = ev.x
-                isDraggingCanvas = true
-                host.onManualDragStarted()
+                isDraggingCanvas = false
                 return true
             }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                isMultiTouchLatched = true
+                isDraggingCanvas = false
+                return false
+            }
             MotionEvent.ACTION_MOVE -> {
-                val dy = lastTouchY - ev.y
-                lastTouchX = ev.x
-                lastTouchY = ev.y
-                host.scrollCanvasBy(dy)
+                if (host.isAnyHandleActive || host.isMultiTouchActive || ev.pointerCount > 1) {
+                    return false
+                }
+                if (!isDraggingCanvas) {
+                    val totalDx = ev.x - initialDownX
+                    val totalDy = initialDownY - ev.y
+                    if (abs(totalDy) > touchSlop && abs(totalDy) > abs(totalDx)) {
+                        isDraggingCanvas = true
+                        host.onManualDragStarted()
+                        lastTouchX = ev.x
+                        lastTouchY = ev.y
+                    }
+                }
+                if (isDraggingCanvas) {
+                    val dy = lastTouchY - ev.y
+                    lastTouchX = ev.x
+                    lastTouchY = ev.y
+                    host.scrollCanvasBy(dy)
+                    return true
+                }
                 return true
             }
             MotionEvent.ACTION_UP -> {

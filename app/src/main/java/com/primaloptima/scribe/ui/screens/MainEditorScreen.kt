@@ -1366,21 +1366,25 @@ fun MainEditorScreen(
                     val isShortcutBarVisuallyVisible = isDockEnteringOrActive && hasShortcutBar
                     val isBarVisible = isDockEnteringOrActive && (hasShortcutBar || bottomSurfaceState.isAccessoryDrawerActive)
                     val actualShortcutBarHeight = if (hasShortcutBar && isDockEnteringOrActive) shortcutBarHeight else 0.dp
-                    val docBottomPadding = when {
-                        bottomSurfaceState.isAccessoryDrawerActive -> {
-                            bottomSurfaceState.effectiveBottomSurfaceHeight + docBottomNavInset + actualShortcutBarHeight
-                        }
-                        bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
-                        bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.IME_TO_DRAWER_HANDOFF -> {
-                            maxOf(bottomSurfaceState.compactHeightDp, imeAboveNavDp) + docBottomNavInset + actualShortcutBarHeight
-                        }
-                        isKeyboardVisible || imeAboveNavDp > 0.dp -> {
-                            imeAboveNavDp + docBottomNavInset + actualShortcutBarHeight
-                        }
-                        else -> {
-                            docBottomNavInset
-                        }
+                    val dockGeometry = remember(
+                        bottomSurfaceState.dockMode,
+                        bottomSurfaceState.activeTransition,
+                        bottomSurfaceState.transitionGeneration,
+                        bottomSurfaceState.compactHeightDp,
+                        bottomSurfaceState.currentDrawerHeightDp,
+                        bottomSurfaceState.capturedHandoffImeHeightDp,
+                        imeAboveNavDp,
+                        isKeyboardVisible,
+                        hasShortcutBar,
+                        density.density
+                    ) {
+                        bottomSurfaceState.calculateAuthoritativeGeometry(
+                            hasShortcuts = hasShortcutBar,
+                            density = density.density,
+                            breathingMarginPx = com.primaloptima.scribe.ui.editor.scroll.ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density.density
+                        )
                     }
+                    val docBottomPadding = (dockGeometry.physicalDockClearanceAppliedPx / density.density).dp + docBottomNavInset
 
                     var lastAppliedPadding by remember { mutableFloatStateOf(-1f) }
                     var lastAppliedTextSize by remember { mutableFloatStateOf(-1f) }
@@ -1430,20 +1434,7 @@ fun MainEditorScreen(
                                 this.isKeyboardVisible = curIsKeyboardVisible
                                 this.isBottomSurfaceActive = curIsBottomSurfaceActive
                                 this.isKeyboardDismissing = isKeyboardDismissing
-                                this.standardKeyboardBaselinePx = bottomSurfaceState.compactHeightDp.value * density
-                                this.physicalDockClearanceAppliedPx = (when {
-                                    bottomSurfaceState.isAccessoryDrawerActive -> bottomSurfaceState.effectiveBottomSurfaceHeight.value + (if (hasShortcutBar) 36f else 0f)
-                                    bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
-                                    bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.IME_TO_DRAWER_HANDOFF -> {
-                                        maxOf(bottomSurfaceState.compactHeightDp.value, imeAboveNavDp.value) + (if (hasShortcutBar) 36f else 0f)
-                                    }
-                                    isKeyboardVisible || imeAboveNavDp > 0.dp -> imeAboveNavDp.value + (if (hasShortcutBar) 36f else 0f)
-                                    else -> 0f
-                                }) * density
-                                this.shortcutBarHeightPx = (if (hasShortcutBar) 36f else 0f) * density
-                                this.hasShortcuts = hasShortcutBar
-                                this.dockTransition = bottomSurfaceState.activeTransition
-                                this.dockMode = bottomSurfaceState.dockMode
+                                this.applyDockGeometry(dockGeometry)
                                 onUserTouchDown = handleUserTouchDown
                                 onKeyboardEntranceStarted = {
                                     if (bottomSurfaceState.isAccessoryDrawerActive) {
@@ -1685,23 +1676,7 @@ fun MainEditorScreen(
                                 densityVal = density
                             )
                             layout.estimatedKeyboardHeightPx = curEstimatedKbPx
-                            val standardKbBaselinePx = bottomSurfaceState.compactHeightDp.value * density
-                            val physicalDockClearancePx = (when {
-                                bottomSurfaceState.isAccessoryDrawerActive -> bottomSurfaceState.effectiveBottomSurfaceHeight.value + (if (hasShortcutBar) 36f else 0f)
-                                bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
-                                bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.IME_TO_DRAWER_HANDOFF -> {
-                                    maxOf(bottomSurfaceState.compactHeightDp.value, imeAboveNavDp.value) + (if (hasShortcutBar) 36f else 0f)
-                                }
-                                isKeyboardVisible || imeAboveNavDp > 0.dp -> imeAboveNavDp.value + (if (hasShortcutBar) 36f else 0f)
-                                else -> 0f
-                            }) * density
-
-                            layout.standardKeyboardBaselinePx = standardKbBaselinePx
-                            layout.physicalDockClearanceAppliedPx = physicalDockClearancePx
-                            layout.shortcutBarHeightPx = (if (hasShortcutBar) 36f else 0f) * density
-                            layout.hasShortcuts = hasShortcutBar
-                            layout.dockTransition = bottomSurfaceState.activeTransition
-                            layout.dockMode = bottomSurfaceState.dockMode
+                            layout.applyDockGeometry(dockGeometry)
                             layout.onKeyboardEntranceStarted = {
                                 if (bottomSurfaceState.isAccessoryDrawerActive) {
                                     bottomSurfaceState.closeDrawerAndRestoreKeyboard(
@@ -2506,11 +2481,12 @@ fun MainEditorScreen(
 
                                 // ── Persistent Bottom Surface Container (Zero Unmounting) ──
                                 val bottomBoxHeight = when {
-                                    bottomSurfaceState.isAccessoryDrawerActive -> effectiveBottomSurfaceHeight
                                     bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
                                     bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.IME_TO_DRAWER_HANDOFF -> {
-                                        maxOf(bottomSurfaceState.compactHeightDp, imeAboveNavDp)
+                                        val baseline = bottomSurfaceState.capturedHandoffImeHeightDp?.dp ?: bottomSurfaceState.compactHeightDp
+                                        maxOf(baseline, imeAboveNavDp, bottomSurfaceState.currentDrawerHeightDp)
                                     }
+                                    bottomSurfaceState.isAccessoryDrawerActive -> effectiveBottomSurfaceHeight
                                     isKeyboardVisible || imeAboveNavDp > 0.dp -> imeAboveNavDp
                                     else -> 0.dp
                                 }
@@ -2519,47 +2495,55 @@ fun MainEditorScreen(
                                         .fillMaxWidth()
                                         .height(bottomBoxHeight)
                                 ) {
-                                    val showDrawerContent = bottomSurfaceState.isAccessoryDrawerActive ||
-                                        (bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.DRAWER_TO_IME_HANDOFF &&
-                                         imeAboveNavDp < bottomSurfaceState.compactHeightDp)
+                                    val availableDrawerHeight = (bottomBoxHeight - imeAboveNavDp).coerceAtLeast(0.dp)
+                                    val showDrawerContent = (bottomSurfaceState.isAccessoryDrawerActive ||
+                                        bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.DRAWER_TO_IME_HANDOFF) &&
+                                        availableDrawerHeight > 0.dp
                                     val drawerMode = bottomSurfaceState.activeAccessoryDrawer ?: bottomSurfaceState.lastActiveAccessoryDrawer
                                     if (showDrawerContent && drawerMode != null) {
-                                        AccessoryDrawer(
-                                            mode = drawerMode,
-                                            currentHeightDp = effectiveBottomSurfaceHeight,
-                                            activePreviewItemId = activeCardPreview?.item?.id,
-                                            drawerState = bottomSurfaceState.drawerState,
-                                            onDrawerStateChange = {
-                                                bottomSurfaceState.setDrawerState(it, unifiedCanvasRef)
-                                            },
-                                            onDragStart = {
-                                                bottomSurfaceState.onDrawerDragStart()
-                                            },
-                                            onDragDelta = { deltaPx ->
-                                                bottomSurfaceState.onDrawerDragDelta(deltaPx, density.density)
-                                            },
-                                            onDragEndWithVelocity = { vyPx ->
-                                                bottomSurfaceState.onDrawerDragEndWithVelocity(vyPx, scope, density.density)
-                                            },
-                                            onOpenShortcuts = {
-                                                shortcutsVm.targetStudioTab = if (drawerMode == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
-                                                bottomSurfaceState.closeDrawer()
-                                                drawerSearchQuery = ""
-                                                isWritingBarSearchActive = false
-                                                previewItem = null
-                                                activeCardPreview = null
-                                                isPreviewExpanded = false
-                                                onOpenShortcuts()
-                                            },
-                                            searchQuery = drawerSearchQuery,
-                                            onCardPreview = { action, rect ->
-                                                activeCardPreview = CardPreviewAnchor(
-                                                    item = action,
-                                                    sourceRect = rect,
-                                                    isSnippet = drawerMode == AccessoryDrawerMode.SNIPPETS
-                                                )
-                                                isPreviewExpanded = true
-                                            },
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(availableDrawerHeight)
+                                                .align(Alignment.TopCenter)
+                                                .clipToBounds()
+                                        ) {
+                                            AccessoryDrawer(
+                                                mode = drawerMode,
+                                                currentHeightDp = bottomBoxHeight,
+                                                activePreviewItemId = activeCardPreview?.item?.id,
+                                                drawerState = bottomSurfaceState.drawerState,
+                                                onDrawerStateChange = {
+                                                    bottomSurfaceState.setDrawerState(it, unifiedCanvasRef)
+                                                },
+                                                onDragStart = {
+                                                    bottomSurfaceState.onDrawerDragStart()
+                                                },
+                                                onDragDelta = { deltaPx ->
+                                                    bottomSurfaceState.onDrawerDragDelta(deltaPx, density.density)
+                                                },
+                                                onDragEndWithVelocity = { vyPx ->
+                                                    bottomSurfaceState.onDrawerDragEndWithVelocity(vyPx, scope, density.density)
+                                                },
+                                                onOpenShortcuts = {
+                                                    shortcutsVm.targetStudioTab = if (drawerMode == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
+                                                    bottomSurfaceState.closeDrawer()
+                                                    drawerSearchQuery = ""
+                                                    isWritingBarSearchActive = false
+                                                    previewItem = null
+                                                    activeCardPreview = null
+                                                    isPreviewExpanded = false
+                                                    onOpenShortcuts()
+                                                },
+                                                searchQuery = drawerSearchQuery,
+                                                onCardPreview = { action, rect ->
+                                                    activeCardPreview = CardPreviewAnchor(
+                                                        item = action,
+                                                        sourceRect = rect,
+                                                        isSnippet = drawerMode == AccessoryDrawerMode.SNIPPETS
+                                                    )
+                                                    isPreviewExpanded = true
+                                                },
                                             snippets = snippets,
                                             templates = templates,
                                             shortcutsVm = shortcutsVm,
@@ -2578,6 +2562,7 @@ fun MainEditorScreen(
                                                 Toast.makeText(context, "Inserted: " + shortcut.resolvedLabel(), Toast.LENGTH_SHORT).show()
                                             }
                                         )
+                                    }
                                     }
                                 }
                             }

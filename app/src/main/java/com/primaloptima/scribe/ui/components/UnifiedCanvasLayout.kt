@@ -99,6 +99,19 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var dockTransition: ScribeDockTransition = ScribeDockTransition.NONE
     var dockMode: ScribeDockMode = ScribeDockMode.HIDDEN
 
+    var dockGeometry: ScribeDockGeometry? = null
+
+    fun applyDockGeometry(geometry: ScribeDockGeometry) {
+        dockGeometry = geometry
+        standardKeyboardBaselinePx = geometry.standardKeyboardBaselinePx
+        physicalDockClearanceAppliedPx = geometry.physicalDockClearanceAppliedPx
+        shortcutBarHeightPx = geometry.shortcutBarHeightPx
+        hasShortcuts = geometry.isShortcutBarOccupied
+        dockTransition = geometry.activeTransition
+        dockMode = geometry.dockMode
+        editor.persistentBottomSpacePx = persistentBottomSpacePx.roundToInt()
+    }
+
     val virtualTailPx: Float
         get() = ScribeScrollPolicy.calculateAuthoritativeVirtualTailPx(
             keyboardBaselinePx = standardKeyboardBaselinePx,
@@ -206,11 +219,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 this@UnifiedCanvasLayout.lastTouchDownTime = System.currentTimeMillis()
                 this@UnifiedCanvasLayout.onUserTouchDown?.invoke()
                 this@UnifiedCanvasLayout.cancelCanvasAnimation()
-                this@UnifiedCanvasLayout.invalidateCompensation()
                 this@UnifiedCanvasLayout.editor.stopFling()
             }
             override fun onManualDragStarted() {
                 this@UnifiedCanvasLayout.scrollCoordinator.onManualDragConfirmed()
+                this@UnifiedCanvasLayout.cancelRestoration()
+                this@UnifiedCanvasLayout.scrollCoordinator.invalidateCompensation("Confirmed manual drag")
             }
         })
     }
