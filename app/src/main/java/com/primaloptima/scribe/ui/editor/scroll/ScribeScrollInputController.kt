@@ -39,7 +39,9 @@ class ScribeScrollInputController(
         fun onTopEdgeEffectAbsorb(velocity: Int)
         val isTopEdgeEffectFinished: Boolean
         fun onUserTouchDown(touchY: Float)
+        fun onManualDragStarted() {}
     }
+
 
     val scroller: OverScroller = OverScroller(context)
     var lastScrollerY: Int = 0
@@ -169,6 +171,7 @@ class ScribeScrollInputController(
                 if (abs(totalDy) > touchSlop && abs(totalDy) > abs(totalDx)) {
                     if (host.scrollD < host.headerHeight || host.editorOffsetY <= 0 || host.maxCanvasScroll <= 0) {
                         isDraggingCanvas = true
+                        host.onManualDragStarted()
                         lastTouchX = ev.x
                         lastTouchY = ev.y
                         host.requestDisallowInterceptTouchEvent(true)
@@ -202,6 +205,7 @@ class ScribeScrollInputController(
                 initialDownY = ev.y
                 initialDownX = ev.x
                 isDraggingCanvas = true
+                host.onManualDragStarted()
                 return true
             }
             MotionEvent.ACTION_MOVE -> {

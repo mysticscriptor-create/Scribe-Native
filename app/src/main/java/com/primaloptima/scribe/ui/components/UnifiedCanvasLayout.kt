@@ -92,26 +92,32 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * estimatedKeyboardHeightPx = (compactHeightDp + 36f) * density.
      * Plus breathing margin (24dp) so that the line rests comfortably above the shortcut bar.
      */
+    var standardKeyboardBaselinePx: Float = 280f * context.resources.displayMetrics.density
+    var physicalDockClearanceAppliedPx: Float = 0f
+    var shortcutBarHeightPx: Float = 36f * context.resources.displayMetrics.density
+    var hasShortcuts: Boolean = true
+    var dockTransition: ScribeDockTransition = ScribeDockTransition.NONE
+    var dockMode: ScribeDockMode = ScribeDockMode.HIDDEN
+
+    val virtualTailPx: Float
+        get() = ScribeScrollPolicy.calculateAuthoritativeVirtualTailPx(
+            keyboardBaselinePx = standardKeyboardBaselinePx,
+            shortcutBarHeightPx = if (hasShortcuts) shortcutBarHeightPx else 0f,
+            breathingMarginPx = breathingMarginPx,
+            physicalDockClearanceAppliedPx = physicalDockClearanceAppliedPx
+        )
+
     val persistentBottomSpacePx: Float
-        get() = estimatedKeyboardHeightPx + breathingMarginPx
+        get() = virtualTailPx
 
     val maxCanvasScroll: Int
         get() {
             val layoutH = editor.layout?.layoutHeight ?: 0
-            val breathingMargin = breathingMarginPx.roundToInt()
-            // When keyboard is visible, viewport is already padded by Compose.
-            // Therefore, bottomSpace is ONLY breathingMargin (24dp) so last line sits
-            // comfortably above shortcut bar without double-counting keyboard height or scrolling empty space.
-            val bottomSpace = if (isKeyboardVisible || isBottomSurfaceActive) {
-                breathingMargin
-            } else {
-                persistentBottomSpacePx.roundToInt()
-            }
             return ScribeScrollPolicy.calculateMaxCanvasScroll(
                 headerHeight = headerHeight,
                 layoutHeight = layoutH,
                 viewportHeight = height,
-                bottomSpace = bottomSpace,
+                bottomSpace = virtualTailPx.roundToInt(),
                 isTextEmpty = editor.text.isEmpty()
             )
         }
@@ -122,6 +128,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var estimatedKeyboardHeightPx: Float = (280f + 36f) * context.resources.displayMetrics.density
         set(value) {
             field = value
+            standardKeyboardBaselinePx = (value - (if (hasShortcuts) shortcutBarHeightPx else 0f)).coerceAtLeast(0f)
             editor.persistentBottomSpacePx = persistentBottomSpacePx.roundToInt()
         }
 
@@ -201,6 +208,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 this@UnifiedCanvasLayout.cancelCanvasAnimation()
                 this@UnifiedCanvasLayout.invalidateCompensation()
                 this@UnifiedCanvasLayout.editor.stopFling()
+            }
+            override fun onManualDragStarted() {
+                this@UnifiedCanvasLayout.scrollCoordinator.onManualDragConfirmed()
             }
         })
     }
@@ -1356,9 +1366,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             if (dh > 0) {
                 val isTitleTargetActive = activeEditingTarget == EditingTarget.PRIMARY_TITLE ||
                     activeEditingTarget == EditingTarget.SECONDARY_TITLE
-                val isAuthorizedTransition = isKeyboardTransactionActive || isBottomSurfaceActive
+                val isAuthorizedTransition = isKeyboardTransactionActive || isBottomSurfaceActive || isKeyboardVisible
                 if (isAuthorizedTransition) {
-                    // Viewport shrinking during authorized keyboard entrance or accessory drawer opening
+                    // Viewport shrinking during authorized keyboard entrance, accessory drawer opening, or IME expansion
                     isExpansionTransitionActive = true
                     isKeyboardDismissing = false // Opening/expanding: clear any stale dismissal flag
                     resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
@@ -1473,7 +1483,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     hasPhysicalBottomObstruction = hasBottomObstruction,
                     isAtLastLine = isAtLastLine,
                     hasActiveScroll = hasActiveScroll,
-                    temporaryDisplacement = temporaryExpansionDisplacement
+                    temporaryDisplacement = temporaryExpansionDisplacement,
+                    activeTransition = dockTransition
                 )
 
                 // Pure Writer Invariant:
@@ -1481,7 +1492,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 // completely stationary at the saved margin (keyboard height + shortcut bar + breathing margin).
                 // Never pull down to the bottom of the screen.
                 if (!shouldFollow) {
-                    if (isKeyboardDismissing || !isBottomSurfaceActive) {
+                    if (isKeyboardDismissing || !isBottomSurfaceActive || dockTransition == ScribeDockTransition.IME_DISMISSAL) {
                         cancelRestoration()
                         invalidateCompensation("Keyboard dismissing or bottom surface inactive")
                     }
@@ -1494,7 +1505,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 // displacement across ALL caret positions, while ensuring the caret settles above
                 // the shortcut bar maintaining the exact 24dp breathing margin.
                 pendingRestorationRunnable?.let { removeCallbacks(it) }
+                val capturedGen = scrollCoordinator.interactionGeneration
                 val rRestoration = Runnable {
+                    if (scrollCoordinator.interactionGeneration != capturedGen) {
+                        return@Runnable
+                    }
                     pendingRestorationRunnable = null
                     val lay = editor.layout ?: return@Runnable
                     val geom = getSelectionGeometry(cur, lay) ?: return@Runnable
@@ -1559,7 +1574,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * so that the typing cursor is strictly kept above the keyboard and shortcut bar.
      */
     override fun requestChildRectangleOnScreen(child: View, rectangle: Rect, immediate: Boolean): Boolean {
-        if (isKeyboardDismissing || suppressCursorVisibilityScroll || isRestoringViewport || inputController.isDraggingCanvas) {
+        if (isKeyboardDismissing || suppressCursorVisibilityScroll || isRestoringViewport || inputController.isDraggingCanvas || dockTransition == ScribeDockTransition.IME_DISMISSAL) {
             return true
         }
         if (child !== editor) {

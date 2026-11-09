@@ -71,10 +71,16 @@ object ScribeBottomSurfaceCoordinator {
         isBarTransitionLatched: Boolean,
         isKeyboardVisible: Boolean,
         compactHeightDp: Float,
-        imeAboveNavDp: Float
+        imeAboveNavDp: Float,
+        activeTransition: ScribeDockTransition = ScribeDockTransition.NONE
     ): Float {
         if (isAccessoryDrawerActive) {
             return drawerHeightDp
+        }
+        if (activeTransition == ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
+            activeTransition == ScribeDockTransition.IME_TO_DRAWER_HANDOFF) {
+            // Shared slot invariant: hold stable compact height while surfaces exchange
+            return maxOf(compactHeightDp, imeAboveNavDp)
         }
         if (isKeyboardVisible) {
             // Standard keyboard: locks at compactHeightDp to prevent 60fps layout thrashing.
@@ -101,12 +107,17 @@ object ScribeBottomSurfaceCoordinator {
         isAccessoryDrawerActive: Boolean,
         isAwaitingKeyboardOpen: Boolean,
         isBarTransitionLatched: Boolean,
-        imeAboveNavDp: Float
+        imeAboveNavDp: Float,
+        activeTransition: ScribeDockTransition = ScribeDockTransition.NONE
     ): Boolean {
+        if (activeTransition == ScribeDockTransition.IME_DISMISSAL) {
+            return true
+        }
         return !isKeyboardVisible &&
                 !isAccessoryDrawerActive &&
                 !isAwaitingKeyboardOpen &&
                 !isBarTransitionLatched &&
+                activeTransition != ScribeDockTransition.DRAWER_TO_IME_HANDOFF &&
                 imeAboveNavDp > 0f
     }
 
@@ -133,6 +144,7 @@ object ScribeBottomSurfaceCoordinator {
      * @param isAtLastLine Cursor is on or near the last line of the document.
      * @param hasActiveScroll Document has scroll offset > 0.
      * @param temporaryDisplacement Recorded upward displacement caused by prior surface expansion.
+     * @param activeTransition Originating dock transition provenance.
      */
     fun shouldFollowDownward(
         isKeyboardDismissing: Boolean,
@@ -141,12 +153,19 @@ object ScribeBottomSurfaceCoordinator {
         hasPhysicalBottomObstruction: Boolean,
         isAtLastLine: Boolean,
         hasActiveScroll: Boolean,
-        temporaryDisplacement: Float = 0f
+        temporaryDisplacement: Float = 0f,
+        activeTransition: ScribeDockTransition = ScribeDockTransition.NONE
     ): Boolean {
         // Pure Writer Invariant:
         // When keyboard is dismissed or actively closing, the document MUST remain
         // 100% completely stationary at the saved margin. NEVER pull down to the bottom of the screen!
-        if (isKeyboardDismissing) {
+        if (isKeyboardDismissing || activeTransition == ScribeDockTransition.IME_DISMISSAL) {
+            return false
+        }
+
+        // Same-height handoffs (IME <-> Drawer) must NEVER pull document down
+        if (activeTransition == ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
+            activeTransition == ScribeDockTransition.IME_TO_DRAWER_HANDOFF) {
             return false
         }
 
@@ -165,6 +184,7 @@ object ScribeBottomSurfaceCoordinator {
         // 2. The cursor is at the last line of the document following an actively contracting bottom surface.
         return (temporaryDisplacement > 0f) || isAtLastLine
     }
+
     /**
      * Calculates the expanded drawer height in Dp.
      */

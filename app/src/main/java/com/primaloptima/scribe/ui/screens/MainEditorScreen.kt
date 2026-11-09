@@ -1359,13 +1359,20 @@ fun MainEditorScreen(
                     val effectiveBottomSurfaceHeight = bottomSurfaceState.effectiveBottomSurfaceHeight
                     val isKeyboardDismissing = bottomSurfaceState.isKeyboardDismissing()
                     val isKeyboardSettled = bottomSurfaceState.isKeyboardSettled()
-                    val isShortcutBarVisuallyVisible = (bottomSurfaceState.isAccessoryDrawerActive || isKeyboardSettled) && shortcuts.isNotEmpty()
-                    val isBarVisible = (isKeyboardVisible || imeAboveNavDp > 10.dp || bottomSurfaceState.isAccessoryDrawerActive || bottomSurfaceState.isAwaitingKeyboardOpen) && (shortcuts.isNotEmpty() || bottomSurfaceState.isAccessoryDrawerActive)
                     val hasShortcutBar = shortcuts.isNotEmpty()
-                    val actualShortcutBarHeight = if (hasShortcutBar && isShortcutBarVisuallyVisible) shortcutBarHeight else 0.dp
+                    val isDockEnteringOrActive = isKeyboardVisible || imeAboveNavDp > 0.dp ||
+                        bottomSurfaceState.isAccessoryDrawerActive || bottomSurfaceState.isAwaitingKeyboardOpen ||
+                        bottomSurfaceState.activeTransition != com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.NONE
+                    val isShortcutBarVisuallyVisible = isDockEnteringOrActive && hasShortcutBar
+                    val isBarVisible = isDockEnteringOrActive && (hasShortcutBar || bottomSurfaceState.isAccessoryDrawerActive)
+                    val actualShortcutBarHeight = if (hasShortcutBar && isDockEnteringOrActive) shortcutBarHeight else 0.dp
                     val docBottomPadding = when {
                         bottomSurfaceState.isAccessoryDrawerActive -> {
-                            bottomSurfaceState.effectiveBottomSurfaceHeight + docBottomNavInset + (if (hasShortcutBar) shortcutBarHeight else 0.dp)
+                            bottomSurfaceState.effectiveBottomSurfaceHeight + docBottomNavInset + actualShortcutBarHeight
+                        }
+                        bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
+                        bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.IME_TO_DRAWER_HANDOFF -> {
+                            maxOf(bottomSurfaceState.compactHeightDp, imeAboveNavDp) + docBottomNavInset + actualShortcutBarHeight
                         }
                         isKeyboardVisible || imeAboveNavDp > 0.dp -> {
                             imeAboveNavDp + docBottomNavInset + actualShortcutBarHeight
@@ -1388,7 +1395,7 @@ fun MainEditorScreen(
                     var indentJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
                     val handleUserTouchDown: () -> Unit = {
-                        updateEditingTarget(EditingTarget.EDITOR_BODY)
+                        // User touched canvas down: pauses active fling/glide without prematurely mutating title editing target
                     }
 
                     AndroidView(
@@ -1423,6 +1430,20 @@ fun MainEditorScreen(
                                 this.isKeyboardVisible = curIsKeyboardVisible
                                 this.isBottomSurfaceActive = curIsBottomSurfaceActive
                                 this.isKeyboardDismissing = isKeyboardDismissing
+                                this.standardKeyboardBaselinePx = bottomSurfaceState.compactHeightDp.value * density
+                                this.physicalDockClearanceAppliedPx = (when {
+                                    bottomSurfaceState.isAccessoryDrawerActive -> bottomSurfaceState.effectiveBottomSurfaceHeight.value + (if (hasShortcutBar) 36f else 0f)
+                                    bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
+                                    bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.IME_TO_DRAWER_HANDOFF -> {
+                                        maxOf(bottomSurfaceState.compactHeightDp.value, imeAboveNavDp.value) + (if (hasShortcutBar) 36f else 0f)
+                                    }
+                                    isKeyboardVisible || imeAboveNavDp > 0.dp -> imeAboveNavDp.value + (if (hasShortcutBar) 36f else 0f)
+                                    else -> 0f
+                                }) * density
+                                this.shortcutBarHeightPx = (if (hasShortcutBar) 36f else 0f) * density
+                                this.hasShortcuts = hasShortcutBar
+                                this.dockTransition = bottomSurfaceState.activeTransition
+                                this.dockMode = bottomSurfaceState.dockMode
                                 onUserTouchDown = handleUserTouchDown
                                 onKeyboardEntranceStarted = {
                                     if (bottomSurfaceState.isAccessoryDrawerActive) {
@@ -1664,6 +1685,23 @@ fun MainEditorScreen(
                                 densityVal = density
                             )
                             layout.estimatedKeyboardHeightPx = curEstimatedKbPx
+                            val standardKbBaselinePx = bottomSurfaceState.compactHeightDp.value * density
+                            val physicalDockClearancePx = (when {
+                                bottomSurfaceState.isAccessoryDrawerActive -> bottomSurfaceState.effectiveBottomSurfaceHeight.value + (if (hasShortcutBar) 36f else 0f)
+                                bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
+                                bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.IME_TO_DRAWER_HANDOFF -> {
+                                    maxOf(bottomSurfaceState.compactHeightDp.value, imeAboveNavDp.value) + (if (hasShortcutBar) 36f else 0f)
+                                }
+                                isKeyboardVisible || imeAboveNavDp > 0.dp -> imeAboveNavDp.value + (if (hasShortcutBar) 36f else 0f)
+                                else -> 0f
+                            }) * density
+
+                            layout.standardKeyboardBaselinePx = standardKbBaselinePx
+                            layout.physicalDockClearanceAppliedPx = physicalDockClearancePx
+                            layout.shortcutBarHeightPx = (if (hasShortcutBar) 36f else 0f) * density
+                            layout.hasShortcuts = hasShortcutBar
+                            layout.dockTransition = bottomSurfaceState.activeTransition
+                            layout.dockMode = bottomSurfaceState.dockMode
                             layout.onKeyboardEntranceStarted = {
                                 if (bottomSurfaceState.isAccessoryDrawerActive) {
                                     bottomSurfaceState.closeDrawerAndRestoreKeyboard(
@@ -2467,21 +2505,27 @@ fun MainEditorScreen(
                                 }
 
                                 // ── Persistent Bottom Surface Container (Zero Unmounting) ──
-                                val bottomBoxHeight = if (bottomSurfaceState.isAccessoryDrawerActive) {
-                                    effectiveBottomSurfaceHeight
-                                } else if (isKeyboardVisible || imeAboveNavDp > 0.dp) {
-                                    imeAboveNavDp
-                                } else {
-                                    0.dp
+                                val bottomBoxHeight = when {
+                                    bottomSurfaceState.isAccessoryDrawerActive -> effectiveBottomSurfaceHeight
+                                    bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
+                                    bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.IME_TO_DRAWER_HANDOFF -> {
+                                        maxOf(bottomSurfaceState.compactHeightDp, imeAboveNavDp)
+                                    }
+                                    isKeyboardVisible || imeAboveNavDp > 0.dp -> imeAboveNavDp
+                                    else -> 0.dp
                                 }
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(bottomBoxHeight)
                                 ) {
-                                    if (bottomSurfaceState.isAccessoryDrawerActive) {
+                                    val showDrawerContent = bottomSurfaceState.isAccessoryDrawerActive ||
+                                        (bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.DRAWER_TO_IME_HANDOFF &&
+                                         imeAboveNavDp < bottomSurfaceState.compactHeightDp)
+                                    val drawerMode = bottomSurfaceState.activeAccessoryDrawer ?: bottomSurfaceState.lastActiveAccessoryDrawer
+                                    if (showDrawerContent && drawerMode != null) {
                                         AccessoryDrawer(
-                                            mode = bottomSurfaceState.activeAccessoryDrawer!!,
+                                            mode = drawerMode,
                                             currentHeightDp = effectiveBottomSurfaceHeight,
                                             activePreviewItemId = activeCardPreview?.item?.id,
                                             drawerState = bottomSurfaceState.drawerState,
@@ -2498,7 +2542,7 @@ fun MainEditorScreen(
                                                 bottomSurfaceState.onDrawerDragEndWithVelocity(vyPx, scope, density.density)
                                             },
                                             onOpenShortcuts = {
-                                                shortcutsVm.targetStudioTab = if (bottomSurfaceState.activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
+                                                shortcutsVm.targetStudioTab = if (drawerMode == AccessoryDrawerMode.SNIPPETS) StudioTab.SNIPPETS else StudioTab.TEMPLATES
                                                 bottomSurfaceState.closeDrawer()
                                                 drawerSearchQuery = ""
                                                 isWritingBarSearchActive = false
@@ -2512,7 +2556,7 @@ fun MainEditorScreen(
                                                 activeCardPreview = CardPreviewAnchor(
                                                     item = action,
                                                     sourceRect = rect,
-                                                    isSnippet = bottomSurfaceState.activeAccessoryDrawer == AccessoryDrawerMode.SNIPPETS
+                                                    isSnippet = drawerMode == AccessoryDrawerMode.SNIPPETS
                                                 )
                                                 isPreviewExpanded = true
                                             },

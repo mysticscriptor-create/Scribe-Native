@@ -50,3 +50,44 @@ data class CursorTargetResolution(
     val column: Int,
     val shouldScroll: Boolean
 )
+
+/**
+ * High-level mode of the unified bottom dock.
+ */
+enum class ScribeDockMode {
+    HIDDEN,
+    IME,
+    ACCESSORY_DRAWER
+}
+
+/**
+ * Explicit transition provenance for the unified bottom dock.
+ */
+enum class ScribeDockTransition {
+    NONE,
+    IME_ENTRANCE,
+    IME_DISMISSAL,
+    IME_RESIZE,
+    DRAWER_OPEN,
+    DRAWER_CLOSE,
+    DRAWER_RESIZE,
+    IME_TO_DRAWER_HANDOFF,
+    DRAWER_TO_IME_HANDOFF
+}
+
+/**
+ * Immutable snapshot of unified bottom dock geometry and clearance state.
+ */
+data class ScribeDockGeometry(
+    val dockMode: ScribeDockMode,
+    val activeTransition: ScribeDockTransition,
+    val transitionGeneration: Long,
+    val standardKeyboardBaselinePx: Float,
+    val currentImeObstructionPx: Float,
+    val currentDrawerHeightPx: Float,
+    val shortcutBarHeightPx: Float,
+    val isShortcutBarOccupied: Boolean,
+    val physicalDockClearanceAppliedPx: Float,
+    val virtualTailPx: Float
+)
+

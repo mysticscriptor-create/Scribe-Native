@@ -94,13 +94,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
     override fun getScrollMaxY(): Int {
         return try {
             val pCanvas = parent as? UnifiedCanvasLayout
-            val isHeaderFullyHidden = if (pCanvas != null && pCanvas.headerHeight > 0) {
-                pCanvas.scrollD >= pCanvas.headerHeight
-            } else {
-                pCanvas == null
-            }
-            if (!isHeaderFullyHidden) {
-                return 0
+            if (pCanvas != null) {
+                if (pCanvas.scrollD < pCanvas.headerHeight) {
+                    return 0 // Strict 1-DOF invariant: inner editor cannot scroll while title header is visible
+                }
+                return (pCanvas.maxCanvasScroll - pCanvas.headerHeight).coerceAtLeast(0)
             }
 
             val layout = this.layout ?: return super.getScrollMaxY()
@@ -108,11 +106,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
             val baseSora = super.getScrollMaxY()
             val density = context.resources.displayMetrics.density
             val breathingMargin = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
-            val activeGlideTarget = if (pCanvas != null && pCanvas.targetPredictedScrollTotal > pCanvas.headerHeight) {
-                (pCanvas.targetPredictedScrollTotal - pCanvas.headerHeight).toInt().coerceAtLeast(0)
-            } else {
-                0
-            }
             ScribeScrollPolicy.calculateSafeScrollMaxY(
                 layoutHeight = layoutH,
                 viewportHeight = height,
@@ -123,7 +116,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 isKeyboardVisible = isKeyboardVisible,
                 breathingMarginPx = breathingMargin,
                 isTextEmpty = text.isEmpty(),
-                activeGlideTargetY = activeGlideTarget,
+                activeGlideTargetY = 0,
                 isHeaderFullyHidden = true
             )
         } catch (_: Throwable) {

@@ -119,6 +119,30 @@ object ScribeScrollPolicy {
     }
 
     /**
+     * Authoritative calculation for canonical global virtual document tail.
+     * Continuously transfers clearance between physical bottom surface obstruction
+     * and virtual bottom scroll space without double-counting or drops.
+     *
+     * @param keyboardBaselinePx App-wide standard typing keyboard baseline in pixels
+     * @param shortcutBarHeightPx Reserved height of shortcut bar in pixels (0 if no shortcuts)
+     * @param breathingMarginPx Caret breathing margin in pixels (~24dp)
+     * @param physicalDockClearanceAppliedPx Dock clearance currently physically applied to editor viewport
+     * @return Authoritative virtual bottom clearance in pixels
+     */
+    fun calculateAuthoritativeVirtualTailPx(
+        keyboardBaselinePx: Float,
+        shortcutBarHeightPx: Float,
+        breathingMarginPx: Float,
+        physicalDockClearanceAppliedPx: Float
+    ): Float {
+        val globalClearancePx = keyboardBaselinePx + shortcutBarHeightPx + breathingMarginPx
+        return maxOf(
+            breathingMarginPx,
+            globalClearancePx - physicalDockClearanceAppliedPx
+        )
+    }
+
+    /**
      * Calculates the maximum vertical scroll allowed for the entire unified canvas
      * (the combination of header displacement `scrollD` and editor `offsetY`).
      *
@@ -140,6 +164,7 @@ object ScribeScrollPolicy {
         val totalContentHeight = headerHeight + layoutHeight + bottomSpace
         return (totalContentHeight - viewportHeight).coerceAtLeast(0)
     }
+
 
     // ── 1-DOF Scroll Ownership & Coordination Model ────────────────────────────
 

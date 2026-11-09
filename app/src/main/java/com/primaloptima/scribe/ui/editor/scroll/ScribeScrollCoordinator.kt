@@ -47,6 +47,19 @@ class ScribeScrollCoordinator(
     var activeOperationId: Long = 0L
         private set
 
+    /**
+     * Monotonically increasing interaction generation counter.
+     * Advanced on confirmed manual drag gestures to invalidate stale asynchronous callbacks.
+     */
+    var interactionGeneration: Long = 0L
+        private set
+
+    fun onManualDragConfirmed() {
+        interactionGeneration++
+        invalidateCompensation("Confirmed manual drag")
+    }
+
+
     // Callbacks for production integration
     var onScrollBy: ((deltaY: Float) -> Float)? = null
     var onAnimationFinished: (() -> Unit)? = null

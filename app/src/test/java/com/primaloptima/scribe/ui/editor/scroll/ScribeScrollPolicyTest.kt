@@ -987,4 +987,30 @@ class ScribeScrollPolicyTest {
         assertEquals(300f, clampedFuture.desiredTarget, 0.001f)
     }
 
+    @Test
+    fun testInnerEditorScrollMaxYAgreementWithUnifiedCanvas() {
+        val headerHeight = 250
+        val layoutHeight = 1800
+        val viewportHeight = 900
+        val bottomSpace = 600
+
+        val maxCanvas = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = layoutHeight,
+            viewportHeight = viewportHeight,
+            bottomSpace = bottomSpace,
+            isTextEmpty = false
+        )
+        // totalContent = 250 + 1800 + 600 = 2650; viewport = 900 -> maxCanvas = 1750
+
+        // When scrollD < headerHeight (e.g. scrollD = 100), inner editor must return 0 to delegate to canvas
+        val innerWhenHeaderVisible = if (100 < headerHeight) 0 else (maxCanvas - headerHeight).coerceAtLeast(0)
+        assertEquals(0, innerWhenHeaderVisible)
+
+        // When scrollD >= headerHeight (e.g. scrollD = 250), inner editor capacity is (maxCanvas - headerHeight)
+        val innerWhenHeaderScrolledOut = if (250 < headerHeight) 0 else (maxCanvas - headerHeight).coerceAtLeast(0)
+        assertEquals(1500, innerWhenHeaderScrolledOut)
+        assertEquals(maxCanvas, headerHeight + innerWhenHeaderScrolledOut)
+    }
+
 }

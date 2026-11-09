@@ -128,6 +128,26 @@ class ScribeBottomSurfaceState(
     var densityValue: Float by mutableFloatStateOf(1f)
         internal set
 
+    /**
+     * High-level mode of the unified bottom dock.
+     */
+    var dockMode: ScribeDockMode by mutableStateOf(ScribeDockMode.HIDDEN)
+
+    /**
+     * Explicit transition provenance for dock lifecycle coordination.
+     */
+    var activeTransition: ScribeDockTransition by mutableStateOf(ScribeDockTransition.NONE)
+
+    /**
+     * Monotonic generation counter incremented on dock transitions to invalidate stale callbacks.
+     */
+    var transitionGeneration: Long by mutableLongStateOf(0L)
+
+    /**
+     * Last active accessory drawer content mode (snippets or templates), used during handoffs.
+     */
+    var lastActiveAccessoryDrawer: AccessoryDrawerMode by mutableStateOf(AccessoryDrawerMode.SNIPPETS)
+
     // ── Accessory Drawer State (Phase 7) ──────────────────────────────────
 
     /**
@@ -222,7 +242,8 @@ class ScribeBottomSurfaceState(
             isBarTransitionLatched = isBarTransitionLatched,
             isKeyboardVisible = isKeyboardVisible,
             compactHeightDp = compactHeightDp.value,
-            imeAboveNavDp = imeAboveNavDp.value
+            imeAboveNavDp = imeAboveNavDp.value,
+            activeTransition = activeTransition
         ).dp
     }
 
@@ -255,7 +276,8 @@ class ScribeBottomSurfaceState(
             isAccessoryDrawerActive = isAccessoryDrawerActive,
             isAwaitingKeyboardOpen = isAwaitingKeyboardOpen,
             isBarTransitionLatched = isBarTransitionLatched,
-            imeAboveNavDp = imeAboveNavDp.value
+            imeAboveNavDp = imeAboveNavDp.value,
+            activeTransition = activeTransition
         )
     }
 
@@ -403,7 +425,6 @@ class ScribeBottomSurfaceState(
     fun setDrawerState(newState: AccessoryDrawerState, unifiedCanvas: UnifiedCanvasLayout? = null) {
         drawerState = newState
         unifiedCanvas?.isBottomSurfaceActive = true
-        unifiedCanvas?.isKeyboardVisible = true
     }
 
     /**
@@ -419,6 +440,9 @@ class ScribeBottomSurfaceState(
      * Closes the active accessory drawer without restoring the soft keyboard.
      */
     fun closeDrawer() {
+        activeTransition = ScribeDockTransition.DRAWER_CLOSE
+        transitionGeneration++
+        dockMode = ScribeDockMode.HIDDEN
         activeAccessoryDrawer = null
         drawerState = AccessoryDrawerState.COMPACT
         cancelAwaitingKeyboard()
@@ -432,6 +456,9 @@ class ScribeBottomSurfaceState(
         scope: CoroutineScope? = null,
         onRestore: (() -> Unit)? = null
     ) {
+        activeTransition = ScribeDockTransition.DRAWER_TO_IME_HANDOFF
+        transitionGeneration++
+        dockMode = ScribeDockMode.IME
         activeAccessoryDrawer = null
         drawerState = AccessoryDrawerState.COMPACT
         startAwaitingKeyboard(unifiedCanvas)
@@ -449,8 +476,13 @@ class ScribeBottomSurfaceState(
         scope: CoroutineScope? = null,
         onOpen: (() -> Unit)? = null
     ) {
+        val fromKeyboard = isKeyboardVisible || imeAboveNavDp.value > 10f
+        activeTransition = if (fromKeyboard) ScribeDockTransition.IME_TO_DRAWER_HANDOFF else ScribeDockTransition.DRAWER_OPEN
+        transitionGeneration++
+        dockMode = ScribeDockMode.ACCESSORY_DRAWER
         cancelAwaitingKeyboard()
         activeAccessoryDrawer = targetMode
+        lastActiveAccessoryDrawer = targetMode
         drawerState = AccessoryDrawerState.COMPACT
         scope?.launch {
             drawerHeightDpAnim.snapTo(compactHeightDp.value)
@@ -640,9 +672,35 @@ fun rememberScribeBottomSurfaceState(
                 }
                 state.isAwaitingKeyboardOpen = false
                 state.isBarTransitionLatched = false
+                if (state.activeTransition == ScribeDockTransition.DRAWER_TO_IME_HANDOFF || state.activeTransition == ScribeDockTransition.IME_ENTRANCE) {
+                    state.activeTransition = ScribeDockTransition.NONE
+                    state.transitionGeneration++
+                }
+                state.dockMode = ScribeDockMode.IME
+            }
+        }
+    }
+
+    // Explicitly track IME dismissal and idle states
+    LaunchedEffect(isKeyboardVisible, imeAboveNavDp, state.activeAccessoryDrawer) {
+        if (state.activeAccessoryDrawer == null) {
+            if (isKeyboardVisible && imeAboveNavDp.value > 0f) {
+                if (state.activeTransition != ScribeDockTransition.DRAWER_TO_IME_HANDOFF) {
+                    state.dockMode = ScribeDockMode.IME
+                }
+            } else if (!isKeyboardVisible && imeAboveNavDp.value > 0f && !state.isAwaitingKeyboardOpen) {
+                state.activeTransition = ScribeDockTransition.IME_DISMISSAL
+                state.dockMode = ScribeDockMode.HIDDEN
+            } else if (!isKeyboardVisible && imeAboveNavDp.value == 0f && !state.isAwaitingKeyboardOpen) {
+                if (state.activeTransition == ScribeDockTransition.IME_DISMISSAL) {
+                    state.activeTransition = ScribeDockTransition.NONE
+                    state.transitionGeneration++
+                }
+                state.dockMode = ScribeDockMode.HIDDEN
             }
         }
     }
 
     return state
 }
+

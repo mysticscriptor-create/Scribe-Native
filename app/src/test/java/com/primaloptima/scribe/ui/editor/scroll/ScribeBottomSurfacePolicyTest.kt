@@ -524,4 +524,173 @@ class ScribeBottomSurfacePolicyTest {
 
     // ── Phase 8 Policy & Adapter Helpers Unit Tests ─────────────────────────
 
+    @Test
+    fun testAuthoritativeVirtualTailContinuousTransfer() {
+        val breathingMarginPx = 60
+        val globalClearancePx = 760 // 700 standard kb + 60 breathing
+
+        // At keyboard open: physical clearance = 700px. Virtual tail = max(60, 760 - 700) = 60px.
+        val openTail = ScribeScrollPolicy.calculateAuthoritativeVirtualTailPx(
+            breathingMarginPx = breathingMarginPx,
+            globalClearancePx = globalClearancePx,
+            physicalDockClearanceAppliedPx = 700
+        )
+        assertEquals(60, openTail)
+
+        // Mid-dismissal: physical clearance = 350px. Virtual tail = 760 - 350 = 410px.
+        val midTail = ScribeScrollPolicy.calculateAuthoritativeVirtualTailPx(
+            breathingMarginPx = breathingMarginPx,
+            globalClearancePx = globalClearancePx,
+            physicalDockClearanceAppliedPx = 350
+        )
+        assertEquals(410, midTail)
+        // Invariant: physical clearance + virtual tail = 350 + 410 = 760px!
+        assertEquals(globalClearancePx, 350 + midTail)
+
+        // Fully dismissed: physical clearance = 0px. Virtual tail = 760px.
+        val dismissedTail = ScribeScrollPolicy.calculateAuthoritativeVirtualTailPx(
+            breathingMarginPx = breathingMarginPx,
+            globalClearancePx = globalClearancePx,
+            physicalDockClearanceAppliedPx = 0
+        )
+        assertEquals(760, dismissedTail)
+        assertEquals(globalClearancePx, 0 + dismissedTail)
+
+        // Oversized physical clearance (e.g. 900px > 760px): clamped to breathingMarginPx
+        val clampedTail = ScribeScrollPolicy.calculateAuthoritativeVirtualTailPx(
+            breathingMarginPx = breathingMarginPx,
+            globalClearancePx = globalClearancePx,
+            physicalDockClearanceAppliedPx = 900
+        )
+        assertEquals(breathingMarginPx, clampedTail)
+    }
+
+    @Test
+    fun testShouldFollowDownwardSuppressedDuringImeDismissalAndHandoff() {
+        // IME_DISMISSAL transition must NEVER follow downward
+        val dismissDecision = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = true,
+            isBottomSurfaceActive = false,
+            isKeyboardVisible = false,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = true,
+            hasActiveScroll = true,
+            activeTransition = ScribeDockTransition.IME_DISMISSAL
+        )
+        assertFalse("Must never follow downward during IME_DISMISSAL", dismissDecision)
+
+        // DRAWER_TO_IME_HANDOFF must NOT follow downward
+        val drawerToImeDecision = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true,
+            isKeyboardVisible = false,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = true,
+            hasActiveScroll = true,
+            activeTransition = ScribeDockTransition.DRAWER_TO_IME_HANDOFF
+        )
+        assertFalse("Must never follow downward during DRAWER_TO_IME_HANDOFF", drawerToImeDecision)
+
+        // IME_TO_DRAWER_HANDOFF must NOT follow downward
+        val imeToDrawerDecision = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true,
+            isKeyboardVisible = false,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = true,
+            hasActiveScroll = true,
+            activeTransition = ScribeDockTransition.IME_TO_DRAWER_HANDOFF
+        )
+        assertFalse("Must never follow downward during IME_TO_DRAWER_HANDOFF", imeToDrawerDecision)
+    }
+
+    @Test
+    fun testResolveEffectiveBottomSurfaceHeightDuringHandoff() {
+        // During DRAWER_TO_IME_HANDOFF with compact height 280dp and IME height 120dp: holds 280dp
+        val handoffHeight = ScribeBottomSurfaceCoordinator.resolveEffectiveBottomSurfaceHeight(
+            isAccessoryDrawerActive = false,
+            drawerHeightDp = 280f,
+            isAwaitingKeyboardOpen = true,
+            isBarTransitionLatched = true,
+            isKeyboardVisible = false,
+            compactHeightDp = 280f,
+            imeAboveNavDp = 120f,
+            activeTransition = ScribeDockTransition.DRAWER_TO_IME_HANDOFF
+        )
+        assertEquals(280f, handoffHeight)
+
+        // During IME_TO_DRAWER_HANDOFF: holds 280dp
+        val imeToDrawerHeight = ScribeBottomSurfaceCoordinator.resolveEffectiveBottomSurfaceHeight(
+            isAccessoryDrawerActive = true,
+            drawerHeightDp = 280f,
+            isAwaitingKeyboardOpen = false,
+            isBarTransitionLatched = false,
+            isKeyboardVisible = true,
+            compactHeightDp = 280f,
+            imeAboveNavDp = 280f,
+            activeTransition = ScribeDockTransition.IME_TO_DRAWER_HANDOFF
+        )
+        assertEquals(280f, imeToDrawerHeight)
+    }
+
+    @Test
+    fun testStationaryMaxCanvasScrollThroughoutKeyboardDismissal() {
+        val headerHeight = 200
+        val layoutHeight = 1500
+        val fullScreenHeight = 2000
+        val kbHeight = 800
+        val breathingMarginPx = 60
+        val globalClearancePx = kbHeight + breathingMarginPx // 860
+
+        // Step 1: Keyboard Open
+        val pOpen = kbHeight // 800
+        val vTailOpen = ScribeScrollPolicy.calculateAuthoritativeVirtualTailPx(
+            breathingMarginPx = breathingMarginPx,
+            globalClearancePx = globalClearancePx,
+            physicalDockClearanceAppliedPx = pOpen
+        ) // 60
+        val viewportOpen = fullScreenHeight - pOpen // 1200
+        val maxCanvasOpen = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = layoutHeight,
+            viewportHeight = viewportOpen,
+            bottomSpace = vTailOpen,
+            isTextEmpty = false
+        )
+
+        // Step 2: Halfway Dismissed
+        val pHalf = 400
+        val vTailHalf = ScribeScrollPolicy.calculateAuthoritativeVirtualTailPx(
+            breathingMarginPx = breathingMarginPx,
+            globalClearancePx = globalClearancePx,
+            physicalDockClearanceAppliedPx = pHalf
+        ) // 860 - 400 = 460
+        val viewportHalf = fullScreenHeight - pHalf // 1600
+        val maxCanvasHalf = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = layoutHeight,
+            viewportHeight = viewportHalf,
+            bottomSpace = vTailHalf,
+            isTextEmpty = false
+        )
+
+        // Step 3: Fully Dismissed
+        val pClosed = 0
+        val vTailClosed = ScribeScrollPolicy.calculateAuthoritativeVirtualTailPx(
+            breathingMarginPx = breathingMarginPx,
+            globalClearancePx = globalClearancePx,
+            physicalDockClearanceAppliedPx = pClosed
+        ) // 860
+        val viewportClosed = fullScreenHeight // 2000
+        val maxCanvasClosed = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = layoutHeight,
+            viewportHeight = viewportClosed,
+            bottomSpace = vTailClosed,
+            isTextEmpty = false
+        )
+
+        assertEquals("maxCanvasScroll must be completely constant at start and midpoint", maxCanvasOpen, maxCanvasHalf)
+        assertEquals("maxCanvasScroll must be completely constant at start and fully dismissed", maxCanvasOpen, maxCanvasClosed)
+    }
 }
