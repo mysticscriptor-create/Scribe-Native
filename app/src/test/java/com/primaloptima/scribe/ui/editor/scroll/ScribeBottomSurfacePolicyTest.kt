@@ -264,6 +264,34 @@ class ScribeBottomSurfacePolicyTest {
     }
 
     @Test
+    fun testStandardKeyboardBaselineRejectsExpandedPickers() {
+        val screenHeightDp = 800f
+        // Standard keyboard heights (e.g. 244dp, 280dp) must pass
+        assertTrue(ScribeBottomSurfaceCoordinator.isStandardKeyboardBaseline(244f, 280f, screenHeightDp))
+        assertTrue(ScribeBottomSurfaceCoordinator.isStandardKeyboardBaseline(280f, 280f, screenHeightDp))
+
+        // Oversized pickers (emojis/stickers/GIFs/clipboard) > 330dp on phone must be rejected
+        assertFalse(ScribeBottomSurfaceCoordinator.isStandardKeyboardBaseline(340f, 244f, screenHeightDp))
+        assertFalse(ScribeBottomSurfaceCoordinator.isStandardKeyboardBaseline(360f, 244f, screenHeightDp))
+
+        // If standard baseline is already established at 244dp, an expanded keyboard significantly taller (> +30dp, e.g. 290dp) must be rejected
+        assertFalse(ScribeBottomSurfaceCoordinator.isStandardKeyboardBaseline(290f, 244f, screenHeightDp))
+    }
+
+    @Test
+    fun testShouldUpdateSavedBaselineProtectsEstablishedBaseline() {
+        val screenHeightDp = 800f
+        // Fresh install: baseline updates from default 280dp to measured 244dp
+        assertTrue(ScribeBottomSurfaceCoordinator.shouldUpdateSavedBaseline(244f, 280f, screenHeightDp))
+
+        // Established baseline: expanded keyboard picker (340dp) must NOT overwrite standard baseline (244dp)
+        assertFalse(ScribeBottomSurfaceCoordinator.shouldUpdateSavedBaseline(340f, 244f, screenHeightDp))
+
+        // Negligible jitter (< 2dp) does not trigger unnecessary updates
+        assertFalse(ScribeBottomSurfaceCoordinator.shouldUpdateSavedBaseline(245f, 244f, screenHeightDp))
+    }
+
+    @Test
     fun testEffectiveBottomSurfaceHeightAwaitingKeyboardDoesNotPreBloatLayout() {
         val heightAwaiting = ScribeBottomSurfaceCoordinator.resolveEffectiveBottomSurfaceHeight(
             isAccessoryDrawerActive = false,

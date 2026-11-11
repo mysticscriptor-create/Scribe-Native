@@ -533,12 +533,6 @@ class ScribeBottomSurfaceState(
         val fromKeyboard = isKeyboardVisible || imeAboveNavDp.value > 10f
         val capturedHandoff = if (fromKeyboard && imeAboveNavDp.value > 0f) imeAboveNavDp.value else null
         capturedHandoffImeHeightDp = capturedHandoff
-        if (capturedHandoff != null && ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(capturedHandoff, screenHeightDpFloat)) {
-            lastKeyboardHeightDp = capturedHandoff.dp
-            scope?.launch {
-                onSaveKeyboardHeight(capturedHandoff)
-            }
-        }
         activeTransition = if (fromKeyboard) ScribeDockTransition.IME_TO_DRAWER_HANDOFF else ScribeDockTransition.DRAWER_OPEN
         transitionGeneration++
         dockMode = ScribeDockMode.ACCESSORY_DRAWER
@@ -546,7 +540,11 @@ class ScribeBottomSurfaceState(
         activeAccessoryDrawer = targetMode
         lastActiveAccessoryDrawer = targetMode
         drawerState = AccessoryDrawerState.COMPACT
-        val targetCompact = capturedHandoff ?: compactHeightDp.value
+        val targetCompact = if (capturedHandoff != null && ScribeBottomSurfaceCoordinator.isStandardKeyboardBaseline(capturedHandoff, lastKeyboardHeightDp.value, screenHeightDpFloat)) {
+            capturedHandoff
+        } else {
+            compactHeightDp.value
+        }
         scope?.launch {
             drawerHeightDpAnim.snapTo(targetCompact)
         }
@@ -694,14 +692,15 @@ fun rememberScribeBottomSurfaceState(
     // Filter out transient oversized keyboard pickers (emojis, stickers, GIFs, clipboard) which exceed 330dp,
     // ensuring compact drawers and transition latches reflect the baseline standard keyboard.
     val effectiveDrawerActive = isAccessoryDrawerActive || state.isAccessoryDrawerActive
-    LaunchedEffect(imeBottomDp, isKeyboardVisible, docBottomNavInset, effectiveDrawerActive, state.isAwaitingKeyboardOpen) {
-        if (isKeyboardVisible && !effectiveDrawerActive && !state.isAwaitingKeyboardOpen && imeBottomDp > 150.dp) {
+    LaunchedEffect(imeBottomDp, isKeyboardVisible, docBottomNavInset, effectiveDrawerActive, state.isAwaitingKeyboardOpen, state.activeTransition) {
+        if (isKeyboardVisible && !effectiveDrawerActive && !state.isAwaitingKeyboardOpen && state.activeTransition != ScribeDockTransition.IME_RESIZE && imeBottomDp > 150.dp) {
             val aboveNav = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
-            if (ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(aboveNav.value, screenHeightDpFloat)) {
+            if (ScribeBottomSurfaceCoordinator.isStandardKeyboardBaseline(aboveNav.value, state.lastKeyboardHeightDp.value, screenHeightDpFloat)) {
                 // Debounce 350ms to ensure the keyboard has finished 100% of its entrance animation and settled
                 delay(350)
                 val settledAboveNav = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
                 if (isKeyboardVisible && !effectiveDrawerActive && !state.isAwaitingKeyboardOpen &&
+                    state.activeTransition != ScribeDockTransition.IME_RESIZE &&
                     ScribeBottomSurfaceCoordinator.shouldUpdateSavedBaseline(settledAboveNav.value, state.lastKeyboardHeightDp.value, screenHeightDpFloat) &&
                     kotlin.math.abs(settledAboveNav.value - aboveNav.value) < 1f) {
                     state.lastKeyboardHeightDp = settledAboveNav
@@ -750,9 +749,11 @@ fun rememberScribeBottomSurfaceState(
                 }
             } finally {
                 // 3. Calibrate compactHeightDp to confirmed settled height and persist to DataStore
-                if (settled && ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(settledH, screenHeightDpFloat)) {
-                    state.lastKeyboardHeightDp = settledH.dp
-                    onSaveKeyboardHeight(settledH)
+                if (settled && ScribeBottomSurfaceCoordinator.isStandardKeyboardBaseline(settledH, state.lastKeyboardHeightDp.value, screenHeightDpFloat)) {
+                    if (ScribeBottomSurfaceCoordinator.shouldUpdateSavedBaseline(settledH, state.lastKeyboardHeightDp.value, screenHeightDpFloat)) {
+                        state.lastKeyboardHeightDp = settledH.dp
+                        onSaveKeyboardHeight(settledH)
+                    }
                 }
                 state.isAwaitingKeyboardOpen = false
                 state.isBarTransitionLatched = false
@@ -776,6 +777,16 @@ fun rememberScribeBottomSurfaceState(
         if (state.activeAccessoryDrawer != null) {
             // IME-to-drawer handoff completes when IME has released the slot
             if (state.activeTransition == ScribeDockTransition.IME_TO_DRAWER_HANDOFF) {
+                // Calibrate standard keyboard baseline inside composable state owner if handoff originated from typing keyboard
+                val handoffH = state.capturedHandoffImeHeightDp
+                if (handoffH != null && ScribeBottomSurfaceCoordinator.isStandardKeyboardBaseline(handoffH, state.lastKeyboardHeightDp.value, screenHeightDpFloat)) {
+                    if (ScribeBottomSurfaceCoordinator.shouldUpdateSavedBaseline(handoffH, state.lastKeyboardHeightDp.value, screenHeightDpFloat)) {
+                        state.lastKeyboardHeightDp = handoffH.dp
+                        if (kotlin.math.abs(handoffH - savedKeyboardHeightFloat) >= 1f) {
+                            onSaveKeyboardHeight(handoffH)
+                        }
+                    }
+                }
                 if (!isKeyboardVisible && imeAboveNavDp.value <= 1f) {
                     state.capturedHandoffImeHeightDp = null
                     state.activeTransition = ScribeDockTransition.NONE

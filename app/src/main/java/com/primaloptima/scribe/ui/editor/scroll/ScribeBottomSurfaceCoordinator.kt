@@ -50,6 +50,30 @@ object ScribeBottomSurfaceCoordinator {
     }
 
     /**
+     * Validates whether a keyboard height qualifies as a standard typing keyboard baseline,
+     * specifically rejecting expanded picker keyboards (emojis, stickers, GIFs, clipboard)
+     * which exceed standard typing keyboard bounds or significantly exceed an established baseline.
+     */
+    fun isStandardKeyboardBaseline(
+        heightDp: Float,
+        currentBaselineDp: Float,
+        screenHeightDp: Float
+    ): Boolean {
+        if (!isValidStandardKeyboardHeight(heightDp, screenHeightDp)) return false
+        val maxStandardTypingDp = when {
+            screenHeightDp >= 900f -> minOf(MAX_STANDARD_KEYBOARD_DP, screenHeightDp * 0.40f)
+            screenHeightDp > 500f -> 330f
+            else -> calculateMaxStandardBaselineDp(screenHeightDp)
+        }
+        if (heightDp > maxStandardTypingDp) return false
+        val minBaseline = calculateMinStandardBaselineDp(screenHeightDp)
+        if (currentBaselineDp in minBaseline..maxStandardTypingDp && heightDp > currentBaselineDp + 30f) {
+            return false
+        }
+        return true
+    }
+
+    /**
      * Determines whether the standard keyboard baseline stored in DataStore should be updated.
      */
     fun shouldUpdateSavedBaseline(
@@ -57,7 +81,7 @@ object ScribeBottomSurfaceCoordinator {
         currentBaselineDp: Float,
         screenHeightDp: Float
     ): Boolean {
-        if (!isValidStandardKeyboardHeight(settledHeightDp, screenHeightDp)) return false
+        if (!isStandardKeyboardBaseline(settledHeightDp, currentBaselineDp, screenHeightDp)) return false
         return kotlin.math.abs(settledHeightDp - currentBaselineDp) > 2f
     }
 
