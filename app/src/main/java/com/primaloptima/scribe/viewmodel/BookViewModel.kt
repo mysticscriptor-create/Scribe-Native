@@ -154,6 +154,7 @@ class BookViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteNote(noteId: String) {
         viewModelScope.launch(Dispatchers.IO) {
+            DocumentOpenCache.invalidate(noteId)
             db.noteDao().deleteById(noteId)
             withContext(Dispatchers.Main) { reload() }
         }
@@ -161,6 +162,7 @@ class BookViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteFolder(path: String) {
         viewModelScope.launch(Dispatchers.IO) {
+            DocumentOpenCache.clear()
             db.noteDao().deleteByBookFolder(bookId, path)
             db.noteDao().deleteFolder(bookId, path)
             withContext(Dispatchers.Main) { reload() }
@@ -169,6 +171,7 @@ class BookViewModel(application: Application) : AndroidViewModel(application) {
 
     fun renameNote(noteId: String, newName: String) {
         viewModelScope.launch(Dispatchers.IO) {
+            DocumentOpenCache.invalidate(noteId)
             db.noteDao().updateName(noteId, newName, System.currentTimeMillis())
             withContext(Dispatchers.Main) { reload() }
         }

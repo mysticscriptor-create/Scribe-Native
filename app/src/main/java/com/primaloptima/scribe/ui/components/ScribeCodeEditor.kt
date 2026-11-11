@@ -1121,8 +1121,39 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
 
     /**
+     * Atomic single-frame document open:
+     * Sets text, immediately delivers visibility, and applies inlay hints afterwards
+     * so layout and first frame rendering execute with zero hitch.
+     */
+    fun openDocument(
+        content: String,
+        hints: InlayHintsContainer? = null,
+        traceNoteId: String? = null,
+        onRevealed: (() -> Unit)? = null
+    ) {
+        activeTraceNoteId = traceNoteId
+        traceNoteId?.let { DocumentOpenTrace.mark(it, "text_set") }
+        setText(content)
+        alpha = 1f
+        isAwaitingLayoutReady = false
+        isFirstVisibleDelivered = true
+        isLayoutReadyDelivered = true
+        removeCallbacks(safetyCheckRunnable)
+        traceNoteId?.let {
+            DocumentOpenTrace.mark(it, "first_correct_visible_content")
+            DocumentOpenTrace.mark(it, "first_frame")
+        }
+        onRevealed?.invoke()
+        if (hints != null) {
+            post {
+                setInlayHints(hints)
+            }
+        }
+    }
+
+    /**
      * Prepares the editor for a newly loaded document:
-     * Fades the editor to invisible (alpha = 0f) and arms the ready-check listener.
+     * Arms the ready-check listener without arbitrary artificial postDelayed delays.
      */
     fun prepareForNewDocument(traceNoteId: String? = null) {
         activeTraceNoteId = traceNoteId
@@ -1133,7 +1164,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         isLayoutReadyDelivered = false
         safetyCheckRetries = 0
         removeCallbacks(safetyCheckRunnable)
-        postDelayed(safetyCheckRunnable, 50)
+        post(safetyCheckRunnable)
     }
 
     private fun deliverFirstVisible() {

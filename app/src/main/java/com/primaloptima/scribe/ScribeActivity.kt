@@ -33,6 +33,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import com.primaloptima.scribe.navigation.EditorAuxiliaryOverlayHost
+import com.primaloptima.scribe.navigation.EditorDocumentSession
+import com.primaloptima.scribe.data.AppDatabase
+import androidx.lifecycle.lifecycleScope
 import com.primaloptima.scribe.viewmodel.DocumentOpenCache
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -124,6 +127,17 @@ class ScribeActivity : ComponentActivity() {
         enableEdgeToEdge()
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
 
+        // Prewarm active theme fonts on Dispatchers.IO to eliminate disk reads during first composition
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val theme = com.primaloptima.scribe.ui.theme.ThemeManager.getTheme(activeThemeId)
+            val fontKey = theme.titleFontFamily ?: theme.fontFamily
+            com.primaloptima.scribe.util.font.ScribeFontManager.prewarm(
+                this@ScribeActivity,
+                fontKey,
+                listOf(theme.title1FontWeight, theme.title2FontWeight, 400, 600, 700)
+            )
+        }
+
         // Hold splash until the DB emits its first result.
         splashScreen.setKeepOnScreenCondition { booksVm.books.value == null }
 
@@ -175,11 +189,9 @@ class ScribeActivity : ComponentActivity() {
             }
         }
 
-        // Holds the EditorViewModel from whichever Editor entry is currently active.
-        // Updated inside entry<Route.Editor> so History can receive it directly.
-        // CompositionLocal alone cannot bridge separate Nav3 entries (different
-        // composition scopes), so we hoist the reference here instead.
-        var activeEditorVm by remember { mutableStateOf<EditorViewModel?>(null) }
+        val noteDao = remember { AppDatabase.getInstance(this@ScribeActivity).noteDao() }
+        val editorVm: EditorViewModel = viewModel()
+        var activeEditorVm by remember { mutableStateOf<EditorViewModel?>(editorVm) }
 
         // Phase 3: two-pane strategy for tablets/foldables. On phones it is a no-op.
         val listDetailStrategy = rememberListDetailSceneStrategy<NavKey>()
@@ -251,6 +263,11 @@ class ScribeActivity : ComponentActivity() {
                             backStack.add(Route.Book(book.id))
                         },
                         onOpenNote         = { noteId, bookId ->
+                            val meta = notesVm.notes.value.firstOrNull { it.id == noteId }
+                            if (meta != null) {
+                                EditorDocumentSession.stage(noteId, meta)
+                            }
+                            EditorDocumentSession.prefetch(noteId, noteDao, lifecycleScope)
                             backStack.add(Route.Editor(bookId, noteId))
                         },
                         onOpenSettings     = {
@@ -307,6 +324,11 @@ class ScribeActivity : ComponentActivity() {
                         dashboardVm = dashboardVm,
                         onBack      = { backStack.removeLastOrNull() },
                         onOpenNote  = { noteId ->
+                            val meta = bookVm.notes.value.firstOrNull { it.id == noteId }
+                            if (meta != null) {
+                                EditorDocumentSession.stage(noteId, meta)
+                            }
+                            EditorDocumentSession.prefetch(noteId, noteDao, lifecycleScope)
                             backStack.add(Route.Editor(key.bookId, noteId))
                         }
                     )
@@ -336,22 +358,27 @@ class ScribeActivity : ComponentActivity() {
                         }
                     }
                 ) { key ->
-                    val editorVm:   EditorViewModel   = viewModel()
                     val bookVm:     BookViewModel     = viewModel()
                     val noteListVm: NoteListViewModel = viewModel()
                     remember(key.bookId) { bookVm.init(key.bookId); true }
                     // Preload synchronously into editorVm so frame 0 is already correct.
-                    // A document this process has opened before is published complete, with
-                    // no Loading state to sit behind an overlay.
+                    // Stage 1: DocumentOpenCache hit (immediate materialised Note)
+                    // Stage 2: Staged NoteMetadata from tap session
+                    // Stage 3: Fallback from active bookVm / noteListVm
                     remember(key.noteId) {
                         val cachedNote = DocumentOpenCache.get(key.noteId)
                         if (cachedNote != null) {
                             editorVm.preloadNote(cachedNote)
                         } else {
-                            val cached = bookVm.notes.value.firstOrNull { it.id == key.noteId }
-                                ?: noteListVm.notes.value.firstOrNull { it.id == key.noteId }
-                            if (cached != null) {
-                                editorVm.preloadNote(cached)
+                            val staged = EditorDocumentSession.consume(key.noteId)
+                            if (staged != null) {
+                                editorVm.preloadNote(staged)
+                            } else {
+                                val cached = bookVm.notes.value.firstOrNull { it.id == key.noteId }
+                                    ?: noteListVm.notes.value.firstOrNull { it.id == key.noteId }
+                                if (cached != null) {
+                                    editorVm.preloadNote(cached)
+                                }
                             }
                         }
                         true

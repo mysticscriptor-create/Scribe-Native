@@ -56,6 +56,33 @@ class DocumentLoadingLifecycleSafetyTest {
     }
 
     @Test
+    fun testOpeningStateWithMetadataTransitionsToLoaded() {
+        val noteId = "note-opening-test"
+        val metadata = NoteMetadata(
+            id = noteId,
+            name = "Chapter 2",
+            bookId = "book-main",
+            wordCount = 2400
+        )
+        var state: DocumentLoadState = DocumentLoadState.Opening(noteId, metadata)
+        assertTrue("State must be Opening", state is DocumentLoadState.Opening)
+        val openingState = state as DocumentLoadState.Opening
+        assertEquals(noteId, openingState.noteId)
+        assertEquals(metadata, openingState.metadata)
+        assertFalse("Opening state must not be Loaded", state is DocumentLoadState.Loaded)
+
+        val fullNote = Note(
+            id = noteId,
+            name = "Chapter 2",
+            bookId = "book-main",
+            content = "Full content for chapter 2",
+            wordCount = 2400
+        )
+        state = DocumentLoadState.Loaded(fullNote)
+        assertTrue("State must transition to Loaded", state is DocumentLoadState.Loaded)
+    }
+
+    @Test
     fun testRapidDocumentSwitching_RejectsStaleOlderGeneration() {
         // Requirement A & C: A previous loading task can finish after user selected a new document.
         // Request generation counter must reject obsolete results.

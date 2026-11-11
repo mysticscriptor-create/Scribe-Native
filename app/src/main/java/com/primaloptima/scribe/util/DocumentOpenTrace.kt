@@ -1,6 +1,7 @@
 package com.primaloptima.scribe.util
 
 import android.util.Log
+import com.primaloptima.scribe.BuildConfig
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 
@@ -14,6 +15,14 @@ import java.util.concurrent.atomic.AtomicReference
 object DocumentOpenTrace {
     private const val TAG = "DocumentOpenTrace"
 
+    // Standardized performance trace markers
+    const val MARK_DOCUMENT_SELECTED = "document_selected"
+    const val MARK_NAV_START = "nav_start"
+    const val MARK_SCREEN_COMPOSED = "screen_composed"
+    const val MARK_CONTENT_READY = "content_ready"
+    const val MARK_TEXT_SET = "text_set"
+    const val MARK_FIRST_FRAME = "first_frame"
+
     class Trace(
         val noteId: String,
         val startTimeNs: Long = System.nanoTime()
@@ -23,11 +32,13 @@ object DocumentOpenTrace {
         fun mark(stage: String) {
             val now = System.nanoTime()
             marks[stage] = now
-            val elapsedMs = (now - startTimeNs) / 1_000_000.0
-            try {
-                Log.d(TAG, "[$noteId] Stage: $stage at +${String.format(java.util.Locale.US, "%.2f", elapsedMs)}ms")
-            } catch (_: Throwable) {
-                // Safe in unit tests where android.util.Log is not mocked
+            if (BuildConfig.DEBUG) {
+                val elapsedMs = (now - startTimeNs) / 1_000_000.0
+                try {
+                    Log.d(TAG, "[$noteId] Stage: $stage at +${String.format(java.util.Locale.US, "%.2f", elapsedMs)}ms")
+                } catch (_: Throwable) {
+                    // Safe in unit tests where android.util.Log is not mocked
+                }
             }
         }
 
@@ -38,10 +49,12 @@ object DocumentOpenTrace {
 
         fun finish(summary: String = "") {
             val totalMs = (System.nanoTime() - startTimeNs) / 1_000_000.0
-            try {
-                Log.i(TAG, "[$noteId] COMPLETED in ${String.format(java.util.Locale.US, "%.2f", totalMs)}ms. $summary")
-            } catch (_: Throwable) {
-                // Safe in unit tests where android.util.Log is not mocked
+            if (BuildConfig.DEBUG) {
+                try {
+                    Log.i(TAG, "[$noteId] COMPLETED in ${String.format(java.util.Locale.US, "%.2f", totalMs)}ms. $summary")
+                } catch (_: Throwable) {
+                    // Safe in unit tests where android.util.Log is not mocked
+                }
             }
         }
     }
@@ -51,7 +64,7 @@ object DocumentOpenTrace {
     fun start(noteId: String): Trace {
         val trace = Trace(noteId)
         activeTrace.set(trace)
-        trace.mark("document_selected")
+        trace.mark(MARK_DOCUMENT_SELECTED)
         return trace
     }
 

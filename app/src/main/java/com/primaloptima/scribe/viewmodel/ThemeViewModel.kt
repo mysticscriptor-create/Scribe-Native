@@ -45,8 +45,15 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setActive(id: String) {
         themeManager.setActiveTheme(id)
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             dataStore.setActiveThemeId(id)
+            val theme = themeManager.getTheme(id)
+            val fontKey = theme.titleFontFamily ?: theme.fontFamily
+            com.primaloptima.scribe.util.font.ScribeFontManager.prewarm(
+                getApplication(),
+                fontKey,
+                listOf(theme.title1FontWeight, theme.title2FontWeight, 400, 600, 700)
+            )
         }
         reload()
     }

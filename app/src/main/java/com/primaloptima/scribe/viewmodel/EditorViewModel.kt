@@ -56,6 +56,7 @@ import java.util.Locale
 sealed class DocumentLoadState {
     object Idle : DocumentLoadState()
     data class Loading(val noteId: String, val metadata: NoteMetadata? = null) : DocumentLoadState()
+    data class Opening(val noteId: String, val metadata: NoteMetadata) : DocumentLoadState()
     data class Loaded(val note: Note) : DocumentLoadState()
     data class Error(val noteId: String, val message: String, val recoverable: Boolean = true, val localNote: Note? = null) : DocumentLoadState()
 }
@@ -898,7 +899,7 @@ class EditorViewModel(
      */
     fun preloadNote(metadata: NoteMetadata) {
         if (_activeMetadata.value?.id == metadata.id && _loadState.value !is DocumentLoadState.Idle) return
-        _loadState.value = DocumentLoadState.Loading(metadata.id, metadata)
+        _loadState.value = DocumentLoadState.Opening(metadata.id, metadata)
         _activeMetadata.value = metadata
         lastWordCount = metadata.wordCount
         _wordCount.value = metadata.wordCount
@@ -1796,14 +1797,17 @@ class EditorViewModel(
             setSnapshotBaseline(targetNoteId, restoredWc)
 
             withContext(Dispatchers.Main) {
+                DocumentOpenCache.invalidate(targetNoteId)
                 val active = _activeNote.value
                 if (active != null && active.id == targetNoteId) {
-                    _activeNote.value = active.copy(
+                    val updatedNote = active.copy(
                         content = content,
                         wordCount = restoredWc,
                         updatedAt = now,
                         lastModified = now
                     )
+                    _activeNote.value = updatedNote
+                    DocumentOpenCache.put(updatedNote)
                     lastSavedContent = content
                     pendingContent = content
                     lastWordCount = restoredWc

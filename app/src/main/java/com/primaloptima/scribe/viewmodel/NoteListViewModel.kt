@@ -203,6 +203,7 @@ When you come back, read it aloud. The sentences that make you stumble are the s
     }
 
     fun deleteNote(noteId: String) {
+        DocumentOpenCache.invalidate(noteId)
         viewModelScope.launch {
             try {
                 val note = withContext(Dispatchers.IO) { db.noteDao().getById(noteId) }

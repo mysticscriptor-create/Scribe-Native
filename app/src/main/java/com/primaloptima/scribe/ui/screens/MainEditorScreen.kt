@@ -697,7 +697,7 @@ fun MainEditorScreen(
     }
 
     // ── Floating Pills Scroll Animation & Dual-Title State ──────────────────────
-    var floatingPillsVisible by rememberSaveable { mutableStateOf(true) }
+    var floatingPillsVisible by rememberSaveable { mutableStateOf(false) }
     var scrollDistanceSinceDirectionChange by remember { mutableFloatStateOf(0f) }
     var lastScrollDirection by remember { mutableIntStateOf(0) }
 
@@ -899,12 +899,16 @@ fun MainEditorScreen(
     var isProgrammaticLoading by remember { mutableStateOf(false) }
 
     LaunchedEffect(loadState, soraEditorRef) {
-        if (loadState is DocumentLoadState.Loading) {
-            val loadingId = (loadState as DocumentLoadState.Loading).noteId
-            if (lastLoadedNoteId != loadingId) {
+        val pendingId = when (loadState) {
+            is DocumentLoadState.Loading -> (loadState as DocumentLoadState.Loading).noteId
+            is DocumentLoadState.Opening -> (loadState as DocumentLoadState.Opening).noteId
+            else -> null
+        }
+        if (pendingId != null) {
+            if (lastLoadedNoteId != pendingId) {
                 val ed = soraEditorRef
                 if (ed is ScribeCodeEditor) {
-                    ed.prepareForNewDocument(loadingId)
+                    ed.prepareForNewDocument(pendingId)
                 } else {
                     ed?.alpha = 0f
                 }
@@ -935,8 +939,6 @@ fun MainEditorScreen(
                 }
             }
 
-            floatingPillsVisible = true
-
             // 1. Compute Inlay Hints asynchronously off main thread
             val hints = withContext(Dispatchers.Default) {
                 ProseInlayHintProvider.computeInlayHints(
@@ -947,29 +949,53 @@ fun MainEditorScreen(
             }
             DocumentOpenTrace.mark(note.id, "inlay_hints_computed")
 
-            // Prepare for new document: suppress raw rendering and await wordwrap calculation
-            if (editor is ScribeCodeEditor) {
-                editor.prepareForNewDocument(note.id)
-            } else {
-                editor.alpha = 0f
-            }
-
             val initialIndent = activeTheme?.firstLineIndent ?: 0
             (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.firstLineIndentSpaces = initialIndent
 
-            // Set text and inlay hints FIRST before layout and cursor restoration!
+            // Set text and reveal on the same frame; chunk for manuscripts > 50,000 characters
             DocumentOpenTrace.mark(note.id, "sora_set_text_start")
             isProgrammaticLoading = true
             try {
-                if (note.content.isEmpty() && initialIndent > 0) {
-                    val indentStr = " ".repeat(initialIndent)
-                    editor.setText(indentStr)
-                    editorCurrentText = indentStr
+                val fullText = if (note.content.isEmpty() && initialIndent > 0) {
+                    " ".repeat(initialIndent)
                 } else {
-                    editor.setText(note.content)
-                    editorCurrentText = note.content
+                    note.content
                 }
-                editor.setInlayHints(hints)
+                editorCurrentText = fullText
+
+                if (editor is ScribeCodeEditor) {
+                    if (fullText.length > 50_000) {
+                        val firstChunk = fullText.substring(0, 30_000)
+                        editor.openDocument(
+                            content = firstChunk,
+                            hints = null,
+                            traceNoteId = note.id,
+                            onRevealed = {
+                                floatingPillsVisible = true
+                            }
+                        )
+                        editor.post {
+                            editor.setText(fullText)
+                            if (hints != null) {
+                                editor.setInlayHints(hints)
+                            }
+                        }
+                    } else {
+                        editor.openDocument(
+                            content = fullText,
+                            hints = hints,
+                            traceNoteId = note.id,
+                            onRevealed = {
+                                floatingPillsVisible = true
+                            }
+                        )
+                    }
+                } else {
+                    editor.setText(fullText)
+                    editor.setInlayHints(hints)
+                    editor.alpha = 1f
+                    floatingPillsVisible = true
+                }
             } finally {
                 isProgrammaticLoading = false
             }
@@ -1875,12 +1901,12 @@ fun MainEditorScreen(
                             layout.headerView.setContent {
                                     if (!zenMode && activeNote != null) {
                                         val titleKey = activeTheme?.titleFontFamily ?: activeTheme?.fontFamily ?: "default"
-                                        val resolvedTitle1Font = ScribeFontManager.resolveFontFamily(
+                                        val resolvedTitle1Font = ScribeFontManager.resolveFontFamilyCached(
                                             context = context,
                                             fontKey = titleKey,
                                             weight = activeTheme?.title1FontWeight ?: 600
                                         )
-                                        val resolvedTitle2Font = ScribeFontManager.resolveFontFamily(
+                                        val resolvedTitle2Font = ScribeFontManager.resolveFontFamilyCached(
                                             context = context,
                                             fontKey = titleKey,
                                             weight = activeTheme?.title2FontWeight ?: 700

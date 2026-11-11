@@ -138,4 +138,18 @@ object FontHelper {
     fun getFontFamilyWithContext(context: Context, fontKey: String, weight: Int = 400): FontFamily {
         return ScribeFontManager.resolveFontFamily(context, fontKey, weight)
     }
+
+    /**
+     * Pre-warms font families into memory to eliminate disk I/O on the main thread during composition.
+     */
+    fun prewarm(context: Context, fontKey: String, weights: List<Int> = listOf(400, 600, 700)) {
+        ScribeFontManager.prewarm(context, fontKey, weights)
+    }
+
+    /**
+     * Resolves a cached Compose FontFamily directly from memory.
+     */
+    fun resolveFontFamilyCached(context: Context, fontKey: String, weight: Int = 400): FontFamily {
+        return ScribeFontManager.resolveFontFamilyCached(context, fontKey, weight)
+    }
 }

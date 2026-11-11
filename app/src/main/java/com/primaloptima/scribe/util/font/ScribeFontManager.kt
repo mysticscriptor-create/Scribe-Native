@@ -462,19 +462,43 @@ object ScribeFontManager {
         return finalTf
     }
 
+    private val fontFamilyCache = java.util.concurrent.ConcurrentHashMap<String, FontFamily>()
+
     /**
      * Resolves a Jetpack Compose [FontFamily] using the exact same underlying Typeface engine.
      * Guarantees 100% visual consistency between Titles in Compose and Document Prose in Sora.
      */
     fun resolveFontFamily(context: Context, fontKey: String?, weight: Int = 400): FontFamily {
-        val tf = resolveTypeface(context, fontKey, weight)
-        return FontFamily(androidx.compose.ui.text.font.Typeface(tf))
+        return resolveFontFamilyCached(context, fontKey, weight)
     }
 
-    private fun clearCache() {
+    /**
+     * Resolves a Jetpack Compose [FontFamily] using an in-memory cache to prevent
+     * redundant object allocations and avoid disk/asset reads during composition.
+     */
+    fun resolveFontFamilyCached(context: Context, fontKey: String?, weight: Int = 400): FontFamily {
+        val cacheKey = "${fontKey ?: "default"}_$weight"
+        return fontFamilyCache.getOrPut(cacheKey) {
+            val tf = resolveTypeface(context, fontKey, weight)
+            FontFamily(androidx.compose.ui.text.font.Typeface(tf))
+        }
+    }
+
+    /**
+     * Pre-warms font families on background threads so that subsequent composition
+     * frames hit the in-memory cache directly with 0ms latency.
+     */
+    fun prewarm(context: Context, fontKey: String?, weights: List<Int> = listOf(400, 600, 700)) {
+        for (w in weights) {
+            resolveFontFamilyCached(context, fontKey, w)
+        }
+    }
+
+    fun clearCache() {
         synchronized(typefaceCache) {
             typefaceCache.clear()
         }
+        fontFamilyCache.clear()
     }
 
     // ─────────────────────────────────────────────────────────────────────────────
