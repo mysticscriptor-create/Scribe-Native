@@ -90,10 +90,10 @@ object ScribeBottomSurfaceCoordinator {
 
         // 3. Active keyboard typing (steady-state)
         if (isKeyboardVisible) {
-            // Standard keyboard: locks at compactHeightDp to prevent 60fps layout thrashing.
-            // Emoji keyboard: expands smoothly to imeAboveNavDp when > compactHeightDp.
-            // Return to standard: drops immediately to compactHeightDp with ZERO delay or floating!
-            return maxOf(compactHeightDp, imeAboveNavDp)
+            // Live measured keyboard height: reflects actual physical IME obstruction without phantom baseline inflation.
+            // When standard keyboard opens, follows actual measured imeAboveNavDp (e.g. 244dp), eliminating 36dp extra padding.
+            // When emoji keyboard expands, follows imeAboveNavDp smoothly.
+            return imeAboveNavDp
         }
 
         // 4. In-flight transitions
@@ -189,7 +189,7 @@ object ScribeBottomSurfaceCoordinator {
                 !isAwaitingKeyboardOpen &&
                 !isBarTransitionLatched &&
                 activeTransition != ScribeDockTransition.DRAWER_TO_IME_HANDOFF &&
-                imeAboveNavDp > 0f
+                imeAboveNavDp > 0.5f
     }
 
     /**
@@ -234,9 +234,11 @@ object ScribeBottomSurfaceCoordinator {
             return false
         }
 
-        // Same-height handoffs (IME <-> Drawer) must NEVER pull document down
-        if (activeTransition == ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
-            activeTransition == ScribeDockTransition.IME_TO_DRAWER_HANDOFF) {
+        // Same-height handoffs (IME <-> Drawer) without prior expansion must NEVER pull document down
+        if (activeTransition == ScribeDockTransition.IME_TO_DRAWER_HANDOFF) {
+            return false
+        }
+        if (activeTransition == ScribeDockTransition.DRAWER_TO_IME_HANDOFF && temporaryDisplacement <= 0f) {
             return false
         }
 

@@ -20,7 +20,9 @@ class ShortcutsViewModel(application: Application) : AndroidViewModel(applicatio
 
     private val dataStore = (application as ScribeApp).dataStore
 
-    private val _shortcuts = MutableStateFlow<List<ShortcutAction>>(emptyList())
+    private val _shortcuts = MutableStateFlow<List<ShortcutAction>>(
+        DefaultShortcuts.all + DefaultShortcuts.defaultSnippets + DefaultShortcuts.defaultTemplates
+    )
     val shortcuts: StateFlow<List<ShortcutAction>> = _shortcuts.asStateFlow()
 
     private val _disabledCategories = MutableStateFlow<Set<String>>(emptySet())

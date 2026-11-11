@@ -324,6 +324,18 @@ class ScribeBottomSurfacePolicyTest {
         )
         assertEquals(270f, standardHeight)
 
+        // Fresh install: live keyboard (e.g. 244dp) reflects actual measured IME height without baseline inflation
+        val freshInstallHeight = ScribeBottomSurfaceCoordinator.resolveEffectiveBottomSurfaceHeight(
+            isAccessoryDrawerActive = false,
+            drawerHeightDp = 0f,
+            isAwaitingKeyboardOpen = false,
+            isBarTransitionLatched = false,
+            isKeyboardVisible = true,
+            compactHeightDp = 280f,
+            imeAboveNavDp = 244f
+        )
+        assertEquals(244f, freshInstallHeight)
+
         // Emoji keyboard: expands smoothly to imeAboveNavDp (380dp)
         val emojiHeight = ScribeBottomSurfaceCoordinator.resolveEffectiveBottomSurfaceHeight(
             isAccessoryDrawerActive = false,
@@ -609,6 +621,38 @@ class ScribeBottomSurfacePolicyTest {
             activeTransition = ScribeDockTransition.IME_TO_DRAWER_HANDOFF
         )
         assertFalse("Must never follow downward during IME_TO_DRAWER_HANDOFF", imeToDrawerDecision)
+    }
+
+    @Test
+    fun testShouldFollowDownwardPermittedDuringDrawerToImeHandoffWithPriorExpansion() {
+        // Expanded drawer closed with Snip/Tmpl returning to keyboard: must restore prior upward displacement
+        val restoreDecision = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true,
+            isKeyboardVisible = false,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = false,
+            hasActiveScroll = true,
+            temporaryDisplacement = 160f,
+            activeTransition = ScribeDockTransition.DRAWER_TO_IME_HANDOFF
+        )
+        assertTrue("Must permit downward restoration during DRAWER_TO_IME_HANDOFF when prior expansion displacement > 0", restoreDecision)
+    }
+
+    @Test
+    fun testShouldFollowDownwardPermittedDuringImeResizeContraction() {
+        // Taller emoji keyboard returning to normal standard keyboard: must restore prior upward displacement
+        val restoreDecision = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = false,
+            isKeyboardVisible = true,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = false,
+            hasActiveScroll = true,
+            temporaryDisplacement = 120f,
+            activeTransition = ScribeDockTransition.IME_RESIZE
+        )
+        assertTrue("Must permit downward restoration during IME_RESIZE when prior expansion displacement > 0", restoreDecision)
     }
 
     @Test

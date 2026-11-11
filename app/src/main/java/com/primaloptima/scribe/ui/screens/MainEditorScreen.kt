@@ -1363,8 +1363,14 @@ fun MainEditorScreen(
                     val isDockEnteringOrActive = isKeyboardVisible || imeAboveNavDp > 0.dp ||
                         bottomSurfaceState.isAccessoryDrawerActive || bottomSurfaceState.isAwaitingKeyboardOpen ||
                         bottomSurfaceState.activeTransition != com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.NONE
-                    val isShortcutBarVisuallyVisible = isDockEnteringOrActive && hasShortcutBar
-                    val isBarVisible = isDockEnteringOrActive && (hasShortcutBar || bottomSurfaceState.isAccessoryDrawerActive)
+                    val isShortcutBarVisuallyVisible = hasShortcutBar && (
+                        isKeyboardVisible ||
+                        bottomSurfaceState.isAccessoryDrawerActive ||
+                        bottomSurfaceState.isAwaitingKeyboardOpen ||
+                        bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
+                        bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.IME_TO_DRAWER_HANDOFF
+                    )
+                    val isBarVisible = (isDockEnteringOrActive || isShortcutBarVisuallyVisible) && (hasShortcutBar || bottomSurfaceState.isAccessoryDrawerActive)
                     val actualShortcutBarHeight = if (hasShortcutBar && isDockEnteringOrActive) shortcutBarHeight else 0.dp
                     val dockGeometry = remember(
                         bottomSurfaceState.dockMode,
@@ -1425,7 +1431,9 @@ fun MainEditorScreen(
                                 densityVal = density
                             )
                             val curIsKeyboardVisible = isKeyboardVisible
-                            val curIsBottomSurfaceActive = bottomSurfaceState.isAccessoryDrawerActive
+                            val curIsBottomSurfaceActive = bottomSurfaceState.isAccessoryDrawerActive ||
+                                bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
+                                bottomSurfaceState.isAwaitingKeyboardOpen
                             UnifiedCanvasLayout(ctx).apply {
                                 horizontalPaddingDp = initialPadH
                                 setBackgroundColor(bgArgb)
@@ -1696,7 +1704,9 @@ fun MainEditorScreen(
                                 }
                             }
                             layout.isKeyboardVisible = isKeyboardVisible
-                            layout.isBottomSurfaceActive = bottomSurfaceState.isAccessoryDrawerActive
+                            layout.isBottomSurfaceActive = bottomSurfaceState.isAccessoryDrawerActive ||
+                                bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
+                                bottomSurfaceState.isAwaitingKeyboardOpen
                             layout.isKeyboardDismissing = isKeyboardDismissing
                             layout.activeEditingTarget = lastActiveTarget
                             val editor = layout.editor
@@ -2496,10 +2506,8 @@ fun MainEditorScreen(
                                         .height(bottomBoxHeight)
                                 ) {
                                     val availableDrawerHeight = (bottomBoxHeight - imeAboveNavDp).coerceAtLeast(0.dp)
-                                    val showDrawerContent = (bottomSurfaceState.isAccessoryDrawerActive ||
-                                        bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.DRAWER_TO_IME_HANDOFF) &&
-                                        availableDrawerHeight > 0.dp
-                                    val drawerMode = bottomSurfaceState.activeAccessoryDrawer ?: bottomSurfaceState.lastActiveAccessoryDrawer
+                                    val showDrawerContent = bottomSurfaceState.isAccessoryDrawerActive && availableDrawerHeight > 0.dp
+                                    val drawerMode = bottomSurfaceState.activeAccessoryDrawer
                                     if (showDrawerContent && drawerMode != null) {
                                         Box(
                                             modifier = Modifier
