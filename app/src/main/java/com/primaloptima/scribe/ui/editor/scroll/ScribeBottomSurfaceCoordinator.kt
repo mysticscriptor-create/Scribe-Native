@@ -236,7 +236,7 @@ object ScribeBottomSurfaceCoordinator {
         // Critical ordering: Check for a zero IME target before entering the ordinary visible-keyboard resize branch.
         // Even if isImeVisible remains true, a zero target indicates dismissal.
         if (isTargetZero) {
-            if (isCurrentPositive || isImeVisible || activeTransition == ScribeDockTransition.IME_DISMISSAL) {
+            if (isCurrentPositive || isImeVisible) {
                 return ScribeDockTransition.IME_DISMISSAL
             }
             return ScribeDockTransition.NONE
@@ -357,7 +357,8 @@ object ScribeBottomSurfaceCoordinator {
         }
 
         // If no bottom surface remains active, document must stay stationary at saved margin.
-        val isBottomActive = isBottomSurfaceActive || isKeyboardVisible
+        // If no bottom surface remains active, document must stay stationary at saved margin.
+        val isBottomActive = isBottomSurfaceActive || isKeyboardVisible || hasPhysicalBottomObstruction
         if (!isBottomActive) {
             return false
         }
@@ -366,17 +367,10 @@ object ScribeBottomSurfaceCoordinator {
             return false
         }
 
-        // Downward follow is permitted when an active bottom surface contracts:
+        // Downward follow is permitted when:
         // 1. A prior expansion displaced the canvas upward (temporaryDisplacement > 0f) across ANY caret position, OR
-        // 2. The cursor is at the last line of the document following an actively contracting drawer or active surface,
-        // provided an active contraction transition is underway.
-        val isContractingTransition = activeTransition == ScribeDockTransition.DRAWER_RESIZE ||
-            activeTransition == ScribeDockTransition.IME_RESIZE
-        if (!isContractingTransition && temporaryDisplacement <= 0f) {
-            return false
-        }
-
-        return (temporaryDisplacement > 0f) || (isAtLastLine && isContractingTransition)
+        // 2. The cursor is at the last line of the document following an actively contracting bottom surface.
+        return (temporaryDisplacement > 0f) || isAtLastLine
     }
 
     /**

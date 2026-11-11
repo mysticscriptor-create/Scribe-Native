@@ -115,7 +115,7 @@ class ScribeBottomSurfaceState(
     /**
      * Soft keyboard target height strictly above system navigation bar.
      */
-    var imeTargetAboveNavDp: Dp by mutableStateOf(0.dp)
+    var imeTargetAboveNavDp: Dp by mutableStateOf((-1).dp)
         internal set
 
     /**
@@ -291,7 +291,7 @@ class ScribeBottomSurfaceState(
             hasShortcuts = hasShortcuts,
             density = density,
             breathingMarginPx = breathingMarginPx,
-            targetImeAboveNavDp = imeTargetAboveNavDp.value
+            targetImeAboveNavDp = if (imeTargetAboveNavDp.value >= 0f) imeTargetAboveNavDp.value else (if (isKeyboardVisible) imeAboveNavDp.value else 0f)
         )
     }
 
