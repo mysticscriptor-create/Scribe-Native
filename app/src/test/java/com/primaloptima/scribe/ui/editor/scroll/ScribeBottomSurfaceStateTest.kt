@@ -134,12 +134,38 @@ class ScribeBottomSurfaceStateTest {
         state.isKeyboardVisible = true
         state.imeAboveNavDp = 270.dp
 
-        // Standard keyboard locked to compactHeightDp (280dp)
+        // Live measured IME height takes precedence over stored baseline (280dp)
+        // to avoid artificial padding inflation
         val effectiveHeight = state.resolveEffectiveBottomSurfaceHeight(
             isAccessoryDrawerActive = false,
             drawerHeightDp = 0f
         )
-        assertEquals(280.dp, effectiveHeight)
+        assertEquals(270.dp, effectiveHeight)
+
+        // When keyboard is visible, effective height equals measured IME height,
+        // even when measured height is lower than saved baseline (e.g. 240dp vs 280dp)
+        state.imeAboveNavDp = 240.dp
+        assertEquals(
+            240.dp,
+            state.resolveEffectiveBottomSurfaceHeight(
+                isAccessoryDrawerActive = false,
+                drawerHeightDp = 0f
+            )
+        )
+
+        // When keyboard is visible and an expanded keyboard/picker produces a larger
+        // measured obstruction (e.g. 360dp vs 280dp), effective height follows that larger obstruction
+        state.imeAboveNavDp = 360.dp
+        assertEquals(
+            360.dp,
+            state.resolveEffectiveBottomSurfaceHeight(
+                isAccessoryDrawerActive = false,
+                drawerHeightDp = 0f
+            )
+        )
+
+        // Restore standard height for settled and dismiss assertions
+        state.imeAboveNavDp = 270.dp
 
         // Keyboard settled when substantial (> 100dp) and visible
         assertTrue(state.isKeyboardSettled())
@@ -279,6 +305,8 @@ class ScribeBottomSurfaceStateTest {
     @Test
     fun testDrawerOpenCloseAndSwitchTransitions() {
         val state = ScribeBottomSurfaceState(initialKeyboardHeightDp = 280.dp)
+        state.screenHeightDp = 800.dp
+        state.screenHeightDpFloat = 800f
         assertFalse(state.isAccessoryDrawerActive)
 
         // Open snippets drawer
@@ -372,5 +400,25 @@ class ScribeBottomSurfaceStateTest {
         )
         // 280dp * 2.0 = 560px (no 36dp shortcut reservation)
         assertEquals(560f, withoutShortcutsPx, 0.001f)
+    }
+
+    @Test
+    fun testStandardKeyboardBaselineProtectionFromExpandedPickers() {
+        val state = ScribeBottomSurfaceState(initialKeyboardHeightDp = 280.dp)
+        state.screenHeightDp = 800.dp
+        state.screenHeightDpFloat = 800f
+
+        // Standard typing baseline (280dp) is within standard bounds
+        assertTrue(ScribeBottomSurfaceCoordinator.isStandardKeyboardBaseline(280f, state.lastKeyboardHeightDp.value, state.screenHeightDpFloat))
+        assertTrue(ScribeBottomSurfaceCoordinator.isStandardKeyboardBaseline(244f, state.lastKeyboardHeightDp.value, state.screenHeightDpFloat))
+
+        // Transient oversized keyboard picker (e.g. 350dp) must not qualify as standard keyboard baseline
+        assertFalse(ScribeBottomSurfaceCoordinator.isStandardKeyboardBaseline(350f, state.lastKeyboardHeightDp.value, state.screenHeightDpFloat))
+        assertFalse(ScribeBottomSurfaceCoordinator.shouldUpdateSavedBaseline(350f, state.lastKeyboardHeightDp.value, state.screenHeightDpFloat))
+
+        // Established standard baseline at 244dp rejects transient expanded keyboard (> baseline + 30dp)
+        state.lastKeyboardHeightDp = 244.dp
+        assertFalse(ScribeBottomSurfaceCoordinator.isStandardKeyboardBaseline(290f, state.lastKeyboardHeightDp.value, state.screenHeightDpFloat))
+        assertFalse(ScribeBottomSurfaceCoordinator.shouldUpdateSavedBaseline(290f, state.lastKeyboardHeightDp.value, state.screenHeightDpFloat))
     }
 }
