@@ -88,6 +88,7 @@ data class ScribeDockGeometry(
     val shortcutBarHeightPx: Float,
     val isShortcutBarOccupied: Boolean,
     val physicalDockClearanceAppliedPx: Float,
-    val virtualTailPx: Float
+    val virtualTailPx: Float,
+    val targetImeObstructionPx: Float = 0f
 )
 

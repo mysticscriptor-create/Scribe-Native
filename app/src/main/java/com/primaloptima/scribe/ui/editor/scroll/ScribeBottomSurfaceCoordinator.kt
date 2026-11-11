@@ -157,12 +157,14 @@ object ScribeBottomSurfaceCoordinator {
         capturedHandoffImeHeightDp: Float?,
         hasShortcuts: Boolean,
         density: Float,
-        breathingMarginPx: Float
+        breathingMarginPx: Float,
+        targetImeAboveNavDp: Float = 0f
     ): ScribeDockGeometry {
         val standardKeyboardBaselinePx = compactHeightDp * density
         val shortcutBarHeightPx = (if (hasShortcuts) 36f else 0f) * density
         val currentImeObstructionPx = imeAboveNavDp * density
         val currentDrawerHeightPx = currentDrawerHeightDp * density
+        val targetImeObstructionPx = targetImeAboveNavDp * density
 
         val effectiveSlotDp = resolveEffectiveBottomSurfaceHeight(
             isAccessoryDrawerActive = isAccessoryDrawerActive,
@@ -195,8 +197,79 @@ object ScribeBottomSurfaceCoordinator {
             shortcutBarHeightPx = shortcutBarHeightPx,
             isShortcutBarOccupied = hasShortcuts,
             physicalDockClearanceAppliedPx = physicalDockClearanceAppliedPx,
-            virtualTailPx = virtualTailPx
+            virtualTailPx = virtualTailPx,
+            targetImeObstructionPx = targetImeObstructionPx
         )
+    }
+
+    /**
+     * Classifies IME transitions using source, current, and target geometry above navigation bar.
+     *
+     * Transitions:
+     * - Source zero -> Target positive: IME_ENTRANCE
+     * - Source positive -> Target larger positive: IME_RESIZE (expansion)
+     * - Source positive -> Target smaller positive: IME_RESIZE (contraction)
+     * - Source positive -> Target zero: IME_DISMISSAL
+     *
+     * Invariants:
+     * 1. Zero target check takes precedence over visible-IME resize branch.
+     * 2. Preserves active IME_TO_DRAWER_HANDOFF and DRAWER_TO_IME_HANDOFF.
+     * 3. Retains IME_DISMISSAL while current IME obstruction remains positive.
+     */
+    fun classifyImeTransition(
+        sourceAboveNavDp: Float,
+        targetAboveNavDp: Float,
+        currentAboveNavDp: Float,
+        isImeVisible: Boolean,
+        activeTransition: ScribeDockTransition = ScribeDockTransition.NONE
+    ): ScribeDockTransition {
+        // Exception: preserve an explicitly active drawer handoff
+        if (activeTransition == ScribeDockTransition.IME_TO_DRAWER_HANDOFF ||
+            activeTransition == ScribeDockTransition.DRAWER_TO_IME_HANDOFF
+        ) {
+            return activeTransition
+        }
+
+        val isTargetZero = targetAboveNavDp <= 0.5f
+        val isCurrentPositive = currentAboveNavDp > 0.5f
+
+        // Critical ordering: Check for a zero IME target before entering the ordinary visible-keyboard resize branch.
+        // Even if isImeVisible remains true, a zero target indicates dismissal.
+        if (isTargetZero) {
+            if (isCurrentPositive || isImeVisible || activeTransition == ScribeDockTransition.IME_DISMISSAL) {
+                return ScribeDockTransition.IME_DISMISSAL
+            }
+            return ScribeDockTransition.NONE
+        }
+
+        // Latch and retain IME_DISMISSAL while current IME is still positive
+        if (activeTransition == ScribeDockTransition.IME_DISMISSAL && isCurrentPositive) {
+            return ScribeDockTransition.IME_DISMISSAL
+        }
+
+        // Target is positive
+        val isSourcePositive = sourceAboveNavDp > 0.5f
+        if (!isSourcePositive || (!isImeVisible && currentAboveNavDp <= 0.5f)) {
+            return ScribeDockTransition.IME_ENTRANCE
+        }
+
+        if (targetAboveNavDp > sourceAboveNavDp + 8f) {
+            return ScribeDockTransition.IME_RESIZE
+        }
+
+        if (targetAboveNavDp < sourceAboveNavDp - 8f) {
+            return ScribeDockTransition.IME_RESIZE
+        }
+
+        // If already in an active IME transition (e.g. entrance), retain it until converged
+        if (activeTransition == ScribeDockTransition.IME_ENTRANCE) {
+            return ScribeDockTransition.IME_ENTRANCE
+        }
+        if (activeTransition == ScribeDockTransition.IME_RESIZE) {
+            return ScribeDockTransition.IME_RESIZE
+        }
+
+        return ScribeDockTransition.NONE
     }
 
     /**
@@ -208,17 +281,25 @@ object ScribeBottomSurfaceCoordinator {
         isAwaitingKeyboardOpen: Boolean,
         isBarTransitionLatched: Boolean,
         imeAboveNavDp: Float,
-        activeTransition: ScribeDockTransition = ScribeDockTransition.NONE
+        activeTransition: ScribeDockTransition = ScribeDockTransition.NONE,
+        imeTargetAboveNavDp: Float = -1f
     ): Boolean {
         if (activeTransition == ScribeDockTransition.IME_DISMISSAL) {
             return true
         }
-        return !isKeyboardVisible &&
-                !isAccessoryDrawerActive &&
-                !isAwaitingKeyboardOpen &&
-                !isBarTransitionLatched &&
-                activeTransition != ScribeDockTransition.DRAWER_TO_IME_HANDOFF &&
-                imeAboveNavDp > 0.5f
+        if (isAccessoryDrawerActive ||
+            isAwaitingKeyboardOpen ||
+            isBarTransitionLatched ||
+            activeTransition == ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
+            activeTransition == ScribeDockTransition.IME_TO_DRAWER_HANDOFF
+        ) {
+            return false
+        }
+        // Authoritative detection from zero target while current IME is still positive
+        if (imeTargetAboveNavDp in 0f..0.5f && imeAboveNavDp > 0.5f) {
+            return true
+        }
+        return !isKeyboardVisible && imeAboveNavDp > 0.5f
     }
 
     /**
@@ -257,9 +338,13 @@ object ScribeBottomSurfaceCoordinator {
         activeTransition: ScribeDockTransition = ScribeDockTransition.NONE
     ): Boolean {
         // Pure Writer Invariant:
-        // When keyboard is dismissed or actively closing, the document MUST remain
-        // 100% completely stationary at the saved margin. NEVER pull down to the bottom of the screen!
-        if (isKeyboardDismissing || activeTransition == ScribeDockTransition.IME_DISMISSAL) {
+        // When keyboard is dismissed or actively closing, or drawer is closing to 0,
+        // the document MUST remain 100% completely stationary at the saved margin.
+        // NEVER pull down to the bottom of the screen!
+        if (isKeyboardDismissing ||
+            activeTransition == ScribeDockTransition.IME_DISMISSAL ||
+            activeTransition == ScribeDockTransition.DRAWER_CLOSE
+        ) {
             return false
         }
 
@@ -272,7 +357,7 @@ object ScribeBottomSurfaceCoordinator {
         }
 
         // If no bottom surface remains active, document must stay stationary at saved margin.
-        val isBottomActive = isBottomSurfaceActive || isKeyboardVisible || hasPhysicalBottomObstruction
+        val isBottomActive = isBottomSurfaceActive || isKeyboardVisible
         if (!isBottomActive) {
             return false
         }
@@ -281,10 +366,17 @@ object ScribeBottomSurfaceCoordinator {
             return false
         }
 
-        // Downward follow is permitted when:
+        // Downward follow is permitted when an active bottom surface contracts:
         // 1. A prior expansion displaced the canvas upward (temporaryDisplacement > 0f) across ANY caret position, OR
-        // 2. The cursor is at the last line of the document following an actively contracting bottom surface.
-        return (temporaryDisplacement > 0f) || isAtLastLine
+        // 2. The cursor is at the last line of the document following an actively contracting drawer or active surface,
+        // provided an active contraction transition is underway.
+        val isContractingTransition = activeTransition == ScribeDockTransition.DRAWER_RESIZE ||
+            activeTransition == ScribeDockTransition.IME_RESIZE
+        if (!isContractingTransition && temporaryDisplacement <= 0f) {
+            return false
+        }
+
+        return (temporaryDisplacement > 0f) || (isAtLastLine && isContractingTransition)
     }
 
     /**

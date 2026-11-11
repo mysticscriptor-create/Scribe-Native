@@ -1784,13 +1784,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
     override fun showSoftInput() {
         if (!isEditable || isInteractingWithImage) return
         val pCanvas = parentCanvas
-        if (pCanvas != null && !pCanvas.isKeyboardVisible && !pCanvas.isBottomSurfaceActive) {
-            post {
-                val canvas = parentCanvas
-                if (canvas != null && !canvas.isKeyboardVisible && !canvas.isBottomSurfaceActive && !canvas.isKeyboardTransactionActive) {
-                    canvas.notifyKeyboardEntranceStarting()
-                }
-            }
+        if (pCanvas != null && !pCanvas.isKeyboardVisible && !pCanvas.isBottomSurfaceActive && !pCanvas.isKeyboardTransactionActive) {
+            pCanvas.notifyKeyboardEntranceStarting()
         }
         super.showSoftInput()
     }

@@ -98,6 +98,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var hasShortcuts: Boolean = true
     var dockTransition: ScribeDockTransition = ScribeDockTransition.NONE
     var dockMode: ScribeDockMode = ScribeDockMode.HIDDEN
+    var targetImeObstructionPx: Float = 0f
 
     var dockGeometry: ScribeDockGeometry? = null
 
@@ -109,7 +110,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         hasShortcuts = geometry.isShortcutBarOccupied
         dockTransition = geometry.activeTransition
         dockMode = geometry.dockMode
+        targetImeObstructionPx = geometry.targetImeObstructionPx
         editor.persistentBottomSpacePx = persistentBottomSpacePx.roundToInt()
+        checkKeyboardTransactionSettled()
     }
 
     val virtualTailPx: Float
@@ -427,7 +430,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     fun checkKeyboardTransactionSettled() {
-        if (isKeyboardTransactionActive && !isGlideRunning && !isExpansionTransitionActive) {
+        if (isKeyboardTransactionActive &&
+            !isGlideRunning &&
+            dockTransition != ScribeDockTransition.IME_ENTRANCE &&
+            dockTransition != ScribeDockTransition.DRAWER_TO_IME_HANDOFF &&
+            !isExpansionTransitionActive
+        ) {
             endKeyboardTransaction()
         }
     }
@@ -1053,10 +1061,20 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val geom = getCharGeometry(layout, line, col, editor.rowHeight.toFloat())
         val yOffset = geom.bottomDocY
 
+        val predictedImeObstructionPx = if (targetImeObstructionPx > 0.5f) {
+            targetImeObstructionPx
+        } else if (standardKeyboardBaselinePx > 0.5f) {
+            standardKeyboardBaselinePx
+        } else {
+            280f * density
+        }
+        val shortcutBarPx = if (hasShortcuts) shortcutBarHeightPx else 0f
+        val predictedDockClearancePx = predictedImeObstructionPx + shortcutBarPx
+
         val futureViewportHeight = if (isKeyboardOrDrawerActive && height > 0) {
             height.toFloat()
         } else {
-            (height - estimatedKeyboardHeightPx).coerceAtLeast(editor.rowHeight * 3f)
+            (height - predictedDockClearancePx).coerceAtLeast(editor.rowHeight * 3f)
         }
 
         val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
@@ -1155,7 +1173,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val density = resources.displayMetrics.density
             val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
             val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
-            val targetViewportH = if (isKeyboardVisible || isBottomSurfaceActive) height.toFloat() else (height - estimatedKeyboardHeightPx).coerceAtLeast(editor.rowHeight * 3f)
+            val predictedIme = if (targetImeObstructionPx > 0.5f) targetImeObstructionPx else standardKeyboardBaselinePx
+            val shortcutBarPx = if (hasShortcuts) shortcutBarHeightPx else 0f
+            val targetViewportH = if (isKeyboardVisible || isBottomSurfaceActive) height.toFloat() else (height - (predictedIme + shortcutBarPx)).coerceAtLeast(editor.rowHeight * 3f)
             val targetLineBottom = (targetViewportH - marginPx).toFloat()
             val cur = try { editor.cursor } catch (_: Throwable) { null }
             val lay = try { editor.layout } catch (_: Throwable) { null }
@@ -1480,6 +1500,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 // Viewport expanding (accessory drawer contracting, emoji keyboard closing, or bottom surface lowering)
                 isExpansionTransitionActive = false
                 resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
+
+                val isDismissing = isKeyboardDismissing || dockTransition == ScribeDockTransition.IME_DISMISSAL
+                if (isDismissing) {
+                    cancelRestoration()
+                    invalidateCompensation("Full keyboard dismissal: discard compensation without downward restoration")
+                    return
+                }
 
                 val density = resources.displayMetrics.density
                 val rootH = rootView?.height ?: resources.displayMetrics.heightPixels

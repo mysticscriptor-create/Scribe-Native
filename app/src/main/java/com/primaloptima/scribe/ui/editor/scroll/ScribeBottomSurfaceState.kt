@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imeAnimationSource
 import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBars
@@ -109,6 +110,18 @@ class ScribeBottomSurfaceState(
      * Soft keyboard height strictly above system navigation bar.
      */
     var imeAboveNavDp: Dp by mutableStateOf(0.dp)
+        internal set
+
+    /**
+     * Soft keyboard target height strictly above system navigation bar.
+     */
+    var imeTargetAboveNavDp: Dp by mutableStateOf(0.dp)
+        internal set
+
+    /**
+     * Soft keyboard animation source height strictly above system navigation bar.
+     */
+    var imeSourceAboveNavDp: Dp by mutableStateOf(0.dp)
         internal set
 
     /**
@@ -277,7 +290,8 @@ class ScribeBottomSurfaceState(
             capturedHandoffImeHeightDp = capturedHandoffImeHeightDp,
             hasShortcuts = hasShortcuts,
             density = density,
-            breathingMarginPx = breathingMarginPx
+            breathingMarginPx = breathingMarginPx,
+            targetImeAboveNavDp = imeTargetAboveNavDp.value
         )
     }
 
@@ -311,7 +325,8 @@ class ScribeBottomSurfaceState(
             isAwaitingKeyboardOpen = isAwaitingKeyboardOpen,
             isBarTransitionLatched = isBarTransitionLatched,
             imeAboveNavDp = imeAboveNavDp.value,
-            activeTransition = activeTransition
+            activeTransition = activeTransition,
+            imeTargetAboveNavDp = imeTargetAboveNavDp.value
         )
     }
 
@@ -608,9 +623,11 @@ fun rememberScribeBottomSurfaceState(
     val isKeyboardVisible = WindowInsets.isImeVisible
     val imeBottomDp = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
     val imeTargetBottomDp = WindowInsets.imeAnimationTarget.asPaddingValues().calculateBottomPadding()
+    val imeSourceBottomDp = WindowInsets.imeAnimationSource.asPaddingValues().calculateBottomPadding()
     val docBottomNavInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val imeAboveNavDp = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
     val imeTargetAboveNavDp = (imeTargetBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
+    val imeSourceAboveNavDp = (imeSourceBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
 
     val savedKeyboardHeightFloat by savedKeyboardHeightFlow.collectAsState(initial = 280f)
 
@@ -625,6 +642,8 @@ fun rememberScribeBottomSurfaceState(
     state.imeBottomDp = imeBottomDp
     state.docBottomNavInset = docBottomNavInset
     state.imeAboveNavDp = imeAboveNavDp
+    state.imeTargetAboveNavDp = imeTargetAboveNavDp
+    state.imeSourceAboveNavDp = imeSourceAboveNavDp
     state.screenHeightDp = screenHeightDp
     state.screenHeightDpFloat = screenHeightDpFloat
     state.densityValue = density.density
@@ -773,7 +792,13 @@ fun rememberScribeBottomSurfaceState(
     var lastSettledImeHeightDp by remember { mutableFloatStateOf(0f) }
 
     // Explicitly track IME dismissal, drawer handoff completion, IME resizing, and steady-state dock modes
-    LaunchedEffect(isKeyboardVisible, imeAboveNavDp.value, state.activeAccessoryDrawer, state.activeTransition) {
+    LaunchedEffect(
+        isKeyboardVisible,
+        imeAboveNavDp.value,
+        imeTargetAboveNavDp.value,
+        state.activeAccessoryDrawer,
+        state.activeTransition
+    ) {
         if (state.activeAccessoryDrawer != null) {
             // IME-to-drawer handoff completes when IME has released the slot
             if (state.activeTransition == ScribeDockTransition.IME_TO_DRAWER_HANDOFF) {
@@ -799,50 +824,72 @@ fun rememberScribeBottomSurfaceState(
             }
         } else {
             // No drawer active: soft keyboard or hidden dock
-            if (isKeyboardVisible && imeAboveNavDp.value > 0f) {
-                if (state.activeTransition != ScribeDockTransition.DRAWER_TO_IME_HANDOFF &&
-                    state.activeTransition != ScribeDockTransition.IME_ENTRANCE) {
-                    state.dockMode = ScribeDockMode.IME
 
-                    // Establish IME_RESIZE provenance when active keyboard height changes (e.g. emoji picker toggle)
-                    if (!state.isAwaitingKeyboardOpen) {
-                        if (lastSettledImeHeightDp == 0f) {
-                            lastSettledImeHeightDp = imeAboveNavDp.value
-                        } else if (kotlin.math.abs(imeAboveNavDp.value - lastSettledImeHeightDp) > 8f) {
-                            if (state.activeTransition == ScribeDockTransition.NONE) {
-                                state.activeTransition = ScribeDockTransition.IME_RESIZE
-                                state.transitionGeneration++
-                            }
+            // 1. CRITICAL ORDERING: Zero target check takes precedence over visible-keyboard resize branch.
+            // During dismissal, isKeyboardVisible can remain true while imeTargetAboveNavDp is already zero!
+            val isTargetZero = imeTargetAboveNavDp.value <= 0.5f
+
+            if (isTargetZero) {
+                if (imeAboveNavDp.value > 0.5f) {
+                    // Active dismissal: zero target detected, current IME obstruction still nonzero
+                    lastSettledImeHeightDp = 0f
+                    if (state.activeTransition != ScribeDockTransition.IME_DISMISSAL) {
+                        state.activeTransition = ScribeDockTransition.IME_DISMISSAL
+                        state.transitionGeneration++
+                    }
+                    state.dockMode = ScribeDockMode.HIDDEN
+                } else {
+                    // Current IME obstruction reached zero: dismissal is complete
+                    lastSettledImeHeightDp = 0f
+                    if (state.activeTransition == ScribeDockTransition.IME_DISMISSAL) {
+                        state.activeTransition = ScribeDockTransition.NONE
+                        state.transitionGeneration++
+                    }
+                    state.dockMode = ScribeDockMode.HIDDEN
+                }
+            } else if (state.activeTransition == ScribeDockTransition.IME_DISMISSAL) {
+                // Never replace IME_DISMISSAL with IME_RESIZE during the same dismissal
+                if (imeAboveNavDp.value <= 0.5f) {
+                    state.activeTransition = ScribeDockTransition.NONE
+                    state.transitionGeneration++
+                    state.dockMode = ScribeDockMode.HIDDEN
+                }
+            } else {
+                // Target is positive: soft keyboard is visible or entering
+                state.dockMode = ScribeDockMode.IME
+
+                if (state.activeTransition == ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
+                    state.activeTransition == ScribeDockTransition.IME_ENTRANCE) {
+                    // Check convergence to complete entrance/handoff
+                    val hasConverged = kotlin.math.abs(imeAboveNavDp.value - imeTargetAboveNavDp.value) <= 1f
+                    if (hasConverged && imeAboveNavDp.value > 100f && isKeyboardVisible) {
+                        lastSettledImeHeightDp = imeTargetAboveNavDp.value
+                        if (state.activeTransition == ScribeDockTransition.IME_ENTRANCE) {
+                            state.activeTransition = ScribeDockTransition.NONE
+                            state.transitionGeneration++
+                        }
+                    }
+                } else if (!state.isAwaitingKeyboardOpen) {
+                    if (lastSettledImeHeightDp == 0f) {
+                        lastSettledImeHeightDp = imeTargetAboveNavDp.value
+                    } else if (kotlin.math.abs(imeTargetAboveNavDp.value - lastSettledImeHeightDp) > 8f) {
+                        if (state.activeTransition == ScribeDockTransition.NONE) {
+                            state.activeTransition = ScribeDockTransition.IME_RESIZE
+                            state.transitionGeneration++
+                        }
+                    }
+
+                    // Settle IME_RESIZE via inset convergence
+                    if (state.activeTransition == ScribeDockTransition.IME_RESIZE) {
+                        val hasConverged = kotlin.math.abs(imeAboveNavDp.value - imeTargetAboveNavDp.value) <= 1f
+                        if (hasConverged) {
+                            state.activeTransition = ScribeDockTransition.NONE
+                            state.transitionGeneration++
+                            state.dockMode = ScribeDockMode.IME
+                            lastSettledImeHeightDp = imeTargetAboveNavDp.value
                         }
                     }
                 }
-
-                // Settle IME_RESIZE once target height has stabilized
-                if (state.activeTransition == ScribeDockTransition.IME_RESIZE) {
-                    val capturedGen = state.transitionGeneration
-                    delay(150L)
-                    if (state.activeTransition == ScribeDockTransition.IME_RESIZE &&
-                        state.transitionGeneration == capturedGen) {
-                        state.activeTransition = ScribeDockTransition.NONE
-                        state.transitionGeneration++
-                        state.dockMode = ScribeDockMode.IME
-                        lastSettledImeHeightDp = imeAboveNavDp.value
-                    }
-                }
-            } else if ((!isKeyboardVisible || imeTargetAboveNavDp.value <= 0.5f) && imeAboveNavDp.value > 0.5f && !state.isAwaitingKeyboardOpen) {
-                lastSettledImeHeightDp = 0f
-                if (state.activeTransition != ScribeDockTransition.IME_DISMISSAL) {
-                    state.activeTransition = ScribeDockTransition.IME_DISMISSAL
-                    state.transitionGeneration++
-                }
-                state.dockMode = ScribeDockMode.HIDDEN
-            } else if ((!isKeyboardVisible || imeTargetAboveNavDp.value <= 0.5f) && imeAboveNavDp.value <= 0.5f && !state.isAwaitingKeyboardOpen) {
-                lastSettledImeHeightDp = 0f
-                if (state.activeTransition == ScribeDockTransition.IME_DISMISSAL) {
-                    state.activeTransition = ScribeDockTransition.NONE
-                    state.transitionGeneration++
-                }
-                state.dockMode = ScribeDockMode.HIDDEN
             }
         }
     }

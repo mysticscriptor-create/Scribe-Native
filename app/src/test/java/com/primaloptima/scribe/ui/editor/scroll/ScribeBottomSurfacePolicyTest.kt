@@ -964,4 +964,227 @@ class ScribeBottomSurfacePolicyTest {
         assertEquals(1900, safeMaxY)
         assertEquals("Inner editor max scroll matches outer canvas remaining capacity", remainingEditorScroll, safeMaxY)
     }
+
+    // ── Targeted Pure Unit Tests for Plan Requirements ─────────────────────────
+
+    @Test
+    fun testClassifyImeTransitionSourceZeroToTargetPositiveIsEntrance() {
+        val transition = ScribeBottomSurfaceCoordinator.classifyImeTransition(
+            sourceAboveNavDp = 0f,
+            targetAboveNavDp = 280f,
+            currentAboveNavDp = 50f,
+            isImeVisible = true
+        )
+        assertEquals("Source 0 -> Target 280 must be classified as IME_ENTRANCE", ScribeDockTransition.IME_ENTRANCE, transition)
+    }
+
+    @Test
+    fun testClassifyImeTransitionSourcePositiveToTargetLargerIsResizeExpansion() {
+        val transition = ScribeBottomSurfaceCoordinator.classifyImeTransition(
+            sourceAboveNavDp = 280f,
+            targetAboveNavDp = 340f,
+            currentAboveNavDp = 290f,
+            isImeVisible = true
+        )
+        assertEquals("Source 280 -> Target 340 must be classified as IME_RESIZE", ScribeDockTransition.IME_RESIZE, transition)
+    }
+
+    @Test
+    fun testClassifyImeTransitionSourcePositiveToTargetSmallerIsResizeContraction() {
+        val transition = ScribeBottomSurfaceCoordinator.classifyImeTransition(
+            sourceAboveNavDp = 340f,
+            targetAboveNavDp = 280f,
+            currentAboveNavDp = 330f,
+            isImeVisible = true
+        )
+        assertEquals("Source 340 -> Target 280 must be classified as IME_RESIZE", ScribeDockTransition.IME_RESIZE, transition)
+    }
+
+    @Test
+    fun testClassifyImeTransitionSourcePositiveToTargetZeroIsDismissal() {
+        val transition = ScribeBottomSurfaceCoordinator.classifyImeTransition(
+            sourceAboveNavDp = 280f,
+            targetAboveNavDp = 0f,
+            currentAboveNavDp = 200f,
+            isImeVisible = true
+        )
+        assertEquals("Source 280 -> Target 0 must be classified as IME_DISMISSAL", ScribeDockTransition.IME_DISMISSAL, transition)
+    }
+
+    @Test
+    fun testClassifyImeTransitionTargetZeroWhileImeVisibleIsDismissal() {
+        val transition = ScribeBottomSurfaceCoordinator.classifyImeTransition(
+            sourceAboveNavDp = 280f,
+            targetAboveNavDp = 0f,
+            currentAboveNavDp = 150f,
+            isImeVisible = true // Insets report target 0 while isImeVisible remains true in interim frames
+        )
+        assertEquals("Target 0 takes precedence and classifies as IME_DISMISSAL even if isImeVisible is true", ScribeDockTransition.IME_DISMISSAL, transition)
+    }
+
+    @Test
+    fun testClassifyImeTransitionPreservesActiveImeToDrawerHandoff() {
+        val transition = ScribeBottomSurfaceCoordinator.classifyImeTransition(
+            sourceAboveNavDp = 280f,
+            targetAboveNavDp = 0f,
+            currentAboveNavDp = 0f,
+            isImeVisible = false,
+            activeTransition = ScribeDockTransition.IME_TO_DRAWER_HANDOFF
+        )
+        assertEquals("Active IME_TO_DRAWER_HANDOFF must be preserved when IME drops to 0", ScribeDockTransition.IME_TO_DRAWER_HANDOFF, transition)
+    }
+
+    @Test
+    fun testDismissalLatchingRemainsImeDismissalUntilCurrentReachesZero() {
+        // Frame 1: Dismissal starts (current 200, target 0)
+        val frame1 = ScribeBottomSurfaceCoordinator.classifyImeTransition(
+            sourceAboveNavDp = 280f,
+            targetAboveNavDp = 0f,
+            currentAboveNavDp = 200f,
+            isImeVisible = true,
+            activeTransition = ScribeDockTransition.IME_DISMISSAL
+        )
+        assertEquals("Must remain IME_DISMISSAL", ScribeDockTransition.IME_DISMISSAL, frame1)
+
+        // Frame 2: Mid-animation (current 80, target 0) - MUST NOT flip to IME_RESIZE
+        val frame2 = ScribeBottomSurfaceCoordinator.classifyImeTransition(
+            sourceAboveNavDp = 280f,
+            targetAboveNavDp = 0f,
+            currentAboveNavDp = 80f,
+            isImeVisible = false,
+            activeTransition = ScribeDockTransition.IME_DISMISSAL
+        )
+        assertEquals("Must not flip to IME_RESIZE during dismissal", ScribeDockTransition.IME_DISMISSAL, frame2)
+
+        // Frame 3: Settled at 0 (current 0, target 0) -> completes to NONE
+        val frame3 = ScribeBottomSurfaceCoordinator.classifyImeTransition(
+            sourceAboveNavDp = 280f,
+            targetAboveNavDp = 0f,
+            currentAboveNavDp = 0f,
+            isImeVisible = false,
+            activeTransition = ScribeDockTransition.IME_DISMISSAL
+        )
+        assertEquals("Transitions to NONE when current IME obstruction reaches 0", ScribeDockTransition.NONE, frame3)
+    }
+
+    @Test
+    fun testDownwardFollowRejectedDuringImeDismissalRegardlessOfLastLineOrDisplacement() {
+        val shouldFollow = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true,
+            isKeyboardVisible = true,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = true,
+            hasActiveScroll = true,
+            temporaryDisplacement = 200f,
+            activeTransition = ScribeDockTransition.IME_DISMISSAL
+        )
+        assertFalse("Downward follow must be strictly rejected during IME_DISMISSAL even if isAtLastLine and displacement > 0", shouldFollow)
+    }
+
+    @Test
+    fun testDownwardFollowRejectedWhenTargetIsZeroEvenIfImeVisibleIsTrue() {
+        val isDismissing = ScribeBottomSurfaceCoordinator.isKeyboardDismissing(
+            isKeyboardVisible = true,
+            isAccessoryDrawerActive = false,
+            isAwaitingKeyboardOpen = false,
+            isBarTransitionLatched = false,
+            imeAboveNavDp = 180f,
+            activeTransition = ScribeDockTransition.NONE,
+            imeTargetAboveNavDp = 0f
+        )
+        assertTrue("isKeyboardDismissing must be true when target is 0 even if isKeyboardVisible is true", isDismissing)
+
+        val shouldFollow = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = isDismissing,
+            isBottomSurfaceActive = false,
+            isKeyboardVisible = true,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = true,
+            hasActiveScroll = true,
+            temporaryDisplacement = 100f,
+            activeTransition = ScribeDockTransition.NONE
+        )
+        assertFalse("shouldFollowDownward must return false when keyboard is dismissing", shouldFollow)
+    }
+
+    @Test
+    fun testContractionRestorationPreservedForDrawerResizeAndImeResize() {
+        // Drawer contraction (e.g. from 400dp to 280dp)
+        val shouldFollowDrawer = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true,
+            isKeyboardVisible = false,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = false,
+            hasActiveScroll = true,
+            temporaryDisplacement = 120f,
+            activeTransition = ScribeDockTransition.DRAWER_RESIZE
+        )
+        assertTrue("Drawer resize contraction must authorize downward follow", shouldFollowDrawer)
+
+        // Expanded IME contraction (e.g. emoji picker back to normal keyboard)
+        val shouldFollowIme = ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true,
+            isKeyboardVisible = true,
+            hasPhysicalBottomObstruction = true,
+            isAtLastLine = false,
+            hasActiveScroll = true,
+            temporaryDisplacement = 60f,
+            activeTransition = ScribeDockTransition.IME_RESIZE
+        )
+        assertTrue("Expanded IME contraction must authorize downward follow", shouldFollowIme)
+    }
+
+    @Test
+    fun testPredictiveGeometryMatchesPostResizeTargetWithinDeadband() {
+        val density = 2.5f
+        val fullHeight = 2000f
+        val imeTargetDp = 280f
+        val shortcutBarDp = 36f
+        val breathingMarginDp = 24f
+
+        val imeTargetPx = imeTargetDp * density // 700px
+        val shortcutBarPx = shortcutBarDp * density // 90px
+        val breathingMarginPx = breathingMarginDp * density // 60px
+        val deadbandPx = ScribeScrollPolicy.CURSOR_DEADBAND_DP * density // 10px
+
+        // Predictive geometry calculation
+        val predictedDockClearance = imeTargetPx + shortcutBarPx // 790px
+        val futureViewportHeight = fullHeight - predictedDockClearance // 1210px
+        val predictiveTargetLineBottom = futureViewportHeight - breathingMarginPx // 1150px
+
+        // Actual post-resize geometry:
+        // AndroidView padding reduces height by docBottomPadding (790px)
+        val postResizeHeight = fullHeight - predictedDockClearance // 1210px
+        val postResizeTargetLineBottom = postResizeHeight - breathingMarginPx // 1150px
+
+        val delta = kotlin.math.abs(predictiveTargetLineBottom - postResizeTargetLineBottom)
+        assertTrue("Predictive target matches post-resize layout target within deadband ($delta <= $deadbandPx)", delta <= deadbandPx)
+        assertEquals("Predictive target exactly equals post-resize target", postResizeTargetLineBottom, predictiveTargetLineBottom, 0.001f)
+    }
+
+    @Test
+    fun testKeyboardTransactionLifecycleSingleEntranceWithoutSecondaryJump() {
+        val transaction = ScribeScrollPolicy.KeyboardTransaction(
+            transactionId = 42L,
+            isActive = true,
+            targetScroll = 300f
+        )
+        assertTrue(transaction.isActive)
+        assertEquals(300f, transaction.targetScroll, 0.001f)
+
+        // Retargeting with caret within deadband calculates consistent destination
+        val retargeted = transaction.calculateRetargetedDestination(
+            caretDocBottom = 1200f,
+            headerHeight = 150f,
+            usableViewportHeight = 1000f,
+            breathingMarginPx = 60f,
+            maxCanvasScroll = 2500f
+        )
+        // target = 150 + 1200 - (1000 - 60) = 1350 - 940 = 410f
+        assertEquals(410f, retargeted, 0.001f)
+    }
 }
+

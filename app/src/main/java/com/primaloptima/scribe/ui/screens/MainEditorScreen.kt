@@ -1451,6 +1451,7 @@ fun MainEditorScreen(
                         bottomSurfaceState.currentDrawerHeightDp,
                         bottomSurfaceState.capturedHandoffImeHeightDp,
                         imeAboveNavDp,
+                        bottomSurfaceState.imeTargetAboveNavDp.value,
                         isKeyboardVisible,
                         hasShortcutBar,
                         density.density
