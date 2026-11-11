@@ -277,6 +277,12 @@ fun MainEditorScreen(
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
 
+    LaunchedEffect(initialNoteId) {
+        if (!initialNoteId.isNullOrBlank()) {
+            com.primaloptima.scribe.util.DocumentOpenTrace.mark(initialNoteId, com.primaloptima.scribe.util.DocumentOpenTrace.MARK_SCREEN_COMPOSED)
+        }
+    }
+
     // ── Adaptive Window Size Class ────────────────────────────────────────────
     val adaptiveInfo = currentWindowAdaptiveInfo()
     val isCompact = adaptiveInfo.windowSizeClass.windowWidthSizeClass == WindowWidthSizeClass.COMPACT
@@ -698,6 +704,7 @@ fun MainEditorScreen(
 
     // ── Floating Pills Scroll Animation & Dual-Title State ──────────────────────
     var floatingPillsVisible by rememberSaveable { mutableStateOf(false) }
+    var isEditorLayoutReady by remember { mutableStateOf(false) }
     var scrollDistanceSinceDirectionChange by remember { mutableFloatStateOf(0f) }
     var lastScrollDirection by remember { mutableIntStateOf(0) }
 
@@ -707,6 +714,10 @@ fun MainEditorScreen(
                 available: Offset,
                 source: NestedScrollSource
             ): Offset {
+                // Gate scroll-driven pill callbacks until document is loaded and layout ready
+                if (loadState !is DocumentLoadState.Loaded || !isEditorLayoutReady) {
+                    return Offset.Zero
+                }
                 val dy = available.y
                 if (dy < -2f) {
                     // Scrolling DOWN / reading forward into document (dy is negative, content moves up)
@@ -905,6 +916,8 @@ fun MainEditorScreen(
             else -> null
         }
         if (pendingId != null) {
+            isEditorLayoutReady = false
+            floatingPillsVisible = false
             if (lastLoadedNoteId != pendingId) {
                 val ed = soraEditorRef
                 if (ed is ScribeCodeEditor) {
@@ -939,20 +952,11 @@ fun MainEditorScreen(
                 }
             }
 
-            // 1. Compute Inlay Hints asynchronously off main thread
-            val hints = withContext(Dispatchers.Default) {
-                ProseInlayHintProvider.computeInlayHints(
-                    note.content,
-                    worldEntries,
-                    activeTheme?.paragraphSpacing ?: 1
-                )
-            }
-            DocumentOpenTrace.mark(note.id, "inlay_hints_computed")
+            DocumentOpenTrace.mark(note.id, DocumentOpenTrace.MARK_CONTENT_READY)
 
             val initialIndent = activeTheme?.firstLineIndent ?: 0
             (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.firstLineIndentSpaces = initialIndent
 
-            // Set text and reveal on the same frame; chunk for manuscripts > 50,000 characters
             DocumentOpenTrace.mark(note.id, "sora_set_text_start")
             isProgrammaticLoading = true
             try {
@@ -965,7 +969,13 @@ fun MainEditorScreen(
 
                 if (editor is ScribeCodeEditor) {
                     if (fullText.length > 50_000) {
-                        val firstChunk = fullText.substring(0, 30_000)
+                        // Small line-aligned initial chunk
+                        val targetSize = 30_000
+                        val nlIndex = fullText.lastIndexOf('\n', targetSize)
+                        val splitIndex = if (nlIndex > 5_000) nlIndex + 1 else targetSize
+                        val firstChunk = fullText.substring(0, splitIndex)
+                        val remainder = fullText.substring(splitIndex)
+
                         editor.openDocument(
                             content = firstChunk,
                             hints = null,
@@ -974,40 +984,73 @@ fun MainEditorScreen(
                                 floatingPillsVisible = true
                             }
                         )
+
+                        // Append remainder using Sora supported Content editing API
+                        // Keep programmatic change suppression active until appending finishes
                         editor.post {
-                            editor.setText(fullText)
-                            if (hints != null) {
-                                editor.setInlayHints(hints)
+                            try {
+                                if (remainder.isNotEmpty()) {
+                                    val lastLine = editor.text.lineCount - 1
+                                    val lastCol = editor.text.getColumnCount(lastLine)
+                                    editor.text.insert(lastLine, lastCol, remainder)
+                                }
+                            } finally {
+                                isProgrammaticLoading = false
+                            }
+                            // Defer expensive full-document inlay-hint computation until after initial reveal
+                            scope.launch(Dispatchers.Default) {
+                                val computedHints = ProseInlayHintProvider.computeInlayHints(
+                                    fullText,
+                                    worldEntries,
+                                    activeTheme?.paragraphSpacing ?: 1
+                                )
+                                DocumentOpenTrace.mark(note.id, "inlay_hints_computed")
+                                withContext(Dispatchers.Main) {
+                                    editor.setInlayHints(computedHints)
+                                }
                             }
                         }
                     } else {
                         editor.openDocument(
                             content = fullText,
-                            hints = hints,
+                            hints = null,
                             traceNoteId = note.id,
                             onRevealed = {
                                 floatingPillsVisible = true
                             }
                         )
+                        isProgrammaticLoading = false
+                        // Defer expensive full-document inlay-hint computation until after initial reveal
+                        scope.launch(Dispatchers.Default) {
+                            val computedHints = ProseInlayHintProvider.computeInlayHints(
+                                fullText,
+                                worldEntries,
+                                activeTheme?.paragraphSpacing ?: 1
+                            )
+                            DocumentOpenTrace.mark(note.id, "inlay_hints_computed")
+                            withContext(Dispatchers.Main) {
+                                editor.setInlayHints(computedHints)
+                            }
+                        }
                     }
                 } else {
                     editor.setText(fullText)
-                    editor.setInlayHints(hints)
                     editor.alpha = 1f
                     floatingPillsVisible = true
+                    isProgrammaticLoading = false
                 }
-            } finally {
+            } catch (t: Throwable) {
                 isProgrammaticLoading = false
+                throw t
             }
-            DocumentOpenTrace.mark(note.id, "sora_set_text_completed")
 
+            DocumentOpenTrace.mark(note.id, "sora_set_text_completed")
             lastLoadedEditorInstance = editor
             lastLoadedNoteId = note.id
             loadedNoteId = note.id
-            editor.isEditable = true
 
             if (editor is ScribeCodeEditor) {
-                editor.notifyContentSet()
+                // Wordwrap layout readiness is handled via openDocument and notifyContentSet
             } else {
                 editor.alpha = 1f
             }
@@ -1027,6 +1070,8 @@ fun MainEditorScreen(
 
             // Wait until layout & wordwrap calculation are fully ready on the loaded text!
             (editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.doOnLayoutReady {
+                isEditorLayoutReady = true
+                floatingPillsVisible = true
                 val isResumingSession = if (coordinator != null && effectiveKey != null) {
                     coordinator.isRetainedSession(effectiveKey)
                 } else {

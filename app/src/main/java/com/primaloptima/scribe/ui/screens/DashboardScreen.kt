@@ -40,6 +40,8 @@ import coil3.request.allowHardware
 import com.airbnb.lottie.compose.*
 import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.data.NoteMetadata
+import com.primaloptima.scribe.data.toMetadata
 import com.primaloptima.scribe.ui.components.*
 import com.primaloptima.scribe.ui.theme.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -54,7 +56,7 @@ fun DashboardTabContent(
     vm: DashboardViewModel,
     allBooks: List<Book>,
     bookWordCounts: Map<String, Int>,
-    onOpenNote: (noteId: String, bookId: String) -> Unit,
+    onOpenNote: (noteId: String, bookId: String, metadata: com.primaloptima.scribe.data.NoteMetadata?) -> Unit = { _, _, _ -> },
     onOpenBook: (Book) -> Unit,
     onGoToStats: () -> Unit,
     onGoToBooks: () -> Unit,
@@ -104,10 +106,10 @@ fun DashboardTabContent(
         accentColor = accentColor,
         onContinueWriting = {
             val latest = chapters.firstOrNull()
-            if (latest != null) onOpenNote(latest.id, latest.bookId)
+            if (latest != null) onOpenNote(latest.id, latest.bookId, latest.toMetadata())
         },
         onNewChapter = {
-            vm.createChapter { note -> onOpenNote(note.id, note.bookId) }
+            vm.createChapter { note -> onOpenNote(note.id, note.bookId, note.toMetadata()) }
         },
         onOpenBook = { onOpenBook(ongoingBook ?: it) },
         onSetProject = { showBookPicker = true },
@@ -215,7 +217,7 @@ fun DashboardContent(
     onNewChapter: () -> Unit = {},
     onOpenBook: (Book) -> Unit = {},
     onSetProject: () -> Unit = {},
-    onOpenNote: (noteId: String, bookId: String) -> Unit = { _, _ -> },
+    onOpenNote: (noteId: String, bookId: String, metadata: com.primaloptima.scribe.data.NoteMetadata?) -> Unit = { _, _, _ -> },
     onGoToStats: () -> Unit = {},
     onGoToBooks: () -> Unit = {},
     onOpenSheets: () -> Unit = {},
@@ -669,7 +671,7 @@ private fun CurrentProjectCard(
 private fun QuickActionsCard(
     chapters: List<Note>,
     accentColor: Color,
-    onOpenNote: (noteId: String, bookId: String) -> Unit,
+    onOpenNote: (noteId: String, bookId: String, metadata: com.primaloptima.scribe.data.NoteMetadata?) -> Unit = { _, _, _ -> },
     onOpenBook: () -> Unit,
     onGoToStats: () -> Unit,
     onOpenSheets: () -> Unit,
@@ -678,7 +680,7 @@ private fun QuickActionsCard(
     val actions = listOf(
         Triple(Icons.Outlined.Edit,               "Write",      {
             val latest = chapters.firstOrNull()
-            if (latest != null) onOpenNote(latest.id, latest.bookId) else onGoToBooks()
+            if (latest != null) onOpenNote(latest.id, latest.bookId, latest.toMetadata()) else onGoToBooks()
         }),
         Triple(Icons.Outlined.AccountTree,        "Outline",    { onOpenBook() }),
         Triple(Icons.Outlined.People,             "Characters", { onOpenBook() }),
@@ -1086,7 +1088,7 @@ private fun RecentChaptersCard(
     chapters: List<Note>,
     accentColor: Color,
     onSeeAll: () -> Unit,
-    onOpenNote: (noteId: String, bookId: String) -> Unit
+    onOpenNote: (noteId: String, bookId: String, metadata: NoteMetadata?) -> Unit
 ) {
     ScribeContentCard(
         title       = "Continue where you left off",
@@ -1112,7 +1114,7 @@ private fun RecentChaptersCard(
                 accentColor = accentColor,
                 showDivider = index < chapters.lastIndex,
                 isMostRecent = index == 0,
-                onClick     = { onOpenNote(chapter.id, chapter.bookId) }
+                onClick     = { onOpenNote(chapter.id, chapter.bookId, chapter.toMetadata()) }
             )
         }
     }

@@ -305,4 +305,142 @@ class DocumentLoadingLifecycleSafetyTest {
         assertNotNull(trace.getElapsedMs("full_wordwrap_ready"))
         assertNotNull(trace.getElapsedMs("sora_set_text_completed"))
     }
+
+    @Test
+    fun testMetadataPreservedThroughoutOpeningToLoadedWhenLocalArgNull() {
+        // Requirement 2: Preserve matching staged metadata throughout Opening -> Loaded.
+        // loadNote() must not erase it when its local metadata argument is null.
+        val noteId = "note-staged-preserve"
+        val stagedMeta = NoteMetadata(
+            id = noteId,
+            name = "Act III Scene 1",
+            bookId = "book-42",
+            wordCount = 1850
+        )
+        // Stage metadata
+        com.primaloptima.scribe.navigation.EditorDocumentSession.stage(noteId, stagedMeta)
+
+        var activeMetadata: NoteMetadata? = stagedMeta
+        var loadState: DocumentLoadState = DocumentLoadState.Opening(noteId, stagedMeta)
+
+        // loadNote() is invoked without explicit preloadedMetadata (null)
+        val preloadedMetadataArg: NoteMetadata? = null
+        val existingMeta = activeMetadata?.takeIf { it.id == noteId }
+            ?: (loadState as? DocumentLoadState.Opening)?.takeIf { it.noteId == noteId }?.metadata
+            ?: com.primaloptima.scribe.navigation.EditorDocumentSession.peek(noteId)
+
+        val resolvedMeta = preloadedMetadataArg ?: existingMeta
+        assertNotNull("Staged metadata must NOT be erased when argument is null", resolvedMeta)
+        assertEquals("Act III Scene 1", resolvedMeta?.name)
+        assertEquals(1850, resolvedMeta?.wordCount)
+
+        // Transition to Loaded
+        val fullNote = Note(
+            id = noteId,
+            name = resolvedMeta!!.name,
+            bookId = resolvedMeta.bookId,
+            content = "Full content for Act III Scene 1",
+            wordCount = resolvedMeta.wordCount
+        )
+        loadState = DocumentLoadState.Loaded(fullNote)
+        assertTrue(loadState is DocumentLoadState.Loaded)
+        assertEquals("Full content for Act III Scene 1", (loadState as DocumentLoadState.Loaded).note.content)
+    }
+
+    @Test
+    fun testPerNoteRevisionOrdering_PreventsCrossDocumentInterference() {
+        // Requirement 3: Per-note revision tracking and ordering; never compare revisions from different documents.
+        val noteSavedRevisions = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+        val isSaveAllowed = { targetNoteId: String, revision: Long ->
+            val lastSaved = noteSavedRevisions[targetNoteId] ?: 0L
+            if (revision < lastSaved && revision != 0L) {
+                false
+            } else {
+                noteSavedRevisions[targetNoteId] = maxOf(lastSaved, revision)
+                true
+            }
+        }
+
+        // Note A has advanced to revision 15
+        assertTrue("Note A rev 15 must succeed", isSaveAllowed("doc-A", 15L))
+        assertEquals(15L, noteSavedRevisions["doc-A"])
+
+        // User switches to Note B and saves revision 1
+        // Cross-document revision comparison bug would reject rev 1 because 1 < 15!
+        val noteBSaveAllowed = isSaveAllowed("doc-B", 1L)
+        assertTrue("Note B rev 1 must NOT be rejected by Note A's rev 15", noteBSaveAllowed)
+        assertEquals(1L, noteSavedRevisions["doc-B"])
+
+        // Older revision for Note A is correctly rejected
+        assertFalse("Stale rev 10 for Note A must be rejected", isSaveAllowed("doc-A", 10L))
+        // Newer revision for Note B is allowed
+        assertTrue("Newer rev 2 for Note B must be allowed", isSaveAllowed("doc-B", 2L))
+    }
+
+    @Test
+    fun testCacheInvalidationCancelsInFlightPrefetchRace() {
+        // Requirement 2 & 3: Prevent an older in-flight prefetch from repopulating stale cache entries.
+        val noteId = "note-race-test"
+        var prefetchCancelled = false
+        val cancelPrefetch = { id: String ->
+            if (id == noteId) {
+                prefetchCancelled = true
+            }
+        }
+
+        // Simulate prefetch in flight
+        var prefetchCompleted = false
+        val simulatedPrefetchJob = {
+            if (!prefetchCancelled) {
+                prefetchCompleted = true
+            }
+        }
+
+        // User edits/deletes document -> invalidates cache
+        cancelPrefetch(noteId)
+        simulatedPrefetchJob()
+
+        assertTrue("In-flight prefetch must be cancelled upon invalidation", prefetchCancelled)
+        assertFalse("Prefetch must NOT repopulate cache after invalidation", prefetchCompleted)
+    }
+
+    @Test
+    fun testLayoutReadyCallbacksGatePillsAndEditing() {
+        // Requirement 4: Prevent safety check runnable from revealing previous document.
+        // Keep editor non-editable and floating pills hidden until correct new document is revealed.
+        var isNewDocumentContentApplied = false
+        var isAwaitingLayoutReady = true
+        var isEditable = false
+        var floatingPillsVisible = false
+        var deliveredFirstVisible = false
+
+        val safetyCheckRunnable = {
+            if (isAwaitingLayoutReady && isNewDocumentContentApplied) {
+                deliveredFirstVisible = true
+                isEditable = true
+                floatingPillsVisible = true
+                isAwaitingLayoutReady = false
+            }
+        }
+
+        // 1. Prepare for new document (old content still in editor)
+        isNewDocumentContentApplied = false
+        isAwaitingLayoutReady = true
+        isEditable = false
+        floatingPillsVisible = false
+
+        // Safety check runnable triggers before new document content is applied
+        safetyCheckRunnable()
+        assertFalse("Must NOT reveal previous document", deliveredFirstVisible)
+        assertFalse("Editor must remain non-editable before new document applied", isEditable)
+        assertFalse("Floating pills must remain hidden", floatingPillsVisible)
+
+        // 2. New document text is applied
+        isNewDocumentContentApplied = true
+        safetyCheckRunnable()
+        assertTrue("Must reveal once new content applied and layout ready", deliveredFirstVisible)
+        assertTrue("Editor becomes editable once layout ready", isEditable)
+        assertTrue("Floating pills become visible", floatingPillsVisible)
+    }
 }

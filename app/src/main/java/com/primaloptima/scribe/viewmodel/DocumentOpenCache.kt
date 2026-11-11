@@ -1,6 +1,7 @@
 package com.primaloptima.scribe.viewmodel
 
 import com.primaloptima.scribe.data.Note
+import com.primaloptima.scribe.navigation.EditorDocumentSession
 
 /**
  * Holds the last few documents that were opened, fully materialised.
@@ -11,7 +12,6 @@ import com.primaloptima.scribe.data.Note
 object DocumentOpenCache {
     private const val MAX_ENTRIES = 4
     private val lock = Any()
-
     private val entries = object : LinkedHashMap<String, Note>(MAX_ENTRIES, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Note>?): Boolean =
             size > MAX_ENTRIES
@@ -19,10 +19,24 @@ object DocumentOpenCache {
 
     fun get(noteId: String): Note? = synchronized(lock) { entries[noteId] }
 
-    fun put(note: Note) = synchronized(lock) { entries[note.id] = note }
+    fun put(note: Note) = synchronized(lock) {
+        // Never cache an unresolved external document
+        if (note.externalUri != null && !note.loaded) return
+        entries[note.id] = note
+    }
 
     /** Call from every path that changes a stored document and has no fresh Note to put. */
-    fun invalidate(noteId: String) = synchronized(lock) { entries.remove(noteId) }
+    fun invalidate(noteId: String) {
+        synchronized(lock) {
+            entries.remove(noteId)
+        }
+        EditorDocumentSession.cancelPrefetch(noteId)
+    }
 
-    fun clear() = synchronized(lock) { entries.clear() }
+    fun clear() {
+        synchronized(lock) {
+            entries.clear()
+        }
+        EditorDocumentSession.clear()
+    }
 }

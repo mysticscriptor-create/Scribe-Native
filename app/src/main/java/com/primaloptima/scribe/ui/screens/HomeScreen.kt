@@ -82,6 +82,7 @@ import com.primaloptima.scribe.data.Book
 import com.primaloptima.scribe.data.Folder
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.data.NoteMetadata
+import com.primaloptima.scribe.data.toMetadata
 import com.primaloptima.scribe.util.CoverUtils
 import com.primaloptima.scribe.viewmodel.BooksViewModel
 import com.primaloptima.scribe.viewmodel.DashboardViewModel
@@ -101,7 +102,7 @@ fun HomeScreen(
     notesVm: NotesViewModel,
     statsVm: StatsViewModel,
     onOpenBook: (Book) -> Unit,
-    onOpenNote: (noteId: String, bookId: String) -> Unit,
+    onOpenNote: (noteId: String, bookId: String, metadata: NoteMetadata?) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSheets: () -> Unit,
     onOpenSheetsCreate: () -> Unit,
@@ -585,7 +586,7 @@ fun HomeScreen(
                             label = "Quick Note",
                             onClick = {
                                 booksVm.createQuickNote { note ->
-                                    onOpenNote(note.id, note.bookId)
+                                    onOpenNote(note.id, note.bookId, note.toMetadata())
                                 }
                             }
                         )
@@ -606,7 +607,7 @@ fun HomeScreen(
                         allBooks = allBooks,
                         allNotes = allNotes,
                         onOpenNote = { note ->
-                            onOpenNote(note.id, note.bookId)
+                            onOpenNote(note.id, note.bookId, note)
                         }
                     )
                 } else {
@@ -657,7 +658,7 @@ fun HomeScreen(
                             2 -> NotesTabContent(
                                 allNotes = allNotes,
                                 onOpenNote = { note ->
-                                    onOpenNote(note.id, note.bookId)
+                                    onOpenNote(note.id, note.bookId, note)
                                 }
                             )
                             3 -> MainStatisticsTabContent(

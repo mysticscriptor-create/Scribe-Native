@@ -92,6 +92,10 @@ class ThemeManager(private val context: Context) {
         return allThemes().firstOrNull { it.id == id } ?: DefaultThemes.all.first()
     }
 
+    fun getTheme(id: String): AppTheme {
+        return allThemes().firstOrNull { it.id == id } ?: activeTheme()
+    }
+
     /** Write to prefs AND update the cache (called from ThemeViewModel coroutine scope). */
     fun setActiveTheme(id: String) {
         cachedActiveThemeId = id

@@ -618,8 +618,18 @@ class EditorViewModel(
     private var lastSavedContent: String = ""
     private var pendingContent: String = ""
     private var isDirty: Boolean = false
-    private var currentContentRevision: Long = 0L
-    private var lastSavedRevision: Long = 0L
+    private val noteCurrentRevisions = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private val noteSavedRevisions = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    fun getCurrentRevision(noteId: String? = null): Long {
+        val id = noteId ?: _activeNote.value?.id ?: return 0L
+        return noteCurrentRevisions[id] ?: 0L
+    }
+
+    fun getSavedRevision(noteId: String? = null): Long {
+        val id = noteId ?: _activeNote.value?.id ?: return 0L
+        return noteSavedRevisions[id] ?: 0L
+    }
 
     // In-memory CPU caches to prevent duplicate analysis on unchanged documents
     private data class CachedStats(
@@ -945,7 +955,7 @@ class EditorViewModel(
         val effectiveOutgoingId = outgoingNoteId ?: prevNote?.id
         val prevDirty = isDirty
         val prevPending = pendingContent
-        val prevRev = currentContentRevision
+        val prevRev = prevNote?.let { noteCurrentRevisions[it.id] ?: 0L } ?: 0L
         val prevTextToSave = outgoingText ?: prevPending
 
         if (prevNote != null && prevNote.id != noteId) {
@@ -962,16 +972,30 @@ class EditorViewModel(
             statsJob?.cancel()
             proseJob?.cancel()
             recoveryJob?.cancel()
-            if (prevNote != null && prevNote.id != noteId && (prevDirty || prevTextToSave != prevNote.content)) {
-                persistOutgoingAsync(prevNote, prevTextToSave, prevRev)
+            if (prevNote != null && prevNote.id != noteId) {
+                val outgoingWc = MarkdownUtil.countWords(prevTextToSave)
+                val outgoingSnapshot = prevNote.copy(
+                    content = prevTextToSave,
+                    wordCount = outgoingWc,
+                    updatedAt = System.currentTimeMillis()
+                )
+                DocumentOpenCache.put(outgoingSnapshot)
+                if (prevDirty || prevTextToSave != prevNote.content) {
+                    persistOutgoingAsync(prevNote, prevTextToSave, prevRev)
+                }
             }
             DocumentOpenTrace.mark(noteId, "cache_hit")
             publishLoaded(cached, requestId)
             return
         }
 
-        // Set loading state immediately so UI does not show previous document's contents
-        val meta = preloadedMetadata ?: preloadedNote?.toMetadata()
+        // Preserve matching staged metadata throughout Opening -> Loaded; never erase to null
+        val existingMeta = _activeMetadata.value?.takeIf { it.id == noteId }
+            ?: (_loadState.value as? DocumentLoadState.Opening)?.takeIf { it.noteId == noteId }?.metadata
+            ?: (_loadState.value as? DocumentLoadState.Loading)?.takeIf { it.noteId == noteId }?.metadata
+            ?: com.primaloptima.scribe.navigation.EditorDocumentSession.peek(noteId)
+
+        val meta = preloadedMetadata ?: preloadedNote?.toMetadata() ?: existingMeta
         if (meta != null && meta.id == noteId) {
             preloadNote(meta)
         } else {
@@ -984,8 +1008,6 @@ class EditorViewModel(
         pendingContent = ""
         lastSavedContent = ""
         isDirty = false
-        currentContentRevision = 0L
-        lastSavedRevision = 0L
 
         // Cancel obsolete background tasks
         loadNoteJob?.cancel()
@@ -994,16 +1016,30 @@ class EditorViewModel(
         proseJob?.cancel()
         recoveryJob?.cancel()
 
-        // The outgoing document is still written, on its own lane: opening never waits for it.
-        if (prevNote != null && prevNote.id != noteId && (prevDirty || prevTextToSave != prevNote.content)) {
-            persistOutgoingAsync(prevNote, prevTextToSave, prevRev)
+        // Preserve exact outgoing snapshot immediately in DocumentOpenCache
+        if (prevNote != null && prevNote.id != noteId) {
+            val outgoingWc = MarkdownUtil.countWords(prevTextToSave)
+            val outgoingSnapshot = prevNote.copy(
+                content = prevTextToSave,
+                wordCount = outgoingWc,
+                updatedAt = System.currentTimeMillis()
+            )
+            DocumentOpenCache.put(outgoingSnapshot)
+            if (prevDirty || prevTextToSave != prevNote.content) {
+                persistOutgoingAsync(prevNote, prevTextToSave, prevRev)
+            }
         }
 
         loadNoteJob = viewModelScope.launch {
             if (loadGeneration.get() != requestId || !coroutineContext.isActive) return@launch
 
             DocumentOpenTrace.mark(noteId, "metadata_lookup")
-            val noteFromDb = withContext(Dispatchers.IO) { db.noteDao().getById(noteId) }
+            val inFlight = com.primaloptima.scribe.navigation.EditorDocumentSession.getInFlightLoad(noteId)
+            val prefetchedNote = try {
+                inFlight?.await()
+            } catch (_: Throwable) { null }
+
+            val noteFromDb = prefetchedNote ?: withContext(Dispatchers.IO) { db.noteDao().getById(noteId) }
             DocumentOpenTrace.mark(noteId, "full_content_db_retrieval")
 
             if (loadGeneration.get() != requestId || !coroutineContext.isActive) return@launch
@@ -1093,8 +1129,6 @@ class EditorViewModel(
         lastSavedContent = note.content
         pendingContent = note.content
         isDirty = false
-        currentContentRevision = 0L
-        lastSavedRevision = 0L
         lastWordCount = note.wordCount
         _wordCount.value = note.wordCount
         setSnapshotBaseline(note.id, note.wordCount)
@@ -1113,8 +1147,17 @@ class EditorViewModel(
      */
     private fun persistOutgoingAsync(note: Note, text: String, revision: Long) {
         viewModelScope.launch(Dispatchers.IO) {
-            saveMutex.withLock { saveContentInternal(note, text, revision) }
-            saveVersionSnapshotOnLeave(note.id, text)
+            try {
+                saveMutex.withLock { saveContentInternal(note, text, revision) }
+                saveVersionSnapshotOnLeave(note.id, text)
+            } catch (e: Exception) {
+                android.util.Log.e("EditorViewModel", "persistOutgoingAsync failed for ${note.id}", e)
+                try {
+                    com.primaloptima.scribe.util.RecoveryManager.set(getApplication(), note.id, text)
+                } catch (re: Exception) {
+                    android.util.Log.e("EditorViewModel", "RecoveryManager fallback failed", re)
+                }
+            }
         }
     }
 
@@ -1171,7 +1214,16 @@ class EditorViewModel(
         val note = _activeNote.value
         val dirty = isDirty
         val contentToSave = pendingContent
-        val revToSave = currentContentRevision
+        val revToSave = if (note != null) noteCurrentRevisions[note.id] ?: 0L else 0L
+
+        if (note != null) {
+            val updatedSnapshot = note.copy(
+                content = contentToSave,
+                wordCount = MarkdownUtil.countWords(contentToSave),
+                updatedAt = System.currentTimeMillis()
+            )
+            DocumentOpenCache.put(updatedSnapshot)
+        }
 
         // If dirty, persist asynchronously on IO
         if (note != null && (dirty || contentToSave != lastSavedContent)) {
@@ -1207,8 +1259,6 @@ class EditorViewModel(
         lastSavedContent = ""
         pendingContent = ""
         isDirty = false
-        currentContentRevision = 0L
-        lastSavedRevision = 0L
         lastWordCount = 0
         viewModelScope.launch { dataStore.setActiveNoteId(null) }
     }
@@ -1244,7 +1294,7 @@ class EditorViewModel(
             }
             val dirty = isDirty
             val content = pendingContent
-            val rev = currentContentRevision
+            val rev = noteCurrentRevisions[active.id] ?: 0L
             if (dirty || content != lastSavedContent) {
                 viewModelScope.launch(Dispatchers.IO) {
                     val success = saveMutex.withLock {
@@ -1336,7 +1386,9 @@ class EditorViewModel(
         lastSavedContent = content
         isDirty = false
         val note = _activeNote.value ?: return
-        _activeNote.value = note.copy(content = content)
+        val updated = note.copy(content = content)
+        _activeNote.value = updated
+        DocumentOpenCache.put(updated)
         viewModelScope.launch(Dispatchers.IO) {
             if (note.externalUri != null) {
                 try {
@@ -1378,8 +1430,7 @@ class EditorViewModel(
 
         pendingContent = content
         isDirty = true
-        currentContentRevision++
-        val rev = currentContentRevision
+        val rev = noteCurrentRevisions.compute(note.id) { _, v -> (v ?: 0L) + 1L } ?: 1L
 
         val cur = _activeNote.value
         if (cur != null && cur.id == note.id) {
@@ -1448,8 +1499,8 @@ class EditorViewModel(
         autosaveJob = null
         val note = _activeNote.value
         val content = pendingContent
-        val rev = currentContentRevision
         if (note != null && (isDirty || content != lastSavedContent)) {
+            val rev = noteCurrentRevisions[note.id] ?: 0L
             return viewModelScope.launch(Dispatchers.IO) {
                 saveMutex.withLock {
                     saveContentInternal(note, content, rev)
@@ -1468,7 +1519,7 @@ class EditorViewModel(
         val note = _activeNote.value ?: return true
         if (targetNoteId != null && targetNoteId != note.id) return true
         val content = pendingContent
-        val rev = currentContentRevision
+        val rev = noteCurrentRevisions[note.id] ?: 0L
         if (!isDirty && content == lastSavedContent) return true
 
         return withContext(Dispatchers.IO) {
@@ -1490,7 +1541,8 @@ class EditorViewModel(
     }
 
     private suspend fun saveContentInternal(note: Note, content: String, revision: Long): Boolean {
-        if (revision < lastSavedRevision && revision != 0L) {
+        val lastSaved = noteSavedRevisions[note.id] ?: 0L
+        if (revision < lastSaved && revision != 0L) {
             return false
         }
         val newWords = withContext(Dispatchers.Default) { MarkdownUtil.countWords(content) }
@@ -1552,13 +1604,14 @@ class EditorViewModel(
             }
             // This save may belong to a document the writer has already left
             // (see persistOutgoingAsync). Only the active document's buffers may be touched.
+            val currentRev = noteCurrentRevisions[note.id] ?: 0L
             if (_activeNote.value?.id == note.id) {
                 lastSavedContent = content
-                if (revision >= currentContentRevision) {
+                if (revision >= currentRev) {
                     isDirty = false
                 }
-                lastSavedRevision = revision
             }
+            noteSavedRevisions[note.id] = maxOf(lastSaved, revision)
             DocumentOpenCache.put(updated)
         } else {
             // Keep content dirty and write to RecoveryManager immediately so user data is never lost
@@ -1642,7 +1695,7 @@ class EditorViewModel(
         if (ownerNoteId.isBlank()) return
         val active = _activeNote.value
         if (active != null && active.id == ownerNoteId) {
-            val rev = currentContentRevision
+            val rev = noteCurrentRevisions[active.id] ?: 0L
             val dirty = isDirty || content != lastSavedContent
             if (dirty) {
                 viewModelScope.launch(Dispatchers.IO) {
@@ -1697,9 +1750,9 @@ class EditorViewModel(
         if (content != pendingContent) {
             pendingContent = content
             isDirty = true
-            currentContentRevision++
+            noteCurrentRevisions.compute(note.id) { _, v -> (v ?: 0L) + 1L }
         }
-        val rev = currentContentRevision
+        val rev = noteCurrentRevisions[note.id] ?: 0L
         return viewModelScope.launch(Dispatchers.IO) {
             saveMutex.withLock {
                 saveContentInternal(note, content, rev)
@@ -1855,7 +1908,7 @@ class EditorViewModel(
         val note = _activeNote.value
         val dirty = isDirty
         val content = pendingContent
-        val rev = currentContentRevision
+        val rev = note?.let { noteCurrentRevisions[it.id] ?: 0L } ?: 0L
         if (note != null && (dirty || content != lastSavedContent)) {
             kotlinx.coroutines.CoroutineScope(Dispatchers.IO).launch {
                 saveMutex.withLock {

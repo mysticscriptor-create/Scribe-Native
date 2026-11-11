@@ -1090,10 +1090,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
         return true
     }
 
+    private var isNewDocumentContentApplied = false
     private var safetyCheckRetries = 0
     private val safetyCheckRunnable = object : Runnable {
         override fun run() {
-            if (!isAwaitingLayoutReady) return
+            // Prevent safety check runnable from inspecting or revealing the previous document
+            if (!isAwaitingLayoutReady || !isNewDocumentContentApplied) return
             if (isWordwrapReady()) {
                 checkAndTriggerReady()
             } else if (safetyCheckRetries < 20) {
@@ -1112,6 +1114,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
         clearKeyMetaStates()
         removeCallbacks(safetyCheckRunnable)
         isAwaitingLayoutReady = false
+        isNewDocumentContentApplied = true
+        isEditable = true
         alpha = 1f
         try {
             renderContext.invalidateRenderNodes()
@@ -1121,9 +1125,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
 
     /**
-     * Atomic single-frame document open:
-     * Sets text, immediately delivers visibility, and applies inlay hints afterwards
-     * so layout and first frame rendering execute with zero hitch.
+     * Atomic single-frame document open integrated with first-visible/layout-ready state machine:
+     * Sets text, arms reveal and wordwrap layout readiness pipeline without falsely marking ready immediately.
      */
     fun openDocument(
         content: String,
@@ -1132,45 +1135,59 @@ class ScribeCodeEditor @JvmOverloads constructor(
         onRevealed: (() -> Unit)? = null
     ) {
         activeTraceNoteId = traceNoteId
-        traceNoteId?.let { DocumentOpenTrace.mark(it, "text_set") }
+        traceNoteId?.let { DocumentOpenTrace.mark(it, DocumentOpenTrace.MARK_TEXT_SET) }
+
+        isNewDocumentContentApplied = true
+        isEditable = false
         setText(content)
-        alpha = 1f
-        isAwaitingLayoutReady = false
-        isFirstVisibleDelivered = true
-        isLayoutReadyDelivered = true
-        removeCallbacks(safetyCheckRunnable)
-        traceNoteId?.let {
-            DocumentOpenTrace.mark(it, "first_correct_visible_content")
-            DocumentOpenTrace.mark(it, "first_frame")
-        }
-        onRevealed?.invoke()
+
         if (hints != null) {
-            post {
-                setInlayHints(hints)
+            setInlayHints(hints)
+        }
+
+        if (onRevealed != null) {
+            val prevVisibleListener = onFirstVisibleListener
+            onFirstVisibleListener = {
+                prevVisibleListener?.invoke()
+                onRevealed.invoke()
             }
         }
+
+        // Post on actual animation frame for genuine frame delivery
+        postOnAnimation {
+            notifyContentSet()
+        }
+
+        safetyCheckRetries = 0
+        removeCallbacks(safetyCheckRunnable)
+        postDelayed(safetyCheckRunnable, 50)
     }
 
     /**
      * Prepares the editor for a newly loaded document:
-     * Arms the ready-check listener without arbitrary artificial postDelayed delays.
+     * Fades editor to invisible, disables editing, and awaits new document content
+     * without inspecting the previous document.
      */
     fun prepareForNewDocument(traceNoteId: String? = null) {
         activeTraceNoteId = traceNoteId
         animate().cancel()
         alpha = 0f
+        isEditable = false
         isAwaitingLayoutReady = true
         isFirstVisibleDelivered = false
         isLayoutReadyDelivered = false
+        isNewDocumentContentApplied = false
         safetyCheckRetries = 0
         removeCallbacks(safetyCheckRunnable)
-        post(safetyCheckRunnable)
     }
 
     private fun deliverFirstVisible() {
         if (isFirstVisibleDelivered) return
         isFirstVisibleDelivered = true
-        activeTraceNoteId?.let { DocumentOpenTrace.mark(it, "first_correct_visible_content") }
+        activeTraceNoteId?.let {
+            DocumentOpenTrace.mark(it, "first_correct_visible_content")
+            DocumentOpenTrace.mark(it, DocumentOpenTrace.MARK_FIRST_FRAME)
+        }
         alpha = 1f
         val listener = onFirstVisibleListener
         onFirstVisibleListener = null
@@ -1181,6 +1198,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (isLayoutReadyDelivered) return
         isLayoutReadyDelivered = true
         isAwaitingLayoutReady = false
+        isEditable = true
         removeCallbacks(safetyCheckRunnable)
         activeTraceNoteId?.let { DocumentOpenTrace.mark(it, "full_wordwrap_ready") }
         val listener = onLayoutReadyListener

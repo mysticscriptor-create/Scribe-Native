@@ -1,5 +1,7 @@
 package com.primaloptima.scribe
 
+import kotlinx.coroutines.launch
+
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -128,13 +130,14 @@ class ScribeActivity : ComponentActivity() {
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
 
         // Prewarm active theme fonts on Dispatchers.IO to eliminate disk reads during first composition
+        val themeManager = (application as ScribeApp).themeManager
         lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val theme = com.primaloptima.scribe.ui.theme.ThemeManager.getTheme(activeThemeId)
+            val theme = themeManager.getTheme(activeThemeId)
             val fontKey = theme.titleFontFamily ?: theme.fontFamily
             com.primaloptima.scribe.util.font.ScribeFontManager.prewarm(
                 this@ScribeActivity,
                 fontKey,
-                listOf(theme.title1FontWeight, theme.title2FontWeight, 400, 600, 700)
+                listOfNotNull(theme.title1FontWeight, theme.title2FontWeight, 400, 600, 700)
             )
         }
 
@@ -262,12 +265,13 @@ class ScribeActivity : ComponentActivity() {
                         onOpenBook         = { book ->
                             backStack.add(Route.Book(book.id))
                         },
-                        onOpenNote         = { noteId, bookId ->
-                            val meta = notesVm.notes.value.firstOrNull { it.id == noteId }
+                        onOpenNote         = { noteId, bookId, metadata ->
+                            com.primaloptima.scribe.util.DocumentOpenTrace.start(noteId).mark(com.primaloptima.scribe.util.DocumentOpenTrace.MARK_NAV_START)
+                            val meta = metadata ?: notesVm.allNotes.value.firstOrNull { it.id == noteId }
                             if (meta != null) {
                                 EditorDocumentSession.stage(noteId, meta)
                             }
-                            EditorDocumentSession.prefetch(noteId, noteDao, lifecycleScope)
+                            EditorDocumentSession.prefetch(noteId, this@ScribeActivity, lifecycleScope)
                             backStack.add(Route.Editor(bookId, noteId))
                         },
                         onOpenSettings     = {
@@ -323,12 +327,13 @@ class ScribeActivity : ComponentActivity() {
                         vm          = bookVm,
                         dashboardVm = dashboardVm,
                         onBack      = { backStack.removeLastOrNull() },
-                        onOpenNote  = { noteId ->
-                            val meta = bookVm.notes.value.firstOrNull { it.id == noteId }
+                        onOpenNote  = { noteId, metadata ->
+                            com.primaloptima.scribe.util.DocumentOpenTrace.start(noteId).mark(com.primaloptima.scribe.util.DocumentOpenTrace.MARK_NAV_START)
+                            val meta = metadata ?: bookVm.notes.value.firstOrNull { it.id == noteId }
                             if (meta != null) {
                                 EditorDocumentSession.stage(noteId, meta)
                             }
-                            EditorDocumentSession.prefetch(noteId, noteDao, lifecycleScope)
+                            EditorDocumentSession.prefetch(noteId, this@ScribeActivity, lifecycleScope)
                             backStack.add(Route.Editor(key.bookId, noteId))
                         }
                     )
@@ -366,19 +371,18 @@ class ScribeActivity : ComponentActivity() {
                     // Stage 2: Staged NoteMetadata from tap session
                     // Stage 3: Fallback from active bookVm / noteListVm
                     remember(key.noteId) {
+                        // Always consume staged metadata, including on cache hits
+                        val staged = EditorDocumentSession.consume(key.noteId)
                         val cachedNote = DocumentOpenCache.get(key.noteId)
                         if (cachedNote != null) {
                             editorVm.preloadNote(cachedNote)
+                        } else if (staged != null) {
+                            editorVm.preloadNote(staged)
                         } else {
-                            val staged = EditorDocumentSession.consume(key.noteId)
-                            if (staged != null) {
-                                editorVm.preloadNote(staged)
-                            } else {
-                                val cached = bookVm.notes.value.firstOrNull { it.id == key.noteId }
-                                    ?: noteListVm.notes.value.firstOrNull { it.id == key.noteId }
-                                if (cached != null) {
-                                    editorVm.preloadNote(cached)
-                                }
+                            val cached = bookVm.notes.value.firstOrNull { it.id == key.noteId }
+                                ?: noteListVm.notes.value.firstOrNull { it.id == key.noteId }
+                            if (cached != null) {
+                                editorVm.preloadNote(cached)
                             }
                         }
                         true

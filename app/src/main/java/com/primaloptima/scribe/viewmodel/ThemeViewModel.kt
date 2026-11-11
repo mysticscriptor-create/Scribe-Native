@@ -52,7 +52,7 @@ class ThemeViewModel(application: Application) : AndroidViewModel(application) {
             com.primaloptima.scribe.util.font.ScribeFontManager.prewarm(
                 getApplication(),
                 fontKey,
-                listOf(theme.title1FontWeight, theme.title2FontWeight, 400, 600, 700)
+                listOfNotNull(theme.title1FontWeight, theme.title2FontWeight, 400, 600, 700)
             )
         }
         reload()

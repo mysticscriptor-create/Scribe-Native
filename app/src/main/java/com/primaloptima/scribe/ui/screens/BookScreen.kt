@@ -128,7 +128,7 @@ fun BookScreen(
     vm: BookViewModel,
     dashboardVm: DashboardViewModel,
     onBack: () -> Unit,
-    onOpenNote: (noteId: String) -> Unit
+    onOpenNote: (noteId: String, metadata: com.primaloptima.scribe.data.NoteMetadata?) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
     val scope   = rememberCoroutineScope()
@@ -611,8 +611,8 @@ fun BookScreen(
                                         items(pageNotes, key = { it.id }) { note ->
                                             NoteListRow(
                                                 note        = note,
-                                                onClick     = { onOpenNote(note.id) },
-                                                onOpenFloat = { onOpenNote(note.id) },
+                                                onClick     = { onOpenNote(note.id, note) },
+                                                onOpenFloat = { onOpenNote(note.id, note) },
                                                 onRename    = { scope.launch { captureForDialog { noteToRename = note } } },
                                                 onDuplicate = { vm.duplicateNote(note.id) },
                                                 onDelete    = { scope.launch { captureForDialog { noteToDelete = note } } }
@@ -682,8 +682,8 @@ fun BookScreen(
                                         NoteListRow(
                                             note        = note,
                                             modifier    = Modifier.padding(horizontal = 12.dp),
-                                            onClick     = { onOpenNote(note.id) },
-                                            onOpenFloat = { onOpenNote(note.id) },
+                                            onClick     = { onOpenNote(note.id, note) },
+                                            onOpenFloat = { onOpenNote(note.id, note) },
                                             onRename    = { scope.launch { captureForDialog { noteToRename = note } } },
                                             onDuplicate = { vm.duplicateNote(note.id) },
                                             onDelete    = { scope.launch { captureForDialog { noteToDelete = note } } }
@@ -694,7 +694,7 @@ fun BookScreen(
                                 folderPaths.forEach { fPath ->
                                     item(key = "folder_header_$fPath") {
                                         TreeFolderHeader(fPath = fPath, notes = notes) { note ->
-                                            onOpenNote(note.id)
+                                            onOpenNote(note.id, note)
                                         }
                                     }
                                 }
@@ -780,7 +780,7 @@ fun BookScreen(
                 onConfirm = { fullName ->
                     vm.createNote(fullName, selectedFolderPath) { id ->
                         showCreateNoteDialog = false
-                        onOpenNote(id)
+                        onOpenNote(id, null)
                     }
                 }
             )
