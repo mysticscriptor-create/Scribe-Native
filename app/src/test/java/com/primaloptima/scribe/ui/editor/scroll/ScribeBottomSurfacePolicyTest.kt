@@ -1186,5 +1186,40 @@ class ScribeBottomSurfacePolicyTest {
         // target = 150 + 1200 - (1000 - 60) = 1350 - 940 = 410f
         assertEquals(410f, retargeted, 0.001f)
     }
+
+    @Test
+    fun testKeyboardTransaction_MonotonicUpwardRetargetingDuringEntrance() {
+        val transaction = ScribeScrollPolicy.KeyboardTransaction(
+            transactionId = 99L,
+            isActive = true,
+            targetScroll = 450f
+        )
+        val deadbandPx = 25f
+
+        // Case 1: Intermediate viewport resize calculates desiredTarget < glideTarget (e.g. 420f < 450f)
+        // Must strictly suppress retargeting so document never moves downward!
+        val intermediateLower = transaction.shouldRetargetEntranceGlide(
+            glideTarget = 450f,
+            desiredTarget = 420f,
+            deadbandPx = deadbandPx
+        )
+        assertFalse("Downward retargeting during active keyboard entrance must be suppressed", intermediateLower)
+
+        // Case 2: Desired target is within deadband (e.g. 460f <= 450f + 25f)
+        val withinDeadband = transaction.shouldRetargetEntranceGlide(
+            glideTarget = 450f,
+            desiredTarget = 460f,
+            deadbandPx = deadbandPx
+        )
+        assertFalse("Retargeting within deadband must be suppressed to avoid secondary jitter", withinDeadband)
+
+        // Case 3: Post-resize target exceeds glideTarget + deadband (e.g. 520f > 475f, taller keyboard than expected)
+        val tallerKeyboard = transaction.shouldRetargetEntranceGlide(
+            glideTarget = 450f,
+            desiredTarget = 520f,
+            deadbandPx = deadbandPx
+        )
+        assertTrue("Upward retargeting must be authorized when additional clearance is required", tallerKeyboard)
+    }
 }
 

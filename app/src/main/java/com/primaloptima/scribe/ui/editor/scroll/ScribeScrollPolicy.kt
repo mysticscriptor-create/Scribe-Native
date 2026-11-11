@@ -375,6 +375,20 @@ object ScribeScrollPolicy {
             }
             return kotlin.math.abs(desiredTarget - currentScroll) > 1f
         }
+
+        /**
+         * Resolves whether an in-flight predictive entrance glide should be retargeted.
+         * Enforces the monotonic upward invariant during keyboard entrance:
+         * Never retargets downward (which causes visible down-then-up bouncing).
+         * Only retargets upward if the post-resize viewport requires additional clearance.
+         */
+        fun shouldRetargetEntranceGlide(
+            glideTarget: Float,
+            desiredTarget: Float,
+            deadbandPx: Float
+        ): Boolean {
+            return desiredTarget > glideTarget + deadbandPx
+        }
     }
 
     /**

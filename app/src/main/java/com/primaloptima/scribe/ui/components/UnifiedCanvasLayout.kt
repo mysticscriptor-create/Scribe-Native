@@ -422,6 +422,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     fun notifyKeyboardEntranceStarting() {
+        isKeyboardDismissing = false
         predictivelyGlideCursorAboveKeyboard()
     }
 
@@ -1463,8 +1464,16 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                             }
 
                             if (isGlideRunning && scrollCoordinator.isAnimationActive) {
-                                val targetDelta = kotlin.math.abs(glideTarget - desiredTarget)
-                                if (targetDelta > deadbandPx) {
+                                val shouldRetarget = if (isKeyboardTransactionActive) {
+                                    activeKeyboardTransaction?.shouldRetargetEntranceGlide(
+                                        glideTarget = glideTarget,
+                                        desiredTarget = desiredTarget,
+                                        deadbandPx = deadbandPx.toFloat()
+                                    ) ?: (desiredTarget > glideTarget + deadbandPx)
+                                } else {
+                                    kotlin.math.abs(glideTarget - desiredTarget) > deadbandPx
+                                }
+                                if (shouldRetarget) {
                                     startAuthoritativeScrollAnimation(
                                         targetTotalScroll = desiredTarget,
                                         reason = ScrollAnimationReason.PREDICTIVE_GLIDE,
@@ -1473,6 +1482,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                                             checkKeyboardTransactionSettled()
                                         }
                                     )
+                                } else {
+                                    checkKeyboardTransactionSettled()
                                 }
                             } else if (!isCurrentlySafe) {
                                 val currentScroll = (scrollD + editor.offsetY).toFloat()
