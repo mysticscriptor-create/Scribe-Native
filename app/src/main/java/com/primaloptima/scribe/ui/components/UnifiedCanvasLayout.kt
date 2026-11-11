@@ -1505,8 +1505,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 // When keyboard is dismissed or closing, the document MUST remain
                 // completely stationary at the saved margin (keyboard height + shortcut bar + breathing margin).
                 // Never pull down to the bottom of the screen.
+                val isDestinationSurfaceActive = (isBottomSurfaceActive || isKeyboardVisible || hasBottomObstruction) &&
+                    !isKeyboardDismissing && dockTransition != ScribeDockTransition.IME_DISMISSAL
+
                 if (!shouldFollow) {
-                    if (isKeyboardDismissing || !isBottomSurfaceActive || dockTransition == ScribeDockTransition.IME_DISMISSAL) {
+                    if (isKeyboardDismissing || !isDestinationSurfaceActive || dockTransition == ScribeDockTransition.IME_DISMISSAL) {
                         cancelRestoration()
                         invalidateCompensation("Keyboard dismissing or bottom surface inactive")
                     }
@@ -1545,7 +1548,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                             temporaryDisplacement = temporaryExpansionDisplacement,
                             isAtLastLine = isAtLastLine,
                             isKeyboardDismissing = isKeyboardDismissing,
-                            isBottomSurfaceActive = isBottomSurfaceActive
+                            isBottomSurfaceActive = isDestinationSurfaceActive
                         )
                     )
 

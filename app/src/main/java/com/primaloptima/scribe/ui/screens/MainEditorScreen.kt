@@ -2493,8 +2493,14 @@ fun MainEditorScreen(
                                 val bottomBoxHeight = when {
                                     bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
                                     bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.IME_TO_DRAWER_HANDOFF -> {
-                                        val baseline = bottomSurfaceState.capturedHandoffImeHeightDp?.dp ?: bottomSurfaceState.compactHeightDp
-                                        maxOf(baseline, imeAboveNavDp, bottomSurfaceState.currentDrawerHeightDp)
+                                        val captured = bottomSurfaceState.capturedHandoffImeHeightDp?.dp
+                                        val baseline = captured ?: bottomSurfaceState.compactHeightDp
+                                        val effectiveDrawer = if (captured != null && bottomSurfaceState.isAccessoryDrawerActive && bottomSurfaceState.currentDrawerHeightDp == bottomSurfaceState.compactHeightDp) {
+                                            captured
+                                        } else {
+                                            bottomSurfaceState.currentDrawerHeightDp
+                                        }
+                                        maxOf(baseline, imeAboveNavDp, effectiveDrawer)
                                     }
                                     bottomSurfaceState.isAccessoryDrawerActive -> effectiveBottomSurfaceHeight
                                     isKeyboardVisible || imeAboveNavDp > 0.dp -> imeAboveNavDp

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.Composable
@@ -530,7 +531,14 @@ class ScribeBottomSurfaceState(
         onOpen: (() -> Unit)? = null
     ) {
         val fromKeyboard = isKeyboardVisible || imeAboveNavDp.value > 10f
-        capturedHandoffImeHeightDp = if (fromKeyboard && imeAboveNavDp.value > 0f) imeAboveNavDp.value else null
+        val capturedHandoff = if (fromKeyboard && imeAboveNavDp.value > 0f) imeAboveNavDp.value else null
+        capturedHandoffImeHeightDp = capturedHandoff
+        if (capturedHandoff != null && ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(capturedHandoff, screenHeightDpFloat)) {
+            lastKeyboardHeightDp = capturedHandoff.dp
+            scope?.launch {
+                onSaveKeyboardHeight(capturedHandoff)
+            }
+        }
         activeTransition = if (fromKeyboard) ScribeDockTransition.IME_TO_DRAWER_HANDOFF else ScribeDockTransition.DRAWER_OPEN
         transitionGeneration++
         dockMode = ScribeDockMode.ACCESSORY_DRAWER
@@ -538,8 +546,9 @@ class ScribeBottomSurfaceState(
         activeAccessoryDrawer = targetMode
         lastActiveAccessoryDrawer = targetMode
         drawerState = AccessoryDrawerState.COMPACT
+        val targetCompact = capturedHandoff ?: compactHeightDp.value
         scope?.launch {
-            drawerHeightDpAnim.snapTo(compactHeightDp.value)
+            drawerHeightDpAnim.snapTo(targetCompact)
         }
         onOpen?.invoke()
     }
@@ -600,8 +609,10 @@ fun rememberScribeBottomSurfaceState(
     val screenHeightDpFloat = configuration.screenHeightDp.toFloat()
     val isKeyboardVisible = WindowInsets.isImeVisible
     val imeBottomDp = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    val imeTargetBottomDp = WindowInsets.imeAnimationTarget.asPaddingValues().calculateBottomPadding()
     val docBottomNavInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val imeAboveNavDp = (imeBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
+    val imeTargetAboveNavDp = (imeTargetBottomDp - docBottomNavInset).coerceAtLeast(0.dp)
 
     val savedKeyboardHeightFloat by savedKeyboardHeightFlow.collectAsState(initial = 280f)
 
@@ -708,32 +719,40 @@ fun rememberScribeBottomSurfaceState(
         if (state.isAwaitingKeyboardOpen) {
             val capturedGen = state.transitionGeneration
             var settled = false
+            var settledH = 0f
             try {
-                // 1. Give keyboard at least 150ms to begin its animation from 0
+                // 1. Give keyboard at least 150ms to begin animating
                 delay(150)
-                // 2. Poll until imeAboveNavDp has settled at rest
-                var lastH = imeAboveNavDp.value
-                val startTime = System.currentTimeMillis()
-                while (System.currentTimeMillis() - startTime < 800) {
-                    delay(64)
-                    val curH = imeAboveNavDp.value
-                    if (isKeyboardVisible && curH >= 140f && kotlin.math.abs(curH - lastH) < 0.5f) {
-                        stableCount++
-                        if (stableCount >= 2) {
-                            settled = true
-                            break
+                // 2. Poll live snapshot state from ScribeBottomSurfaceState until settled
+                val result = withTimeoutOrNull(900) {
+                    var lastH = state.imeAboveNavDp.value
+                    var stableCount = 0
+                    while (true) {
+                        delay(64)
+                        val curH = state.imeAboveNavDp.value
+                        val isVis = state.isKeyboardVisible
+                        if (isVis && curH >= 140f && kotlin.math.abs(curH - lastH) < 0.5f) {
+                            stableCount++
+                            if (stableCount >= 2) {
+                                return@withTimeoutOrNull curH
+                            }
+                        } else {
+                            stableCount = 0
+                            lastH = curH
                         }
-                    } else {
-                        stableCount = 0
-                        lastH = curH
                     }
+                    @Suppress("UNREACHABLE_CODE")
+                    null
+                }
+                if (result != null && state.transitionGeneration == capturedGen && state.isKeyboardVisible) {
+                    settled = true
+                    settledH = result
                 }
             } finally {
-                // 3. Calibrate compactHeightDp to the exact settled height so future toggles match 1:1
-                val finalH = imeAboveNavDp.value
-                if ((settled || finalH >= 140f) && ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(finalH, screenHeightDpFloat)) {
-                    state.lastKeyboardHeightDp = imeAboveNavDp
-                    onSaveKeyboardHeight(finalH)
+                // 3. Calibrate compactHeightDp to confirmed settled height and persist to DataStore
+                if (settled && ScribeBottomSurfaceCoordinator.isValidStandardKeyboardHeight(settledH, screenHeightDpFloat)) {
+                    state.lastKeyboardHeightDp = settledH.dp
+                    onSaveKeyboardHeight(settledH)
                 }
                 state.isAwaitingKeyboardOpen = false
                 state.isBarTransitionLatched = false
@@ -743,7 +762,9 @@ fun rememberScribeBottomSurfaceState(
                     state.activeTransition = ScribeDockTransition.NONE
                     state.transitionGeneration++
                 }
-                state.dockMode = ScribeDockMode.IME
+                if (settled) {
+                    state.dockMode = ScribeDockMode.IME
+                }
             }
         }
     }
@@ -797,14 +818,14 @@ fun rememberScribeBottomSurfaceState(
                         lastSettledImeHeightDp = imeAboveNavDp.value
                     }
                 }
-            } else if (!isKeyboardVisible && imeAboveNavDp.value > 0.5f && !state.isAwaitingKeyboardOpen) {
+            } else if ((!isKeyboardVisible || imeTargetAboveNavDp.value <= 0.5f) && imeAboveNavDp.value > 0.5f && !state.isAwaitingKeyboardOpen) {
                 lastSettledImeHeightDp = 0f
                 if (state.activeTransition != ScribeDockTransition.IME_DISMISSAL) {
                     state.activeTransition = ScribeDockTransition.IME_DISMISSAL
                     state.transitionGeneration++
                 }
                 state.dockMode = ScribeDockMode.HIDDEN
-            } else if (!isKeyboardVisible && imeAboveNavDp.value <= 0.5f && !state.isAwaitingKeyboardOpen) {
+            } else if ((!isKeyboardVisible || imeTargetAboveNavDp.value <= 0.5f) && imeAboveNavDp.value <= 0.5f && !state.isAwaitingKeyboardOpen) {
                 lastSettledImeHeightDp = 0f
                 if (state.activeTransition == ScribeDockTransition.IME_DISMISSAL) {
                     state.activeTransition = ScribeDockTransition.NONE

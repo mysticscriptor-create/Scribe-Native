@@ -31,6 +31,9 @@ class ShortcutsViewModel(application: Application) : AndroidViewModel(applicatio
     private val _customCategories = MutableStateFlow<Map<String, List<String>>>(emptyMap())
     val customCategories: StateFlow<Map<String, List<String>>> = _customCategories.asStateFlow()
 
+    private val _isLoaded = MutableStateFlow(false)
+    val isLoaded: StateFlow<Boolean> = _isLoaded.asStateFlow()
+
     var lastSnippetCategory: String = "all"
     var lastTemplateCategory: String = "all"
     var targetStudioTab: com.primaloptima.scribe.ui.screens.StudioTab? = null
@@ -48,7 +51,13 @@ class ShortcutsViewModel(application: Application) : AndroidViewModel(applicatio
             }
             isEligible
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        (DefaultShortcuts.all + DefaultShortcuts.defaultSnippets + DefaultShortcuts.defaultTemplates).filter {
+            it.itemType == "action" && it.isEnabled
+        }
+    )
 
     /** All snippets */
     val snippets: StateFlow<List<ShortcutAction>> = _shortcuts.combine(_disabledCategories) { list, _ ->
@@ -86,6 +95,7 @@ class ShortcutsViewModel(application: Application) : AndroidViewModel(applicatio
             if (migratedDisabledCats != rawDisabledCats) {
                 dataStore.setDisabledCategoriesJson(AppJson.encodeToString(migratedDisabledCats))
             }
+            _isLoaded.value = true
         }
     }
 

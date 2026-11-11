@@ -80,7 +80,12 @@ object ScribeBottomSurfaceCoordinator {
             activeTransition == ScribeDockTransition.IME_TO_DRAWER_HANDOFF
         ) {
             val handoffBaseline = capturedHandoffImeHeightDp ?: maxOf(compactHeightDp, imeAboveNavDp)
-            return maxOf(handoffBaseline, imeAboveNavDp, drawerHeightDp)
+            val effectiveDrawer = if (capturedHandoffImeHeightDp != null && isAccessoryDrawerActive && drawerHeightDp > capturedHandoffImeHeightDp && drawerHeightDp == compactHeightDp) {
+                capturedHandoffImeHeightDp
+            } else {
+                drawerHeightDp
+            }
+            return maxOf(handoffBaseline, imeAboveNavDp, effectiveDrawer)
         }
 
         // 2. Active accessory drawer (steady-state)

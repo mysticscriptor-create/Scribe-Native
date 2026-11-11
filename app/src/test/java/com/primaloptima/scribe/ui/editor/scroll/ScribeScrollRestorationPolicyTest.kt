@@ -685,4 +685,43 @@ class ScribeScrollRestorationPolicyTest {
         assertEquals(1040f, validation.finalCaretScreenBottom, 0.001f)
     }
 
+    @Test
+    fun testContractionRestoration_ExpandedKeyboardToNormal_AuthorizesAndRestores() {
+        // Taller emoji keyboard contracting to standard keyboard: destination surface active via visible keyboard
+        val req = ScribeScrollRestorationPolicy.ContractionRestorationRequest(
+            caretScreenBottom = 700f,
+            caretScreenTop = 660f,
+            viewportHeight = 1100,
+            density = 2.5f,
+            totalScroll = 600f,
+            temporaryDisplacement = 140f,
+            isAtLastLine = false,
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true
+        )
+        val result = ScribeScrollRestorationPolicy.resolveContractionRestorationDelta(req)
+        assertTrue("Restoration must be authorized when destination surface remains active", result.shouldScroll)
+        assertEquals("Must restore exact 140px upward displacement", -140f, result.deltaY, 0.001f)
+        assertEquals("Remaining compensation must drop to 0", 0f, result.remainingCompensation, 0.001f)
+    }
+
+    @Test
+    fun testContractionRestoration_DrawerToKeyboardHandoff_AuthorizesAndRestores() {
+        // Expanded drawer closed via Snip/Tmpl returning to keyboard: destination surface remains active
+        val req = ScribeScrollRestorationPolicy.ContractionRestorationRequest(
+            caretScreenBottom = 800f,
+            caretScreenTop = 760f,
+            viewportHeight = 1200,
+            density = 2.0f,
+            totalScroll = 500f,
+            temporaryDisplacement = 200f,
+            isAtLastLine = false,
+            isKeyboardDismissing = false,
+            isBottomSurfaceActive = true
+        )
+        val result = ScribeScrollRestorationPolicy.resolveContractionRestorationDelta(req)
+        assertTrue("Restoration must be authorized during drawer-to-keyboard handoff", result.shouldScroll)
+        assertEquals("Must restore 200px displacement", -200f, result.deltaY, 0.001f)
+    }
+
 }
