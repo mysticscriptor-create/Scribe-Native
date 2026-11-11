@@ -346,6 +346,7 @@ class EditorViewModel(
             db.noteDao().updateContentAndWordCount(noteId, content, newWords, now)
             val updated = note.copy(content = content, wordCount = newWords, updatedAt = now, lastModified = now)
             _loadedWorkbenchNotes.value = _loadedWorkbenchNotes.value + (noteId to updated)
+            DocumentOpenCache.put(updated)
             if (_activeNote.value?.id == noteId) {
                 _activeNote.value = updated
                 lastSavedContent = content
@@ -912,6 +913,7 @@ class EditorViewModel(
         _loadState.value = DocumentLoadState.Loaded(note)
         _activeMetadata.value = note.toMetadata()
         _activeNote.value = note
+        DocumentOpenCache.put(note)
         lastSavedContent = note.content
         pendingContent = note.content
         isDirty = false
@@ -950,6 +952,23 @@ class EditorViewModel(
             sessionScrollMap.remove(noteId)
         }
 
+        // ── Fast path: a document this process has already materialised ──────
+        // The hit publishes Loaded on the calling thread. No coroutine, no query,
+        // no intermediate Loading state, so no frame is ever painted empty.
+        DocumentOpenCache.get(noteId)?.let { cached ->
+            loadNoteJob?.cancel()
+            autosaveJob?.cancel()
+            statsJob?.cancel()
+            proseJob?.cancel()
+            recoveryJob?.cancel()
+            if (prevNote != null && prevNote.id != noteId && (prevDirty || prevTextToSave != prevNote.content)) {
+                persistOutgoingAsync(prevNote, prevTextToSave, prevRev)
+            }
+            DocumentOpenTrace.mark(noteId, "cache_hit")
+            publishLoaded(cached, requestId)
+            return
+        }
+
         // Set loading state immediately so UI does not show previous document's contents
         val meta = preloadedMetadata ?: preloadedNote?.toMetadata()
         if (meta != null && meta.id == noteId) {
@@ -974,36 +993,12 @@ class EditorViewModel(
         proseJob?.cancel()
         recoveryJob?.cancel()
 
-        loadNoteJob = viewModelScope.launch {
-            // Asynchronously wait for outgoing document local persistence to succeed before loading new document
-            if (prevNote != null && prevNote.id != noteId) {
-                val needsSave = prevDirty || prevTextToSave != prevNote.content
-                if (needsSave) {
-                    val persisted = withContext(Dispatchers.IO) {
-                        saveMutex.withLock {
-                            saveContentInternal(prevNote, prevTextToSave, prevRev)
-                        }
-                    }
-                    if (!persisted) {
-                        val recovered = withContext(Dispatchers.IO) {
-                            try {
-                                RecoveryManager.get(getApplication(), prevNote.id) == prevTextToSave
-                            } catch (_: Exception) { false }
-                        }
-                        if (!recovered) {
-                            _loadState.value = DocumentLoadState.Error(
-                                noteId = noteId,
-                                message = "Failed to save previous document changes. Please try again.",
-                                recoverable = true
-                            )
-                            return@launch
-                        }
-                    }
-                }
-                // Associating automatic snapshot with the outgoing document ID!
-                saveVersionSnapshotOnLeave(prevNote.id, prevTextToSave)
-            }
+        // The outgoing document is still written, on its own lane: opening never waits for it.
+        if (prevNote != null && prevNote.id != noteId && (prevDirty || prevTextToSave != prevNote.content)) {
+            persistOutgoingAsync(prevNote, prevTextToSave, prevRev)
+        }
 
+        loadNoteJob = viewModelScope.launch {
             if (loadGeneration.get() != requestId || !coroutineContext.isActive) return@launch
 
             DocumentOpenTrace.mark(noteId, "metadata_lookup")
@@ -1080,24 +1075,45 @@ class EditorViewModel(
                 loadedNote.copy(content = effectiveContent, wordCount = safeWc)
             } else loadedNote
 
-            DocumentOpenTrace.mark(noteId, "content_preparation")
-            _activeMetadata.value = safeNote.toMetadata()
-            _activeNote.value = safeNote
-            _loadState.value = DocumentLoadState.Loaded(safeNote)
-            lastSavedContent = safeNote.content
-            pendingContent = safeNote.content
-            isDirty = false
-            currentContentRevision = 0L
-            lastSavedRevision = 0L
-            lastWordCount = safeNote.wordCount
-            _wordCount.value = safeNote.wordCount
-            setSnapshotBaseline(safeNote.id, safeNote.wordCount)
+            // 5. Publish first, then start the background calculations.
+            publishLoaded(safeNote, requestId)
+        }
+    }
 
-            checkRecovery(safeNote, requestId)
-            dataStore.setActiveNoteId(safeNote.id)
+    /**
+     * Publishes a fully materialised document as the active one, on the calling thread.
+     * Both the cache path and the database path go through here so they cannot diverge.
+     */
+    private fun publishLoaded(note: Note, requestId: Long) {
+        DocumentOpenTrace.mark(note.id, "content_preparation")
+        _activeMetadata.value = note.toMetadata()
+        _activeNote.value = note
+        _loadState.value = DocumentLoadState.Loaded(note)
+        lastSavedContent = note.content
+        pendingContent = note.content
+        isDirty = false
+        currentContentRevision = 0L
+        lastSavedRevision = 0L
+        lastWordCount = note.wordCount
+        _wordCount.value = note.wordCount
+        setSnapshotBaseline(note.id, note.wordCount)
+        DocumentOpenCache.put(note)
 
-            // 5. Asynchronous background calculations (off main thread, cached)
-            scheduleAsyncStatsAndAnalysis(safeNote.id, safeNote.content, requestId)
+        checkRecovery(note, requestId)
+        viewModelScope.launch { dataStore.setActiveNoteId(note.id) }
+
+        scheduleAsyncStatsAndAnalysis(note.id, note.content, requestId)
+    }
+
+    /**
+     * Persists the document being left without making the open wait for it.
+     * A failed write still lands in RecoveryManager inside saveContentInternal, and the
+     * note is never marked clean for the document that follows.
+     */
+    private fun persistOutgoingAsync(note: Note, text: String, revision: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            saveMutex.withLock { saveContentInternal(note, text, revision) }
+            saveVersionSnapshotOnLeave(note.id, text)
         }
     }
 
@@ -1533,14 +1549,21 @@ class EditorViewModel(
             if (curLoad is DocumentLoadState.Loaded && curLoad.note.id == note.id) {
                 _loadState.value = DocumentLoadState.Loaded(updated)
             }
-            lastSavedContent = content
-            if (revision >= currentContentRevision) {
-                isDirty = false
+            // This save may belong to a document the writer has already left
+            // (see persistOutgoingAsync). Only the active document's buffers may be touched.
+            if (_activeNote.value?.id == note.id) {
+                lastSavedContent = content
+                if (revision >= currentContentRevision) {
+                    isDirty = false
+                }
+                lastSavedRevision = revision
             }
-            lastSavedRevision = revision
+            DocumentOpenCache.put(updated)
         } else {
             // Keep content dirty and write to RecoveryManager immediately so user data is never lost
-            isDirty = true
+            if (_activeNote.value?.id == note.id) {
+                isDirty = true
+            }
             RecoveryManager.set(getApplication(), note.id, content)
         }
         return roomSuccess

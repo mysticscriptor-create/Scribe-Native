@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import com.primaloptima.scribe.navigation.EditorAuxiliaryOverlayHost
+import com.primaloptima.scribe.viewmodel.DocumentOpenCache
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.produceState
@@ -339,12 +340,19 @@ class ScribeActivity : ComponentActivity() {
                     val bookVm:     BookViewModel     = viewModel()
                     val noteListVm: NoteListViewModel = viewModel()
                     remember(key.bookId) { bookVm.init(key.bookId); true }
-                    // Preload note metadata synchronously into editorVm so frame 0 has title immediately
+                    // Preload synchronously into editorVm so frame 0 is already correct.
+                    // A document this process has opened before is published complete, with
+                    // no Loading state to sit behind an overlay.
                     remember(key.noteId) {
-                        val cached = bookVm.notes.value.firstOrNull { it.id == key.noteId }
-                            ?: noteListVm.notes.value.firstOrNull { it.id == key.noteId }
-                        if (cached != null) {
-                            editorVm.preloadNote(cached)
+                        val cachedNote = DocumentOpenCache.get(key.noteId)
+                        if (cachedNote != null) {
+                            editorVm.preloadNote(cachedNote)
+                        } else {
+                            val cached = bookVm.notes.value.firstOrNull { it.id == key.noteId }
+                                ?: noteListVm.notes.value.firstOrNull { it.id == key.noteId }
+                            if (cached != null) {
+                                editorVm.preloadNote(cached)
+                            }
                         }
                         true
                     }

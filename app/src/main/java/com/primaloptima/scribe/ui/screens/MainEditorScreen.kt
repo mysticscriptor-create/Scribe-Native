@@ -2797,31 +2797,8 @@ fun MainEditorScreen(
                         }
                     }
 
-                    // ── Document Loading Overlay ──
-                    if (loadState is DocumentLoadState.Loading) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .background(MaterialTheme.colorScheme.surface),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(32.dp),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    strokeWidth = 2.5.dp
-                                )
-                                Text(
-                                    text = "Opening document…",
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
+                    // No loading overlay: the document is published complete, so there is
+                    // nothing to indicate. The error overlay below is unchanged.
 
                     // ── Document Load Error Overlay ──
                     if (loadState is DocumentLoadState.Error) {
