@@ -67,29 +67,13 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # ── Unit tests ───────────────────────────────────────────────────────────
-      - name: Run unit tests
-        run: |
-          ./gradlew testDebugUnitTest \
-            --no-daemon \
-            --parallel \
-            --build-cache
-
-      # ── Debug build (push / PR) ──────────────────────────────────────────────
-      # Flags explained:
-      #   --no-daemon          required on ephemeral CI runners; daemons are
-      #                        useless when the VM is destroyed after the job.
-      #   --parallel           lets Gradle run independent tasks concurrently.
-      #   --build-cache        reuses outputs from previous runs via the Gradle
-      #                        User Home cache restored by setup-gradle above.
-      #   --configuration-cache (new) skips the entire Gradle configuration
-      #                        phase on cache hits — typically saves 10-30 s on
-      #                        a warm build. Requires Gradle 8.6+; safe on 9.x.
-      - name: Build debug APK (push / PR)
+      # ── Test & Build debug APK (push / PR) ──────────────────────────────────
+      # Combined invocation shares task outputs, avoids duplicate configuration
+      # phases, eliminates a second JVM startup, and enables parallel task execution.
+      - name: Build and test debug APK
         if: github.event_name != 'workflow_dispatch'
         run: |
-          ./gradlew app:assembleDebug \
-            --no-daemon \
+          ./gradlew testDebugUnitTest app:assembleDebug \
             --parallel \
             --build-cache \
             --configuration-cache
@@ -106,13 +90,13 @@ jobs:
           compression-level: 0
 
       # ── Release build (manual trigger only) ────────────────────────────────
-      - name: Build release APK (manual trigger only)
+      - name: Build and test release APK (manual trigger only)
         if: github.event_name == 'workflow_dispatch'
         run: |
-          ./gradlew app:assembleRelease \
-            --no-daemon \
+          ./gradlew testDebugUnitTest app:assembleRelease \
             --parallel \
-            --build-cache
+            --build-cache \
+            --configuration-cache
 
       - name: Upload release APK
         if: github.event_name == 'workflow_dispatch'
