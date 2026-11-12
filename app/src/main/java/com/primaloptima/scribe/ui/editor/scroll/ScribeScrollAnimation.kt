@@ -66,6 +66,9 @@ class ScribeCanvasGlideAnimator(
                 if (glidePosition < minSafeScroll) {
                     glidePosition = minSafeScroll
                     if (glideVelocity < 0f) glideVelocity = 0f
+                    if (glideTarget <= minSafeScroll) {
+                        glideTarget = minSafeScroll
+                    }
                 }
             }
 
@@ -161,11 +164,13 @@ class ScribeCanvasGlideAnimator(
     fun cancel(reason: String? = null) {
         removeCallbacksAction(glideFrameRunnable)
         isGlideRunning = false
+        val onEnd = activeGlideOnEnd
         activeGlideReason = null
         activeGlideOnEnd = null
         val oldAnimator = activeCanvasAnimator
         activeCanvasAnimator = null
         oldAnimator?.cancel()
         scrollCoordinator.cancelAnimation(reason)
+        onEnd?.invoke()
     }
 }

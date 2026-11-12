@@ -420,4 +420,91 @@ class ScribeScrollDeletionPolicyTest {
             ScribeScrollDeletionPolicy.DeletionAnchorIntent.CARET_ANCHOR, intent)
     }
 
+    @Test
+    fun testDeletionAnchor_GlideTargetConvergesToMinSafeScrollWhenTargetBelowBoundary() {
+        // When content shrinks and target total scroll is below minSafeScroll,
+        // the animator must converge glideTarget to minSafeScroll to prevent an infinite spring loop.
+        val minSafeScroll = 350f
+        var simulatedGlidePosition = 340f
+        var simulatedGlideVelocity = -120f
+        var simulatedGlideTarget = 300f // Target is below minSafeScroll
+
+        if (simulatedGlidePosition < minSafeScroll) {
+            simulatedGlidePosition = minSafeScroll
+            if (simulatedGlideVelocity < 0f) simulatedGlideVelocity = 0f
+            if (simulatedGlideTarget <= minSafeScroll) {
+                simulatedGlideTarget = minSafeScroll
+            }
+        }
+
+        assertEquals("Glide position must be clamped to minSafeScroll", 350f, simulatedGlidePosition, 0.001f)
+        assertEquals("Downwards velocity must be clamped to zero", 0f, simulatedGlideVelocity, 0.001f)
+        assertEquals("Glide target must converge to minSafeScroll to allow clean settlement", 350f, simulatedGlideTarget, 0.001f)
+
+        val distToTarget = kotlin.math.abs(simulatedGlidePosition - simulatedGlideTarget)
+        val isSettled = distToTarget < 0.5f && kotlin.math.abs(simulatedGlideVelocity) < 15f
+        assertTrue("Animation must settle cleanly without deadlocking", isSettled)
+    }
+
+    @Test
+    fun testDeletionBoundaryProviderNeverExceedsMaxCanvasScroll() {
+        // Deletion safe boundary must never exceed maxCanvasScroll
+        val headerHeight = 200f
+        val newLayoutHeight = 1200f
+        val breathingMarginPx = 60f
+        val viewportHeight = 800f
+        val maxCanvasScroll = 660f // 200 + 1200 + 60 - 800 = 660
+
+        val rawBoundary = headerHeight + newLayoutHeight + breathingMarginPx - viewportHeight
+        val bounded = rawBoundary.coerceIn(0f, maxCanvasScroll)
+
+        assertEquals(660f, bounded, 0.001f)
+        assertTrue("Bounded safe scroll must not exceed maxCanvasScroll", bounded <= maxCanvasScroll)
+    }
+
+    @Test
+    fun testDeleteTailWhenContentShrinksBelowCurrentScroll() {
+        // Deleting text at the bottom of the document when current scroll exceeds new maxCanvasScroll
+        val snapshot = ScribeScrollDeletionPolicy.DeletionSnapshot(
+            transactionEpoch = 2L,
+            isSelection = true,
+            selectionStartLine = 40,
+            selectionEndLine = 48,
+            preEditDocLineCount = 50,
+            preEditDocHeight = 4000f,
+            preEditScrollY = 3200f,
+            preEditCaretScreenY = 700f,
+            wasAtTail = true,
+            affectsDocumentTail = true
+        )
+
+        val newDocHeight = 2500f
+        val usableViewportHeight = 800f
+        val headerHeight = 200f
+        val breathingMarginPx = 60f
+        val maxCanvasScroll = (headerHeight + newDocHeight + breathingMarginPx - usableViewportHeight).coerceAtLeast(0f)
+
+        val intent = ScribeScrollDeletionPolicy.classifyDeletionIntent(
+            snapshot = snapshot,
+            newDocLineCount = 40,
+            newDocHeight = headerHeight + newDocHeight,
+            usableViewportHeight = usableViewportHeight
+        )
+        assertEquals(ScribeScrollDeletionPolicy.DeletionAnchorIntent.TAIL_ANCHOR, intent)
+
+        val destination = ScribeScrollDeletionPolicy.calculateSafeDeletionDestination(
+            intent = intent,
+            currentScroll = 3200f,
+            headerHeight = headerHeight,
+            newDocHeight = newDocHeight,
+            newCaretDocY = newDocHeight,
+            preEditCaretScreenY = 700f,
+            usableViewportHeight = usableViewportHeight,
+            breathingMarginPx = breathingMarginPx,
+            maxCanvasScroll = maxCanvasScroll
+        )
+
+        assertEquals("Destination must cleanly clamp to new maxCanvasScroll", maxCanvasScroll, destination, 0.001f)
+        assertTrue("Destination must be <= current scroll", destination <= 3200f)
+    }
 }

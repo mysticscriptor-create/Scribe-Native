@@ -355,7 +355,25 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     } else {
                         val pCanvas = parent as? UnifiedCanvasLayout
                         pCanvas?.notifyContentDeletionStarted()
-                        // Deletion settlement is safely deferred to LayoutStateChangeEvent once layout geometry is stable
+                        post {
+                            if (!isAttachedToWindow) return@post
+                            val canvas = parentCanvas ?: return@post
+                            if (isLayoutComputing || isLayoutBusyState) {
+                                // Background wordwrap is computing; LayoutStateChangeEvent will settle when ready
+                                return@post
+                            }
+                            val curLay = layout
+                            if (curLay != null && isWordwrapReady()) {
+                                if (canvas.isDeletionTransactionActive) {
+                                    canvas.handleDeletionSettlement(smooth = true)
+                                } else {
+                                    val totalScroll = canvas.scrollD + offsetY
+                                    if (totalScroll > canvas.maxCanvasScroll) {
+                                        canvas.clampCanvasScrollToMax(smooth = true)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1321,6 +1339,16 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     val curLay = layout
                     // Ensure Sora layout is non-null and wordwrap calculation is completely ready before settling deletion
                     if (curLay == null || !isWordwrapReady()) {
+                        val pCanvas = parentCanvas
+                        if (pCanvas?.isDeletionTransactionActive == true) {
+                            postDelayed({
+                                if (!isAttachedToWindow) return@postDelayed
+                                val c = parentCanvas ?: return@postDelayed
+                                if (c.isDeletionTransactionActive && isWordwrapReady()) {
+                                    c.handleDeletionSettlement(smooth = true)
+                                }
+                            }, 50L)
+                        }
                         return@post
                     }
                     checkAndTriggerReady()
@@ -1365,6 +1393,10 @@ class ScribeCodeEditor @JvmOverloads constructor(
             super.createLayout(shouldClear)
         } finally {
             isInsideWordwrapLayoutCreation = false
+            val isActuallyBusy = layoutBusyField?.getBoolean(this) ?: false
+            if (!isActuallyBusy) {
+                isLayoutBusyState = false
+            }
         }
     }
 

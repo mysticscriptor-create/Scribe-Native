@@ -310,8 +310,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         postOnAnimationAction = { runnable -> postOnAnimation(runnable) },
         removeCallbacksAction = { runnable -> removeCallbacks(runnable) },
         deletionBoundaryProvider = {
+            val maxBound = maxCanvasScroll.toFloat()
             if (isDeletionTailAnchored) {
-                (headerHeight + (editor.layout?.layoutHeight ?: 0) + breathingMarginPx - height).coerceAtLeast(0f)
+                (headerHeight + (editor.layout?.layoutHeight ?: 0) + breathingMarginPx - height)
+                    .coerceIn(0f, maxBound)
             } else {
                 val cur = try { editor.cursor } catch (_: Throwable) { null }
                 val lay = editor.layout
@@ -320,7 +322,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 } else {
                     0f
                 }
-                (headerHeight + caretDocY + breathingMarginPx - height).coerceAtLeast(0f)
+                (headerHeight + caretDocY + breathingMarginPx - height)
+                    .coerceIn(0f, maxBound)
             }
         },
         onSettledCallback = { reason ->
@@ -449,6 +452,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     val isDeletionTransactionActive: Boolean
         get() = activeDeletionSnapshot != null
 
+    fun clearDeletionTransaction() {
+        activeDeletionSnapshot = null
+        isDeletionTailAnchored = false
+    }
+
     fun beginPreEditDeletionSnapshot(
         isSelection: Boolean,
         selectionStartLine: Int,
@@ -551,8 +559,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         isDeletionTailAnchored = (intent == ScribeScrollDeletionPolicy.DeletionAnchorIntent.TAIL_ANCHOR)
 
         if (intent == ScribeScrollDeletionPolicy.DeletionAnchorIntent.RESET_TO_TOP) {
-            activeDeletionSnapshot = null
-            isDeletionTailAnchored = false
+            clearDeletionTransaction()
             resetDocumentToTop(smooth = smooth)
         } else if (kotlin.math.abs(target - currentScroll) >= 1f) {
             startAuthoritativeScrollAnimation(
@@ -562,14 +569,15 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 forceRetarget = true,
                 onEnd = {
                     if (deletionTransactionGeneration == currentGen) {
-                        activeDeletionSnapshot = null
-                        isDeletionTailAnchored = false
+                        clearDeletionTransaction()
                     }
                 }
             )
         } else {
-            activeDeletionSnapshot = null
-            isDeletionTailAnchored = false
+            clearDeletionTransaction()
+            if (currentScroll > maxBound) {
+                clampCanvasScrollToMax(smooth = smooth)
+            }
         }
     }
 
@@ -770,7 +778,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         isPredictiveGlideRunning = false
         targetPredictedScrollTotal = -1f
         endKeyboardTransaction()
-        activeDeletionSnapshot = null
+        clearDeletionTransaction()
         inputController.stopFling()
     }
 
