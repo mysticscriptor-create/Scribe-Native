@@ -39,10 +39,45 @@ object ScribeScrollDeletionPolicy {
         val hitBoundary: Boolean
     )
 
+    data class PreModificationSnapshot(
+        val isSelection: Boolean,
+        val selectionStartLine: Int,
+        val selectionEndLine: Int,
+        val preEditDocLineCount: Int,
+        val preEditDocHeight: Float,
+        val preEditScrollY: Float,
+        val preEditCaretScreenY: Float,
+        val wasAtTail: Boolean,
+        val preEditLastNonBlankLine: Int
+    )
+
     data class DeletionSettlementValidation(
         val isSafe: Boolean,
         val correctiveTargetScroll: Float
     )
+
+    /**
+     * Monotonically merges a subsequent deletion event within the same edit batch into the earliest
+     * active pre-edit snapshot without overwriting pre-edit scroll/document height metrics.
+     */
+    fun mergeDeletionBatchSnapshot(
+        existing: DeletionSnapshot,
+        batchEndLine: Int,
+        currentLastNonBlankLine: Int = existing.preEditLastNonBlankLine
+    ): DeletionSnapshot {
+        val mergedEndLine = maxOf(existing.selectionEndLine, batchEndLine)
+        val mergedAffectsTail = existing.affectsDocumentTail ||
+            isLineRangeAffectingLogicalTail(mergedEndLine, existing.preEditLastNonBlankLine) ||
+            isLineRangeAffectingLogicalTail(batchEndLine, currentLastNonBlankLine)
+        return if (mergedEndLine == existing.selectionEndLine && mergedAffectsTail == existing.affectsDocumentTail) {
+            existing
+        } else {
+            existing.copy(
+                selectionEndLine = mergedEndLine,
+                affectsDocumentTail = mergedAffectsTail
+            )
+        }
+    }
 
     /**
      * Finds the last logical non-blank line in the document so trailing empty or
@@ -224,15 +259,19 @@ object ScribeScrollDeletionPolicy {
         outerDelta: Float,
         headerHeight: Int,
         maxCanvasScroll: Int,
-        isDeletionTransactionActive: Boolean
+        isDeletionTransactionActive: Boolean,
+        clampLowerToNewMax: Boolean = true
     ): ScopedScrollStepResult {
         val maxD = minOf(headerHeight, maxCanvasScroll).coerceAtLeast(0)
         val inDeletionRetraction = isDeletionTransactionActive && currentScrollD > maxD && outerDelta < 0f
-        val minAllowed = if (inDeletionRetraction) maxD else 0
+        val minAllowed = if (inDeletionRetraction) (if (clampLowerToNewMax) maxD else 0) else 0
         val maxAllowed = if (inDeletionRetraction) currentScrollD else maxD
         val proposed = currentScrollD.toFloat() + currentResidualPx + outerDelta
         val hitLower = proposed < minAllowed.toFloat()
-        val hitUpper = proposed > maxAllowed.toFloat()
+        // During transitional downward retraction, positive fractional carry from a prior rounding step
+        // plus a smaller negative step can leave proposed slightly > currentScrollD; coerceIn preserves
+        // monotonic non-growth without prematurely triggering hitBoundary or wiping the residual.
+        val hitUpper = !inDeletionRetraction && proposed > maxAllowed.toFloat()
         val nextScrollD = when {
             hitLower -> minAllowed
             hitUpper -> maxAllowed
@@ -260,15 +299,18 @@ object ScribeScrollDeletionPolicy {
         currentResidualPx: Float,
         innerDelta: Float,
         maxAllowedY: Int,
-        isDeletionTransactionActive: Boolean
+        isDeletionTransactionActive: Boolean,
+        clampLowerToNewMax: Boolean = true
     ): ScopedScrollStepResult {
         val safeMaxY = maxAllowedY.coerceAtLeast(0)
         val inDeletionRetraction = isDeletionTransactionActive && currentOffsetY > safeMaxY && innerDelta < 0f
-        val minAllowed = if (inDeletionRetraction) safeMaxY else 0
+        val minAllowed = if (inDeletionRetraction) (if (clampLowerToNewMax) safeMaxY else 0) else 0
         val maxAllowed = if (inDeletionRetraction) currentOffsetY else safeMaxY
         val proposed = currentOffsetY.toFloat() + currentResidualPx + innerDelta
         val hitLower = proposed < minAllowed.toFloat()
-        val hitUpper = proposed > maxAllowed.toFloat()
+        // See resolveOuterScrollStep: keep sub-pixel carry intact when retreating downward from an
+        // already-overscrolled offset so small frames do not abort early.
+        val hitUpper = !inDeletionRetraction && proposed > maxAllowed.toFloat()
         val nextOffsetY = when {
             hitLower -> minAllowed
             hitUpper -> maxAllowed
@@ -326,5 +368,151 @@ object ScribeScrollDeletionPolicy {
             )
         }
         return DeletionSettlementValidation(isSafe = true, correctiveTargetScroll = currentTotalScroll)
+    }
+}
+
+
+/**
+ * Pure state machine coordinating pre-modification deletion snapshot staging,
+ * multi-event batch tail merging, and replace-with-delete settlement.
+ */
+class ScribeDeletionSnapshotCoordinator {
+
+    data class BatchTailProbe(
+        val endLine: Int,
+        val lastNonBlankLine: Int
+    )
+
+    sealed class AfterDeleteAction {
+        data class BeginTransaction(
+            val snapshot: ScribeScrollDeletionPolicy.DeletionSnapshot,
+            val affectsDocumentTail: Boolean
+        ) : AfterDeleteAction()
+
+        data class MergeExistingBatch(
+            val batchEndLine: Int,
+            val batchLastNonBlankLine: Int?
+        ) : AfterDeleteAction()
+
+        data object MarkPendingOnly : AfterDeleteAction()
+    }
+
+    sealed class AfterInsertAction {
+        data object None : AfterInsertAction()
+        data object ClearTransaction : AfterInsertAction()
+        data object SettleEmptyReplaceDelete : AfterInsertAction()
+    }
+
+    var stagedInitialSnapshot: ScribeScrollDeletionPolicy.PreModificationSnapshot? = null
+        private set
+    var stagedBatchProbe: BatchTailProbe? = null
+        private set
+    var isInContentReplace: Boolean = false
+        private set
+    var deletedDuringCurrentReplace: Boolean = false
+        private set
+
+    fun reset() {
+        stagedInitialSnapshot = null
+        stagedBatchProbe = null
+        isInContentReplace = false
+        deletedDuringCurrentReplace = false
+    }
+
+    fun onBeforeReplace() {
+        isInContentReplace = true
+        deletedDuringCurrentReplace = false
+    }
+
+    fun onBeforeModification(
+        hasPendingDeletionSettlement: Boolean,
+        captureInitialSnapshot: () -> ScribeScrollDeletionPolicy.PreModificationSnapshot?,
+        captureBatchProbe: () -> BatchTailProbe?
+    ) {
+        if (!hasPendingDeletionSettlement && stagedInitialSnapshot == null) {
+            stagedInitialSnapshot = captureInitialSnapshot()
+            stagedBatchProbe = null
+        } else if (hasPendingDeletionSettlement && stagedBatchProbe == null) {
+            stagedBatchProbe = captureBatchProbe()
+        }
+    }
+
+    fun onAfterDelete(
+        afterDeleteEndLine: Int,
+        hasPendingDeletionSettlement: Boolean
+    ): AfterDeleteAction {
+        val initial = stagedInitialSnapshot
+        val probe = stagedBatchProbe
+        stagedInitialSnapshot = null
+        stagedBatchProbe = null
+        if (isInContentReplace) {
+            deletedDuringCurrentReplace = true
+        }
+        return if (initial != null) {
+            val effectiveEndLine = maxOf(afterDeleteEndLine, initial.selectionEndLine)
+            val affectsTail = ScribeScrollDeletionPolicy.isLineRangeAffectingLogicalTail(
+                endLine = effectiveEndLine,
+                lastNonBlankLine = initial.preEditLastNonBlankLine
+            )
+            if (!hasPendingDeletionSettlement) {
+                AfterDeleteAction.BeginTransaction(
+                    snapshot = ScribeScrollDeletionPolicy.DeletionSnapshot(
+                        transactionEpoch = 0L,
+                        isSelection = initial.isSelection,
+                        selectionStartLine = initial.selectionStartLine,
+                        selectionEndLine = effectiveEndLine,
+                        preEditDocLineCount = initial.preEditDocLineCount,
+                        preEditDocHeight = initial.preEditDocHeight,
+                        preEditScrollY = initial.preEditScrollY,
+                        preEditCaretScreenY = initial.preEditCaretScreenY,
+                        wasAtTail = initial.wasAtTail,
+                        affectsDocumentTail = affectsTail,
+                        preEditLastNonBlankLine = initial.preEditLastNonBlankLine
+                    ),
+                    affectsDocumentTail = affectsTail
+                )
+            } else {
+                AfterDeleteAction.MergeExistingBatch(
+                    batchEndLine = effectiveEndLine,
+                    batchLastNonBlankLine = initial.preEditLastNonBlankLine
+                )
+            }
+        } else if (hasPendingDeletionSettlement) {
+            val effectiveEndLine = maxOf(afterDeleteEndLine, probe?.endLine ?: afterDeleteEndLine)
+            AfterDeleteAction.MergeExistingBatch(
+                batchEndLine = effectiveEndLine,
+                batchLastNonBlankLine = probe?.lastNonBlankLine
+            )
+        } else {
+            AfterDeleteAction.MarkPendingOnly
+        }
+    }
+
+    fun onAfterInsert(
+        insertedNotEmpty: Boolean,
+        isTextEmpty: Boolean,
+        currentTotalScroll: Int,
+        maxCanvasScroll: Int,
+        hasPendingOrActiveTransaction: Boolean
+    ): AfterInsertAction {
+        val wasReplaceWithDelete = isInContentReplace && deletedDuringCurrentReplace
+        isInContentReplace = false
+        deletedDuringCurrentReplace = false
+        stagedInitialSnapshot = null
+        stagedBatchProbe = null
+
+        if (wasReplaceWithDelete) {
+            if (insertedNotEmpty && !isTextEmpty && currentTotalScroll <= maxCanvasScroll) {
+                return AfterInsertAction.ClearTransaction
+            }
+            if (!insertedNotEmpty) {
+                return AfterInsertAction.SettleEmptyReplaceDelete
+            }
+            return AfterInsertAction.None
+        }
+        if (insertedNotEmpty && hasPendingOrActiveTransaction) {
+            return AfterInsertAction.ClearTransaction
+        }
+        return AfterInsertAction.None
     }
 }

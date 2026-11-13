@@ -91,21 +91,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
     var selectAllScrollMode: ScribeScrollPolicy.SelectAllScrollMode = ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION
     private var isExplicitSelectAllInProgress = false
 
-    private data class StagedPreModificationSnapshot(
-        val isSelection: Boolean,
-        val selectionStartLine: Int,
-        val selectionEndLine: Int,
-        val preEditDocLineCount: Int,
-        val preEditDocHeight: Float,
-        val preEditScrollY: Float,
-        val preEditCaretScreenY: Float,
-        val wasAtTail: Boolean,
-        val preEditLastNonBlankLine: Int
-    )
-
-    private var stagedPreModificationSnapshot: StagedPreModificationSnapshot? = null
-    private var isInContentReplace: Boolean = false
-    private var deletedDuringCurrentReplace: Boolean = false
+    private val deletionSnapshotCoordinator = ScribeDeletionSnapshotCoordinator()
     private var isSuppressingDeletionSizeClamp: Boolean = false
 
     override fun getScrollMaxY(): Int {
@@ -116,7 +102,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     return 0 // Strict 1-DOF invariant: inner editor cannot scroll while title header is visible
                 }
                 val normalMaxY = (pCanvas.maxCanvasScroll - pCanvas.headerHeight).coerceAtLeast(0)
-                if (isSuppressingDeletionSizeClamp && pCanvas.isDeletionTransactionActive) {
+                if (isSuppressingDeletionSizeClamp && pCanvas.isDeletionRetractionInProgress) {
                     return maxOf(normalMaxY, offsetY)
                 }
                 return normalMaxY
@@ -373,8 +359,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 if (event.action == io.github.rosemoe.sora.event.ContentChangeEvent.ACTION_DELETE) {
                     if (text.isEmpty()) {
                         val pCanvas = parent as? UnifiedCanvasLayout
-                        pCanvas?.clearDeletionTransaction()
-                        pCanvas?.resetDocumentToTop(smooth = true)
+                        pCanvas?.resetDocumentToTopFromDeletion(smooth = true)
                     } else {
                         val pCanvas = parent as? UnifiedCanvasLayout
                         pCanvas?.notifyContentDeletionStarted()
@@ -728,46 +713,60 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     override fun beforeReplace(content: io.github.rosemoe.sora.text.Content) {
         super.beforeReplace(content)
-        isInContentReplace = true
-        deletedDuringCurrentReplace = false
+        deletionSnapshotCoordinator.onBeforeReplace()
     }
 
     override fun beforeModification(content: io.github.rosemoe.sora.text.Content) {
         super.beforeModification(content)
         if (isAwaitingLayoutReady || isBatchApplyingIndent || isEnforcingIndentFloor) return
         val pCanvas = parentCanvas ?: return
-        if (pCanvas.hasPendingDeletionSettlement || stagedPreModificationSnapshot != null) return
-        val cur = try { cursor } catch (_: Throwable) { null } ?: return
-        val lay = layout
-        val lineCount = content.lineCount
-        val isSel = cur.isSelected
-        val startLine = cur.leftLine
-        val endLine = if (isSel) cur.rightLine else cur.leftLine
-        val docH = (pCanvas.headerHeight + (lay?.layoutHeight ?: 0)).toFloat()
-        val currentScroll = (pCanvas.scrollD + offsetY).toFloat()
-        val visibleH = pCanvas.height.toFloat()
-        val breathingMargin = pCanvas.breathingMarginPx
-        val tailTolerancePx = 2f * context.resources.displayMetrics.density
-        val wasAtTail = (currentScroll + visibleH) >= (docH - breathingMargin - tailTolerancePx)
-        val caretDocY = if (lay != null) {
-            pCanvas.getCharGeometry(lay, cur.leftLine, cur.leftColumn, rowHeight.toFloat()).bottomDocY
-        } else {
-            ((cur.leftLine + 1) * rowHeight).toFloat()
-        }
-        val caretScreenY = (pCanvas.headerHeight + caretDocY - currentScroll)
-        val lastNonBlankLine = ScribeScrollDeletionPolicy.findLastNonBlankLine(lineCount) { idx ->
-            content.getLine(idx)
-        }
-        stagedPreModificationSnapshot = StagedPreModificationSnapshot(
-            isSelection = isSel,
-            selectionStartLine = startLine,
-            selectionEndLine = endLine,
-            preEditDocLineCount = lineCount,
-            preEditDocHeight = docH,
-            preEditScrollY = currentScroll,
-            preEditCaretScreenY = caretScreenY,
-            wasAtTail = wasAtTail,
-            preEditLastNonBlankLine = lastNonBlankLine
+        deletionSnapshotCoordinator.onBeforeModification(
+            hasPendingDeletionSettlement = pCanvas.hasPendingDeletionSettlement,
+            captureInitialSnapshot = {
+                val cur = try { cursor } catch (_: Throwable) { null } ?: return@onBeforeModification null
+                val lay = layout
+                val lineCount = content.lineCount
+                val isSel = cur.isSelected
+                val startLine = cur.leftLine
+                val endLine = if (isSel) cur.rightLine else cur.leftLine
+                val docH = (pCanvas.headerHeight + (lay?.layoutHeight ?: 0)).toFloat()
+                val currentScroll = (pCanvas.scrollD + offsetY).toFloat()
+                val visibleH = pCanvas.height.toFloat()
+                val breathingMargin = pCanvas.breathingMarginPx
+                val tailTolerancePx = 2f * context.resources.displayMetrics.density
+                val wasAtTail = (currentScroll + visibleH) >= (docH - breathingMargin - tailTolerancePx)
+                val caretDocY = if (lay != null) {
+                    pCanvas.getCharGeometry(lay, cur.leftLine, cur.leftColumn, rowHeight.toFloat()).bottomDocY
+                } else {
+                    ((cur.leftLine + 1) * rowHeight).toFloat()
+                }
+                val caretScreenY = (pCanvas.headerHeight + caretDocY - currentScroll)
+                val lastNonBlankLine = ScribeScrollDeletionPolicy.findLastNonBlankLine(lineCount) { idx ->
+                    content.getLine(idx)
+                }
+                ScribeScrollDeletionPolicy.PreModificationSnapshot(
+                    isSelection = isSel,
+                    selectionStartLine = startLine,
+                    selectionEndLine = endLine,
+                    preEditDocLineCount = lineCount,
+                    preEditDocHeight = docH,
+                    preEditScrollY = currentScroll,
+                    preEditCaretScreenY = caretScreenY,
+                    wasAtTail = wasAtTail,
+                    preEditLastNonBlankLine = lastNonBlankLine
+                )
+            },
+            captureBatchProbe = {
+                val cur = try { cursor } catch (_: Throwable) { null }
+                val endLine = if (cur?.isSelected == true) cur.rightLine else (cur?.leftLine ?: 0)
+                val lastNonBlankLine = ScribeScrollDeletionPolicy.findLastNonBlankLine(content.lineCount) { idx ->
+                    content.getLine(idx)
+                }
+                ScribeDeletionSnapshotCoordinator.BatchTailProbe(
+                    endLine = endLine,
+                    lastNonBlankLine = lastNonBlankLine
+                )
+            }
         )
     }
 
@@ -780,37 +779,37 @@ class ScribeCodeEditor @JvmOverloads constructor(
         deletedContent: CharSequence
     ) {
         val pCanvas = parentCanvas
-        val staged = stagedPreModificationSnapshot
-        stagedPreModificationSnapshot = null
-        if (isInContentReplace) {
-            deletedDuringCurrentReplace = true
-        }
+        val action = deletionSnapshotCoordinator.onAfterDelete(
+            afterDeleteEndLine = endLine,
+            hasPendingDeletionSettlement = pCanvas?.hasPendingDeletionSettlement == true
+        )
         if (pCanvas != null && !isAwaitingLayoutReady && !isBatchApplyingIndent && !isEnforcingIndentFloor) {
-            if (staged != null) {
-                val effectiveEndLine = maxOf(endLine, staged.selectionEndLine)
-                val affectsTail = ScribeScrollDeletionPolicy.isLineRangeAffectingLogicalTail(
-                    endLine = effectiveEndLine,
-                    lastNonBlankLine = staged.preEditLastNonBlankLine
-                )
-                if (!pCanvas.hasPendingDeletionSettlement) {
+            when (action) {
+                is ScribeDeletionSnapshotCoordinator.AfterDeleteAction.BeginTransaction -> {
+                    val snap = action.snapshot
                     pCanvas.beginPreEditDeletionSnapshot(
-                        isSelection = staged.isSelection,
-                        selectionStartLine = staged.selectionStartLine,
-                        selectionEndLine = effectiveEndLine,
-                        preEditDocLineCount = staged.preEditDocLineCount,
-                        preEditDocHeight = staged.preEditDocHeight,
-                        preEditScrollY = staged.preEditScrollY,
-                        preEditCaretScreenY = staged.preEditCaretScreenY,
-                        wasAtTail = staged.wasAtTail,
-                        affectsDocumentTail = affectsTail,
-                        preEditLastNonBlankLine = staged.preEditLastNonBlankLine,
+                        isSelection = snap.isSelection,
+                        selectionStartLine = snap.selectionStartLine,
+                        selectionEndLine = snap.selectionEndLine,
+                        preEditDocLineCount = snap.preEditDocLineCount,
+                        preEditDocHeight = snap.preEditDocHeight,
+                        preEditScrollY = snap.preEditScrollY,
+                        preEditCaretScreenY = snap.preEditCaretScreenY,
+                        wasAtTail = snap.wasAtTail,
+                        affectsDocumentTail = action.affectsDocumentTail,
+                        preEditLastNonBlankLine = snap.preEditLastNonBlankLine,
                         markPendingSettlement = true
                     )
-                } else {
-                    pCanvas.updateDeletionAffectsTailIfNeeded(affectsTail)
                 }
-            } else {
-                pCanvas.markPendingDeletionSettlement()
+                is ScribeDeletionSnapshotCoordinator.AfterDeleteAction.MergeExistingBatch -> {
+                    pCanvas.mergeDeletionBatchTail(
+                        batchEndLine = action.batchEndLine,
+                        batchLastNonBlankLine = action.batchLastNonBlankLine
+                    )
+                }
+                ScribeDeletionSnapshotCoordinator.AfterDeleteAction.MarkPendingOnly -> {
+                    pCanvas.markPendingDeletionSettlement()
+                }
             }
         }
         super.afterDelete(content, startLine, startColumn, endLine, endColumn, deletedContent)
@@ -824,25 +823,23 @@ class ScribeCodeEditor @JvmOverloads constructor(
         endColumn: Int,
         insertedContent: CharSequence
     ) {
-        val wasReplaceWithDelete = isInContentReplace && deletedDuringCurrentReplace
-        isInContentReplace = false
-        deletedDuringCurrentReplace = false
-        stagedPreModificationSnapshot = null
-
         val pCanvas = parentCanvas
-        if (pCanvas != null && !isAwaitingLayoutReady && !isBatchApplyingIndent && !isEnforcingIndentFloor) {
-            if (wasReplaceWithDelete) {
-                if (insertedContent.isNotEmpty() && !text.isEmpty() && (pCanvas.scrollD + offsetY) <= pCanvas.maxCanvasScroll) {
-                    pCanvas.clearDeletionTransaction()
-                }
-            } else if (insertedContent.isNotEmpty()) {
-                if (pCanvas.hasPendingDeletionSettlement || pCanvas.isDeletionTransactionActive) {
-                    pCanvas.clearDeletionTransaction()
-                }
-            }
+        val canMutateCanvas = pCanvas != null && !isAwaitingLayoutReady && !isBatchApplyingIndent && !isEnforcingIndentFloor
+        val insertAction = deletionSnapshotCoordinator.onAfterInsert(
+            insertedNotEmpty = insertedContent.isNotEmpty(),
+            isTextEmpty = text.isEmpty(),
+            currentTotalScroll = if (pCanvas != null) pCanvas.scrollD + offsetY else 0,
+            maxCanvasScroll = pCanvas?.maxCanvasScroll ?: 0,
+            hasPendingOrActiveTransaction = pCanvas != null && (pCanvas.hasPendingDeletionSettlement || pCanvas.isDeletionRetractionInProgress)
+        )
+        if (canMutateCanvas && insertAction == ScribeDeletionSnapshotCoordinator.AfterInsertAction.ClearTransaction) {
+            pCanvas?.clearDeletionTransaction()
         }
         super.afterInsert(content, startLine, startColumn, endLine, endColumn, insertedContent)
-        if (wasReplaceWithDelete && insertedContent.isEmpty() && pCanvas?.isDeletionTransactionActive == true) {
+        if (canMutateCanvas &&
+            insertAction == ScribeDeletionSnapshotCoordinator.AfterInsertAction.SettleEmptyReplaceDelete &&
+            pCanvas?.isDeletionTransactionActive == true
+        ) {
             post {
                 if (!isAttachedToWindow) return@post
                 val canvas = parentCanvas ?: return@post
@@ -1778,7 +1775,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         val wasSuppressing = isSuppressingDeletionSizeClamp
-        if (parentCanvas?.isDeletionTransactionActive == true) {
+        if (parentCanvas?.isDeletionRetractionInProgress == true) {
             isSuppressingDeletionSizeClamp = true
         }
         try {
@@ -1821,9 +1818,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         clearKeyMetaStates()
         isZoomGestureActive = false
         isZoomAwaitingSettlement = false
-        stagedPreModificationSnapshot = null
-        isInContentReplace = false
-        deletedDuringCurrentReplace = false
+        deletionSnapshotCoordinator.reset()
         isSuppressingDeletionSizeClamp = false
     }
 

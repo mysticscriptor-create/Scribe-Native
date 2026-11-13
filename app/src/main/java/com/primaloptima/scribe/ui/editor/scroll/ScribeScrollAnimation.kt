@@ -21,7 +21,8 @@ class ScribeCanvasGlideAnimator(
     private val removeCallbacksAction: (Runnable) -> Unit,
     var deletionBoundaryProvider: (() -> Float)? = null,
     var onSettledCallback: ((reason: ScrollAnimationReason?) -> Unit)? = null,
-    var isDeletionSafetyActiveProvider: (() -> Boolean)? = null
+    var isDeletionSafetyActiveProvider: (() -> Boolean)? = null,
+    var onCancelledCallback: ((reason: String?, wasDeletionSafetyActive: Boolean) -> Unit)? = null
 ) {
     var activeCanvasAnimator: ValueAnimator? = null
     var isGlideRunning: Boolean = false
@@ -182,6 +183,9 @@ class ScribeCanvasGlideAnimator(
     }
 
     fun cancel(reason: String? = null) {
+        val wasActive = isGlideRunning || scrollCoordinator.isAnimationActive || activeCanvasAnimator != null
+        val wasDeletionSafetyActive = activeGlideReason == ScrollAnimationReason.DELETION_ANCHOR ||
+            (isDeletionSafetyActiveProvider?.invoke() == true)
         removeCallbacksAction(glideFrameRunnable)
         isGlideRunning = false
         val onEnd = activeGlideOnEnd
@@ -192,5 +196,8 @@ class ScribeCanvasGlideAnimator(
         oldAnimator?.cancel()
         scrollCoordinator.cancelAnimation(reason)
         onEnd?.invoke()
+        if (wasActive) {
+            onCancelledCallback?.invoke(reason, wasDeletionSafetyActive)
+        }
     }
 }

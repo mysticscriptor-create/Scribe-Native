@@ -735,4 +735,108 @@ class ScribeScrollDeletionPolicyTest {
         )
         assertEquals(ScribeScrollDeletionPolicy.DeletionAnchorIntent.RESET_TO_TOP, intent)
     }
+
+    @Test
+    fun testSnapshotCoordinator_SequentialBatchDeletion_PreservesEarliestSnapshotAndMergesTail() {
+        val coordinator = ScribeDeletionSnapshotCoordinator()
+
+        // Op 1: Delete middle blank lines (3..4) while doc has 11 lines (last non-blank at line 10)
+        var hasPending = false
+        var activeSnapshot: ScribeScrollDeletionPolicy.DeletionSnapshot? = null
+
+        coordinator.onBeforeModification(
+            hasPendingDeletionSettlement = hasPending,
+            captureInitialSnapshot = {
+                ScribeScrollDeletionPolicy.PreModificationSnapshot(
+                    isSelection = true,
+                    selectionStartLine = 3,
+                    selectionEndLine = 4,
+                    preEditDocLineCount = 11,
+                    preEditDocHeight = 1400f,
+                    preEditScrollY = 500f,
+                    preEditCaretScreenY = 320f,
+                    wasAtTail = true,
+                    preEditLastNonBlankLine = 10
+                )
+            },
+            captureBatchProbe = {
+                ScribeDeletionSnapshotCoordinator.BatchTailProbe(endLine = 4, lastNonBlankLine = 10)
+            }
+        )
+        val op1 = coordinator.onAfterDelete(afterDeleteEndLine = 4, hasPendingDeletionSettlement = hasPending)
+        assertTrue(op1 is ScribeDeletionSnapshotCoordinator.AfterDeleteAction.BeginTransaction)
+        val begin = op1 as ScribeDeletionSnapshotCoordinator.AfterDeleteAction.BeginTransaction
+        assertFalse(begin.affectsDocumentTail)
+        activeSnapshot = begin.snapshot
+        hasPending = true
+
+        // Op 2 in same batch (before layout settles): earlier deletion shifted line indices down by 2,
+        // so current last non-blank line is now 8; user deletes lines 7..8 at logical tail.
+        coordinator.onBeforeModification(
+            hasPendingDeletionSettlement = hasPending,
+            captureInitialSnapshot = {
+                error("captureInitialSnapshot must NOT overwrite earliest pre-edit metrics during pending batch")
+            },
+            captureBatchProbe = {
+                ScribeDeletionSnapshotCoordinator.BatchTailProbe(endLine = 8, lastNonBlankLine = 8)
+            }
+        )
+        val op2 = coordinator.onAfterDelete(afterDeleteEndLine = 8, hasPendingDeletionSettlement = hasPending)
+        assertTrue(op2 is ScribeDeletionSnapshotCoordinator.AfterDeleteAction.MergeExistingBatch)
+        val merge = op2 as ScribeDeletionSnapshotCoordinator.AfterDeleteAction.MergeExistingBatch
+        val merged = ScribeScrollDeletionPolicy.mergeDeletionBatchSnapshot(
+            existing = activeSnapshot!!,
+            batchEndLine = merge.batchEndLine,
+            currentLastNonBlankLine = merge.batchLastNonBlankLine ?: activeSnapshot!!.preEditLastNonBlankLine
+        )
+        assertEquals(500f, merged.preEditScrollY, 0.001f)
+        assertEquals(11, merged.preEditDocLineCount)
+        assertEquals(10, merged.preEditLastNonBlankLine)
+        assertTrue("Sequential batch deleting logical tail must flip affectsDocumentTail to true", merged.affectsDocumentTail)
+    }
+
+    @Test
+    fun testSnapshotCoordinator_ReplaceWithDelete_DistinguishesShrinkingVsEmptyReplace() {
+        val coordinator = ScribeDeletionSnapshotCoordinator()
+        coordinator.onBeforeReplace()
+        coordinator.onBeforeModification(
+            hasPendingDeletionSettlement = false,
+            captureInitialSnapshot = {
+                ScribeScrollDeletionPolicy.PreModificationSnapshot(
+                    isSelection = true,
+                    selectionStartLine = 5,
+                    selectionEndLine = 15,
+                    preEditDocLineCount = 16,
+                    preEditDocHeight = 1600f,
+                    preEditScrollY = 900f,
+                    preEditCaretScreenY = 820f,
+                    wasAtTail = true,
+                    preEditLastNonBlankLine = 15
+                )
+            },
+            captureBatchProbe = { null }
+        )
+        coordinator.onAfterDelete(afterDeleteEndLine = 15, hasPendingDeletionSettlement = false)
+        // Large selection replaced with 1 char still leaves totalScroll > new maxCanvasScroll -> do NOT clear txn
+        val shrinkAction = coordinator.onAfterInsert(
+            insertedNotEmpty = true,
+            isTextEmpty = false,
+            currentTotalScroll = 900,
+            maxCanvasScroll = 500,
+            hasPendingOrActiveTransaction = true
+        )
+        assertEquals(ScribeDeletionSnapshotCoordinator.AfterInsertAction.None, shrinkAction)
+
+        // Composing replace with empty string triggers SettleEmptyReplaceDelete
+        coordinator.onBeforeReplace()
+        coordinator.onAfterDelete(afterDeleteEndLine = 10, hasPendingDeletionSettlement = true)
+        val emptyReplaceAction = coordinator.onAfterInsert(
+            insertedNotEmpty = false,
+            isTextEmpty = false,
+            currentTotalScroll = 500,
+            maxCanvasScroll = 500,
+            hasPendingOrActiveTransaction = true
+        )
+        assertEquals(ScribeDeletionSnapshotCoordinator.AfterInsertAction.SettleEmptyReplaceDelete, emptyReplaceAction)
+    }
 }

@@ -462,7 +462,28 @@ class ScribeScrollAnimationTest {
         var editorResidualPx: Float = 0f
         var lastClamped: Boolean = false
         var isDeletionActive: Boolean = false
+        var isDeletionResetRetractionActive: Boolean = false
+        var innerRetractionDebtActive: Boolean = false
+        var outerRetractionDebtActive: Boolean = false
         var isTailAnchored: Boolean = false
+
+        fun updateRetractionDebtFromCurrentPosition(armIfOverscrolled: Boolean) {
+            val maxD = ScribeScrollPolicy.calculateMaxHeaderScroll(headerHeight, maxCanvasScroll)
+            val safeMaxY = (maxCanvasScroll - headerHeight).coerceAtLeast(0)
+            val editorOverscrolled = scrollD >= headerHeight && offsetY > safeMaxY
+            val outerOverscrolled = scrollD > maxD
+            if (armIfOverscrolled) {
+                innerRetractionDebtActive = editorOverscrolled
+                outerRetractionDebtActive = outerOverscrolled
+            } else {
+                if (innerRetractionDebtActive && !editorOverscrolled) {
+                    innerRetractionDebtActive = false
+                }
+                if (outerRetractionDebtActive && !outerOverscrolled) {
+                    outerRetractionDebtActive = false
+                }
+            }
+        }
         var newCaretDocY: Float = initialLayoutHeight.toFloat()
         var settledReasonHistory = mutableListOf<ScrollAnimationReason?>()
         var pendingFrameRunnable: Runnable? = null
@@ -521,7 +542,12 @@ class ScribeScrollAnimationTest {
                     }
                 }
             },
-            isDeletionSafetyActiveProvider = { isDeletionActive }
+            isDeletionSafetyActiveProvider = { isDeletionActive },
+            onCancelledCallback = { reason, wasDeletionSafetyActive ->
+                if (wasDeletionSafetyActive && reason == "User touch") {
+                    updateRetractionDebtFromCurrentPosition(armIfOverscrolled = true)
+                }
+            }
         )
 
         init {
@@ -533,8 +559,13 @@ class ScribeScrollAnimationTest {
             lastClamped = false
             val editorOffsetBefore = offsetY
             val editorMaxBefore = if (scrollD < headerHeight) 0 else (maxCanvasScroll - headerHeight).coerceAtLeast(0)
+            val editorResidualBefore = editorResidualPx
             val physicalBefore = (scrollD + offsetY).toFloat()
             val maxBound = maxCanvasScroll
+            val allowInnerRetract = isDeletionActive || isDeletionResetRetractionActive || innerRetractionDebtActive
+            val allowOuterRetract = isDeletionActive || isDeletionResetRetractionActive || outerRetractionDebtActive
+            val clampInnerLowerToNewMax = isDeletionActive || isDeletionResetRetractionActive
+            val clampOuterLowerToNewMax = isDeletionActive || isDeletionResetRetractionActive
 
             val allocation = ScribeScrollPolicy.allocateScrollDelta(
                 deltaY = dy,
@@ -558,7 +589,8 @@ class ScribeScrollAnimationTest {
                     currentResidualPx = editorResidualPx,
                     innerDelta = delta,
                     maxAllowedY = safeMaxY,
-                    isDeletionTransactionActive = isDeletionActive
+                    isDeletionTransactionActive = allowInnerRetract,
+                    clampLowerToNewMax = clampInnerLowerToNewMax
                 )
                 offsetY = step.nextIntOffset
                 editorResidualPx = step.nextResidualPx
@@ -576,7 +608,8 @@ class ScribeScrollAnimationTest {
                     outerDelta = delta,
                     headerHeight = headerHeight,
                     maxCanvasScroll = maxBound,
-                    isDeletionTransactionActive = isDeletionActive
+                    isDeletionTransactionActive = allowOuterRetract,
+                    clampLowerToNewMax = clampOuterLowerToNewMax
                 )
                 scrollD = step.nextIntOffset
                 outerResidualPx = step.nextResidualPx
@@ -587,12 +620,43 @@ class ScribeScrollAnimationTest {
             }
 
             if (dy < 0f) {
-                if (allocation.innerDelta != 0f) innerHit = applyInner(allocation.innerDelta)
-                if (allocation.outerDelta != 0f) applyOuter(allocation.outerDelta)
+                var effectiveOuterDelta = allocation.outerDelta
+                if (allocation.innerDelta != 0f) {
+                    val innerProjectedAfter = editorOffsetBefore.toFloat() + editorResidualBefore + allocation.innerDelta
+                    innerHit = applyInner(allocation.innerDelta)
+                    val innerReachedZeroHandoff = offsetY == 0 && scrollD > 0 &&
+                        (!allowInnerRetract || editorMaxBefore == 0 || !clampInnerLowerToNewMax)
+                    if (innerReachedZeroHandoff) {
+                        if (innerProjectedAfter < 0f) {
+                            effectiveOuterDelta += innerProjectedAfter
+                        } else if (editorResidualPx > 0f && effectiveOuterDelta < 0f) {
+                            val combinedOuter = effectiveOuterDelta + editorResidualPx
+                            if (combinedOuter <= 0f) {
+                                editorResidualPx = 0f
+                                effectiveOuterDelta = combinedOuter
+                            } else {
+                                editorResidualPx = combinedOuter
+                                effectiveOuterDelta = 0f
+                            }
+                        }
+                    }
+                } else if (editorOffsetBefore == 0 && editorResidualPx > 0f && scrollD > 0 && effectiveOuterDelta < 0f) {
+                    val combinedOuter = effectiveOuterDelta + editorResidualPx
+                    if (combinedOuter <= 0f) {
+                        editorResidualPx = 0f
+                        effectiveOuterDelta = combinedOuter
+                    } else {
+                        editorResidualPx = combinedOuter
+                        effectiveOuterDelta = 0f
+                    }
+                }
+                if (effectiveOuterDelta != 0f) applyOuter(effectiveOuterDelta)
             } else {
                 if (allocation.outerDelta != 0f) applyOuter(allocation.outerDelta)
                 if (allocation.innerDelta != 0f) innerHit = applyInner(allocation.innerDelta)
             }
+
+            updateRetractionDebtFromCurrentPosition(armIfOverscrolled = false)
 
             if (scrollD < headerHeight) {
                 assertEquals("1-DOF violated: editor offsetY must be 0 whenever scrollD < headerHeight", 0, offsetY)
@@ -602,7 +666,9 @@ class ScribeScrollAnimationTest {
             val actualMoved = physicalAfter - physicalBefore
             val allocationBlocked = (dy > 0f && allocation.unconsumedDelta > 0.05f) ||
                 (dy < 0f && allocation.unconsumedDelta < -0.05f)
-            val innerHandoffToOuter = dy < 0f && scrollD > 0 && !(isDeletionActive && editorOffsetBefore > editorMaxBefore)
+            val innerHandoffToOuter = dy < 0f &&
+                scrollD > 0 &&
+                (editorMaxBefore == 0 || !(allowInnerRetract && clampInnerLowerToNewMax && editorOffsetBefore > editorMaxBefore))
             val outerHandoffToInner = dy > 0f && maxBound > headerHeight && allocation.innerDelta != 0f
             lastClamped = (outerHit && !outerHandoffToInner) || (innerHit && !innerHandoffToOuter) || allocationBlocked
 
@@ -1078,4 +1144,170 @@ class ScribeScrollAnimationTest {
         assertTrue("onSettledCallback must not fire for cancelled animation", harness.settledReasonHistory.isEmpty())
     }
 
+    @Test
+    fun testGlideAnimator_DeletionOriginatedResetToTop_RetractsSmoothlyWithoutFrame1Snap() {
+        // Deletion-originated RESET_TO_TOP keeps transitional retraction active across both layers
+        // so Frame 1 moves gradually from 500 rather than snapping straight to 0.
+        val harness = DeletionPhysicsHarness(
+            headerHeight = 200,
+            usableViewportHeight = 900,
+            breathingMarginPx = 60f,
+            initialLayoutHeight = 0,
+            initialScrollD = 200,
+            initialOffsetY = 300
+        )
+        harness.isDeletionResetRetractionActive = true
+        harness.animator.startAuthoritativeAnimation(
+            currentScroll = 500f,
+            targetTotalScroll = 0f,
+            reason = ScrollAnimationReason.RESET_TOP,
+            maxCanvasScroll = harness.maxCanvasScroll,
+            forceRetarget = true,
+            onEnd = {
+                if (!harness.animator.isGlideRunning && !harness.coordinator.isAnimationActive) {
+                    harness.isDeletionResetRetractionActive = false
+                }
+            }
+        )
+        val trace = harness.runUntilSettled()
+        assertTrue("Frame 1 of deletion RESET_TOP must retract smoothly without snapping to 0", trace.first() > 420)
+        assertEquals(0, harness.offsetY)
+        assertEquals(0, harness.scrollD)
+        assertEquals(0, harness.currentTotalScroll)
+        assertFalse(harness.isDeletionResetRetractionActive)
+    }
+
+    @Test
+    fun testPhysicsDeletion_TouchCancelRetractionDebt_BlocksOverscrollAndClearsInsideBounds() {
+        // Sub-case A: Inner retraction debt drains past new max smoothly and clears once <= safeMaxY,
+        // while forward (+dy) overscroll is strictly blocked.
+        val harness = DeletionPhysicsHarness(
+            headerHeight = 200,
+            usableViewportHeight = 900,
+            breathingMarginPx = 60f,
+            initialLayoutHeight = 1400, // maxCanvasScroll = 760, safeMaxY = 560
+            initialScrollD = 200,
+            initialOffsetY = 640
+        )
+        harness.isDeletionActive = true
+        harness.animator.startAuthoritativeAnimation(
+            currentScroll = 840f,
+            targetTotalScroll = 760f,
+            reason = ScrollAnimationReason.DELETION_ANCHOR,
+            maxCanvasScroll = harness.maxCanvasScroll,
+            forceRetarget = true,
+            onEnd = { harness.isDeletionActive = false }
+        )
+        repeat(4) { harness.animator.advanceFrame(0.016f) }
+        harness.animator.cancel("User touch")
+        assertFalse(harness.isDeletionActive)
+        assertTrue(harness.innerRetractionDebtActive)
+
+        val beforeForward = harness.currentTotalScroll
+        val forwardUnconsumed = harness.scrollBy(+20f)
+        assertEquals("Forward drag into overscrolled space must be blocked", 20f, forwardUnconsumed, 0.001f)
+        assertEquals(beforeForward, harness.currentTotalScroll)
+
+        assertEquals(0f, harness.scrollBy(-50f), 0.001f)
+        assertTrue("Debt stays active while still > safeMaxY", harness.innerRetractionDebtActive)
+
+        val expectedAfterSecondDrag = harness.currentTotalScroll - 50
+        assertEquals(0f, harness.scrollBy(-50f), 0.001f)
+        assertEquals(expectedAfterSecondDrag, harness.currentTotalScroll)
+        assertFalse("Debt clears automatically once offsetY <= safeMaxY", harness.innerRetractionDebtActive)
+
+        // Sub-case B: Two-layer debt when maxCanvasScroll < headerHeight (120 < 200)
+        val twoLayer = DeletionPhysicsHarness(
+            headerHeight = 200,
+            usableViewportHeight = 900,
+            breathingMarginPx = 60f,
+            initialLayoutHeight = 760, // maxCanvasScroll = 120
+            initialScrollD = 200,
+            initialOffsetY = 20
+        )
+        twoLayer.isDeletionActive = true
+        twoLayer.animator.startAuthoritativeAnimation(
+            currentScroll = 220f,
+            targetTotalScroll = 120f,
+            reason = ScrollAnimationReason.DELETION_ANCHOR,
+            maxCanvasScroll = twoLayer.maxCanvasScroll,
+            forceRetarget = true,
+            onEnd = { twoLayer.isDeletionActive = false }
+        )
+        twoLayer.animator.advanceFrame(0.016f)
+        twoLayer.animator.cancel("User touch")
+        assertTrue(twoLayer.innerRetractionDebtActive)
+        assertTrue(twoLayer.outerRetractionDebtActive)
+        val midPos = twoLayer.currentTotalScroll
+        assertEquals(0f, twoLayer.scrollBy(-50f), 0.001f)
+        assertEquals(midPos - 50, twoLayer.currentTotalScroll)
+        assertEquals(0, twoLayer.offsetY)
+        assertFalse(twoLayer.innerRetractionDebtActive)
+        assertTrue(twoLayer.outerRetractionDebtActive)
+    }
+
+    @Test
+    fun testPhysicsDeletion_FractionalResidualHandoff_ExactAcrossInnerOuterBoundaryBothDirections() {
+        // Direction 1a: inner -> outer with negative inner residual (offsetY = 1, residual = -0.3f -> virtual 200.7)
+        val innerToOuterNeg = DeletionPhysicsHarness(
+            headerHeight = 200,
+            usableViewportHeight = 900,
+            breathingMarginPx = 60f,
+            initialLayoutHeight = 1400,
+            initialScrollD = 200,
+            initialOffsetY = 1
+        )
+        innerToOuterNeg.editorResidualPx = -0.3f
+        val unconsumed1 = innerToOuterNeg.scrollBy(-0.8f)
+        assertEquals(0, innerToOuterNeg.offsetY)
+        assertEquals(0f, innerToOuterNeg.editorResidualPx, 0.001f)
+        assertEquals(200, innerToOuterNeg.scrollD)
+        assertEquals(-0.1f, innerToOuterNeg.outerResidualPx, 0.001f)
+        assertFalse("Handoff with negative inner residual must not report false boundary clamp", innerToOuterNeg.lastClamped)
+        assertEquals(0.2f, unconsumed1, 0.001f) // moved integer -1px for -0.8f step
+
+        innerToOuterNeg.scrollBy(-0.5f)
+        assertEquals(199, innerToOuterNeg.scrollD)
+        assertEquals(0.4f, innerToOuterNeg.outerResidualPx, 0.001f) // 199 + 0.4 = 199.4 == 200.7 - 0.8 - 0.5
+
+        // Direction 1b: inner -> outer with positive residual left at offsetY = 0 (virtual 201.3 -> 200.3 -> 199.5)
+        val innerToOuterPos = DeletionPhysicsHarness(
+            headerHeight = 200,
+            usableViewportHeight = 900,
+            breathingMarginPx = 60f,
+            initialLayoutHeight = 1400,
+            initialScrollD = 200,
+            initialOffsetY = 1
+        )
+        innerToOuterPos.editorResidualPx = 0.3f
+        innerToOuterPos.scrollBy(-1.0f)
+        assertEquals(0, innerToOuterPos.offsetY)
+        assertEquals(0.3f, innerToOuterPos.editorResidualPx, 0.001f)
+        innerToOuterPos.scrollBy(-0.8f)
+        assertEquals(0f, innerToOuterPos.editorResidualPx, 0.001f)
+        assertEquals(200, innerToOuterPos.scrollD)
+        assertEquals(-0.5f, innerToOuterPos.outerResidualPx, 0.001f) // 200 - 0.5 = 199.5 == 201.3 - 1.8
+
+        // Direction 2: outer -> inner crossing headerHeight = 200 with positive outer residual (199.3 -> 200.3 -> 200.8)
+        val outerToInnerPos = DeletionPhysicsHarness(
+            headerHeight = 200,
+            usableViewportHeight = 900,
+            breathingMarginPx = 60f,
+            initialLayoutHeight = 1400,
+            initialScrollD = 199,
+            initialOffsetY = 0
+        )
+        outerToInnerPos.outerResidualPx = 0.3f
+        outerToInnerPos.scrollBy(+1.0f)
+        assertEquals(200, outerToInnerPos.scrollD)
+        assertEquals(0f, outerToInnerPos.outerResidualPx, 0.001f)
+        assertEquals(0, outerToInnerPos.offsetY)
+        assertEquals(0.3f, outerToInnerPos.editorResidualPx, 0.001f)
+        assertFalse(outerToInnerPos.lastClamped)
+
+        outerToInnerPos.scrollBy(+0.5f)
+        assertEquals(200, outerToInnerPos.scrollD)
+        assertEquals(1, outerToInnerPos.offsetY)
+        assertEquals(-0.2f, outerToInnerPos.editorResidualPx, 0.001f) // 200 + 1 - 0.2 = 200.8 == 199.3 + 1.5
+    }
 }
