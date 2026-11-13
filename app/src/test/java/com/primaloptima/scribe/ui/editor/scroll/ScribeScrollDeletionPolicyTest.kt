@@ -507,4 +507,232 @@ class ScribeScrollDeletionPolicyTest {
         assertEquals("Destination must cleanly clamp to new maxCanvasScroll", maxCanvasScroll, destination, 0.001f)
         assertTrue("Destination must be <= current scroll", destination <= 3200f)
     }
+
+    @Test
+    fun testDeletionIntent_SelectionEndingOnLastLineWithCaretEarlier_ClassifiesAsCaretAnchor() {
+        // Scenario 4: Selection touches the last line, but post-edit caret collapses in an earlier paragraph
+        // with remaining content below it. Must classify as CARET_ANCHOR, never hijacked to TAIL_ANCHOR.
+        val snapshot = ScribeScrollDeletionPolicy.DeletionSnapshot(
+            transactionEpoch = 3L,
+            isSelection = true,
+            selectionStartLine = 8,
+            selectionEndLine = 20,
+            preEditDocLineCount = 21,
+            preEditDocHeight = 2000f,
+            preEditScrollY = 1248f,
+            preEditCaretScreenY = 360f,
+            wasAtTail = true,
+            affectsDocumentTail = true,
+            preEditLastNonBlankLine = 20
+        )
+        val linesAfter = MutableList(15) { idx -> "Paragraph line $idx" }
+        val isPostEditCaretAtTail = ScribeScrollDeletionPolicy.isCaretAtLogicalTail(
+            lineCount = linesAfter.size,
+            caretLine = 8,
+            caretCol = 4,
+            lineAt = { linesAfter[it] },
+            newCaretDocY = 450f,
+            layoutHeight = 1400f,
+            rowHeight = 50f
+        )
+        assertFalse("Post-edit caret at line 8 with lines 9..14 non-blank is NOT at logical tail", isPostEditCaretAtTail)
+
+        val intent = ScribeScrollDeletionPolicy.classifyDeletionIntent(
+            snapshot = snapshot,
+            newDocLineCount = linesAfter.size,
+            newDocHeight = 1500f,
+            usableViewportHeight = 800f,
+            breathingMarginPx = 48f,
+            isTextEmpty = false,
+            isPostEditCaretAtLogicalTail = isPostEditCaretAtTail
+        )
+        assertEquals(ScribeScrollDeletionPolicy.DeletionAnchorIntent.CARET_ANCHOR, intent)
+
+        val target = ScribeScrollDeletionPolicy.calculateSafeDeletionDestination(
+            intent = intent,
+            currentScroll = 1248f,
+            headerHeight = 100f,
+            newDocHeight = 1400f,
+            newCaretDocY = 450f,
+            preEditCaretScreenY = 360f,
+            usableViewportHeight = 800f,
+            breathingMarginPx = 48f,
+            maxCanvasScroll = 748f
+        )
+        // Caret anchored stationary at preEditCaretScreenY (100 + 450 - 360 = 190f), not pulled to maxCanvasScroll (748f)
+        assertEquals(190f, target, 0.001f)
+    }
+
+    @Test
+    fun testLogicalTailHelpers_TrailingBlankAndWhitespaceLines() {
+        // Scenario 5: Blank and whitespace-only trailing lines below the last real paragraph
+        val lines = listOf("First paragraph", "Last real paragraph", "", "   ", "\t  ")
+        val lastNonBlank = ScribeScrollDeletionPolicy.findLastNonBlankLine(lines.size) { lines[it] }
+        assertEquals(1, lastNonBlank)
+
+        assertTrue(
+            "Deleting line 1 (last real paragraph) above trailing blanks affects logical tail",
+            ScribeScrollDeletionPolicy.isLineRangeAffectingLogicalTail(endLine = 1, lastNonBlankLine = lastNonBlank)
+        )
+        assertFalse(
+            "Deleting line 0 only does NOT affect logical tail at line 1",
+            ScribeScrollDeletionPolicy.isLineRangeAffectingLogicalTail(endLine = 0, lastNonBlankLine = lastNonBlank)
+        )
+        assertTrue(
+            "Caret on line 1 with only blank/whitespace lines below IS at logical tail",
+            ScribeScrollDeletionPolicy.isCaretAtLogicalTail(
+                lineCount = lines.size,
+                caretLine = 1,
+                caretCol = lines[1].length,
+                lineAt = { lines[it] },
+                newCaretDocY = 100f,
+                layoutHeight = 250f,
+                rowHeight = 50f
+            )
+        )
+        assertFalse(
+            "Caret on line 0 with non-blank line 1 below is NOT at logical tail",
+            ScribeScrollDeletionPolicy.isCaretAtLogicalTail(
+                lineCount = lines.size,
+                caretLine = 0,
+                caretCol = 0,
+                lineAt = { lines[it] },
+                newCaretDocY = 50f,
+                layoutHeight = 250f,
+                rowHeight = 50f
+            )
+        )
+    }
+
+    @Test
+    fun testDeletion_ShortDocExceedingUsableViewportWithBreathingMargin_DoesNotResetToTop() {
+        // Scenario 7: headerHeight + newLayoutHeight <= usableViewportHeight (780 <= 800),
+        // BUT headerHeight + newLayoutHeight + breathingMarginPx > usableViewportHeight (780 + 60 = 840 > 800).
+        // Must NOT reset to top (would push caret 40px below breathing margin!).
+        val headerHeight = 100
+        val newLayoutHeight = 680
+        val usableViewportHeight = 800
+        val breathingMarginPx = 60f
+        val maxCanvas = ScribeScrollPolicy.calculateMaxCanvasScroll(
+            headerHeight = headerHeight,
+            layoutHeight = newLayoutHeight,
+            viewportHeight = usableViewportHeight,
+            bottomSpace = breathingMarginPx.toInt(),
+            isTextEmpty = false
+        ) // 100 + 680 + 60 - 800 = 40px
+
+        val snapshot = ScribeScrollDeletionPolicy.DeletionSnapshot(
+            transactionEpoch = 4L,
+            isSelection = false,
+            selectionStartLine = 12,
+            selectionEndLine = 12,
+            preEditDocLineCount = 13,
+            preEditDocHeight = 840f,
+            preEditScrollY = 100f,
+            preEditCaretScreenY = 740f,
+            wasAtTail = true,
+            affectsDocumentTail = true,
+            preEditLastNonBlankLine = 12
+        )
+
+        val intent = ScribeScrollDeletionPolicy.classifyDeletionIntent(
+            snapshot = snapshot,
+            newDocLineCount = 12,
+            newDocHeight = (headerHeight + newLayoutHeight).toFloat(),
+            usableViewportHeight = usableViewportHeight.toFloat(),
+            breathingMarginPx = breathingMarginPx,
+            isTextEmpty = false,
+            isPostEditCaretAtLogicalTail = true
+        )
+        assertEquals(
+            "Must classify as TAIL_ANCHOR when content + breathing margin exceeds usable viewport",
+            ScribeScrollDeletionPolicy.DeletionAnchorIntent.TAIL_ANCHOR,
+            intent
+        )
+
+        val destination = ScribeScrollDeletionPolicy.calculateSafeDeletionDestination(
+            intent = intent,
+            currentScroll = 100f,
+            headerHeight = headerHeight.toFloat(),
+            newDocHeight = newLayoutHeight.toFloat(),
+            newCaretDocY = newLayoutHeight.toFloat(),
+            preEditCaretScreenY = 740f,
+            usableViewportHeight = usableViewportHeight.toFloat(),
+            breathingMarginPx = breathingMarginPx,
+            maxCanvasScroll = maxCanvas.toFloat()
+        )
+        assertEquals(40f, destination, 0.001f)
+        val caretScreenBottom = headerHeight + newLayoutHeight - destination
+        assertTrue(
+            "Caret must stay at or above breathing margin ($caretScreenBottom <= 740)",
+            caretScreenBottom <= (usableViewportHeight - breathingMarginPx + 0.01f)
+        )
+
+        val anchorDelta = ScribeScrollDeletionPolicy.calculateDeletionAnchorDelta(
+            headerHeight = headerHeight,
+            scrollD = 100,
+            layoutHeight = newLayoutHeight,
+            offsetY = 0,
+            viewportHeight = usableViewportHeight,
+            density = 2.5f,
+            maxCanvasScroll = maxCanvas,
+            breathingMarginPx = breathingMarginPx
+        )
+        assertEquals("Anchor delta must retract only -60px to +40px, NOT -100px to 0px", -60f, anchorDelta, 0.001f)
+    }
+
+    @Test
+    fun testLayoutReconciliation_IdleClampsWhileDeletionDeferralProtects() {
+        // Scenario 11: During active deletion, transitional step resolver preserves overscrolled
+        // current offset against instant snap; once cleared, idle reconcileScrollState strictly clamps.
+        val headerHeight = 200
+        val shrunkMaxCanvas = 440
+        val currentOffset = 300 // scrollD = 200, total = 500 > 440
+
+        val step = ScribeScrollDeletionPolicy.resolveInnerScrollStep(
+            currentOffsetY = currentOffset,
+            currentResidualPx = 0f,
+            innerDelta = -3f,
+            maxAllowedY = shrunkMaxCanvas - headerHeight, // 240
+            isDeletionTransactionActive = true
+        )
+        assertEquals(297, step.nextIntOffset)
+        assertFalse(step.hitBoundary)
+
+        val postSettlementIdle = ScribeScrollPolicy.reconcileScrollState(
+            headerHeight = headerHeight,
+            scrollD = 200,
+            editorOffsetY = 245,
+            maxCanvasScroll = shrunkMaxCanvas
+        )
+        assertEquals(200, postSettlementIdle.scrollD)
+        assertEquals(240, postSettlementIdle.editorOffsetY)
+    }
+
+    @Test
+    fun testDeletion_AllContentDeleted_ClassifiesAsResetToTop() {
+        // Scenario 12: Deleting all document content yields single RESET_TO_TOP -> 0f
+        val snapshot = ScribeScrollDeletionPolicy.DeletionSnapshot(
+            transactionEpoch = 5L,
+            isSelection = true,
+            selectionStartLine = 0,
+            selectionEndLine = 25,
+            preEditDocLineCount = 26,
+            preEditDocHeight = 1800f,
+            preEditScrollY = 1000f,
+            preEditCaretScreenY = 500f,
+            wasAtTail = true,
+            affectsDocumentTail = true
+        )
+        val intent = ScribeScrollDeletionPolicy.classifyDeletionIntent(
+            snapshot = snapshot,
+            newDocLineCount = 1,
+            newDocHeight = 150f,
+            usableViewportHeight = 800f,
+            breathingMarginPx = 60f,
+            isTextEmpty = true,
+            isPostEditCaretAtLogicalTail = true
+        )
+        assertEquals(ScribeScrollDeletionPolicy.DeletionAnchorIntent.RESET_TO_TOP, intent)
+    }
 }

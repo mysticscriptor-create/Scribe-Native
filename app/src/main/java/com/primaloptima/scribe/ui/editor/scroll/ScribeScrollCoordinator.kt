@@ -59,10 +59,20 @@ class ScribeScrollCoordinator(
         invalidateCompensation("Confirmed manual drag")
     }
 
-
     // Callbacks for production integration
     var onScrollBy: ((deltaY: Float) -> Float)? = null
     var onAnimationFinished: (() -> Unit)? = null
+
+    /**
+     * Optional predicate supplied by host (e.g. UnifiedCanvasLayout) indicating whether the
+     * most recent `onScrollBy` call hit or was clamped by a physical bound rather than deferred
+     * into sub-pixel carry. Defaults to true when absent so existing mock tests preserve behavior.
+     */
+    var wasLastStepClampedByBoundary: (() -> Boolean)? = null
+    var didLastStepClampAtBoundary: Boolean = false
+        private set
+    var lastClampedDelta: Float = 0f
+        private set
 
     /**
      * Initiates or retargets an automatic positioning operation.
@@ -91,6 +101,8 @@ class ScribeScrollCoordinator(
         activeOperationId++
         activeTargetTotalScroll = clampedTarget
         lastAnimatedScroll = currentScroll
+        didLastStepClampAtBoundary = false
+        lastClampedDelta = 0f
         activeReason = reason
         isAnimationActive = true
         return true
@@ -109,11 +121,13 @@ class ScribeScrollCoordinator(
         val clampedTarget = if (maxBound != null) newTarget.coerceIn(0f, maxBound) else newTarget.coerceAtLeast(0f)
         activeTargetTotalScroll = clampedTarget
         activeReason = reason
+        didLastStepClampAtBoundary = false
+        lastClampedDelta = 0f
     }
 
     /**
      * Applies a tick of animation with the new absolute animated scroll value.
-     * Returns actual displacement moved.
+     * Returns actual physical displacement moved.
      */
     fun applyStep(newAnimatedScroll: Float, operationId: Long? = null): Float {
         if (operationId != null && operationId != activeOperationId) return 0f
@@ -121,6 +135,8 @@ class ScribeScrollCoordinator(
 
         val stepDelta = newAnimatedScroll - lastAnimatedScroll
         lastAnimatedScroll = newAnimatedScroll
+        didLastStepClampAtBoundary = false
+        lastClampedDelta = 0f
         if (kotlin.math.abs(stepDelta) < 0.05f) return 0f
 
         val before = totalScroll
@@ -143,11 +159,22 @@ class ScribeScrollCoordinator(
             temporaryDisplacement += actualMoved
         }
 
+        val clampedByBoundary = wasLastStepClampedByBoundary?.invoke() ?: true
+        val hasSignificantUnconsumed = (stepDelta > 0.05f && unconsumed > 0.05f) ||
+            (stepDelta < -0.05f && unconsumed < -0.05f)
+        if (clampedByBoundary && hasSignificantUnconsumed) {
+            didLastStepClampAtBoundary = true
+            lastClampedDelta = unconsumed
+            lastAnimatedScroll = totalScroll
+        }
+
         // Boundary collision / unreachable target detection:
-        // If movement is completely blocked by bounds (consumed == 0 while stepDelta is non-zero),
-        // do not continue applying steps as if the ideal trajectory was followed.
-        val hitBoundary = (stepDelta > 0.05f && unconsumed > 0.05f && kotlin.math.abs(consumed) < 0.05f) ||
+        // If movement is blocked by physical bounds (and not merely deferred in sub-pixel carry),
+        // finish early without continuing an unreachable trajectory.
+        val hitBoundary = clampedByBoundary && (
+            (stepDelta > 0.05f && unconsumed > 0.05f && kotlin.math.abs(consumed) < 0.05f) ||
                 (stepDelta < -0.05f && unconsumed < -0.05f && kotlin.math.abs(consumed) < 0.05f)
+            )
 
         val target = activeTargetTotalScroll
         if (hitBoundary || (target != null && kotlin.math.abs(totalScroll - target) < 0.5f)) {
@@ -163,6 +190,8 @@ class ScribeScrollCoordinator(
         activeReason = null
         activeTargetTotalScroll = null
         lastAnimatedScroll = totalScroll
+        didLastStepClampAtBoundary = false
+        lastClampedDelta = 0f
         onAnimationFinished?.invoke()
     }
 
@@ -173,6 +202,8 @@ class ScribeScrollCoordinator(
         activeReason = null
         activeTargetTotalScroll = null
         lastAnimatedScroll = totalScroll
+        didLastStepClampAtBoundary = false
+        lastClampedDelta = 0f
         if (reason != null && ScribeScrollDiagnostics.isDebugDiagnosticsEnabled) {
             ScribeScrollDiagnostics.log("ScrollCoordinator", "Cancelled op $operationId: $reason")
         }
@@ -205,4 +236,3 @@ class ScribeScrollCoordinator(
         }
     }
 }
-

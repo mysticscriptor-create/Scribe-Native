@@ -177,6 +177,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         private set
 
     private var scrollDFloat: Float = 0f
+    private var outerScrollResidualPx: Float = 0f
+    private var editorScrollResidualPx: Float = 0f
+    private var lastScrollWasBoundaryClamped: Boolean = false
 
     var onScrollDelta: ((dy: Float) -> Unit)? = null
     var onUnifiedScrollChanged: ((scrollD: Int, maxHeaderHeight: Int) -> Unit)? = null
@@ -272,6 +275,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         onScrollBy = { delta ->
             scrollCanvasBy(delta)
         }
+        wasLastStepClampedByBoundary = {
+            lastScrollWasBoundaryClamped
+        }
     }
 
     /**
@@ -310,11 +316,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         postOnAnimationAction = { runnable -> postOnAnimation(runnable) },
         removeCallbacksAction = { runnable -> removeCallbacks(runnable) },
         deletionBoundaryProvider = {
-            val maxBound = maxCanvasScroll.toFloat()
-            if (isDeletionTailAnchored) {
-                (headerHeight + (editor.layout?.layoutHeight ?: 0) + breathingMarginPx - height)
-                    .coerceIn(0f, maxBound)
+            if (height <= 0) {
+                0f
             } else {
+                val maxBound = maxCanvasScroll.toFloat()
                 val cur = try { editor.cursor } catch (_: Throwable) { null }
                 val lay = editor.layout
                 val caretDocY = if (cur != null && lay != null) {
@@ -322,12 +327,24 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 } else {
                     0f
                 }
-                (headerHeight + caretDocY + breathingMarginPx - height)
-                    .coerceIn(0f, maxBound)
+                if (isDeletionTailAnchored) {
+                    val tailDocY = maxOf((lay?.layoutHeight ?: 0).toFloat(), caretDocY)
+                    (headerHeight + tailDocY + breathingMarginPx - height)
+                        .coerceIn(0f, maxBound)
+                } else {
+                    (headerHeight + caretDocY + breathingMarginPx - height)
+                        .coerceIn(0f, maxBound)
+                }
             }
         },
         onSettledCallback = { reason ->
-            if (reason == ScrollAnimationReason.CONTRACTION_RESTORATION) {
+            if (isDeletionTransactionActive) {
+                revalidateDeletionSettlementSafety(
+                    capturedGen = deletionTransactionGeneration,
+                    allowCorrectiveAnimation = (reason != ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION),
+                    smooth = true
+                )
+            } else if (reason == ScrollAnimationReason.CONTRACTION_RESTORATION) {
                 revalidateFinalTargetSafety()
             } else if (reason == ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION) {
                 rebaseCompensationAfterSafeCorrection()
@@ -336,6 +353,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 isPredictiveGlideRunning = false
                 targetPredictedScrollTotal = -1f
             }
+        },
+        isDeletionSafetyActiveProvider = {
+            isDeletionTransactionActive
         }
     )
 
@@ -448,13 +468,41 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     private var activeDeletionSnapshot: ScribeScrollDeletionPolicy.DeletionSnapshot? = null
     private var deletionTransactionGeneration: Long = 0L
     private var isDeletionTailAnchored: Boolean = false
+    private var pendingDeletionLayoutListener: View.OnLayoutChangeListener? = null
+    private var pendingDeletionAttachListener: View.OnAttachStateChangeListener? = null
+
+    var hasPendingDeletionSettlement: Boolean = false
+        private set
 
     val isDeletionTransactionActive: Boolean
         get() = activeDeletionSnapshot != null
 
+    private fun clearPendingDeletionLayoutListener() {
+        pendingDeletionLayoutListener?.let { removeOnLayoutChangeListener(it) }
+        pendingDeletionLayoutListener = null
+        pendingDeletionAttachListener?.let { removeOnAttachStateChangeListener(it) }
+        pendingDeletionAttachListener = null
+    }
+
     fun clearDeletionTransaction() {
+        clearPendingDeletionLayoutListener()
         activeDeletionSnapshot = null
+        hasPendingDeletionSettlement = false
         isDeletionTailAnchored = false
+        deletionTransactionGeneration++
+    }
+
+    fun markPendingDeletionSettlement() {
+        if (activeDeletionSnapshot != null) {
+            hasPendingDeletionSettlement = true
+        }
+    }
+
+    fun updateDeletionAffectsTailIfNeeded(affectsTail: Boolean) {
+        if (!affectsTail) return
+        activeDeletionSnapshot = activeDeletionSnapshot?.let { snap ->
+            if (snap.affectsDocumentTail) snap else snap.copy(affectsDocumentTail = true)
+        }
     }
 
     fun beginPreEditDeletionSnapshot(
@@ -466,8 +514,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         preEditScrollY: Float,
         preEditCaretScreenY: Float,
         wasAtTail: Boolean,
-        affectsDocumentTail: Boolean
+        affectsDocumentTail: Boolean,
+        preEditLastNonBlankLine: Int = (preEditDocLineCount - 1).coerceAtLeast(0),
+        markPendingSettlement: Boolean = false
     ) {
+        clearPendingDeletionLayoutListener()
         deletionTransactionGeneration++
         activeDeletionSnapshot = ScribeScrollDeletionPolicy.DeletionSnapshot(
             transactionEpoch = deletionTransactionGeneration,
@@ -479,14 +530,19 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             preEditScrollY = preEditScrollY,
             preEditCaretScreenY = preEditCaretScreenY,
             wasAtTail = wasAtTail,
-            affectsDocumentTail = affectsDocumentTail
+            affectsDocumentTail = affectsDocumentTail,
+            preEditLastNonBlankLine = preEditLastNonBlankLine
         )
+        if (markPendingSettlement) {
+            hasPendingDeletionSettlement = true
+        }
     }
 
     fun notifyContentDeletionStarted() {
-        if (activeDeletionSnapshot != null) return // Already captured accurately before mutation
+        if (hasPendingDeletionSettlement) return
         val cur = try { editor.cursor } catch (_: Throwable) { null }
         val lay = try { editor.layout } catch (_: Throwable) { null }
+        val content = editor.text
         val currentScroll = (scrollD + editor.offsetY).toFloat()
         val docH = (headerHeight + (lay?.layoutHeight ?: 0)).toFloat()
         val visibleH = height.toFloat()
@@ -500,17 +556,22 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
         val caretScreenY = (headerHeight + caretDocY - currentScroll)
         val endLine = if (cur?.isSelected == true) cur.rightLine else (cur?.leftLine ?: 0)
-        val affectsDocumentTail = endLine >= (editor.text.lineCount - 1)
+        val lastNonBlankLine = ScribeScrollDeletionPolicy.findLastNonBlankLine(content.lineCount) { idx ->
+            content.getLine(idx)
+        }
+        val affectsDocumentTail = ScribeScrollDeletionPolicy.isLineRangeAffectingLogicalTail(endLine, lastNonBlankLine)
         beginPreEditDeletionSnapshot(
             isSelection = cur?.isSelected == true,
             selectionStartLine = cur?.leftLine ?: 0,
             selectionEndLine = cur?.rightLine ?: 0,
-            preEditDocLineCount = editor.text.lineCount,
+            preEditDocLineCount = content.lineCount,
             preEditDocHeight = docH,
             preEditScrollY = currentScroll,
             preEditCaretScreenY = caretScreenY,
             wasAtTail = wasAtTail,
-            affectsDocumentTail = affectsDocumentTail
+            affectsDocumentTail = affectsDocumentTail,
+            preEditLastNonBlankLine = lastNonBlankLine,
+            markPendingSettlement = true
         )
     }
 
@@ -518,24 +579,106 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         notifyContentDeletionStarted()
     }
 
+    private fun deferDeletionSettlementUntilLayoutReady(capturedGen: Long, smooth: Boolean) {
+        if (pendingDeletionLayoutListener != null || !isAttachedToWindow) return
+        val attachListener = object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {}
+            override fun onViewDetachedFromWindow(v: View) {
+                clearPendingDeletionLayoutListener()
+            }
+        }
+        val layoutListener = object : View.OnLayoutChangeListener {
+            override fun onLayoutChange(
+                v: View?,
+                left: Int, top: Int, right: Int, bottom: Int,
+                oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int
+            ) {
+                if ((bottom - top) > 0 && editor.isLaidOut) {
+                    clearPendingDeletionLayoutListener()
+                    post {
+                        if (deletionTransactionGeneration == capturedGen && isDeletionTransactionActive) {
+                            handleDeletionSettlement(smooth = smooth)
+                        }
+                    }
+                }
+            }
+        }
+        pendingDeletionAttachListener = attachListener
+        pendingDeletionLayoutListener = layoutListener
+        addOnAttachStateChangeListener(attachListener)
+        addOnLayoutChangeListener(layoutListener)
+    }
+
+    private fun revalidateDeletionSettlementSafety(
+        capturedGen: Long,
+        allowCorrectiveAnimation: Boolean,
+        smooth: Boolean = true
+    ): Boolean {
+        if (!isDeletionTransactionActive || deletionTransactionGeneration != capturedGen) return false
+        if (height <= 0) return false
+        val cur = try { editor.cursor } catch (_: Throwable) { null }
+        val lay = editor.layout ?: return false
+        val geom = getSelectionGeometry(cur, lay) ?: return false
+        val currentScroll = (scrollD + editor.offsetY).toFloat()
+        val validation = ScribeScrollDeletionPolicy.validateSettledDeletionSafety(
+            currentTotalScroll = currentScroll,
+            headerHeight = headerHeight,
+            caretDocBottom = geom.bottomDocY,
+            layoutHeight = lay.layoutHeight.toFloat(),
+            usableViewportHeight = height,
+            breathingMarginPx = breathingMarginPx,
+            maxCanvasScroll = maxCanvasScroll,
+            isTailAnchored = isDeletionTailAnchored
+        )
+        if (!validation.isSafe && allowCorrectiveAnimation) {
+            val correctiveTarget = validation.correctiveTargetScroll
+            if (abs(correctiveTarget - currentScroll) >= 1f) {
+                if (!smooth) {
+                    scrollCanvasBy(correctiveTarget - currentScroll)
+                    return false
+                }
+                return startAuthoritativeScrollAnimation(
+                    targetTotalScroll = correctiveTarget,
+                    reason = ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION,
+                    durationMs = 120L,
+                    forceRetarget = true,
+                    onEnd = {
+                        if (deletionTransactionGeneration == capturedGen &&
+                            !canvasAnimator.isGlideRunning &&
+                            !scrollCoordinator.isAnimationActive
+                        ) {
+                            clearDeletionTransaction()
+                        }
+                    }
+                )
+            }
+        }
+        return false
+    }
+
     fun handleDeletionSettlement(smooth: Boolean = true) {
         val snapshot = activeDeletionSnapshot ?: return
         val currentGen = deletionTransactionGeneration
+        if (height <= 0 || !isLaidOut || !editor.isLaidOut) {
+            deferDeletionSettlementUntilLayoutReady(currentGen, smooth)
+            return
+        }
+        if (!editor.isWordwrapReady()) {
+            return
+        }
+
+        hasPendingDeletionSettlement = false
+        clearPendingDeletionLayoutListener()
 
         val currentScroll = (scrollD + editor.offsetY).toFloat()
         val curLay = editor.layout
         val newDocHeight = curLay?.layoutHeight?.toFloat() ?: 0f
-        val newDocLineCount = editor.text.lineCount
+        val content = editor.text
+        val newDocLineCount = content.lineCount
+        val isTextEmpty = content.isEmpty()
         val usableHeight = height.toFloat()
         val maxBound = maxCanvasScroll.toFloat()
         val breathingMargin = breathingMarginPx
-
-        val intent = ScribeScrollDeletionPolicy.classifyDeletionIntent(
-            snapshot = snapshot,
-            newDocLineCount = newDocLineCount,
-            newDocHeight = headerHeight + newDocHeight,
-            usableViewportHeight = usableHeight
-        )
 
         val cur = try { editor.cursor } catch (_: Throwable) { null }
         val newCaretDocY = if (cur != null && curLay != null) {
@@ -543,6 +686,29 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         } else {
             0f
         }
+        val isPostEditCaretAtLogicalTail = if (cur != null && !isTextEmpty) {
+            ScribeScrollDeletionPolicy.isCaretAtLogicalTail(
+                lineCount = newDocLineCount,
+                caretLine = cur.leftLine,
+                caretCol = cur.leftColumn,
+                lineAt = { idx -> content.getLine(idx) },
+                newCaretDocY = newCaretDocY,
+                layoutHeight = newDocHeight,
+                rowHeight = editor.rowHeight.toFloat()
+            )
+        } else {
+            true
+        }
+
+        val intent = ScribeScrollDeletionPolicy.classifyDeletionIntent(
+            snapshot = snapshot,
+            newDocLineCount = newDocLineCount,
+            newDocHeight = headerHeight + newDocHeight,
+            usableViewportHeight = usableHeight,
+            breathingMarginPx = breathingMargin,
+            isTextEmpty = isTextEmpty,
+            isPostEditCaretAtLogicalTail = isPostEditCaretAtLogicalTail
+        )
 
         val target = ScribeScrollDeletionPolicy.calculateSafeDeletionDestination(
             intent = intent,
@@ -561,22 +727,41 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (intent == ScribeScrollDeletionPolicy.DeletionAnchorIntent.RESET_TO_TOP) {
             clearDeletionTransaction()
             resetDocumentToTop(smooth = smooth)
-        } else if (kotlin.math.abs(target - currentScroll) >= 1f) {
+        } else if (abs(target - currentScroll) >= 1f) {
+            if (!smooth) {
+                scrollCanvasBy(target - currentScroll)
+                val startedCorrection = revalidateDeletionSettlementSafety(
+                    capturedGen = currentGen,
+                    allowCorrectiveAnimation = true,
+                    smooth = false
+                )
+                if (!startedCorrection && deletionTransactionGeneration == currentGen) {
+                    clearDeletionTransaction()
+                }
+                return
+            }
             startAuthoritativeScrollAnimation(
                 targetTotalScroll = target,
                 reason = ScrollAnimationReason.DELETION_ANCHOR,
                 durationMs = ScribeScrollDeletionPolicy.DURATION_DELETION_ANCHOR_MS,
                 forceRetarget = true,
                 onEnd = {
-                    if (deletionTransactionGeneration == currentGen) {
+                    if (deletionTransactionGeneration == currentGen &&
+                        !canvasAnimator.isGlideRunning &&
+                        !scrollCoordinator.isAnimationActive
+                    ) {
                         clearDeletionTransaction()
                     }
                 }
             )
         } else {
-            clearDeletionTransaction()
-            if (currentScroll > maxBound) {
-                clampCanvasScrollToMax(smooth = smooth)
+            val startedCorrection = revalidateDeletionSettlementSafety(
+                capturedGen = currentGen,
+                allowCorrectiveAnimation = true,
+                smooth = smooth
+            )
+            if (!startedCorrection && deletionTransactionGeneration == currentGen) {
+                clearDeletionTransaction()
             }
         }
     }
@@ -593,11 +778,16 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         interpolator: android.view.animation.Interpolator = FastOutSlowInInterpolator,
         forceRetarget: Boolean = false,
         onEnd: (() -> Unit)? = null
-    ) {
-        val currentScroll = (scrollDFloat + editor.offsetY)
+    ): Boolean {
+        if (!canvasAnimator.isGlideRunning || !scrollCoordinator.isAnimationActive) {
+            outerScrollResidualPx = 0f
+            editorScrollResidualPx = 0f
+            scrollDFloat = scrollD.toFloat()
+        }
+        val currentScroll = (scrollD + editor.offsetY).toFloat()
         scrollCoordinator.totalScroll = currentScroll
         val maxBound = maxCanvasScroll
-        canvasAnimator.startAuthoritativeAnimation(
+        return canvasAnimator.startAuthoritativeAnimation(
             currentScroll = currentScroll,
             targetTotalScroll = targetTotalScroll,
             reason = reason,
@@ -775,6 +965,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     fun cancelCanvasAnimation() {
         cancelRestoration()
         canvasAnimator.cancel("cancelCanvasAnimation")
+        outerScrollResidualPx = 0f
+        editorScrollResidualPx = 0f
+        scrollDFloat = scrollD.toFloat()
         isPredictiveGlideRunning = false
         targetPredictedScrollTotal = -1f
         endKeyboardTransaction()
@@ -837,6 +1030,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * ensuring the header and title section are fully restored into view as one continuous document.
      */
     fun resetDocumentToTop(smooth: Boolean = true) {
+        if (smooth && isGlideRunning && activeGlideReason == ScrollAnimationReason.RESET_TOP &&
+            scrollCoordinator.isAnimationActive && abs(glideTarget) <= 1f
+        ) {
+            return
+        }
         cancelCanvasAnimation()
         try {
             editor.scroller?.abortAnimation()
@@ -862,6 +1060,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     fun setCanvasScrollD(targetScrollD: Int) {
         cancelCanvasAnimation()
         val clamped = targetScrollD.coerceIn(0, headerHeight)
+        outerScrollResidualPx = 0f
         scrollD = clamped
         scrollDFloat = clamped.toFloat()
         applyTranslations()
@@ -979,6 +1178,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     editorOffsetY = totalScroll,
                     maxCanvasScroll = maxCanvasScroll
                 )
+                outerScrollResidualPx = 0f
+                editorScrollResidualPx = 0f
                 scrollD = reconciled.scrollD
                 scrollDFloat = reconciled.scrollD.toFloat()
                 applyTranslations()
@@ -1019,6 +1220,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     fun resetScroll() {
         inputController.stopFling()
         editor.stopFling()
+        outerScrollResidualPx = 0f
+        editorScrollResidualPx = 0f
         scrollDFloat = 0f
         scrollD = 0
         inputController.isDraggingCanvas = false
@@ -1172,7 +1375,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         ) {
             return
         }
-        if ((!editor.isFocused && !isBottomSurfaceActive) || isKeyboardDismissing || suppressCursorVisibilityScroll || isRestoringViewport) return
+        if ((!editor.isFocused && !isBottomSurfaceActive) || isKeyboardDismissing || suppressCursorVisibilityScroll || isRestoringViewport || hasPendingDeletionSettlement) return
         if (!force && editor.isPasteTransactionActive) return
         val now = System.currentTimeMillis()
         if (!force && now - lastEnsureCursorTime < 16L) return
@@ -1314,6 +1517,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         // the editor MUST NOT have any positive offsetY. Clamping to 0 guarantees
         // Line 0 is never drawn behind the titles.
         if (scrollD < headerHeight && editor.offsetY > 0) {
+            editorScrollResidualPx = 0f
             try {
                 editor.jumpScrollTo(editor.offsetX, 0)
             } catch (_: Throwable) {}
@@ -1337,16 +1541,22 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             headerHeight = measuredH
         }
 
-        // Maintain continuous canvas invariant on resume/relayout:
-        if (headerHeight > 0 && editor.isWordwrapReady() && editor.layout != null) {
+        // Maintain continuous canvas invariant on resume/relayout, deferring destructive clamping
+        // during an active deletion transaction or smooth RESET_TOP glide.
+        val deferLayoutReconcile = isDeletionTransactionActive ||
+            (isGlideRunning && activeGlideReason == ScrollAnimationReason.RESET_TOP)
+        if (!deferLayoutReconcile && headerHeight > 0 && editor.isWordwrapReady() && editor.layout != null) {
             val reconciled = ScribeScrollPolicy.reconcileScrollState(
                 headerHeight = headerHeight,
                 scrollD = scrollD,
                 editorOffsetY = editor.offsetY,
                 maxCanvasScroll = maxCanvasScroll
             )
-            scrollD = reconciled.scrollD
-            scrollDFloat = reconciled.scrollD.toFloat()
+            if (reconciled.scrollD != scrollD) {
+                scrollD = reconciled.scrollD
+                scrollDFloat = reconciled.scrollD.toFloat()
+                outerScrollResidualPx = 0f
+            }
         }
 
         // Measure CodeEditor to fill the full viewport width and height
@@ -1365,37 +1575,46 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         headerView.layout(0, 0, width, headerHeight)
         editor.layout(0, headerHeight, width, headerHeight + viewportHeight)
 
-        // Only enforce viewport height invariant when layout & wordwrap are fully ready
-        if (editor.text.isEmpty()) {
-            if (editor.offsetY > 0) {
-                try {
-                    editor.jumpScrollTo(editor.offsetX, 0)
-                } catch (_: Throwable) {}
-            }
-            if (scrollD > 0) {
-                scrollD = 0
-                scrollDFloat = 0f
-                onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
-                notifyViewportScrollChanged()
-            }
-        } else if (editor.isWordwrapReady() && editor.layout != null) {
-            val reconciled = ScribeScrollPolicy.reconcileScrollState(
-                headerHeight = headerHeight,
-                scrollD = scrollD,
-                editorOffsetY = editor.offsetY,
-                maxCanvasScroll = maxCanvasScroll
-            )
-            if (reconciled.scrollD != scrollD) {
-                scrollD = reconciled.scrollD
-                scrollDFloat = reconciled.scrollD.toFloat()
-                onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
-                notifyViewportScrollChanged()
-            }
-            if (reconciled.editorOffsetY != editor.offsetY) {
-                try {
-                    editor.jumpScrollTo(editor.offsetX, reconciled.editorOffsetY)
+        // Only enforce viewport height invariant when layout & wordwrap are fully ready and
+        // no active deletion transaction or smooth RESET_TOP glide owns the retraction.
+        val deferLayoutReconcile = isDeletionTransactionActive ||
+            (isGlideRunning && activeGlideReason == ScrollAnimationReason.RESET_TOP)
+        if (!deferLayoutReconcile) {
+            if (editor.text.isEmpty()) {
+                if (editor.offsetY > 0) {
+                    try {
+                        editor.jumpScrollTo(editor.offsetX, 0)
+                        editorScrollResidualPx = 0f
+                    } catch (_: Throwable) {}
+                }
+                if (scrollD > 0) {
+                    scrollD = 0
+                    scrollDFloat = 0f
+                    outerScrollResidualPx = 0f
+                    onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
                     notifyViewportScrollChanged()
-                } catch (_: Throwable) {}
+                }
+            } else if (editor.isWordwrapReady() && editor.layout != null) {
+                val reconciled = ScribeScrollPolicy.reconcileScrollState(
+                    headerHeight = headerHeight,
+                    scrollD = scrollD,
+                    editorOffsetY = editor.offsetY,
+                    maxCanvasScroll = maxCanvasScroll
+                )
+                if (reconciled.scrollD != scrollD) {
+                    scrollD = reconciled.scrollD
+                    scrollDFloat = reconciled.scrollD.toFloat()
+                    outerScrollResidualPx = 0f
+                    onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
+                    notifyViewportScrollChanged()
+                }
+                if (reconciled.editorOffsetY != editor.offsetY) {
+                    try {
+                        editor.jumpScrollTo(editor.offsetX, reconciled.editorOffsetY)
+                        editorScrollResidualPx = 0f
+                        notifyViewportScrollChanged()
+                    } catch (_: Throwable) {}
+                }
             }
         }
         applyTranslations()
@@ -1643,6 +1862,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (child !== editor) {
             if (scrollD > 0) {
                 if (immediate) {
+                    outerScrollResidualPx = 0f
                     scrollDFloat = 0f
                     scrollD = 0
                     applyTranslations()
@@ -1742,6 +1962,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      */
     fun scrollCanvasBy(dy: Float): Float {
         onScrollDelta?.invoke(dy)
+        lastScrollWasBoundaryClamped = false
 
         if (dy > 0f) {
             // Scrolling down into document (finger moving up)
@@ -1760,30 +1981,85 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             }
         }
 
+        val editorOffsetBefore = editor.offsetY
+        val editorMaxBefore = editor.safeScrollMaxY
+        val physicalBefore = (scrollD + editorOffsetBefore).toFloat()
+        val maxBound = maxCanvasScroll
+
         // 2. Authoritative 1-DOF scroll allocation via ScribeScrollPolicy
         val allocation = ScribeScrollPolicy.allocateScrollDelta(
             deltaY = dy,
             headerHeight = headerHeight,
-            scrollD = scrollDFloat,
+            scrollD = (scrollD.toFloat() + outerScrollResidualPx).coerceAtLeast(0f),
             editorOffsetY = editor.offsetY,
-            maxCanvasScroll = maxCanvasScroll
+            maxCanvasScroll = maxBound
         )
 
-        if (allocation.outerDelta != 0f) {
-            scrollDFloat += allocation.outerDelta
-            val maxD = minOf(headerHeight, maxCanvasScroll)
-            scrollD = scrollDFloat.roundToInt().coerceIn(0, maxD)
+        var outerHitBoundary = false
+        var innerHitBoundary = false
+
+        fun applyOuter(outerDelta: Float) {
+            if (outerDelta < 0f && editor.offsetY > 0) {
+                outerHitBoundary = true
+                return
+            }
+            val step = ScribeScrollDeletionPolicy.resolveOuterScrollStep(
+                currentScrollD = scrollD,
+                currentResidualPx = outerScrollResidualPx,
+                outerDelta = outerDelta,
+                headerHeight = headerHeight,
+                maxCanvasScroll = maxBound,
+                isDeletionTransactionActive = isDeletionTransactionActive
+            )
+            val prevD = scrollD
+            scrollD = step.nextIntOffset
+            outerScrollResidualPx = step.nextResidualPx
+            scrollDFloat = scrollD.toFloat() + outerScrollResidualPx
+            outerHitBoundary = step.hitBoundary
+            if (scrollD < headerHeight) {
+                editorScrollResidualPx = 0f
+            }
             applyTranslations()
-            onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
+            if (scrollD != prevD) {
+                onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
+            }
         }
 
-        if (allocation.innerDelta != 0f) {
-            dispatchScrollToEditor(allocation.innerDelta)
+        if (dy < 0f) {
+            // Reverse scroll: drain inner editor offset to 0 before retracting outer header
+            if (allocation.innerDelta != 0f) {
+                innerHitBoundary = dispatchScrollToEditor(allocation.innerDelta)
+            }
+            if (allocation.outerDelta != 0f) {
+                applyOuter(allocation.outerDelta)
+            }
+        } else {
+            // Forward scroll: collapse outer header before scrolling inner editor
+            if (allocation.outerDelta != 0f) {
+                applyOuter(allocation.outerDelta)
+            }
+            if (allocation.innerDelta != 0f) {
+                innerHitBoundary = dispatchScrollToEditor(allocation.innerDelta)
+            }
         }
 
-        if (allocation.outerDelta != 0f || allocation.innerDelta != 0f) {
+        val physicalAfter = (scrollD + editor.offsetY).toFloat()
+        val actualMoved = physicalAfter - physicalBefore
+        if (actualMoved != 0f) {
             notifyViewportScrollChanged()
         }
+
+        val allocationBlocked = (dy > 0f && allocation.unconsumedDelta > 0.05f) ||
+            (dy < 0f && allocation.unconsumedDelta < -0.05f)
+        val innerHandoffToOuter = dy < 0f &&
+            scrollD > 0 &&
+            !(isDeletionTransactionActive && editorOffsetBefore > editorMaxBefore)
+        val outerHandoffToInner = dy > 0f &&
+            maxBound > headerHeight &&
+            allocation.innerDelta != 0f
+        val effectiveOuterHitBoundary = outerHitBoundary && !outerHandoffToInner
+        val effectiveInnerHitBoundary = innerHitBoundary && !innerHandoffToOuter
+        lastScrollWasBoundaryClamped = effectiveOuterHitBoundary || effectiveInnerHitBoundary || allocationBlocked
 
         // 3. Top edge stretch when overscrolling at the top
         if (dy < 0f && allocation.unconsumedDelta < 0f && scrollD <= 0 && editor.offsetY <= 0) {
@@ -1795,7 +2071,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             }
         }
 
-        return allocation.unconsumedDelta
+        return dy - actualMoved
     }
 
     /**
@@ -1803,27 +2079,43 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * This avoids calling View.scrollBy() which desynchronizes the View hardware canvas,
      * ensuring lines render smoothly at 120Hz without blank screens during fast scrolling.
      */
-    private fun dispatchScrollToEditor(dy: Float) {
+    private fun dispatchScrollToEditor(dy: Float): Boolean {
         // Invariant A: Editor MUST NOT scroll if header is visible
-        if (scrollD < headerHeight) return
-        try {
-            val scroller = editor.scroller ?: return
+        if (scrollD < headerHeight) {
+            editorScrollResidualPx = 0f
+            return dy != 0f
+        }
+        return try {
+            val scroller = editor.scroller ?: return true
             val currY = editor.offsetY
             val currX = editor.offsetX
-            val targetY = (currY + dy).roundToInt()
             val maxAllowedY = editor.safeScrollMaxY
-            val clampedTargetY = targetY.coerceIn(0, maxAllowedY)
+            val step = ScribeScrollDeletionPolicy.resolveInnerScrollStep(
+                currentOffsetY = currY,
+                currentResidualPx = editorScrollResidualPx,
+                innerDelta = dy,
+                maxAllowedY = maxAllowedY,
+                isDeletionTransactionActive = isDeletionTransactionActive
+            )
+            val clampedTargetY = step.nextIntOffset
+            editorScrollResidualPx = step.nextResidualPx
             if (clampedTargetY != currY) {
                 scroller.forceFinished(true)
                 scroller.startScroll(currX, currY, 0, clampedTargetY - currY, 0)
                 scroller.abortAnimation()
+                if (editor.offsetY != clampedTargetY) {
+                    editorScrollResidualPx = 0f
+                }
                 try {
                     editor.renderContext.invalidateRenderNodes()
                 } catch (_: Throwable) {}
                 editor.invalidate()
                 notifyViewportScrollChanged()
             }
-        } catch (_: Throwable) {}
+            step.hitBoundary
+        } catch (_: Throwable) {
+            true
+        }
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {

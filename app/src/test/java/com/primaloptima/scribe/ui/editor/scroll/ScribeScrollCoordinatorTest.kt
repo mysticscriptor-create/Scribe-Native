@@ -229,4 +229,147 @@ class ScribeScrollCoordinatorTest {
         assertFalse(coordinator.isAnimationActive)
     }
 
+    @Test
+    fun testCoordinator_SubPixelAccumulation_DoesNotAbortPrematurelyOrDoubleCount() {
+        // Scenario 8a: Verifies that when rendered integer scroll defers sub-pixel motion into a separate residual
+        // (so physical totalScroll changes by 0px on a -0.4px step and -1px once residual crosses 0.5px),
+        // ScribeScrollCoordinator neither prematurely aborts on hitBoundary nor double-counts residual.
+        val coordinator = ScribeScrollCoordinator(totalScroll = 500f)
+        var renderedScrollD = 200
+        var renderedOffsetY = 300
+        var editorResidual = 0f
+        var lastClamped = false
+
+        coordinator.wasLastStepClampedByBoundary = { lastClamped }
+        coordinator.onScrollBy = { dy ->
+            val physicalBefore = renderedScrollD + renderedOffsetY
+            val step = ScribeScrollDeletionPolicy.resolveInnerScrollStep(
+                currentOffsetY = renderedOffsetY,
+                currentResidualPx = editorResidual,
+                innerDelta = dy,
+                maxAllowedY = 240,
+                isDeletionTransactionActive = true
+            )
+            renderedOffsetY = step.nextIntOffset
+            editorResidual = step.nextResidualPx
+            lastClamped = step.hitBoundary
+            val physicalAfter = renderedScrollD + renderedOffsetY
+            dy - (physicalAfter - physicalBefore).toFloat()
+        }
+
+        assertTrue(coordinator.requestTarget(440f, ScrollAnimationReason.DELETION_ANCHOR, maxCanvasScroll = 500))
+
+        // Step 1: -0.4px -> rounded integer stays 300, residual becomes -0.4px, NOT a boundary hit
+        coordinator.applyStep(499.6f)
+        assertEquals("Rendered position stays integer 500", 500f, coordinator.totalScroll, 0.001f)
+        assertTrue("Sub-pixel deferral must NOT falsely abort active animation", coordinator.isAnimationActive)
+        assertFalse(coordinator.didLastStepClampAtBoundary)
+
+        // Step 2: another -0.4px -> proposed 299.2 -> integer moves 299 (-1px physical), residual +0.2px
+        coordinator.applyStep(499.2f)
+        assertEquals("Coordinator totalScroll matches rendered integer 499", 499f, coordinator.totalScroll, 0.001f)
+        assertEquals(299, renderedOffsetY)
+        assertEquals(0.2f, editorResidual, 0.001f)
+        assertTrue(coordinator.isAnimationActive)
+        assertFalse(coordinator.didLastStepClampAtBoundary)
+
+        // Verify zero residual double-counting over 10 small steps (-0.3f each -> total -3.0f)
+        for (i in 1..10) {
+            coordinator.applyStep(499.2f - i * 0.3f)
+        }
+        assertEquals((renderedScrollD + renderedOffsetY).toFloat(), coordinator.totalScroll, 0.001f)
+        assertEquals(496f, coordinator.totalScroll, 0.001f)
+    }
+
+    @Test
+    fun testCoordinator_GenuineBoundaryClamp_ReconcilesLastAnimatedScrollAndSignalsClamped() {
+        // Scenario 8b: Genuine bound clamp reconciles lastAnimatedScroll = totalScroll and records clamped delta
+        val coordinator = ScribeScrollCoordinator(totalScroll = 100f)
+        var renderedScroll = 100
+        var lastClamped = false
+
+        coordinator.wasLastStepClampedByBoundary = { lastClamped }
+        coordinator.onScrollBy = { dy ->
+            val before = renderedScroll
+            val step = ScribeScrollDeletionPolicy.resolveOuterScrollStep(
+                currentScrollD = renderedScroll,
+                currentResidualPx = 0f,
+                outerDelta = dy,
+                headerHeight = 200,
+                maxCanvasScroll = 80,
+                isDeletionTransactionActive = true
+            )
+            renderedScroll = step.nextIntOffset
+            lastClamped = step.hitBoundary
+            dy - (renderedScroll - before).toFloat()
+        }
+
+        assertTrue(coordinator.requestTarget(60f, ScrollAnimationReason.DELETION_ANCHOR, maxCanvasScroll = 100))
+        coordinator.applyStep(70f)
+        assertEquals(80, renderedScroll)
+        assertEquals(80f, coordinator.totalScroll, 0.001f)
+        assertTrue(coordinator.didLastStepClampAtBoundary)
+        assertEquals(-10f, coordinator.lastClampedDelta, 0.001f)
+    }
+
+    @Test
+    fun testScopedResolvers_StrictBoundsOutsideDeletion_TransitionalBoundsDuringDeletion() {
+        // Outside deletion transaction: strict [0, maxAllowedY] even if offset > max
+        val normalStep = ScribeScrollDeletionPolicy.resolveInnerScrollStep(
+            currentOffsetY = 500,
+            currentResidualPx = 0f,
+            innerDelta = -3f,
+            maxAllowedY = 440,
+            isDeletionTransactionActive = false
+        )
+        assertEquals(440, normalStep.nextIntOffset)
+        assertTrue(normalStep.hitBoundary)
+
+        // Inside deletion transaction: -3f moves cleanly 500 -> 497
+        val deletionStep = ScribeScrollDeletionPolicy.resolveInnerScrollStep(
+            currentOffsetY = 500,
+            currentResidualPx = 0f,
+            innerDelta = -3f,
+            maxAllowedY = 440,
+            isDeletionTransactionActive = true
+        )
+        assertEquals(497, deletionStep.nextIntOffset)
+        assertFalse(deletionStep.hitBoundary)
+
+        // Inside deletion transaction with large negative step: stops at [440, 500], zero overshoot below 440
+        val deletionLargeStep = ScribeScrollDeletionPolicy.resolveInnerScrollStep(
+            currentOffsetY = 500,
+            currentResidualPx = 0f,
+            innerDelta = -120f,
+            maxAllowedY = 440,
+            isDeletionTransactionActive = true
+        )
+        assertEquals(440, deletionLargeStep.nextIntOffset)
+        assertTrue(deletionLargeStep.hitBoundary)
+        assertEquals(0f, deletionLargeStep.nextResidualPx, 0.001f)
+
+        // Outer layer equivalent protection when maxCanvasScroll_new < headerHeight:
+        val outerRetractStep = ScribeScrollDeletionPolicy.resolveOuterScrollStep(
+            currentScrollD = 200,
+            currentResidualPx = 0f,
+            outerDelta = -5f,
+            headerHeight = 200,
+            maxCanvasScroll = 120,
+            isDeletionTransactionActive = true
+        )
+        assertEquals(195, outerRetractStep.nextIntOffset)
+        assertFalse(outerRetractStep.hitBoundary)
+
+        val outerOvershootStop = ScribeScrollDeletionPolicy.resolveOuterScrollStep(
+            currentScrollD = 200,
+            currentResidualPx = 0f,
+            outerDelta = -150f,
+            headerHeight = 200,
+            maxCanvasScroll = 120,
+            isDeletionTransactionActive = true
+        )
+        assertEquals(120, outerOvershootStop.nextIntOffset)
+        assertTrue(outerOvershootStop.hitBoundary)
+    }
+
 }

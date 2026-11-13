@@ -20,7 +20,8 @@ class ScribeCanvasGlideAnimator(
     private val postOnAnimationAction: (Runnable) -> Unit,
     private val removeCallbacksAction: (Runnable) -> Unit,
     var deletionBoundaryProvider: (() -> Float)? = null,
-    var onSettledCallback: ((reason: ScrollAnimationReason?) -> Unit)? = null
+    var onSettledCallback: ((reason: ScrollAnimationReason?) -> Unit)? = null,
+    var isDeletionSafetyActiveProvider: (() -> Boolean)? = null
 ) {
     var activeCanvasAnimator: ValueAnimator? = null
     var isGlideRunning: Boolean = false
@@ -41,60 +42,79 @@ class ScribeCanvasGlideAnimator(
     val glideFrameRunnable: Runnable = object : Runnable {
         override fun run() {
             if (!isGlideRunning) return
-            val opId = activeGlideOpId
-            if (opId != scrollCoordinator.activeOperationId || !scrollCoordinator.isAnimationActive) {
-                isGlideRunning = false
-                return
-            }
-
             val nowNs = System.nanoTime()
             val dtSec = ((nowNs - glideLastTimeNs) / 1_000_000_000f).coerceIn(0.001f, 0.032f)
             glideLastTimeNs = nowNs
+            advanceFrame(dtSec)
+        }
+    }
 
-            // Critically damped second-order spring:
-            // Natural frequency omega = 13.5 rad/s gives ~300ms ultra-smooth gentle glide
-            // Damping ratio zeta = 1.0 (critically damped: zero overshoot, perfectly smooth asymptotic settling)
-            val omega = 13.5f
-            val displacement = glidePosition - glideTarget
-            val accel = -omega * omega * displacement - 2f * omega * glideVelocity
-            glideVelocity += accel * dtSec
-            glidePosition += glideVelocity * dtSec
+    internal fun advanceFrame(dtSec: Float) {
+        if (!isGlideRunning) return
+        val opId = activeGlideOpId
+        if (opId != scrollCoordinator.activeOperationId || !scrollCoordinator.isAnimationActive) {
+            isGlideRunning = false
+            return
+        }
 
-            // Hard boundary invariant: deletion glide must never cross the 24dp breathing margin
-            if (activeGlideReason == ScrollAnimationReason.DELETION_ANCHOR) {
-                val minSafeScroll = deletionBoundaryProvider?.invoke() ?: 0f
-                if (glidePosition < minSafeScroll) {
-                    glidePosition = minSafeScroll
-                    if (glideVelocity < 0f) glideVelocity = 0f
-                    if (glideTarget <= minSafeScroll) {
-                        glideTarget = minSafeScroll
-                    }
+        val safeDt = dtSec.coerceIn(0.001f, 0.032f)
+
+        // Critically damped second-order spring:
+        // Natural frequency omega = 13.5 rad/s gives ~300ms ultra-smooth gentle glide
+        // Damping ratio zeta = 1.0 (critically damped: zero overshoot, perfectly smooth asymptotic settling)
+        val omega = 13.5f
+        val displacement = glidePosition - glideTarget
+        val accel = -omega * omega * displacement - 2f * omega * glideVelocity
+        glideVelocity += accel * safeDt
+        glidePosition += glideVelocity * safeDt
+
+        // Hard boundary invariant: deletion safety persists across the full active deletion
+        // transaction, surviving in-flight animation retargeting.
+        val isDeletionSafetyActive = activeGlideReason == ScrollAnimationReason.DELETION_ANCHOR ||
+            (isDeletionSafetyActiveProvider?.invoke() == true)
+        if (isDeletionSafetyActive) {
+            val minSafeScroll = deletionBoundaryProvider?.invoke() ?: 0f
+            if (glidePosition < minSafeScroll) {
+                glidePosition = minSafeScroll
+                if (glideVelocity < 0f) glideVelocity = 0f
+                if (glideTarget <= minSafeScroll) {
+                    glideTarget = minSafeScroll
                 }
             }
+        }
 
-            scrollCoordinator.applyStep(glidePosition, opId)
+        scrollCoordinator.applyStep(glidePosition, opId)
+        if (scrollCoordinator.didLastStepClampAtBoundary) {
+            glidePosition = scrollCoordinator.totalScroll
+            if ((scrollCoordinator.lastClampedDelta > 0f && glideVelocity > 0f) ||
+                (scrollCoordinator.lastClampedDelta < 0f && glideVelocity < 0f)
+            ) {
+                glideVelocity = 0f
+            }
+        }
 
-            val distToTarget = abs(glidePosition - glideTarget)
-            val isSettled = distToTarget < 0.5f && abs(glideVelocity) < 15f
-            val isStoppedByCoord = !scrollCoordinator.isAnimationActive
+        val distToTarget = abs(glidePosition - glideTarget)
+        val isSettled = distToTarget < 0.5f && abs(glideVelocity) < 15f
+        val isStoppedByCoord = !scrollCoordinator.isAnimationActive
 
-            if (isSettled || isStoppedByCoord) {
-                isGlideRunning = false
-                if (scrollCoordinator.isAnimationActive && opId == scrollCoordinator.activeOperationId) {
-                    if (distToTarget < 1f) {
-                        scrollCoordinator.applyStep(glideTarget, opId)
-                    }
-                    scrollCoordinator.finishAnimation(opId)
+        if (isSettled || isStoppedByCoord) {
+            isGlideRunning = false
+            if (scrollCoordinator.isAnimationActive && opId == scrollCoordinator.activeOperationId) {
+                if (distToTarget < 1f) {
+                    scrollCoordinator.applyStep(glideTarget, opId)
                 }
-                val reason = activeGlideReason
-                val onEnd = activeGlideOnEnd
-                activeGlideOnEnd = null
-                activeGlideReason = null
-                onSettledCallback?.invoke(reason)
+                scrollCoordinator.finishAnimation(opId)
+            }
+            val reason = activeGlideReason
+            val onEnd = activeGlideOnEnd
+            activeGlideOnEnd = null
+            activeGlideReason = null
+            onSettledCallback?.invoke(reason)
+            if (!isGlideRunning && !scrollCoordinator.isAnimationActive && opId == scrollCoordinator.activeOperationId) {
                 onEnd?.invoke()
-            } else {
-                postOnAnimationAction(this)
             }
+        } else {
+            postOnAnimationAction(glideFrameRunnable)
         }
     }
 

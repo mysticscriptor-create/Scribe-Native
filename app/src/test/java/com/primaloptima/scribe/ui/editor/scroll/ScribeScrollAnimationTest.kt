@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import kotlin.math.abs
 import org.junit.Test
 
 /**
@@ -439,6 +440,642 @@ class ScribeScrollAnimationTest {
         assertEquals(750f, coordinator.totalScroll, 0.001f)
         driver.complete()
         assertFalse(coordinator.isAnimationActive)
+    }
+
+    /**
+     * Deterministic two-layer physics harness driving the real production ScribeCanvasGlideAnimator,
+     * ScribeScrollCoordinator, ScribeScrollPolicy.allocateScrollDelta, and scoped transitional
+     * step resolvers (resolveOuterScrollStep / resolveInnerScrollStep).
+     */
+    private class DeletionPhysicsHarness(
+        val headerHeight: Int = 200,
+        val usableViewportHeight: Int = 900,
+        val breathingMarginPx: Float = 60f,
+        initialLayoutHeight: Int,
+        initialScrollD: Int,
+        initialOffsetY: Int
+    ) {
+        var layoutHeight: Int = initialLayoutHeight
+        var scrollD: Int = initialScrollD
+        var offsetY: Int = initialOffsetY
+        var outerResidualPx: Float = 0f
+        var editorResidualPx: Float = 0f
+        var lastClamped: Boolean = false
+        var isDeletionActive: Boolean = false
+        var isTailAnchored: Boolean = false
+        var newCaretDocY: Float = initialLayoutHeight.toFloat()
+        var settledReasonHistory = mutableListOf<ScrollAnimationReason?>()
+        var pendingFrameRunnable: Runnable? = null
+
+        val maxCanvasScroll: Int
+            get() = ScribeScrollPolicy.calculateMaxCanvasScroll(
+                headerHeight = headerHeight,
+                layoutHeight = layoutHeight,
+                viewportHeight = usableViewportHeight,
+                bottomSpace = breathingMarginPx.toInt(),
+                isTextEmpty = layoutHeight <= 0
+            )
+
+        val currentTotalScroll: Int
+            get() = scrollD + offsetY
+
+        val coordinator = ScribeScrollCoordinator(
+            totalScroll = (initialScrollD + initialOffsetY).toFloat(),
+            headerHeight = headerHeight,
+            density = 2.5f
+        )
+
+        var animator: ScribeCanvasGlideAnimator = ScribeCanvasGlideAnimator(
+            scrollCoordinator = coordinator,
+            postOnAnimationAction = { r -> pendingFrameRunnable = r },
+            removeCallbacksAction = { r -> if (pendingFrameRunnable === r) pendingFrameRunnable = null },
+            deletionBoundaryProvider = {
+                val maxBound = maxCanvasScroll.toFloat()
+                val tailOrCaret = if (isTailAnchored) maxOf(layoutHeight.toFloat(), newCaretDocY) else newCaretDocY
+                (headerHeight + tailOrCaret + breathingMarginPx - usableViewportHeight).coerceIn(0f, maxBound)
+            },
+            onSettledCallback = { reason ->
+                settledReasonHistory.add(reason)
+                if (isDeletionActive) {
+                    val validation = ScribeScrollDeletionPolicy.validateSettledDeletionSafety(
+                        currentTotalScroll = currentTotalScroll.toFloat(),
+                        headerHeight = headerHeight,
+                        caretDocBottom = newCaretDocY,
+                        layoutHeight = layoutHeight.toFloat(),
+                        usableViewportHeight = usableViewportHeight,
+                        breathingMarginPx = breathingMarginPx,
+                        maxCanvasScroll = maxCanvasScroll,
+                        isTailAnchored = isTailAnchored
+                    )
+                    if (!validation.isSafe && reason != ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION &&
+                        abs(validation.correctiveTargetScroll - currentTotalScroll.toFloat()) >= 1f
+                    ) {
+                        animator.startAuthoritativeAnimation(
+                            currentScroll = currentTotalScroll.toFloat(),
+                            targetTotalScroll = validation.correctiveTargetScroll,
+                            reason = ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION,
+                            maxCanvasScroll = maxCanvasScroll,
+                            forceRetarget = true,
+                            onEnd = { isDeletionActive = false }
+                        )
+                    }
+                }
+            },
+            isDeletionSafetyActiveProvider = { isDeletionActive }
+        )
+
+        init {
+            coordinator.wasLastStepClampedByBoundary = { lastClamped }
+            coordinator.onScrollBy = { dy -> scrollBy(dy) }
+        }
+
+        fun scrollBy(dy: Float): Float {
+            lastClamped = false
+            val editorOffsetBefore = offsetY
+            val editorMaxBefore = if (scrollD < headerHeight) 0 else (maxCanvasScroll - headerHeight).coerceAtLeast(0)
+            val physicalBefore = (scrollD + offsetY).toFloat()
+            val maxBound = maxCanvasScroll
+
+            val allocation = ScribeScrollPolicy.allocateScrollDelta(
+                deltaY = dy,
+                headerHeight = headerHeight,
+                scrollD = (scrollD.toFloat() + outerResidualPx).coerceAtLeast(0f),
+                editorOffsetY = offsetY,
+                maxCanvasScroll = maxBound
+            )
+
+            var outerHit = false
+            var innerHit = false
+
+            fun applyInner(delta: Float): Boolean {
+                if (scrollD < headerHeight) {
+                    editorResidualPx = 0f
+                    return delta != 0f
+                }
+                val safeMaxY = (maxBound - headerHeight).coerceAtLeast(0)
+                val step = ScribeScrollDeletionPolicy.resolveInnerScrollStep(
+                    currentOffsetY = offsetY,
+                    currentResidualPx = editorResidualPx,
+                    innerDelta = delta,
+                    maxAllowedY = safeMaxY,
+                    isDeletionTransactionActive = isDeletionActive
+                )
+                offsetY = step.nextIntOffset
+                editorResidualPx = step.nextResidualPx
+                return step.hitBoundary
+            }
+
+            fun applyOuter(delta: Float) {
+                if (delta < 0f && offsetY > 0) {
+                    outerHit = true
+                    return
+                }
+                val step = ScribeScrollDeletionPolicy.resolveOuterScrollStep(
+                    currentScrollD = scrollD,
+                    currentResidualPx = outerResidualPx,
+                    outerDelta = delta,
+                    headerHeight = headerHeight,
+                    maxCanvasScroll = maxBound,
+                    isDeletionTransactionActive = isDeletionActive
+                )
+                scrollD = step.nextIntOffset
+                outerResidualPx = step.nextResidualPx
+                outerHit = step.hitBoundary
+                if (scrollD < headerHeight) {
+                    editorResidualPx = 0f
+                }
+            }
+
+            if (dy < 0f) {
+                if (allocation.innerDelta != 0f) innerHit = applyInner(allocation.innerDelta)
+                if (allocation.outerDelta != 0f) applyOuter(allocation.outerDelta)
+            } else {
+                if (allocation.outerDelta != 0f) applyOuter(allocation.outerDelta)
+                if (allocation.innerDelta != 0f) innerHit = applyInner(allocation.innerDelta)
+            }
+
+            if (scrollD < headerHeight) {
+                assertEquals("1-DOF violated: editor offsetY must be 0 whenever scrollD < headerHeight", 0, offsetY)
+            }
+
+            val physicalAfter = (scrollD + offsetY).toFloat()
+            val actualMoved = physicalAfter - physicalBefore
+            val allocationBlocked = (dy > 0f && allocation.unconsumedDelta > 0.05f) ||
+                (dy < 0f && allocation.unconsumedDelta < -0.05f)
+            val innerHandoffToOuter = dy < 0f && scrollD > 0 && !(isDeletionActive && editorOffsetBefore > editorMaxBefore)
+            val outerHandoffToInner = dy > 0f && maxBound > headerHeight && allocation.innerDelta != 0f
+            lastClamped = (outerHit && !outerHandoffToInner) || (innerHit && !innerHandoffToOuter) || allocationBlocked
+
+            return dy - actualMoved
+        }
+
+        fun runUntilSettled(maxFrames: Int = 180, dtSec: Float = 0.016f): List<Int> {
+            val trace = mutableListOf<Int>()
+            var frames = 0
+            while (animator.isGlideRunning && frames < maxFrames) {
+                animator.advanceFrame(dtSec)
+                trace.add(currentTotalScroll)
+                frames++
+            }
+            return trace
+        }
+    }
+
+    @Test
+    fun testPhysicsDeletion_MultipleTrailingEmptyLines_KeepsCaretAboveBreathingMargin() {
+        // Scenario 1: Deleting multiple trailing empty lines when scrolled to bottom
+        val harness = DeletionPhysicsHarness(
+            headerHeight = 200,
+            usableViewportHeight = 900,
+            breathingMarginPx = 60f,
+            initialLayoutHeight = 1720,
+            initialScrollD = 200,
+            initialOffsetY = 960 // pre-delete maxCanvasScroll = 1160
+        )
+        harness.isDeletionActive = true
+        harness.isTailAnchored = true
+        harness.newCaretDocY = 1720f
+
+        val snapshot = ScribeScrollDeletionPolicy.DeletionSnapshot(
+            transactionEpoch = 1L,
+            isSelection = false,
+            selectionStartLine = 42,
+            selectionEndLine = 42,
+            preEditDocLineCount = 43,
+            preEditDocHeight = 2000f,
+            preEditScrollY = 1160f,
+            preEditCaretScreenY = 840f,
+            wasAtTail = true,
+            affectsDocumentTail = true,
+            preEditLastNonBlankLine = 40
+        )
+        val intent = ScribeScrollDeletionPolicy.classifyDeletionIntent(
+            snapshot = snapshot,
+            newDocLineCount = 41,
+            newDocHeight = 1920f,
+            usableViewportHeight = 900f,
+            breathingMarginPx = 60f,
+            isTextEmpty = false,
+            isPostEditCaretAtLogicalTail = true
+        )
+        assertEquals(ScribeScrollDeletionPolicy.DeletionAnchorIntent.TAIL_ANCHOR, intent)
+
+        val target = ScribeScrollDeletionPolicy.calculateSafeDeletionDestination(
+            intent = intent,
+            currentScroll = 1160f,
+            headerHeight = 200f,
+            newDocHeight = 1720f,
+            newCaretDocY = 1720f,
+            preEditCaretScreenY = 840f,
+            usableViewportHeight = 900f,
+            breathingMarginPx = 60f,
+            maxCanvasScroll = harness.maxCanvasScroll.toFloat()
+        )
+        assertEquals(1080f, target, 0.001f)
+
+        val started = harness.animator.startAuthoritativeAnimation(
+            currentScroll = 1160f,
+            targetTotalScroll = target,
+            reason = ScrollAnimationReason.DELETION_ANCHOR,
+            maxCanvasScroll = harness.maxCanvasScroll,
+            forceRetarget = true,
+            onEnd = {
+                if (!harness.animator.isGlideRunning && !harness.coordinator.isAnimationActive) {
+                    harness.isDeletionActive = false
+                }
+            }
+        )
+        assertTrue(started)
+        val trace = harness.runUntilSettled()
+        assertTrue("First frame must retract gradually without snapping straight to 1080", trace.first() > 1100)
+        assertFalse(harness.animator.isGlideRunning)
+        assertFalse(harness.isDeletionActive)
+        assertEquals("Final totalScroll must land at 1080 without 2*deltaH double-subtraction", 1080, harness.currentTotalScroll)
+
+        val caretScreenBottom = harness.headerHeight + harness.newCaretDocY - harness.currentTotalScroll
+        assertTrue(
+            "Caret must stay strictly at or above breathing margin ($caretScreenBottom <= 840)",
+            caretScreenBottom <= 900f - 60f + 0.5f
+        )
+    }
+
+    @Test
+    fun testPhysicsDeletion_EntireLastParagraph_PreventsScrollBehindBreathingMarginAndDock() {
+        // Scenario 2: Deleting whole last paragraph shrinks doc by 320px (> breathingMarginPx=60px).
+        val harness = DeletionPhysicsHarness(
+            headerHeight = 200,
+            usableViewportHeight = 900,
+            breathingMarginPx = 60f,
+            initialLayoutHeight = 1600,
+            initialScrollD = 200,
+            initialOffsetY = 1080 // pre-delete totalScroll = 1280
+        )
+        harness.isDeletionActive = true
+        harness.isTailAnchored = true
+        harness.newCaretDocY = 1600f
+
+        harness.animator.startAuthoritativeAnimation(
+            currentScroll = 1280f,
+            targetTotalScroll = 960f,
+            reason = ScrollAnimationReason.DELETION_ANCHOR,
+            maxCanvasScroll = harness.maxCanvasScroll,
+            forceRetarget = true,
+            onEnd = {
+                if (!harness.animator.isGlideRunning && !harness.coordinator.isAnimationActive) {
+                    harness.isDeletionActive = false
+                }
+            }
+        )
+        val trace = harness.runUntilSettled()
+        assertTrue("Frame 1 must not snap all 320px at once", trace.first() > 1150)
+        assertEquals(960, harness.currentTotalScroll)
+        val docBottomScreen = harness.headerHeight + harness.layoutHeight - harness.currentTotalScroll
+        assertEquals("Remaining last line must settle right at top of breathing margin (840px)", 840, docBottomScreen)
+        assertFalse(harness.isDeletionActive)
+    }
+
+    @Test
+    fun testPhysicsDeletion_SelectionInFinalParagraph_SettlesAboveBreathingMargin() {
+        // Scenario 3: Partial text selection deletion inside the final paragraph
+        val harness = DeletionPhysicsHarness(
+            headerHeight = 200,
+            usableViewportHeight = 900,
+            breathingMarginPx = 60f,
+            initialLayoutHeight = 1500,
+            initialScrollD = 200,
+            initialOffsetY = 780 // pre-delete totalScroll = 980
+        )
+        harness.isDeletionActive = true
+        harness.isTailAnchored = true
+        harness.newCaretDocY = 1480f
+
+        harness.animator.startAuthoritativeAnimation(
+            currentScroll = 980f,
+            targetTotalScroll = 860f,
+            reason = ScrollAnimationReason.DELETION_ANCHOR,
+            maxCanvasScroll = harness.maxCanvasScroll,
+            forceRetarget = true,
+            onEnd = { harness.isDeletionActive = false }
+        )
+        harness.runUntilSettled()
+        assertEquals(860, harness.currentTotalScroll)
+        val caretScreenBottom = harness.headerHeight + harness.newCaretDocY - harness.currentTotalScroll
+        assertTrue(caretScreenBottom <= 840f + 0.5f)
+    }
+
+    @Test
+    fun testPhysicsDeletion_MultiCharAndComposingReplaceBatch_PreservesEarliestSnapshotAndSettlesSafely() {
+        // Scenario 6: Multi-character (deleteSurroundingText) / composing-text batch deletion
+        val firstBatchSnapshot = ScribeScrollDeletionPolicy.DeletionSnapshot(
+            transactionEpoch = 10L,
+            isSelection = false,
+            selectionStartLine = 19,
+            selectionEndLine = 19,
+            preEditDocLineCount = 22,
+            preEditDocHeight = 1400f,
+            preEditScrollY = 560f,
+            preEditCaretScreenY = 700f,
+            wasAtTail = true,
+            affectsDocumentTail = ScribeScrollDeletionPolicy.isLineRangeAffectingLogicalTail(19, 21),
+            preEditLastNonBlankLine = 21
+        )
+        val mergedSnapshot = firstBatchSnapshot.copy(
+            affectsDocumentTail = firstBatchSnapshot.affectsDocumentTail ||
+                ScribeScrollDeletionPolicy.isLineRangeAffectingLogicalTail(21, firstBatchSnapshot.preEditLastNonBlankLine)
+        )
+        assertTrue(mergedSnapshot.affectsDocumentTail)
+        assertEquals(560f, mergedSnapshot.preEditScrollY, 0.001f)
+
+        val intent = ScribeScrollDeletionPolicy.classifyDeletionIntent(
+            snapshot = mergedSnapshot,
+            newDocLineCount = 20,
+            newDocHeight = 1280f,
+            usableViewportHeight = 900f,
+            breathingMarginPx = 60f,
+            isTextEmpty = false,
+            isPostEditCaretAtLogicalTail = true
+        )
+        assertEquals(ScribeScrollDeletionPolicy.DeletionAnchorIntent.TAIL_ANCHOR, intent)
+
+        val harness = DeletionPhysicsHarness(
+            headerHeight = 200,
+            usableViewportHeight = 900,
+            breathingMarginPx = 60f,
+            initialLayoutHeight = 1080,
+            initialScrollD = 200,
+            initialOffsetY = 360
+        )
+        harness.isDeletionActive = true
+        harness.isTailAnchored = true
+        harness.newCaretDocY = 1080f
+
+        val target = ScribeScrollDeletionPolicy.calculateSafeDeletionDestination(
+            intent = intent,
+            currentScroll = 560f,
+            headerHeight = 200f,
+            newDocHeight = 1080f,
+            newCaretDocY = 1080f,
+            preEditCaretScreenY = 700f,
+            usableViewportHeight = 900f,
+            breathingMarginPx = 60f,
+            maxCanvasScroll = harness.maxCanvasScroll.toFloat()
+        )
+        harness.animator.startAuthoritativeAnimation(
+            currentScroll = 560f,
+            targetTotalScroll = target,
+            reason = ScrollAnimationReason.DELETION_ANCHOR,
+            maxCanvasScroll = harness.maxCanvasScroll,
+            forceRetarget = true,
+            onEnd = { harness.isDeletionActive = false }
+        )
+        harness.runUntilSettled()
+        assertEquals(440, harness.currentTotalScroll)
+        assertEquals(440f, harness.coordinator.totalScroll, 0.001f)
+    }
+
+    @Test
+    fun testPhysicsDeletion_StepByStepRetraction_NoFrame1SnapAndExactPhysicalAccounting() {
+        // Scenario 8c: Maximum scroll drops from 700 to 640 (scrollD=200, offsetY=500 -> new safeMaxY=440).
+        // Requesting -3px moves 500 -> 497 (NOT -60px -> 440!), coordinator tracks rendered scroll exactly.
+        val harness = DeletionPhysicsHarness(
+            headerHeight = 200,
+            usableViewportHeight = 900,
+            breathingMarginPx = 60f,
+            initialLayoutHeight = 1340,
+            initialScrollD = 200,
+            initialOffsetY = 500
+        )
+        harness.isDeletionActive = true
+        assertTrue(harness.coordinator.requestTarget(640f, ScrollAnimationReason.DELETION_ANCHOR, maxCanvasScroll = 640))
+
+        harness.coordinator.applyStep(697f)
+        assertEquals("Frame 1 must move by -3px (500 -> 497), NOT snap 60px to 440!", 497, harness.offsetY)
+        assertEquals(697, harness.currentTotalScroll)
+        assertEquals(697f, harness.coordinator.totalScroll, 0.001f)
+        assertFalse(harness.coordinator.didLastStepClampAtBoundary)
+    }
+
+    @Test
+    fun testPhysicsDeletion_MaxCanvasScrollBelowHeaderHeight_TwoLayerSmoothRetractionAndStrict1DOF() {
+        // Scenario 9: maxCanvasScroll_new < headerHeight: drains offsetY 60 -> 0 FIRST, then scrollD 200 -> 120.
+        val harness = DeletionPhysicsHarness(
+            headerHeight = 200,
+            usableViewportHeight = 900,
+            breathingMarginPx = 60f,
+            initialLayoutHeight = 760,
+            initialScrollD = 200,
+            initialOffsetY = 60
+        )
+        assertEquals(120, harness.maxCanvasScroll)
+        harness.isDeletionActive = true
+        harness.isTailAnchored = true
+        harness.newCaretDocY = 760f
+
+        harness.animator.startAuthoritativeAnimation(
+            currentScroll = 260f,
+            targetTotalScroll = 120f,
+            reason = ScrollAnimationReason.DELETION_ANCHOR,
+            maxCanvasScroll = harness.maxCanvasScroll,
+            forceRetarget = true,
+            onEnd = { harness.isDeletionActive = false }
+        )
+
+        val offsetHistory = mutableListOf<Int>()
+        val scrollDHistory = mutableListOf<Int>()
+        var frames = 0
+        while (harness.animator.isGlideRunning && frames < 180) {
+            harness.animator.advanceFrame(0.016f)
+            offsetHistory.add(harness.offsetY)
+            scrollDHistory.add(harness.scrollD)
+            frames++
+        }
+
+        assertTrue("First frame must keep offsetY > 0 while retracting smoothly", offsetHistory.first() > 40)
+        assertEquals("First frame must keep scrollD at 200 while offsetY drains", 200, scrollDHistory.first())
+        assertFalse(harness.animator.isGlideRunning)
+        assertEquals(0, harness.offsetY)
+        assertEquals(120, harness.scrollD)
+        assertEquals(120, harness.currentTotalScroll)
+        assertTrue("All scrollD steps must remain within [120, 200]", scrollDHistory.all { it in 120..200 })
+    }
+
+    @Test
+    fun testGlideAnimator_RetargetedSafetyAndCorrectiveCompletionLifecycle() {
+        // Scenario 10a: In-flight retarget keeps deletion boundary enforced via isDeletionSafetyActiveProvider
+        val harness = DeletionPhysicsHarness(
+            headerHeight = 200,
+            usableViewportHeight = 900,
+            breathingMarginPx = 60f,
+            initialLayoutHeight = 1400,
+            initialScrollD = 200,
+            initialOffsetY = 700
+        )
+        harness.isDeletionActive = true
+        harness.isTailAnchored = true
+        harness.newCaretDocY = 1400f
+
+        var clearCount = 0
+        harness.animator.startAuthoritativeAnimation(
+            currentScroll = 900f,
+            targetTotalScroll = 760f,
+            reason = ScrollAnimationReason.DELETION_ANCHOR,
+            maxCanvasScroll = harness.maxCanvasScroll,
+            forceRetarget = true,
+            onEnd = {
+                if (!harness.animator.isGlideRunning && !harness.coordinator.isAnimationActive) {
+                    clearCount++
+                    harness.isDeletionActive = false
+                }
+            }
+        )
+        harness.animator.advanceFrame(0.016f)
+        harness.animator.startAuthoritativeAnimation(
+            currentScroll = harness.currentTotalScroll.toFloat(),
+            targetTotalScroll = 500f,
+            reason = ScrollAnimationReason.CARET_VISIBILITY,
+            maxCanvasScroll = harness.maxCanvasScroll,
+            forceRetarget = true
+        )
+        harness.runUntilSettled()
+        assertEquals("Retargeted glide must still protect 24dp breathing margin (minSafe=760)", 760, harness.currentTotalScroll)
+        assertEquals(1, clearCount)
+        assertFalse(harness.isDeletionActive)
+
+        // Scenario 10b: onSettledCallback triggers SAFE_BOUNDARY_CORRECTION.
+        // Superseded DELETION_ANCHOR onEnd MUST NOT wipe deletionSafety until correction completes!
+        var deletionSafety = true
+        var activeInSettledWhenLaunched = false
+        var finalClearedAfterCorrection = false
+        val coord2 = ScribeScrollCoordinator(totalScroll = 680f)
+        coord2.onScrollBy = { 0f }
+        lateinit var anim2: ScribeCanvasGlideAnimator
+        anim2 = ScribeCanvasGlideAnimator(
+            scrollCoordinator = coord2,
+            postOnAnimationAction = {},
+            removeCallbacksAction = {},
+            deletionBoundaryProvider = { 650f },
+            onSettledCallback = { reason ->
+                if (reason == ScrollAnimationReason.DELETION_ANCHOR) {
+                    anim2.startAuthoritativeAnimation(
+                        currentScroll = coord2.totalScroll,
+                        targetTotalScroll = 710f,
+                        reason = ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION,
+                        maxCanvasScroll = 800,
+                        forceRetarget = true,
+                        onEnd = {
+                            finalClearedAfterCorrection = true
+                            deletionSafety = false
+                        }
+                    )
+                    activeInSettledWhenLaunched = deletionSafety
+                }
+            },
+            isDeletionSafetyActiveProvider = { deletionSafety }
+        )
+        anim2.startAuthoritativeAnimation(
+            currentScroll = 680f,
+            targetTotalScroll = 650f,
+            reason = ScrollAnimationReason.DELETION_ANCHOR,
+            maxCanvasScroll = 800,
+            forceRetarget = true,
+            onEnd = {
+                deletionSafety = false
+            }
+        )
+        var guard = 0
+        while (anim2.isGlideRunning && anim2.activeGlideReason == ScrollAnimationReason.DELETION_ANCHOR && guard < 180) {
+            anim2.advanceFrame(0.016f)
+            guard++
+        }
+        assertTrue("Deletion safety must remain TRUE immediately after corrective animation launches", activeInSettledWhenLaunched)
+        assertTrue("Deletion safety must still be TRUE while SAFE_BOUNDARY_CORRECTION runs", deletionSafety)
+        assertFalse(finalClearedAfterCorrection)
+
+        while (anim2.isGlideRunning && guard < 360) {
+            anim2.advanceFrame(0.016f)
+            guard++
+        }
+        assertTrue("Deletion safety cleared cleanly once SAFE_BOUNDARY_CORRECTION settled", finalClearedAfterCorrection)
+        assertFalse(deletionSafety)
+        assertEquals(710f, coord2.totalScroll, 0.5f)
+    }
+
+    @Test
+    fun testGlideAnimator_DeleteAllContent_IdempotentResetToTopReachesZeroCleanly() {
+        // Scenario 12: Empty document RESET_TOP retracts both layers to 0 and skips duplicate RESET_TOP request
+        val harness = DeletionPhysicsHarness(
+            headerHeight = 200,
+            usableViewportHeight = 900,
+            breathingMarginPx = 60f,
+            initialLayoutHeight = 0,
+            initialScrollD = 200,
+            initialOffsetY = 300
+        )
+        harness.isDeletionActive = false
+        assertTrue(
+            harness.animator.startAuthoritativeAnimation(
+                currentScroll = 500f,
+                targetTotalScroll = 0f,
+                reason = ScrollAnimationReason.RESET_TOP,
+                maxCanvasScroll = harness.maxCanvasScroll,
+                forceRetarget = true
+            )
+        )
+        assertFalse(
+            harness.animator.startAuthoritativeAnimation(
+                currentScroll = 500f,
+                targetTotalScroll = 0f,
+                reason = ScrollAnimationReason.RESET_TOP,
+                maxCanvasScroll = harness.maxCanvasScroll,
+                forceRetarget = false
+            )
+        )
+        harness.runUntilSettled()
+        assertEquals(0, harness.offsetY)
+        assertEquals(0, harness.scrollD)
+        assertEquals(0f, harness.coordinator.totalScroll, 0.001f)
+    }
+
+    @Test
+    fun testGlideAnimator_UserTouchCancelsDeletionGlide_DropsLateFramesAndPreservesUserPosition() {
+        // Scenario 13: User touch cancels active deletion glide mid-flight; late ticks preserve user scroll.
+        val harness = DeletionPhysicsHarness(
+            headerHeight = 200,
+            usableViewportHeight = 900,
+            breathingMarginPx = 60f,
+            initialLayoutHeight = 1400,
+            initialScrollD = 200,
+            initialOffsetY = 640
+        )
+        harness.isDeletionActive = true
+        harness.animator.startAuthoritativeAnimation(
+            currentScroll = 840f,
+            targetTotalScroll = 760f,
+            reason = ScrollAnimationReason.DELETION_ANCHOR,
+            maxCanvasScroll = harness.maxCanvasScroll,
+            forceRetarget = true,
+            onEnd = { harness.isDeletionActive = false }
+        )
+
+        repeat(4) { harness.animator.advanceFrame(0.016f) }
+        val midScroll = harness.currentTotalScroll
+        assertTrue(midScroll in 761..839)
+        harness.settledReasonHistory.clear()
+
+        harness.animator.cancel("User touch")
+        assertFalse(harness.animator.isGlideRunning)
+        assertFalse(harness.coordinator.isAnimationActive)
+        assertFalse(harness.isDeletionActive)
+
+        val unconsumed = harness.scrollBy(-50f)
+        assertEquals(0f, unconsumed, 0.5f)
+        val userSettledPos = harness.currentTotalScroll
+        assertEquals(midScroll - 50, userSettledPos)
+
+        harness.animator.glideFrameRunnable.run()
+        harness.animator.advanceFrame(0.016f)
+        assertEquals("User scroll position must remain completely untouched", userSettledPos, harness.currentTotalScroll)
+        assertTrue("onSettledCallback must not fire for cancelled animation", harness.settledReasonHistory.isEmpty())
     }
 
 }
