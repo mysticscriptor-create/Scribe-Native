@@ -23,7 +23,7 @@ Implement stateless gap-collapse math and classification policy (`ScribeGapColla
 ## Explicit Non-Goals
 
 - Do **not** implement `ScribeGapCollapseController` state-machine transitions, `Choreographer` loop, or `ScribeScrollCoordinator` / `ScribeScrollAnimation` refactors in this phase (deferred to [Phase 3](./phase-3.md)).
-- Do **not** implement `Content.replace()` / `afterDelete` / `afterInsert` event-ordering changes (deferred to [Phase 2](./phase-2.md)) — *note: Suite A unit-test coverage of `ScribeDeletionSnapshotCoordinator.onAfterInsert()` expects the Phase 2 `ClearTransactionAndClampOverscroll` update to be complete before that specific test case passes*.
+- Do **not** implement `Content.replace()` / `afterDelete` / `afterInsert` event-ordering changes (deferred to [Phase 2](./phase-2.md)) — *note: Suite A case 5 (`ScribeDeletionSnapshotCoordinator.onAfterInsert()`) may be specified/prepared alongside Suite A, but depends on the Phase 2 `ClearTransactionAndClampOverscroll` implementation, does **not** block Phase 1 completion, and becomes mandatory for [Phase 2](./phase-2.md#phase-completion-conditions) completion*.
 - Do **not** implement `ScribeEditorRenderer` or `ScribeDrawCursorTaskAccessor` (deferred to [Phase 4](./phase-4.md), gated by Phase `0.2`).
 
 ## Shared Architecture Contracts Referenced
@@ -217,7 +217,7 @@ $$\Delta Y_{\text{lower}}(0) = -\delta S + \tau_{\text{lower}}(0) - \Delta G$$
 
 ## Validation & Acceptance Criteria (Suite A — `ScribeGapCollapsePolicyTest.kt`)
 
-Execute via the exact JVM unit-test Gradle task recorded in Phase `0.4`:
+Execute via the exact JVM unit-test Gradle task recorded in Phase `0.4`. **Cases 1–4** validate Phase 1-owned policy, safety, overlay, and physics behavior and **must pass to complete Phase 1**. **Case 5** is preserved here as part of Suite A's specification (it may be prepared in Suite A, depends on [Phase 2](./phase-2.md), does **not** block Phase 1 completion, and is **required to pass alongside Phase 2 validation to complete Phase 2**):
 1. `(U, L, T)` truth table + `!isCursorAnimationRunning` gate; Scenario A (`S_pre < minSafeScroll` `< 1px` snap vs `>= 1px` Mode 1, `S_pre in safeMinPhysical..safeMax`, `S_pre > safeMax`).
 2. Canonical integer `safeMinPhysical` & transient overscroll assertions (distinguishing requested target `S_requestedTarget` / `S_effectiveTarget` from observed integer read-back `actualPhysicalScroll = scrollD + editor.offsetY`, never reporting safe if `actualPhysicalScroll !in safeMinPhysical..safeMax`):
    - `(minSafeScroll = 100.4f, S_pre = 100) -> 101`
@@ -235,10 +235,11 @@ Execute via the exact JVM unit-test Gradle task recorded in Phase `0.4`:
    - Scenario D with a normal Mode-1 span.
    - Synchronous safety snap followed by Mode 2.
    - All resulting `progressVelocity` values finite and within `[0f, omega2]`.
-5. `ScribeDeletionSnapshotCoordinator.onAfterInsert()` tests (`ClearTransaction`, `ClearTransactionAndClampOverscroll` — never `None` for overscrolled non-empty replace, `SettleEmptyReplaceDelete`) — *note: requires [Phase 2](./phase-2.md) `AfterInsertAction.ClearTransactionAndClampOverscroll` change to pass*.
+5. *(Deferred to [Phase 2](./phase-2.md#phase-completion-conditions) completion)* `ScribeDeletionSnapshotCoordinator.onAfterInsert()` tests (`ClearTransaction`, `ClearTransactionAndClampOverscroll` — never `None` for overscrolled non-empty replace, `SettleEmptyReplaceDelete`). Requires the Phase 2 `AfterInsertAction.ClearTransactionAndClampOverscroll` implementation to pass; excluded from Phase 1's exit gate and mandatory for Phase 2 completion.
 
 ## Phase-Completion Conditions
 
 - `ScribeGapCollapsePolicy.kt` and `ScribeOverlayBoundsRegistry.kt` compile cleanly with zero Android-View state inside `ScribeGapCollapsePolicy`.
 - All 5 overlay screens/components register and clean up bounds strictly under `isVisible && coords.isAttached` + `DisposableEffect`.
-- Suite A policy tests pass using the Phase `0.4` Gradle task.
+- Suite A cases **1–4** (covering all Phase 1-owned policy, safety, overlay, and physics behavior) pass using the Phase `0.4` Gradle task.
+- Suite A case **5** (`ScribeDeletionSnapshotCoordinator.onAfterInsert()`) does **not** block Phase 1 completion and becomes a mandatory exit requirement (as part of full Suite A verification) upon [Phase 2](./phase-2.md#phase-completion-conditions) completion.

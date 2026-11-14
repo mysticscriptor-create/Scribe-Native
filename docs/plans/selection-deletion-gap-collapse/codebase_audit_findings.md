@@ -2,7 +2,7 @@
 
 ## A. Document Authority and Purpose
 
-- **Role of This Document:** This companion document records the codebase and Sora Editor investigation performed against the original repository baseline. It explains *why* the original selection-deletion defects happen, maps the relevant Scribe and Sora mechanisms in the existing codebase, distinguishes superseded historical proposals from the frozen V1 design, and navigates engineers to the right sections of the execution plan across **Phases 0–5**.
+- **Role of This Document:** This companion document records the codebase and Sora Editor investigation performed against the original repository baseline. It explains *why* the original selection-deletion defects happen, maps the relevant Scribe and Sora mechanisms in the existing codebase, distinguishes superseded historical proposals from the frozen V1 design, and navigates engineers to the right sections of the execution plan across **Phases 0–6** (where Phases 0–5 cover the V1 implementation and Phase 6 records deferred V2 scope rather than an additional V1 implementation phase).
 - **Authority Rule:** This document **does not independently prescribe implementation behavior, formulas, state transitions, eligibility criteria, file ownership, or completion conditions**. Whenever any explanation or historical proposal here differs from the frozen plan, **[`implementation_plan.md`](./implementation_plan.md) is the sole implementation authority without exception**, and [`phase-0.md`](./phase-0.md)–[`phase-6.md`](./phase-6.md) are its controlled execution extracts.
 - **Provenance & Baselines:**
   - **Repository:** `https://github.com/mysticscriptor-create/Scribe-Native.git`
