@@ -83,6 +83,14 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = true
         unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            testLogging {
+                exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+                showExceptions = true
+                showCauses = true
+                showStackTraces = true
+            }
+        }
     }
 
     packaging {
