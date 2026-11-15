@@ -122,12 +122,7 @@ jobs:
           arch: x86_64
           profile: pixel_2
           disable-animations: true
-          script: |
-            ./gradlew :app:connectedDebugAndroidTest \
-              --stacktrace \
-              --parallel \
-              --build-cache \
-              --configuration-cache
+          script: ./gradlew :app:connectedDebugAndroidTest --stacktrace --parallel --build-cache --configuration-cache
 
       - name: Upload instrumentation test reports
         if: always()
