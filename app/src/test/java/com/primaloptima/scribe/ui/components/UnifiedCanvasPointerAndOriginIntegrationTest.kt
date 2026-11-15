@@ -1,10 +1,11 @@
 package com.primaloptima.scribe.ui.components
 
-import android.app.Activity
 import android.app.Application
+import android.os.Looper
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
+import androidx.activity.ComponentActivity
 import com.primaloptima.scribe.R
 import com.primaloptima.scribe.ui.editor.scroll.CollapsePlan
 import com.primaloptima.scribe.ui.editor.scroll.CollapseScenario
@@ -17,21 +18,42 @@ import com.primaloptima.scribe.ui.editor.scroll.ScrollAnimationReason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows
+import org.robolectric.android.controller.ActivityController
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = Application::class)
+@Config(sdk = [34], application = Application::class, qualifiers = "w800dp-h1200dp-mdpi")
 class UnifiedCanvasPointerAndOriginIntegrationTest {
 
-    private fun createThemedActivity(): Activity {
-        return Robolectric.buildActivity(Activity::class.java).create().get().apply {
-            setTheme(R.style.Theme_Scribe)
+    private val activityControllers = mutableListOf<ActivityController<ComponentActivity>>()
+
+    @After
+    fun tearDown() {
+        activityControllers.forEach { controller ->
+            try {
+                controller.pause().stop().destroy()
+            } catch (_: Throwable) {}
         }
+        activityControllers.clear()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    private fun createThemedActivity(): ComponentActivity {
+        val controller = Robolectric.buildActivity(ComponentActivity::class.java)
+        activityControllers.add(controller)
+        controller.create()
+        val activity = controller.get()
+        activity.setTheme(R.style.Theme_Scribe)
+        controller.start().resume().visible()
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        return activity
     }
 
     private fun createLaidOutCanvas(headerHeightPx: Int = 200, lineCount: Int = 140): UnifiedCanvasLayout {
@@ -43,6 +65,8 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             "Line $idx: prose paragraph content for scroll and gap collapse integration verification."
         }
         canvas.editor.setText(body)
+        activity.setContentView(canvas)
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
         val widthSpec = View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY)
         val heightSpec = View.MeasureSpec.makeMeasureSpec(1200, View.MeasureSpec.EXACTLY)
         canvas.measure(widthSpec, heightSpec)
