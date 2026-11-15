@@ -40,6 +40,7 @@ class ScribeScrollInputController(
         val isTopEdgeEffectFinished: Boolean
         fun onUserTouchDown(touchY: Float)
         fun onManualDragStarted() {}
+        fun runWithScrollOrigin(origin: PhysicalScrollOrigin, block: () -> Unit) { block() }
     }
 
 
@@ -97,7 +98,9 @@ class ScribeScrollInputController(
                 lastTouchX = ev.x
                 lastTouchY = ev.y
                 if (isDraggingCanvas) {
-                    host.scrollCanvasBy(dy)
+                    host.runWithScrollOrigin(PhysicalScrollOrigin.USER_CANVAS_DRAG) {
+                        host.scrollCanvasBy(dy)
+                    }
                     return true
                 }
             }
@@ -231,7 +234,9 @@ class ScribeScrollInputController(
                     val dy = lastTouchY - ev.y
                     lastTouchX = ev.x
                     lastTouchY = ev.y
-                    host.scrollCanvasBy(dy)
+                    host.runWithScrollOrigin(PhysicalScrollOrigin.USER_CANVAS_DRAG) {
+                        host.scrollCanvasBy(dy)
+                    }
                     return true
                 }
                 return true
@@ -281,7 +286,9 @@ class ScribeScrollInputController(
             val currY = scroller.currY
             val dy = (currY - lastScrollerY).toFloat()
             lastScrollerY = currY
-            host.scrollCanvasBy(dy)
+            host.runWithScrollOrigin(PhysicalScrollOrigin.USER_CANVAS_FLING) {
+                host.scrollCanvasBy(dy)
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if ((scroller.isOverScrolled() || currY <= 0) && host.scrollD <= 0 && host.editorOffsetY <= 0 && host.isTopEdgeEffectFinished) {
                     val velocity = scroller.currVelocity.toInt()

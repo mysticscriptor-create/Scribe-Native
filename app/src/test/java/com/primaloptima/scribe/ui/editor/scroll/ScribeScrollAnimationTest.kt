@@ -1310,4 +1310,316 @@ class ScribeScrollAnimationTest {
         assertEquals(1, outerToInnerPos.offsetY)
         assertEquals(-0.2f, outerToInnerPos.editorResidualPx, 0.001f) // 200 + 1 - 0.2 = 200.8 == 199.3 + 1.5
     }
+
+
+    // ── Phase 3 Suite B2: Sole Coordinator Ownership, Callbacks, Sub-1px, Coalescing, Retarget & Handoff ──
+
+    @Test
+    fun testSuiteB2_NormalMode1Completion_InvokesOnSettledOnceThenOnEndOnce() {
+        val events = mutableListOf<String>()
+        val coordinator = ScribeScrollCoordinator(totalScroll = 500f)
+        coordinator.onScrollBy = { 0f }
+        coordinator.onAnimationFinished = { events.add("coord_finished") }
+        val animator = ScribeCanvasGlideAnimator(
+            scrollCoordinator = coordinator,
+            postOnAnimationAction = {},
+            removeCallbacksAction = {},
+            onSettledCallback = { reason -> events.add("settled:${reason?.name}") }
+        )
+        assertTrue(
+            animator.startAuthoritativeAnimation(
+                currentScroll = 500f,
+                targetTotalScroll = 420f,
+                reason = ScrollAnimationReason.DELETION_ANCHOR,
+                maxCanvasScroll = 900,
+                forceRetarget = true,
+                onEnd = { events.add("onEnd") }
+            )
+        )
+        var guard = 0
+        while (animator.isGlideRunning && guard < 200) {
+            animator.advanceFrame(0.016f)
+            guard++
+        }
+        assertFalse(animator.isGlideRunning)
+        assertFalse(coordinator.isAnimationActive)
+        assertEquals(listOf("coord_finished", "settled:DELETION_ANCHOR", "onEnd"), events)
+    }
+
+    @Test
+    fun testSuiteB2_TargetReachedAndBoundaryHit_DeliverCallbacksExactlyOnce() {
+        // Case A: Target reached
+        run {
+            var settledCount = 0
+            var onEndCount = 0
+            val coord = ScribeScrollCoordinator(totalScroll = 200f)
+            coord.onScrollBy = { 0f }
+            val anim = ScribeCanvasGlideAnimator(
+                scrollCoordinator = coord,
+                postOnAnimationAction = {},
+                removeCallbacksAction = {},
+                onSettledCallback = { settledCount++ }
+            )
+            anim.startAuthoritativeAnimation(200f, 150f, ScrollAnimationReason.DELETION_ANCHOR, 800, true) {
+                onEndCount++
+            }
+            repeat(120) { anim.advanceFrame(0.016f) }
+            assertEquals(1, settledCount)
+            assertEquals(1, onEndCount)
+        }
+
+        // Case B: Boundary hit mid-flight delivers lifecycle exactly once
+        run {
+            var settledCount = 0
+            var onEndCount = 0
+            val coord = ScribeScrollCoordinator(totalScroll = 200f)
+            coord.onScrollBy = { dy -> dy } // blocked at physical boundary
+            val anim = ScribeCanvasGlideAnimator(
+                scrollCoordinator = coord,
+                postOnAnimationAction = {},
+                removeCallbacksAction = {},
+                onSettledCallback = { settledCount++ }
+            )
+            anim.startAuthoritativeAnimation(200f, 100f, ScrollAnimationReason.DELETION_ANCHOR, 800, true) {
+                onEndCount++
+            }
+            repeat(20) { anim.advanceFrame(0.016f) }
+            assertFalse(anim.isGlideRunning)
+            assertEquals(1, settledCount)
+            assertEquals(1, onEndCount)
+        }
+    }
+
+    @Test
+    fun testSuiteB2_SettledCallbackLaunchingReplacement_SuppressesOldOnEnd() {
+        val coord = ScribeScrollCoordinator(totalScroll = 500f)
+        coord.onScrollBy = { 0f }
+        var oldOnEndCount = 0
+        var replacementOnEndCount = 0
+        lateinit var anim: ScribeCanvasGlideAnimator
+        anim = ScribeCanvasGlideAnimator(
+            scrollCoordinator = coord,
+            postOnAnimationAction = {},
+            removeCallbacksAction = {},
+            onSettledCallback = { reason ->
+                if (reason == ScrollAnimationReason.DELETION_ANCHOR) {
+                    anim.startAuthoritativeAnimation(
+                        currentScroll = coord.totalScroll,
+                        targetTotalScroll = 460f,
+                        reason = ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION,
+                        maxCanvasScroll = 900,
+                        forceRetarget = true,
+                        onEnd = { replacementOnEndCount++ }
+                    )
+                }
+            }
+        )
+        anim.startAuthoritativeAnimation(500f, 400f, ScrollAnimationReason.DELETION_ANCHOR, 900, true) {
+            oldOnEndCount++
+        }
+        var guard = 0
+        while (anim.isGlideRunning && anim.activeGlideReason == ScrollAnimationReason.DELETION_ANCHOR && guard < 180) {
+            anim.advanceFrame(0.016f)
+            guard++
+        }
+        assertEquals("Old op onEnd must NOT fire when onSettledCallback starts replacement", 0, oldOnEndCount)
+        assertTrue(anim.isGlideRunning)
+        while (anim.isGlideRunning && guard < 360) {
+            anim.advanceFrame(0.016f)
+            guard++
+        }
+        assertEquals(0, oldOnEndCount)
+        assertEquals(1, replacementOnEndCount)
+    }
+
+    @Test
+    fun testSuiteB2_Sub1PxInactiveNoOps_VsExact1PxMode1Creation() {
+        val sub1PxDistances = listOf(0f, 0.03f, 0.05f, 0.50f, 0.999f)
+        for (d in sub1PxDistances) {
+            var finishCalls = 0
+            var settledCalls = 0
+            var onEndCalls = 0
+            val coord = ScribeScrollCoordinator(totalScroll = 100f)
+            coord.onAnimationFinished = { finishCalls++ }
+            val anim = ScribeCanvasGlideAnimator(
+                scrollCoordinator = coord,
+                postOnAnimationAction = {},
+                removeCallbacksAction = {},
+                onSettledCallback = { settledCalls++ }
+            )
+            val started = anim.startAuthoritativeAnimation(
+                currentScroll = 250f,
+                targetTotalScroll = 250f - d,
+                reason = ScrollAnimationReason.DELETION_ANCHOR,
+                maxCanvasScroll = 900,
+                forceRetarget = true,
+                onEnd = { onEndCalls++ }
+            )
+            assertFalse("Distance $d < 1f must not start glide", started)
+            assertEquals("syncActualScroll must update totalScroll for distance $d", 250f, coord.totalScroll, 0.001f)
+            assertEquals("Sub-1px no-op must never call finishAnimation()", 0, finishCalls)
+            assertEquals("Sub-1px no-op must never call onSettledCallback", 0, settledCalls)
+            assertEquals(1, onEndCalls)
+        }
+
+        // Exact 1.00 px MUST NOT short-circuit; MUST create Mode-1 op and settle via applyStepWithResult
+        var finish1Px = 0
+        var settled1Px = 0
+        var onEnd1Px = 0
+        val coord1 = ScribeScrollCoordinator(totalScroll = 250f)
+        coord1.onScrollBy = { 0f }
+        coord1.onAnimationFinished = { finish1Px++ }
+        val anim1 = ScribeCanvasGlideAnimator(
+            scrollCoordinator = coord1,
+            postOnAnimationAction = {},
+            removeCallbacksAction = {},
+            onSettledCallback = { settled1Px++ }
+        )
+        val started1Px = anim1.startAuthoritativeAnimation(
+            currentScroll = 250f,
+            targetTotalScroll = 249f,
+            reason = ScrollAnimationReason.DELETION_ANCHOR,
+            maxCanvasScroll = 900,
+            forceRetarget = false,
+            onEnd = { onEnd1Px++ }
+        )
+        assertTrue("Exact 1.00 px MUST create Mode-1 op", started1Px)
+        assertTrue(coord1.isAnimationActive)
+        assertEquals(0, onEnd1Px)
+        var guard = 0
+        while (anim1.isGlideRunning && guard < 180) {
+            anim1.advanceFrame(0.016f)
+            guard++
+        }
+        assertFalse(anim1.isGlideRunning)
+        assertEquals(1, finish1Px)
+        assertEquals(1, settled1Px)
+        assertEquals(1, onEnd1Px)
+        assertEquals(249f, coord1.totalScroll, 0.5f)
+    }
+
+    @Test
+    fun testSuiteB2_ActiveSameTargetCoalescing_AndActiveRetargetChaining() {
+        val coord = ScribeScrollCoordinator(totalScroll = 500f)
+        coord.onScrollBy = { 0f }
+        val anim = ScribeCanvasGlideAnimator(
+            scrollCoordinator = coord,
+            postOnAnimationAction = {},
+            removeCallbacksAction = {}
+        )
+        val callOrder = mutableListOf<String>()
+        assertTrue(
+            anim.startAuthoritativeAnimation(500f, 300f, ScrollAnimationReason.DELETION_ANCHOR, 900, false) {
+                callOrder.add("first")
+            }
+        )
+        val initialOpId = coord.activeOperationId
+        anim.advanceFrame(0.016f)
+
+        // Same-target coalescing (<= 1f, forceRetarget=false): returns false, chains onEnd, does NOT fire prematurely
+        assertFalse(
+            anim.startAuthoritativeAnimation(coord.totalScroll, 300.5f, ScrollAnimationReason.DELETION_ANCHOR, 900, false) {
+                callOrder.add("coalesced")
+            }
+        )
+        assertTrue("Active op remains running after coalescing", coord.isAnimationActive)
+        assertEquals(initialOpId, coord.activeOperationId)
+        assertTrue("Coalesced onEnd must NOT fire prematurely", callOrder.isEmpty())
+
+        // Actual retarget (> 1f) preserves velocity and chains onEnd on same opId
+        anim.advanceFrame(0.016f)
+        val velBeforeRetarget = anim.glideVelocity
+        assertTrue(velBeforeRetarget != 0f)
+        assertTrue(
+            anim.startAuthoritativeAnimation(coord.totalScroll, 220f, ScrollAnimationReason.DELETION_ANCHOR, 900, false) {
+                callOrder.add("retargeted")
+            }
+        )
+        assertEquals(initialOpId, coord.activeOperationId)
+        assertEquals(velBeforeRetarget, anim.glideVelocity, 0.001f)
+
+        var guard = 0
+        while (anim.isGlideRunning && guard < 240) {
+            anim.advanceFrame(0.016f)
+            guard++
+        }
+        assertFalse(coord.isAnimationActive)
+        assertEquals(listOf("first", "coalesced", "retargeted"), callOrder)
+        assertEquals(220f, coord.totalScroll, 0.5f)
+    }
+
+    @Test
+    fun testSuiteB2_ScenarioDAndSynchronousSnapHandoff_FiniteProgressVelocityInBounds() {
+        val omega2 = ScribeGapCollapsePolicy.MODE2_DEFAULT_OMEGA_RAD_PER_SEC
+        val bounds = UnobstructedViewportBounds(
+            headerBottomLocal = 0f,
+            stickyBottomLocal = 0f,
+            maxTopBarBottomLocal = 0f,
+            minBottomBarTopLocal = 900f,
+            windowVisibleBottomLocal = 900f,
+            visibleEditorTop = 0f,
+            visibleEditorBottom = 900f,
+            usableHeight = 900f,
+            hasModalBlocker = false,
+            isValid = true,
+            floatingPillLocalRects = emptyList()
+        )
+        fun scenarioDPlan(preScroll: Int, centeredTarget: Float, minSafe: Float): ScribeGapCollapsePolicy.CollapsePlan {
+            val safety = SafetyFloorAndBounds(
+                safeMax = 1200,
+                minSafeScroll = minSafe,
+                safeMinPhysical = kotlin.math.ceil(minSafe.toDouble()).toInt(),
+                actualPhysicalScroll = preScroll
+            )
+            return ScribeGapCollapsePolicy.planCollapse(
+                deletionIntent = ScribeScrollDeletionPolicy.DeletionAnchorIntent.CARET_ANCHOR,
+                isSelection = true,
+                isWordwrap = true,
+                isWordwrapReady = true,
+                isLayoutBusy = false,
+                isComposing = false,
+                isCursorAnimationRunning = false,
+                hasRtlOrBidiAtSeam = false,
+                isMergedPartialRowSeam = false,
+                hasSurvivingUpper = true,
+                hasSurvivingLower = true,
+                deltaGapPx = 120f,
+                visibilityConfidence = VisibilityConfidence.RESOLVED,
+                isUpperVisible = false,
+                isLowerVisible = false,
+                isTouchedOnScreen = true,
+                preScrollY = preScroll,
+                centeredTargetScroll = centeredTarget,
+                viewportBounds = bounds,
+                safetyBounds = safety
+            )
+        }
+
+        // 1. S_effectiveTarget == S_pre -> 0f
+        val zeroPlan = scenarioDPlan(preScroll = 400, centeredTarget = 400f, minSafe = 300f)
+        val vZero = ScribeGapCollapsePolicy.computeMode2HandoffProgressVelocity(zeroPlan, false, -500f, 120f, omega2)
+        assertEquals(0f, vZero, 0.0001f)
+
+        // 2. Nonzero physical span < 1px -> 0f
+        val sub1Plan = scenarioDPlan(preScroll = 400, centeredTarget = 400.6f, minSafe = 300f)
+        val vSub1 = ScribeGapCollapsePolicy.computeMode2HandoffProgressVelocity(sub1Plan, false, 600f, 120f, omega2)
+        assertEquals(0f, vSub1, 0.0001f)
+
+        // 3. Exact 1.00 px Mode-1 span -> finite in 0f..omega2
+        val exact1Plan = scenarioDPlan(preScroll = 400, centeredTarget = 401f, minSafe = 300f)
+        assertTrue(exact1Plan.requiresMode1)
+        val vExact1 = ScribeGapCollapsePolicy.computeMode2HandoffProgressVelocity(exact1Plan, true, 60f, 120f, omega2)
+        assertTrue(vExact1.isFinite() && vExact1 in 0f..omega2)
+
+        // 4. Normal Mode-1 span -> finite in 0f..omega2
+        val normalPlan = scenarioDPlan(preScroll = 400, centeredTarget = 520f, minSafe = 300f)
+        val vNormal = ScribeGapCollapsePolicy.computeMode2HandoffProgressVelocity(normalPlan, true, 600f, 60f, omega2)
+        assertTrue(vNormal.isFinite() && vNormal in 0f..omega2)
+
+        // 5. Synchronous safety snap followed by Mode 2 -> progressVelocity == 0f
+        val snapPlan = scenarioDPlan(preScroll = 100, centeredTarget = 100f, minSafe = 100.4f)
+        assertTrue(snapPlan.requiresSynchronousSnap)
+        val vSnap = ScribeGapCollapsePolicy.computeMode2HandoffProgressVelocity(snapPlan, false, -300f, 120f, omega2)
+        assertEquals(0f, vSnap, 0.0001f)
+    }
 }

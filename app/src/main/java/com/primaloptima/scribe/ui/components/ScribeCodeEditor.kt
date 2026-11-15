@@ -95,6 +95,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
     private var stagedPreDeleteSeamCapture: PreDeleteSeamCapture? = null
     private var pendingReplaceWatchdog: Runnable? = null
     private var isSuppressingDeletionSizeClamp: Boolean = false
+    private var lastScrollCauseOrigin: PhysicalScrollOrigin = PhysicalScrollOrigin.NONE
 
     val isInContentReplace: Boolean
         get() = deletionSnapshotCoordinator.isInContentReplace
@@ -1549,13 +1550,27 @@ class ScribeCodeEditor @JvmOverloads constructor(
             if (visualFirstLineIndentSpaces > 0) {
                 refreshVisualFirstLineIndentHints()
             }
-            when (event.cause) {
-                ScrollEvent.CAUSE_USER_FLING -> isFlingActive = true
-                ScrollEvent.CAUSE_USER_DRAG -> isFlingActive = false
-                ScrollEvent.CAUSE_MAKE_POSITION_VISIBLE -> isFlingActive = false
-                ScrollEvent.CAUSE_TEXT_SELECTING -> isFlingActive = false
+            val origin = when (event.cause) {
+                ScrollEvent.CAUSE_USER_FLING -> {
+                    isFlingActive = true
+                    PhysicalScrollOrigin.USER_EDITOR_DRAG_OR_FLING
+                }
+                ScrollEvent.CAUSE_USER_DRAG -> {
+                    isFlingActive = false
+                    PhysicalScrollOrigin.USER_EDITOR_DRAG_OR_FLING
+                }
+                ScrollEvent.CAUSE_TEXT_SELECTING -> {
+                    isFlingActive = false
+                    PhysicalScrollOrigin.USER_HANDLE_AUTOSCROLL
+                }
+                ScrollEvent.CAUSE_MAKE_POSITION_VISIBLE -> {
+                    isFlingActive = false
+                    PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC
+                }
+                else -> PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC
             }
-            (parent as? UnifiedCanvasLayout)?.notifyViewportScrollChanged()
+            lastScrollCauseOrigin = origin
+            (parent as? UnifiedCanvasLayout)?.notifyViewportScrollChanged(origin)
         }
 
         // Listen for layout completion events from Sora Editor to trigger smooth fade-in, deletion settlement, and scroll clamping
@@ -1675,15 +1690,17 @@ class ScribeCodeEditor @JvmOverloads constructor(
         override fun run() {
             val pCanvas = parent as? UnifiedCanvasLayout
             if (pCanvas != null && isHandleDragging && handleAutoScrollVelocity != 0f) {
-                pCanvas.scrollCanvasBy(handleAutoScrollVelocity)
-                // Synthesize an ACTION_MOVE event at current finger coordinates so Sora
-                // updates its selection handle and extends selection as the document scrolls under the finger
-                val now = android.os.SystemClock.uptimeMillis()
-                val moveEv = MotionEvent.obtain(touchDownTime, now, MotionEvent.ACTION_MOVE, lastMoveX, lastMoveY, 0)
-                try {
-                    dispatchSyntheticMoveToSora(moveEv)
-                } finally {
-                    moveEv.recycle()
+                pCanvas.withPhysicalScrollOrigin(PhysicalScrollOrigin.USER_HANDLE_AUTOSCROLL) {
+                    pCanvas.scrollCanvasBy(handleAutoScrollVelocity)
+                    // Synthesize an ACTION_MOVE event at current finger coordinates so Sora
+                    // updates its selection handle and extends selection as the document scrolls under the finger
+                    val now = android.os.SystemClock.uptimeMillis()
+                    val moveEv = MotionEvent.obtain(touchDownTime, now, MotionEvent.ACTION_MOVE, lastMoveX, lastMoveY, 0)
+                    try {
+                        dispatchSyntheticMoveToSora(moveEv)
+                    } finally {
+                        moveEv.recycle()
+                    }
                 }
 
                 if (handleAutoScrollVelocity > 0f && (pCanvas.scrollD + offsetY) < pCanvas.maxCanvasScroll) {
@@ -1715,7 +1732,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 touchDownY = event.y
                 touchDownTime = System.currentTimeMillis()
                 isTouchMoved = false
-                parentCanvas?.cancelCanvasAnimation()
+                parentCanvas?.cancelCanvasAnimation(preserveRetractionDebt = true)
                 parentCanvas?.activeEditingTarget = com.primaloptima.scribe.util.model.EditingTarget.EDITOR_BODY
                 stopFling()
             }
@@ -2063,7 +2080,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
             isFlingActive = false
         }
         if (prevY != (scroller?.currY ?: 0)) {
-            parentCanvas?.notifyViewportScrollChanged()
+            val origin = if (isFlingActive) {
+                PhysicalScrollOrigin.USER_EDITOR_DRAG_OR_FLING
+            } else {
+                lastScrollCauseOrigin
+            }
+            parentCanvas?.notifyViewportScrollChanged(origin)
         }
     }
 

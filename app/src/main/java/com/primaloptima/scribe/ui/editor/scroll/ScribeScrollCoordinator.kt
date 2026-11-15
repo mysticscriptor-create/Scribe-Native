@@ -1,24 +1,31 @@
 package com.primaloptima.scribe.ui.editor.scroll
 
-/**
- * Reasons for automatic or programmatic canvas positioning operations.
- */
-enum class ScrollAnimationReason {
-    CARET_VISIBILITY,
-    CONTRACTION_RESTORATION,
-    PREDICTIVE_GLIDE,
-    DELETION_ANCHOR,
-    RESET_TOP,
-    SAFE_BOUNDARY_CORRECTION,
-    PROGRAMMATIC
+import kotlin.math.abs
+
+enum class StepTerminationReason {
+    NONE,
+    TARGET_REACHED,
+    BOUNDARY_HIT,
+    SPRING_SETTLED,
+    STALE_OR_INACTIVE
 }
 
+data class ScrollStepResult(
+    val operationId: Long,
+    val actualTotalScroll: Float,
+    val consumedDelta: Float,
+    val boundaryHit: Boolean,
+    val terminationReason: StepTerminationReason,
+    val isOperationFinished: Boolean
+)
+
 /**
- * Authoritative single-owner scroll and animation coordinator for all programmatic
- * and automatic canvas positioning.
+ * Authoritative single-owner scroll and compensation coordinator.
  *
- * Manages a single active animation target, smooth retargeting without velocity/progress resets,
- * causal compensation bookkeeping, and safe-boundary enforcement.
+ * Eliminates dual state ownership across View layout listeners, touch events, and animation ticks by tracking
+ * the active scroll animation target, operation IDs, interaction generations, and causal expansion displacement.
+ *
+ * Literal sole owner and production caller of [finishAnimation] via [applyStepWithResult].
  */
 class ScribeScrollCoordinator(
     var totalScroll: Float = 0f,
@@ -32,12 +39,16 @@ class ScribeScrollCoordinator(
 ) {
     var isAnimationActive: Boolean = false
         private set
+
     var activeReason: ScrollAnimationReason? = null
         private set
+
     var activeTargetTotalScroll: Float? = null
         private set
+
     var lastAnimatedScroll: Float = totalScroll
         private set
+
     var isExpansionTransitionActive: Boolean = false
 
     /**
@@ -69,14 +80,33 @@ class ScribeScrollCoordinator(
      * into sub-pixel carry. Defaults to true when absent so existing mock tests preserve behavior.
      */
     var wasLastStepClampedByBoundary: (() -> Boolean)? = null
+
     var didLastStepClampAtBoundary: Boolean = false
         private set
+
     var lastClampedDelta: Float = 0f
         private set
 
     /**
+     * Synchronizes coordinator scroll tracking with actual physical viewport scroll when idle.
+     * No-op while an authoritative operation is active.
+     */
+    fun syncActualScroll(actualTotalScroll: Float) {
+        if (isAnimationActive) return
+        totalScroll = actualTotalScroll
+        lastAnimatedScroll = actualTotalScroll
+    }
+
+    /**
      * Initiates or retargets an automatic positioning operation.
-     * Returns true if a new animation or retargeting should occur, or false if already on target.
+     *
+     * Explicit return contract (callers MUST NOT treat `false` as a single ambiguous signal):
+     * 1. Returns `false` when idle and within `< 1f` of `clampedTarget` (`!isAnimationActive && abs(distance) < 1f`):
+     *    inactive sub-1px no-op; updates [activeTargetTotalScroll] without starting an operation.
+     * 2. Returns `false` when already active with the same [reason] and `!forceRetarget` within `<= 2f` of
+     *    [activeTargetTotalScroll]: same-reason active-target coalescing; the existing operation is STILL RUNNING
+     *    and callers must NOT invoke completion callbacks prematurely.
+     * 3. Returns `true` when a fresh operation was started (`activeOperationId++`, `isAnimationActive = true`).
      */
     fun requestTarget(
         targetScroll: Float,
@@ -86,18 +116,21 @@ class ScribeScrollCoordinator(
     ): Boolean {
         val maxBound = maxCanvasScroll?.toFloat()?.coerceAtLeast(0f)
         val clampedTarget = if (maxBound != null) targetScroll.coerceIn(0f, maxBound) else targetScroll.coerceAtLeast(0f)
+
         val currentScroll = totalScroll
         val distance = clampedTarget - currentScroll
-        if (kotlin.math.abs(distance) < 1f && !isAnimationActive) {
+        if (abs(distance) < 1f && !isAnimationActive) {
             activeTargetTotalScroll = clampedTarget
             return false
         }
+
         if (isAnimationActive && activeReason == reason) {
             val currTarget = activeTargetTotalScroll
-            if (!forceRetarget && currTarget != null && kotlin.math.abs(currTarget - clampedTarget) <= 2f) {
+            if (!forceRetarget && currTarget != null && abs(currTarget - clampedTarget) <= 2f) {
                 return false
             }
         }
+
         activeOperationId++
         activeTargetTotalScroll = clampedTarget
         lastAnimatedScroll = currentScroll
@@ -126,21 +159,74 @@ class ScribeScrollCoordinator(
     }
 
     /**
-     * Applies a tick of animation with the new absolute animated scroll value.
-     * Returns actual physical displacement moved.
+     * Applies a tick of animation with the new absolute animated scroll value, returning
+     * a structured [ScrollStepResult] and owning completion detection and [finishAnimation].
      */
-    fun applyStep(newAnimatedScroll: Float, operationId: Long? = null): Float {
-        if (operationId != null && operationId != activeOperationId) return 0f
-        if (!isAnimationActive) return 0f
+    fun applyStepWithResult(
+        newAnimatedScroll: Float,
+        operationId: Long? = null,
+        isSpringSettled: Boolean = false
+    ): ScrollStepResult {
+        val requestedOpId = operationId ?: activeOperationId
+        if ((operationId != null && operationId != activeOperationId) || !isAnimationActive) {
+            return ScrollStepResult(
+                operationId = requestedOpId,
+                actualTotalScroll = totalScroll,
+                consumedDelta = 0f,
+                boundaryHit = false,
+                terminationReason = StepTerminationReason.STALE_OR_INACTIVE,
+                isOperationFinished = false
+            )
+        }
 
+        val opId = activeOperationId
         val stepDelta = newAnimatedScroll - lastAnimatedScroll
         lastAnimatedScroll = newAnimatedScroll
         didLastStepClampAtBoundary = false
         lastClampedDelta = 0f
-        if (kotlin.math.abs(stepDelta) < 0.05f) return 0f
+
+        if (abs(stepDelta) < 0.05f) {
+            val target = activeTargetTotalScroll
+            val targetReached = target != null && abs(totalScroll - target) < 0.5f
+            val terminationReason = when {
+                targetReached -> StepTerminationReason.TARGET_REACHED
+                isSpringSettled -> StepTerminationReason.SPRING_SETTLED
+                else -> StepTerminationReason.NONE
+            }
+            if (terminationReason != StepTerminationReason.NONE) {
+                finishAnimation(opId)
+                return ScrollStepResult(
+                    operationId = opId,
+                    actualTotalScroll = totalScroll,
+                    consumedDelta = 0f,
+                    boundaryHit = false,
+                    terminationReason = terminationReason,
+                    isOperationFinished = true
+                )
+            }
+            return ScrollStepResult(
+                operationId = opId,
+                actualTotalScroll = totalScroll,
+                consumedDelta = 0f,
+                boundaryHit = false,
+                terminationReason = StepTerminationReason.NONE,
+                isOperationFinished = false
+            )
+        }
 
         val before = totalScroll
         val unconsumed = onScrollBy?.invoke(stepDelta) ?: 0f
+        if (!isAnimationActive || activeOperationId != opId) {
+            return ScrollStepResult(
+                operationId = opId,
+                actualTotalScroll = totalScroll,
+                consumedDelta = 0f,
+                boundaryHit = false,
+                terminationReason = StepTerminationReason.STALE_OR_INACTIVE,
+                isOperationFinished = false
+            )
+        }
+
         val consumed = stepDelta - unconsumed
         totalScroll = before + consumed
         val actualMoved = consumed
@@ -155,7 +241,8 @@ class ScribeScrollCoordinator(
                 isSelected = false
             }
         } else if (isExpansionTransitionActive && actualMoved > 0f &&
-            (activeReason == ScrollAnimationReason.CARET_VISIBILITY || activeReason == ScrollAnimationReason.PREDICTIVE_GLIDE)) {
+            (activeReason == ScrollAnimationReason.CARET_VISIBILITY || activeReason == ScrollAnimationReason.PREDICTIVE_GLIDE)
+        ) {
             temporaryDisplacement += actualMoved
         }
 
@@ -172,16 +259,51 @@ class ScribeScrollCoordinator(
         // If movement is blocked by physical bounds (and not merely deferred in sub-pixel carry),
         // finish early without continuing an unreachable trajectory.
         val hitBoundary = clampedByBoundary && (
-            (stepDelta > 0.05f && unconsumed > 0.05f && kotlin.math.abs(consumed) < 0.05f) ||
-                (stepDelta < -0.05f && unconsumed < -0.05f && kotlin.math.abs(consumed) < 0.05f)
+            (stepDelta > 0.05f && unconsumed > 0.05f && abs(consumed) < 0.05f) ||
+                (stepDelta < -0.05f && unconsumed < -0.05f && abs(consumed) < 0.05f)
             )
-
         val target = activeTargetTotalScroll
-        if (hitBoundary || (target != null && kotlin.math.abs(totalScroll - target) < 0.5f)) {
-            finishAnimation(activeOperationId)
+        val targetReached = target != null && abs(totalScroll - target) < 0.5f
+
+        val terminationReason = when {
+            targetReached -> StepTerminationReason.TARGET_REACHED
+            hitBoundary -> StepTerminationReason.BOUNDARY_HIT
+            isSpringSettled -> StepTerminationReason.SPRING_SETTLED
+            else -> StepTerminationReason.NONE
         }
 
-        return actualMoved
+        if (terminationReason != StepTerminationReason.NONE) {
+            finishAnimation(opId)
+            return ScrollStepResult(
+                operationId = opId,
+                actualTotalScroll = totalScroll,
+                consumedDelta = actualMoved,
+                boundaryHit = hitBoundary,
+                terminationReason = terminationReason,
+                isOperationFinished = true
+            )
+        }
+
+        return ScrollStepResult(
+            operationId = opId,
+            actualTotalScroll = totalScroll,
+            consumedDelta = actualMoved,
+            boundaryHit = hitBoundary,
+            terminationReason = StepTerminationReason.NONE,
+            isOperationFinished = false
+        )
+    }
+
+    /**
+     * Applies a tick of animation with the new absolute animated scroll value.
+     * Returns actual physical displacement moved.
+     */
+    fun applyStep(newAnimatedScroll: Float, operationId: Long? = null): Float {
+        return applyStepWithResult(
+            newAnimatedScroll = newAnimatedScroll,
+            operationId = operationId,
+            isSpringSettled = false
+        ).consumedDelta
     }
 
     fun finishAnimation(operationId: Long? = null) {

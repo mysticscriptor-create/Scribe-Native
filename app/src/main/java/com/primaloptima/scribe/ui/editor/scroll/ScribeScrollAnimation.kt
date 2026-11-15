@@ -14,6 +14,8 @@ val FastOutSlowInInterpolator: Interpolator =
 /**
  * Encapsulates the critically damped spring glide physics, frame scheduling,
  * and retargeting lifecycle for UnifiedCanvasLayout.
+ *
+ * Delegates all completion detection and `finishAnimation()` calls strictly to [scrollCoordinator].
  */
 class ScribeCanvasGlideAnimator(
     val scrollCoordinator: ScribeScrollCoordinator,
@@ -22,7 +24,8 @@ class ScribeCanvasGlideAnimator(
     var deletionBoundaryProvider: (() -> Float)? = null,
     var onSettledCallback: ((reason: ScrollAnimationReason?) -> Unit)? = null,
     var isDeletionSafetyActiveProvider: (() -> Boolean)? = null,
-    var onCancelledCallback: ((reason: String?, wasDeletionSafetyActive: Boolean) -> Unit)? = null
+    var onCancelledCallback: ((reason: String?, wasDeletionSafetyActive: Boolean) -> Unit)? = null,
+    var onFrameCommitted: ((result: ScrollStepResult, reason: ScrollAnimationReason?, physicalScroll: Float) -> Unit)? = null
 ) {
     var activeCanvasAnimator: ValueAnimator? = null
     var isGlideRunning: Boolean = false
@@ -59,7 +62,6 @@ class ScribeCanvasGlideAnimator(
         }
 
         val safeDt = dtSec.coerceIn(0.001f, 0.032f)
-
         // Critically damped second-order spring:
         // Natural frequency omega = 13.5 rad/s gives ~300ms ultra-smooth gentle glide
         // Damping ratio zeta = 1.0 (critically damped: zero overshoot, perfectly smooth asymptotic settling)
@@ -84,38 +86,49 @@ class ScribeCanvasGlideAnimator(
             }
         }
 
-        scrollCoordinator.applyStep(glidePosition, opId)
-        if (scrollCoordinator.didLastStepClampAtBoundary) {
-            glidePosition = scrollCoordinator.totalScroll
-            if ((scrollCoordinator.lastClampedDelta > 0f && glideVelocity > 0f) ||
-                (scrollCoordinator.lastClampedDelta < 0f && glideVelocity < 0f)
+        val distToTarget = abs(glidePosition - glideTarget)
+        val isSettled = distToTarget < 0.5f && abs(glideVelocity) < 15f
+        val requestedStep = if (isSettled && distToTarget < 1f) glideTarget else glidePosition
+
+        val result = scrollCoordinator.applyStepWithResult(
+            newAnimatedScroll = requestedStep,
+            operationId = opId,
+            isSpringSettled = isSettled
+        )
+
+        if (result.terminationReason == StepTerminationReason.STALE_OR_INACTIVE || result.operationId != opId) {
+            isGlideRunning = false
+            return
+        }
+
+        if (result.boundaryHit || (!result.isOperationFinished && scrollCoordinator.didLastStepClampAtBoundary)) {
+            glidePosition = result.actualTotalScroll
+            val clampedDelta = scrollCoordinator.lastClampedDelta
+            if ((clampedDelta > 0f && glideVelocity > 0f) ||
+                (clampedDelta < 0f && glideVelocity < 0f) ||
+                result.boundaryHit
             ) {
                 glideVelocity = 0f
             }
         }
 
-        val distToTarget = abs(glidePosition - glideTarget)
-        val isSettled = distToTarget < 0.5f && abs(glideVelocity) < 15f
-        val isStoppedByCoord = !scrollCoordinator.isAnimationActive
+        val frameReason = activeGlideReason
+        onFrameCommitted?.invoke(result, frameReason, result.actualTotalScroll)
 
-        if (isSettled || isStoppedByCoord) {
+        if (result.isOperationFinished) {
             isGlideRunning = false
-            if (scrollCoordinator.isAnimationActive && opId == scrollCoordinator.activeOperationId) {
-                if (distToTarget < 1f) {
-                    scrollCoordinator.applyStep(glideTarget, opId)
-                }
-                scrollCoordinator.finishAnimation(opId)
-            }
-            val reason = activeGlideReason
+            val completedReason = activeGlideReason
             val onEnd = activeGlideOnEnd
-            activeGlideOnEnd = null
             activeGlideReason = null
-            onSettledCallback?.invoke(reason)
+            activeGlideOnEnd = null
+            onSettledCallback?.invoke(completedReason)
             if (!isGlideRunning && !scrollCoordinator.isAnimationActive && opId == scrollCoordinator.activeOperationId) {
                 onEnd?.invoke()
             }
-        } else {
+        } else if (opId == scrollCoordinator.activeOperationId && scrollCoordinator.isAnimationActive && isGlideRunning) {
             postOnAnimationAction(glideFrameRunnable)
+        } else {
+            isGlideRunning = false
         }
     }
 
@@ -128,12 +141,19 @@ class ScribeCanvasGlideAnimator(
         onEnd: (() -> Unit)? = null
     ): Boolean {
         val clampedTarget = targetTotalScroll.coerceIn(0f, maxCanvasScroll.toFloat())
+        val physicalDistance = clampedTarget - currentScroll
 
-        // Continuous retargeting: if a glide is already running, seamlessly retarget in-flight!
+        // 1. Active glide coalescing vs retargeting
         if (isGlideRunning && scrollCoordinator.isAnimationActive) {
             val currTarget = glideTarget
             if (!forceRetarget && abs(currTarget - clampedTarget) <= 1f) {
-                onEnd?.invoke()
+                if (onEnd != null) {
+                    val prevOnEnd = activeGlideOnEnd
+                    activeGlideOnEnd = {
+                        prevOnEnd?.invoke()
+                        onEnd.invoke()
+                    }
+                }
                 return false
             }
             glideTarget = clampedTarget
@@ -149,13 +169,32 @@ class ScribeCanvasGlideAnimator(
             return true
         }
 
-        val shouldStart = scrollCoordinator.requestTarget(clampedTarget, reason, forceRetarget, maxCanvasScroll)
-        if (!shouldStart) {
+        // 2. Fresh inactive sub-1px no-op (< 1f, preserving exact 1.00 px Mode-1 creation)
+        if (!scrollCoordinator.isAnimationActive && abs(physicalDistance) < 1f) {
+            scrollCoordinator.syncActualScroll(currentScroll)
             onEnd?.invoke()
             return false
         }
-        val opId = scrollCoordinator.activeOperationId
 
+        // 3. Coordinator target request
+        val shouldStart = scrollCoordinator.requestTarget(clampedTarget, reason, forceRetarget, maxCanvasScroll)
+        if (!shouldStart) {
+            if (scrollCoordinator.isAnimationActive) {
+                if (onEnd != null) {
+                    val prevOnEnd = activeGlideOnEnd
+                    activeGlideOnEnd = {
+                        prevOnEnd?.invoke()
+                        onEnd.invoke()
+                    }
+                }
+            } else {
+                scrollCoordinator.syncActualScroll(currentScroll)
+                onEnd?.invoke()
+            }
+            return false
+        }
+
+        val opId = scrollCoordinator.activeOperationId
         val oldAnimator = activeCanvasAnimator
         activeCanvasAnimator = null
         oldAnimator?.cancel()
@@ -164,8 +203,18 @@ class ScribeCanvasGlideAnimator(
         val target = scrollCoordinator.activeTargetTotalScroll ?: clampedTarget
         val distance = abs(target - currentScroll)
         if (distance < 1f) {
-            scrollCoordinator.finishAnimation(opId)
-            onEnd?.invoke()
+            val result = scrollCoordinator.applyStepWithResult(
+                newAnimatedScroll = target,
+                operationId = opId,
+                isSpringSettled = true
+            )
+            if (result.operationId == opId &&
+                result.isOperationFinished &&
+                !scrollCoordinator.isAnimationActive &&
+                opId == scrollCoordinator.activeOperationId
+            ) {
+                onEnd?.invoke()
+            }
             return false
         }
 
@@ -199,5 +248,21 @@ class ScribeCanvasGlideAnimator(
         if (wasActive) {
             onCancelledCallback?.invoke(reason, wasDeletionSafetyActive)
         }
+    }
+
+    /**
+     * Cancels any running glide/animator and coordinator operation without invoking
+     * completion (`onEnd`) or cancellation (`onCancelledCallback`) callbacks, allowing
+     * callers to preserve or hand off an active deletion/gap-collapse transaction.
+     */
+    fun cancelPreservingTransaction(reason: String? = null) {
+        removeCallbacksAction(glideFrameRunnable)
+        isGlideRunning = false
+        activeGlideOnEnd = null
+        activeGlideReason = null
+        val oldAnimator = activeCanvasAnimator
+        activeCanvasAnimator = null
+        oldAnimator?.cancel()
+        scrollCoordinator.cancelAnimation(reason)
     }
 }

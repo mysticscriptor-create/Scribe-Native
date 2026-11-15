@@ -372,4 +372,77 @@ class ScribeScrollCoordinatorTest {
         assertTrue(outerOvershootStop.hitBoundary)
     }
 
+
+
+    // ── Phase 3 Suite B2: requestTarget() Contract, applyStepWithResult() & syncActualScroll() ──
+
+    @Test
+    fun testRequestTargetContract_DistinguishesAllThreeMeaningsAndSyncActualScroll() {
+        val coordinator = ScribeScrollCoordinator(totalScroll = 200f)
+        coordinator.onScrollBy = { 0f }
+
+        // 1. Inactive sub-1px no-op -> returns false, no op created
+        assertFalse(coordinator.requestTarget(200.4f, ScrollAnimationReason.DELETION_ANCHOR))
+        assertFalse(coordinator.isAnimationActive)
+        assertEquals(0L, coordinator.activeOperationId)
+        assertEquals(200.4f, coordinator.activeTargetTotalScroll!!, 0.001f)
+
+        // Idle syncActualScroll updates totalScroll and lastAnimatedScroll
+        coordinator.syncActualScroll(215f)
+        assertEquals(215f, coordinator.totalScroll, 0.001f)
+        assertEquals(215f, coordinator.lastAnimatedScroll, 0.001f)
+
+        // 2. Fresh op creation -> returns true, increments activeOperationId
+        assertTrue(coordinator.requestTarget(400f, ScrollAnimationReason.DELETION_ANCHOR))
+        assertTrue(coordinator.isAnimationActive)
+        assertEquals(1L, coordinator.activeOperationId)
+
+        // Active syncActualScroll is a strict no-op
+        coordinator.syncActualScroll(999f)
+        assertEquals(215f, coordinator.totalScroll, 0.001f)
+
+        // 3. Same-reason active-target coalescing within <= 2f -> returns false while op STAYS ACTIVE
+        assertFalse(coordinator.requestTarget(401.5f, ScrollAnimationReason.DELETION_ANCHOR, forceRetarget = false))
+        assertTrue("Coalesced requestTarget==false must keep active op running", coordinator.isAnimationActive)
+        assertEquals(1L, coordinator.activeOperationId)
+        assertEquals(400f, coordinator.activeTargetTotalScroll!!, 0.001f)
+    }
+
+    @Test
+    fun testApplyStepWithResult_SoleCompletionOwner_TargetBoundarySpringSettledAndStaleRejection() {
+        var finishEvents = 0
+        val coordinator = ScribeScrollCoordinator(totalScroll = 300f)
+        coordinator.onScrollBy = { 0f }
+        coordinator.onAnimationFinished = { finishEvents++ }
+
+        assertTrue(coordinator.requestTarget(400f, ScrollAnimationReason.DELETION_ANCHOR))
+        val op1 = coordinator.activeOperationId
+
+        // Stale op cannot finish or mutate op1
+        val staleResult = coordinator.applyStepWithResult(400f, operationId = op1 - 1L, isSpringSettled = true)
+        assertFalse(staleResult.isOperationFinished)
+        assertEquals(StepTerminationReason.STALE_OR_INACTIVE, staleResult.terminationReason)
+        assertTrue(coordinator.isAnimationActive)
+        assertEquals(0, finishEvents)
+
+        // Sub-0.05px final settled tick with isSpringSettled=true still terminates via coordinator
+        assertTrue(coordinator.applyStepWithResult(399.98f, operationId = op1, isSpringSettled = false).isOperationFinished.not())
+        val settledSmallStep = coordinator.applyStepWithResult(400f, operationId = op1, isSpringSettled = true)
+        assertTrue(settledSmallStep.isOperationFinished)
+        assertEquals(StepTerminationReason.SPRING_SETTLED, settledSmallStep.terminationReason)
+        assertFalse(coordinator.isAnimationActive)
+        assertEquals(1, finishEvents)
+
+        // Boundary hit terminates once via BOUNDARY_HIT
+        coordinator.syncActualScroll(100f)
+        coordinator.onScrollBy = { dy -> dy } // 100% unconsumed (blocked at boundary)
+        assertTrue(coordinator.requestTarget(200f, ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION))
+        val op2 = coordinator.activeOperationId
+        val boundaryResult = coordinator.applyStepWithResult(120f, operationId = op2, isSpringSettled = false)
+        assertTrue(boundaryResult.isOperationFinished)
+        assertTrue(boundaryResult.boundaryHit)
+        assertEquals(StepTerminationReason.BOUNDARY_HIT, boundaryResult.terminationReason)
+        assertFalse(coordinator.isAnimationActive)
+        assertEquals(2, finishEvents)
+    }
 }
