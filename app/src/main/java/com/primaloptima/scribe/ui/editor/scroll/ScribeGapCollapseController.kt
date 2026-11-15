@@ -66,7 +66,8 @@ class ScribeGapCollapseController(
     private val nanoTimeProvider: () -> Long = { System.nanoTime() },
     private val onInvalidateEditor: () -> Unit = {},
     private val onMode2SettledToSafety: (owningGen: Long, collapseEpoch: Long) -> Unit = { _, _ -> },
-    private val onExternalDriftAbortToSafety: (owningGen: Long, collapseEpoch: Long) -> Unit = { _, _ -> }
+    private val onExternalDriftAbortToSafety: (owningGen: Long, collapseEpoch: Long) -> Unit = { _, _ -> },
+    private val onFreezeMode1Animator: () -> Unit = {}
 ) {
     var phase: GapCollapsePhase = GapCollapsePhase.IDLE
         private set
@@ -149,6 +150,9 @@ class ScribeGapCollapseController(
             phase == GapCollapsePhase.POINTER_FROZEN &&
             activeSeamLine >= 0 &&
             tauLower > 0f
+
+    val isPointerFrozen: Boolean
+        get() = !isTeardownLocked && phase == GapCollapsePhase.POINTER_FROZEN
 
     fun getTranslationForPosition(line: Int, col: Int): Float {
         if (!shouldApplySplitRender || line < 0 || col < 0) return 0f
@@ -452,11 +456,15 @@ class ScribeGapCollapseController(
         ) {
             return false
         }
+        val previousPhase = phase
         cancelMode2Frame()
-        phaseBeforeFreeze = phase
+        phaseBeforeFreeze = previousPhase
         phase = GapCollapsePhase.POINTER_FROZEN
         mode2State = null
         collapseAnimEpoch++
+        if (previousPhase == GapCollapsePhase.MODE_1_PHYSICAL_COUPLED) {
+            onFreezeMode1Animator()
+        }
         return true
     }
 
@@ -506,9 +514,7 @@ class ScribeGapCollapseController(
                     }
                     PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC,
                     PhysicalScrollOrigin.NONE -> {
-                        if (origin == PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC &&
-                            abs(actualPhysicalScroll - lastMode2KnownPhysicalScroll) > 0.5f
-                        ) {
+                        if (abs(actualPhysicalScroll - lastMode2KnownPhysicalScroll) > 0.5f) {
                             cancelMode2Frame()
                             phase = GapCollapsePhase.FINAL_SAFETY_PENDING
                             tauLower = 0f
@@ -516,7 +522,7 @@ class ScribeGapCollapseController(
                             collapseAnimEpoch++
                             safetyEpoch++
                             safetyRetryAttempted = false
-        safetyCorrectionAttempted = false
+                            safetyCorrectionAttempted = false
                             val g = owningDeletionGen
                             val ce = collapseAnimEpoch
                             onInvalidateEditor()

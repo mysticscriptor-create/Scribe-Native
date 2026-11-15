@@ -47,6 +47,7 @@ class ScribeScrollInputController(
     val scroller: OverScroller = OverScroller(context)
     var lastScrollerY: Int = 0
     private var velocityTracker: VelocityTracker? = null
+    private var activeScrollerOrigin: PhysicalScrollOrigin = PhysicalScrollOrigin.NONE
 
     val touchSlop: Int = ViewConfiguration.get(context).scaledTouchSlop
     val minFlingVelocity: Int = ViewConfiguration.get(context).scaledMinimumFlingVelocity
@@ -121,6 +122,7 @@ class ScribeScrollInputController(
                         lastScrollerY = host.scrollD + host.editorOffsetY
                         val maxScroll = host.maxCanvasScroll
                         if (maxScroll > 0) {
+                            activeScrollerOrigin = PhysicalScrollOrigin.USER_CANVAS_FLING
                             scroller.fling(0, lastScrollerY, 0, scrollerVy, 0, 0, 0, maxScroll, 0, 0)
                         }
                         host.postInvalidateOnAnimation()
@@ -203,6 +205,7 @@ class ScribeScrollInputController(
                 if (!scroller.isFinished) {
                     scroller.forceFinished(true)
                 }
+                activeScrollerOrigin = PhysicalScrollOrigin.NONE
                 host.stopEditorFling()
                 lastTouchX = ev.x
                 lastTouchY = ev.y
@@ -254,6 +257,7 @@ class ScribeScrollInputController(
                     lastScrollerY = host.scrollD + host.editorOffsetY
                     val maxScroll = host.maxCanvasScroll
                     if (maxScroll > 0) {
+                        activeScrollerOrigin = PhysicalScrollOrigin.USER_CANVAS_FLING
                         scroller.fling(0, lastScrollerY, 0, scrollerVy, 0, 0, 0, maxScroll, 0, 0)
                     }
                     host.postInvalidateOnAnimation()
@@ -283,10 +287,15 @@ class ScribeScrollInputController(
      */
     fun computeScroll(): Boolean {
         if (scroller.computeScrollOffset()) {
+            val stepOrigin = if (activeScrollerOrigin != PhysicalScrollOrigin.NONE) {
+                activeScrollerOrigin
+            } else {
+                PhysicalScrollOrigin.USER_CANVAS_FLING
+            }
             val currY = scroller.currY
             val dy = (currY - lastScrollerY).toFloat()
             lastScrollerY = currY
-            host.runWithScrollOrigin(PhysicalScrollOrigin.USER_CANVAS_FLING) {
+            host.runWithScrollOrigin(stepOrigin) {
                 host.scrollCanvasBy(dy)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -297,9 +306,13 @@ class ScribeScrollInputController(
                     }
                 }
             }
+            if (scroller.isFinished) {
+                activeScrollerOrigin = PhysicalScrollOrigin.NONE
+            }
             host.postInvalidateOnAnimation()
             return true
         }
+        activeScrollerOrigin = PhysicalScrollOrigin.NONE
         return false
     }
 
@@ -315,6 +328,7 @@ class ScribeScrollInputController(
         }
         val vy = -abs(velocity).toInt()
         lastScrollerY = host.scrollD
+        activeScrollerOrigin = PhysicalScrollOrigin.USER_CANVAS_FLING
         scroller.fling(0, host.scrollD, 0, vy, 0, 0, 0, host.headerHeight, 0, 0)
         host.postInvalidateOnAnimation()
     }
@@ -326,6 +340,7 @@ class ScribeScrollInputController(
         if (!scroller.isFinished) {
             scroller.forceFinished(true)
         }
+        activeScrollerOrigin = PhysicalScrollOrigin.NONE
         host.stopEditorFling()
     }
 
@@ -336,6 +351,7 @@ class ScribeScrollInputController(
         if (!scroller.isFinished) {
             scroller.forceFinished(true)
         }
+        activeScrollerOrigin = PhysicalScrollOrigin.NONE
     }
 
     /**
@@ -345,6 +361,7 @@ class ScribeScrollInputController(
         if (!scroller.isFinished) {
             scroller.abortAnimation()
         }
+        activeScrollerOrigin = PhysicalScrollOrigin.NONE
     }
 
     /**
@@ -352,6 +369,7 @@ class ScribeScrollInputController(
      */
     fun startScroll(startX: Int, startY: Int, dx: Int, dy: Int, duration: Int) {
         lastScrollerY = startY
+        activeScrollerOrigin = PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC
         scroller.startScroll(startX, startY, dx, dy, duration)
         host.postInvalidateOnAnimation()
     }

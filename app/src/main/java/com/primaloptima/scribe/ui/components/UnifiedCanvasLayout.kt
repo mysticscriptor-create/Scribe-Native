@@ -265,6 +265,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     private var activePhysicalScrollOrigin: PhysicalScrollOrigin = PhysicalScrollOrigin.NONE
 
+    internal val currentPhysicalScrollOrigin: PhysicalScrollOrigin
+        get() = activePhysicalScrollOrigin
+
     fun withPhysicalScrollOrigin(origin: PhysicalScrollOrigin, block: () -> Unit) {
         val prev = activePhysicalScrollOrigin
         activePhysicalScrollOrigin = origin
@@ -276,11 +279,16 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     fun notifyViewportScrollChanged(origin: PhysicalScrollOrigin = activePhysicalScrollOrigin) {
+        val effectiveOrigin = when {
+            origin != PhysicalScrollOrigin.NONE -> origin
+            activePhysicalScrollOrigin != PhysicalScrollOrigin.NONE -> activePhysicalScrollOrigin
+            else -> PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC
+        }
         val actualPhysical = (scrollD + editor.offsetY).toFloat()
         if (!scrollCoordinator.isAnimationActive && !canvasAnimator.isGlideRunning) {
             scrollCoordinator.syncActualScroll(actualPhysical)
         }
-        gapCollapseController.onViewportPhysicalScrollChanged(actualPhysical, origin)
+        gapCollapseController.onViewportPhysicalScrollChanged(actualPhysical, effectiveOrigin)
         onViewportScrollChanged?.invoke(scrollD, editor.offsetY, scrollD + editor.offsetY)
     }
 
@@ -317,7 +325,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 this@UnifiedCanvasLayout.lastTouchDownY = touchY
                 this@UnifiedCanvasLayout.lastTouchDownTime = System.currentTimeMillis()
                 this@UnifiedCanvasLayout.onUserTouchDown?.invoke()
-                this@UnifiedCanvasLayout.cancelCanvasAnimation(preserveRetractionDebt = true)
+                this@UnifiedCanvasLayout.onPointerTouchDown(preserveRetractionDebt = true)
                 this@UnifiedCanvasLayout.editor.stopFling()
             }
             override fun onManualDragStarted() {
@@ -374,21 +382,17 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     if (gapCollapseController.phase == GapCollapsePhase.MODE_1_PHYSICAL_COUPLED) {
                         PhysicalScrollOrigin.GAP_COLLAPSE_MODE_1
                     } else {
-                        PhysicalScrollOrigin.NONE
+                        PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC
                     }
                 ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION ->
                     PhysicalScrollOrigin.EVENT_B_SAFETY_CORRECTION
-                else -> PhysicalScrollOrigin.NONE
+                else -> PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC
             }
-            if (stepOrigin != PhysicalScrollOrigin.NONE) {
-                var unconsumed = 0f
-                withPhysicalScrollOrigin(stepOrigin) {
-                    unconsumed = scrollCanvasBy(delta)
-                }
-                unconsumed
-            } else {
-                scrollCanvasBy(delta)
+            var unconsumed = 0f
+            withPhysicalScrollOrigin(stepOrigin) {
+                unconsumed = scrollCanvasBy(delta)
             }
+            unconsumed
         }
         wasLastStepClampedByBoundary = {
             lastScrollWasBoundaryClamped
@@ -463,6 +467,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             scrollCoordinator.syncActualScroll((scrollD + editor.offsetY).toFloat())
             val se = gapCollapseController.safetyEpoch
             completeDeletionVisualTransaction(owningGen, se)
+        },
+        onFreezeMode1Animator = {
+            canvasAnimator.cancelPreservingTransaction("pointer_freeze")
+            scrollCoordinator.syncActualScroll((scrollD + editor.offsetY).toFloat())
         }
     )
 
@@ -1204,6 +1212,42 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     )
                     SafetyRevalidationResult.UNRESOLVED("safety_correction_not_started")
                 }
+            }
+        }
+    }
+
+    private fun stopNonCollapseAnimatorsForPointerFreeze() {
+        cancelRestoration()
+        if (canvasAnimator.isGlideRunning || scrollCoordinator.isAnimationActive) {
+            canvasAnimator.cancelPreservingTransaction("pointer_freeze_residual_animator")
+        }
+        scrollCoordinator.syncActualScroll((scrollD + editor.offsetY).toFloat())
+        outerScrollResidualPx = 0f
+        editorScrollResidualPx = 0f
+        scrollDFloat = scrollD.toFloat()
+        isPredictiveGlideRunning = false
+        targetPredictedScrollTotal = -1f
+        endKeyboardTransaction()
+        inputController.stopFling()
+        editor.stopFling()
+    }
+
+    internal fun onPointerTouchDown(preserveRetractionDebt: Boolean = true) {
+        when (gapCollapseController.phase) {
+            GapCollapsePhase.MODE_1_PHYSICAL_COUPLED,
+            GapCollapsePhase.MODE_2_VISUAL_SETTLING -> {
+                if (gapCollapseController.freezeForPointer(deletionTransactionGeneration)) {
+                    stopNonCollapseAnimatorsForPointerFreeze()
+                } else {
+                    cancelCanvasAnimation(preserveRetractionDebt = preserveRetractionDebt)
+                }
+            }
+            GapCollapsePhase.POINTER_FROZEN -> {
+                stopNonCollapseAnimatorsForPointerFreeze()
+            }
+            GapCollapsePhase.FINAL_SAFETY_PENDING,
+            GapCollapsePhase.IDLE -> {
+                cancelCanvasAnimation(preserveRetractionDebt = preserveRetractionDebt)
             }
         }
     }
@@ -1984,6 +2028,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         scrollDFloat = clamped.toFloat()
         applyTranslations()
         onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
+        notifyViewportScrollChanged(PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC)
         invalidate()
     }
 
@@ -2107,7 +2152,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 } catch (_: Throwable) {}
                 applyTranslations()
                 onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
-                notifyViewportScrollChanged()
+                notifyViewportScrollChanged(PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC)
                 invalidate()
                 isRestoringViewport = false
                 post {
@@ -2148,10 +2193,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         inputController.isDraggingCanvas = false
         applyTranslations()
         onUnifiedScrollChanged?.invoke(0, headerHeight)
-        notifyViewportScrollChanged()
         try {
             editor.jumpScrollTo(editor.offsetX, 0)
         } catch (_: Throwable) {}
+        notifyViewportScrollChanged(PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC)
     }
 
     /**
@@ -2514,7 +2559,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     scrollDFloat = 0f
                     outerScrollResidualPx = 0f
                     onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
-                    notifyViewportScrollChanged()
+                    notifyViewportScrollChanged(PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC)
                 }
             } else if (editor.isWordwrapReady() && editor.layout != null) {
                 val reconciled = ScribeScrollPolicy.reconcileScrollState(
@@ -2528,13 +2573,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     scrollDFloat = reconciled.scrollD.toFloat()
                     outerScrollResidualPx = 0f
                     onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
-                    notifyViewportScrollChanged()
+                    notifyViewportScrollChanged(PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC)
                 }
                 if (reconciled.editorOffsetY != editor.offsetY) {
                     try {
                         editor.jumpScrollTo(editor.offsetX, reconciled.editorOffsetY)
                         editorScrollResidualPx = 0f
-                        notifyViewportScrollChanged()
+                        notifyViewportScrollChanged(PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC)
                     } catch (_: Throwable) {}
                 }
             }
@@ -2789,6 +2834,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     scrollD = 0
                     applyTranslations()
                     onUnifiedScrollChanged?.invoke(0, headerHeight)
+                    notifyViewportScrollChanged(PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC)
                 } else {
                     inputController.abortAnimation()
                     inputController.startScroll(0, scrollD, 0, -scrollD, 250)
@@ -2883,6 +2929,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      * @return unconsumed delta.
      */
     fun scrollCanvasBy(dy: Float): Float {
+        if (activePhysicalScrollOrigin == PhysicalScrollOrigin.NONE) {
+            var unconsumed = 0f
+            withPhysicalScrollOrigin(PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC) {
+                unconsumed = scrollCanvasBy(dy)
+            }
+            return unconsumed
+        }
         onScrollDelta?.invoke(dy)
         lastScrollWasBoundaryClamped = false
 
@@ -3090,7 +3143,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     private fun onPointerGestureEndedIfNeeded(ev: MotionEvent) {
-        if (gapCollapseController.isResumableCollapse) {
+        if (gapCollapseController.isPointerFrozen) {
             val actualScroll = (scrollD + editor.offsetY).toFloat()
             val nextPhase = gapCollapseController.resumeFromPointerFrozen(
                 expectedGen = gapCollapseController.owningDeletionGen,

@@ -608,4 +608,173 @@ class ScribeGapCollapseControllerTest {
         assertEquals("cancelPreservingTransaction must NOT fire onSettledCallback", 0, onSettledCalls)
         assertEquals("cancelPreservingTransaction must NOT fire onCancelledCallback", 0, onCancelledCalls)
     }
+
+    @Test
+    fun testFreezeForPointerDuringMode1_CancelsMode1AnimatorWithoutBumpingGenAndResumesToMode2Cleanly() {
+        var settledCalls = 0
+        var endCalls = 0
+        var cancelledCalls = 0
+        var currentScroll = 500f
+        val postedRunnables = mutableListOf<Runnable>()
+        val coord = ScribeScrollCoordinator(totalScroll = currentScroll).apply {
+            onScrollBy = { delta ->
+                currentScroll += delta
+                0f
+            }
+        }
+        val animator = ScribeCanvasGlideAnimator(
+            scrollCoordinator = coord,
+            postOnAnimationAction = { postedRunnables.add(it) },
+            removeCallbacksAction = { postedRunnables.remove(it) },
+            onSettledCallback = { settledCalls++ },
+            onCancelledCallback = { _, _ -> cancelledCalls++ }
+        )
+
+        var scheduledFrame: ((Long) -> Unit)? = null
+        var freezeAnimatorCalls = 0
+        lateinit var controller: ScribeGapCollapseController
+        controller = ScribeGapCollapseController(
+            scheduleFrame = { cb -> scheduledFrame = cb },
+            cancelFrame = { scheduledFrame = null },
+            onFreezeMode1Animator = {
+                freezeAnimatorCalls++
+                animator.cancelPreservingTransaction("pointer_freeze")
+                coord.syncActualScroll(currentScroll)
+            }
+        )
+
+        val plan = makeLowerOnlyPlan(preScrollY = 500, deltaGapPx = 300f, minSafeScroll = 350f)
+        val gen = 11L
+        val epoch = controller.beginCollapse(
+            owningGen = gen,
+            plan = plan,
+            seamLine = 10,
+            seamFirstLowerRow = 10,
+            seamDocY = 400f,
+            rowHeightPx = 40f,
+            initialPhysicalScrollPx = 500f
+        )
+        controller.markMode1Started(gen, epoch, 500f)
+        assertTrue(
+            animator.startAuthoritativeAnimation(
+                currentScroll = 500f,
+                targetTotalScroll = plan.effectiveTargetScroll,
+                reason = ScrollAnimationReason.DELETION_ANCHOR,
+                maxCanvasScroll = 900,
+                forceRetarget = true,
+                onEnd = { endCalls++ }
+            )
+        )
+        assertEquals(GapCollapsePhase.MODE_1_PHYSICAL_COUPLED, controller.phase)
+        assertTrue(animator.isGlideRunning)
+        assertTrue(coord.isAnimationActive)
+
+        // Advance one Mode-1 physical frame before pointer touch-down
+        animator.advanceFrame(0.016f)
+        controller.onMode1FrameCommitted(gen, epoch, currentScroll, boundaryHit = false, frameTimeNanos = 1_016_000_000L)
+        val scrollAtTouchDown = currentScroll
+        val tauAtTouchDown = controller.tauLower
+
+        // Freeze mid-Mode-1: must stop Mode-1 glide/coordinator cleanly without firing onEnd/onCancelled
+        assertTrue(controller.freezeForPointer(gen))
+        assertEquals(1, freezeAnimatorCalls)
+        assertEquals(GapCollapsePhase.POINTER_FROZEN, controller.phase)
+        assertEquals(GapCollapsePhase.MODE_1_PHYSICAL_COUPLED, controller.phaseBeforeFreeze)
+        assertTrue(controller.isPointerFrozen)
+        assertFalse("Mode-1 glide must be stopped immediately on pointer freeze", animator.isGlideRunning)
+        assertFalse("Scroll coordinator must be inactive after pointer freeze", coord.isAnimationActive)
+        assertEquals(0, endCalls)
+        assertEquals(0, settledCalls)
+        assertEquals(0, cancelledCalls)
+
+        // Any stale queued frame callback from the cancelled Mode-1 glide must be a strict no-op
+        animator.advanceFrame(0.016f)
+        assertEquals(scrollAtTouchDown, currentScroll, 0.001f)
+        assertEquals(tauAtTouchDown, controller.tauLower, 0.001f)
+        assertEquals(GapCollapsePhase.POINTER_FROZEN, controller.phase)
+
+        // Freezing a second time (dual ACTION_DOWN) is idempotent and does not re-trigger Mode-1 callback
+        assertTrue(controller.freezeForPointer(gen))
+        assertEquals(1, freezeAnimatorCalls)
+
+        // Resume on ACTION_UP -> enters Mode 2 cleanly with zero concurrent Mode-1 animator
+        val nextPhase = controller.resumeFromPointerFrozen(gen, currentScroll)
+        assertEquals(GapCollapsePhase.MODE_2_VISUAL_SETTLING, nextPhase)
+        assertNotNull(scheduledFrame)
+        assertFalse(animator.isGlideRunning)
+        assertFalse(coord.isAnimationActive)
+    }
+
+    @Test
+    fun testFreezeForPointerDuringMode1WithZeroTauLower_IsPointerFrozenAndResumesToFinalSafety() {
+        val h = ControllerHarness()
+        val overscrollPlan = CollapsePlan(
+            scenario = CollapseScenario.B_LOWER_ONLY,
+            requestedTargetScroll = 700f,
+            effectiveTargetScroll = 700f,
+            safetyBounds = SafetyFloorAndBounds(safeMax = 700, minSafeScroll = 300f, safeMinPhysical = 300, actualPhysicalScroll = 850),
+            deltaGapPx = 100f,
+            preScrollY = 850,
+            requiresMode1 = true,
+            requiresSynchronousSnap = false,
+            synchronousSnapTarget = 850,
+            initialTauLowerPx = 0f,
+            isProgressCoupled = false,
+            requiresOffscreenCaretFollow = false
+        )
+        val gen = 15L
+        val epoch = h.controller.beginCollapse(
+            owningGen = gen,
+            plan = overscrollPlan,
+            seamLine = 10,
+            seamFirstLowerRow = 10,
+            seamDocY = 400f,
+            rowHeightPx = 40f,
+            initialPhysicalScrollPx = 850f
+        )
+        h.controller.markMode1Started(gen, epoch, 850f)
+        assertEquals(0f, h.controller.tauLower, 0.001f)
+
+        assertTrue(h.controller.freezeForPointer(gen))
+        assertEquals(GapCollapsePhase.POINTER_FROZEN, h.controller.phase)
+        assertTrue("Zero-tau Mode-1 pointer freeze must report isPointerFrozen=true so ACTION_UP never strands", h.controller.isPointerFrozen)
+        assertFalse(h.controller.isResumableCollapse)
+
+        val resumed = h.controller.resumeFromPointerFrozen(gen, 800f)
+        assertEquals(GapCollapsePhase.FINAL_SAFETY_PENDING, resumed)
+    }
+
+    @Test
+    fun testPhysicalScrollOriginNone_AbortsMode2OnDriftOverHalfPx_WhileAuthorizedOriginsTrack() {
+        val h = ControllerHarness()
+        val plan = makeLowerOnlyPlan(preScrollY = 500, deltaGapPx = 80f, minSafeScroll = 500f)
+        h.controller.beginCollapse(
+            owningGen = 12L,
+            plan = plan,
+            seamLine = 8,
+            seamFirstLowerRow = 8,
+            seamDocY = 320f,
+            rowHeightPx = 40f,
+            initialPhysicalScrollPx = 500f
+        )
+        assertEquals(GapCollapsePhase.MODE_2_VISUAL_SETTLING, h.controller.phase)
+
+        // Sub-0.5px untagged NONE noise is tolerated
+        assertFalse(h.controller.onViewportPhysicalScrollChanged(500.4f, PhysicalScrollOrigin.NONE))
+        assertEquals(GapCollapsePhase.MODE_2_VISUAL_SETTLING, h.controller.phase)
+        assertTrue(h.externalDriftEvents.isEmpty())
+
+        // Mode-1 and Event-B internal tags plus authorized user tags continue tracking cleanly
+        assertFalse(h.controller.onViewportPhysicalScrollChanged(510f, PhysicalScrollOrigin.GAP_COLLAPSE_MODE_1))
+        assertFalse(h.controller.onViewportPhysicalScrollChanged(515f, PhysicalScrollOrigin.EVENT_B_SAFETY_CORRECTION))
+        assertEquals(515f, h.controller.lastMode2KnownPhysicalScroll, 0.001f)
+
+        // Untagged NONE movement exceeding 0.5px must NOT bypass Mode-2 drift detection
+        assertTrue(h.controller.onViewportPhysicalScrollChanged(515.6f, PhysicalScrollOrigin.NONE))
+        assertEquals(GapCollapsePhase.FINAL_SAFETY_PENDING, h.controller.phase)
+        assertEquals(0f, h.controller.tauLower, 0.001f)
+        assertFalse(h.controller.shouldApplySplitRender)
+        assertEquals(1, h.externalDriftEvents.size)
+        assertEquals(12L, h.externalDriftEvents[0].first)
+    }
 }
