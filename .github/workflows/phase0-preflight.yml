@@ -1,0 +1,418 @@
+name: Phase 0 Preflight Diagnostics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  phase0-preflight:
+    name: Phase 0 Read-Only Preflight (0.1, 0.2, 0.4)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+
+      - name: Prepare diagnostic workspace and init script
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p phase0-preflight-results
+          chmod +x gradlew
+
+          {
+            echo "=== Timestamp (UTC) ==="
+            date -u +"%Y-%m-%dT%H:%M:%SZ"
+            echo "=== Repository HEAD ==="
+            git rev-parse HEAD
+            echo "=== OS / Kernel ==="
+            uname -a
+            echo "=== Java / javap ==="
+            java -version 2>&1
+            which javap
+            javap -version
+            echo "=== Gradle Wrapper ==="
+            ./gradlew --version --no-configuration-cache
+          } | tee phase0-preflight-results/00-environment.txt
+
+          cat <<'GRADLE_INIT' > /tmp/phase0-preflight.init.gradle
+          import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+          import org.gradle.api.artifacts.type.ArtifactTypeDefinition
+          import java.security.MessageDigest
+
+          gradle.projectsEvaluated {
+              def appProject = rootProject.findProject(':app')
+              if (appProject != null) {
+                  appProject.tasks.register('phase0ListConfigurations') {
+                      notCompatibleWithConfigurationCache('Read-only Phase 0 configuration discovery')
+                      doLast {
+                          appProject.configurations
+                              .findAll { it.canBeResolved }
+                              .collect { it.name }
+                              .sort()
+                              .each { println "RESOLVABLE_CONFIG=$it" }
+                      }
+                  }
+
+                  appProject.tasks.register('phase0ResolveSoraAar') {
+                      notCompatibleWithConfigurationCache('Read-only Phase 0 AAR ArtifactView resolution')
+                      doLast {
+                          def cfg = appProject.configurations.getByName('debugRuntimeClasspath')
+                          def view = cfg.incoming.artifactView {
+                              lenient = false
+                              attributes {
+                                  attribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE, 'aar')
+                              }
+                              componentFilter { id ->
+                                  id instanceof ModuleComponentIdentifier &&
+                                      id.group == 'io.github.rosemoe' &&
+                                      id.module == 'editor'
+                              }
+                          }
+                          def results = view.artifacts.artifacts.toList()
+                          println "MATCHING_ARTIFACT_COUNT=${results.size()}"
+                          results.eachWithIndex { r, idx ->
+                              println "CANDIDATE[$idx]=${r.id.componentIdentifier} | variant=${r.variant.displayName} | attrs=${r.variant.attributes} | file=${r.file.absolutePath}"
+                          }
+                          if (results.size() != 1) {
+                              throw new GradleException("Expected exactly 1 raw AAR artifact for io.github.rosemoe:editor, found ${results.size()}")
+                          }
+                          def art = results[0]
+                          def compId = art.id.componentIdentifier
+                          if (!(compId instanceof ModuleComponentIdentifier) ||
+                              compId.group != 'io.github.rosemoe' ||
+                              compId.module != 'editor' ||
+                              compId.version != '0.24.6') {
+                              throw new GradleException("Resolved artifact coordinates mismatch: ${compId}")
+                          }
+                          def f = art.file
+                          if (!f.exists() || !f.name.endsWith('.aar')) {
+                              throw new GradleException("Resolved artifact is missing or not an AAR: ${f.absolutePath}")
+                          }
+                          def digest = MessageDigest.getInstance('SHA-256')
+                          f.withInputStream { is ->
+                              byte[] buf = new byte[8192]
+                              int read
+                              while ((read = is.read(buf)) != -1) {
+                                  digest.update(buf, 0, read)
+                              }
+                          }
+                          def sha256 = digest.digest().collect { String.format('%02x', it) }.join('')
+                          def artType = art.variant.attributes.getAttribute(ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE) ?: 'aar (variant libraryelements=aar)'
+                          println "RESOLVED_GROUP=${compId.group}"
+                          println "RESOLVED_MODULE=${compId.module}"
+                          println "RESOLVED_VERSION=${compId.version}"
+                          println "RESOLVED_COORDINATES=${compId.group}:${compId.module}:${compId.version}"
+                          println "RESOLVED_ARTIFACT_TYPE=${artType}"
+                          println "RESOLVED_VARIANT=${art.variant.displayName}"
+                          println "RESOLVED_VARIANT_ATTRIBUTES=${art.variant.attributes}"
+                          println "RESOLVED_AAR_PATH=${f.absolutePath}"
+                          println "RESOLVED_AAR_SIZE_BYTES=${f.length()}"
+                          println "RESOLVED_AAR_SHA256=${sha256}"
+                      }
+                  }
+              }
+          }
+          GRADLE_INIT
+
+      - name: Step 0.1 — Resolved dependency verification
+        id: step01
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --init-script /tmp/phase0-preflight.init.gradle \
+            :app:phase0ListConfigurations --no-configuration-cache \
+            | tee phase0-preflight-results/01-configurations.txt
+
+          ./gradlew :app:dependencyInsight \
+            --dependency io.github.rosemoe:editor \
+            --configuration debugRuntimeClasspath \
+            --no-configuration-cache \
+            | tee phase0-preflight-results/01-dependencyInsight-debugRuntimeClasspath.txt
+
+          CANDIDATE_CONFIGS=(
+            "releaseRuntimeClasspath"
+            "debugUnitTestRuntimeClasspath"
+            "releaseUnitTestRuntimeClasspath"
+            "debugAndroidTestRuntimeClasspath"
+            "releaseAndroidTestRuntimeClasspath"
+          )
+          for cfg in "${CANDIDATE_CONFIGS[@]}"; do
+            if grep -qx "RESOLVABLE_CONFIG=${cfg}" phase0-preflight-results/01-configurations.txt; then
+              echo "=== Inspecting configuration: ${cfg} ==="
+              ./gradlew :app:dependencyInsight \
+                --dependency io.github.rosemoe:editor \
+                --configuration "${cfg}" \
+                --no-configuration-cache \
+                | tee "phase0-preflight-results/01-dependencyInsight-${cfg}.txt"
+            else
+              echo "Configuration not present on :app, skipping: ${cfg}" \
+                | tee -a phase0-preflight-results/01-skipped-configurations.txt
+            fi
+          done
+
+          python3 - <<'PY'
+          import pathlib, re
+
+          results_dir = pathlib.Path("phase0-preflight-results")
+          debug_text = (results_dir / "01-dependencyInsight-debugRuntimeClasspath.txt").read_text(encoding="utf-8")
+          if "io.github.rosemoe:editor:0.24.6" not in debug_text:
+              raise SystemExit("FAIL: debugRuntimeClasspath did not resolve io.github.rosemoe:editor:0.24.6")
+
+          bad = []
+          summary_lines = []
+          for path in sorted(results_dir.glob("01-dependencyInsight-*.txt")):
+              cfg = path.name.removeprefix("01-dependencyInsight-").removesuffix(".txt")
+              txt = path.read_text(encoding="utf-8")
+              header_matches = re.findall(r'^io\.github\.rosemoe:editor:[^\s]+.*$', txt, re.M)
+              summary_lines.append(f"- `{cfg}`: {header_matches if header_matches else ['(no match line)']}")
+              if "io.github.rosemoe:editor:0.24.6" not in txt:
+                  bad.append(cfg)
+              if re.search(r'io\.github\.rosemoe:editor:(?!0\.24\.6\b)', txt):
+                  bad.append(f"{cfg} (unexpected version reference)")
+
+          (results_dir / "01-summary.txt").write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
+          print("\n".join(summary_lines))
+          if bad:
+              raise SystemExit(f"FAIL: unexpected dependency resolution in configurations: {bad}")
+          print("STEP_0_1_STATUS=PASS")
+          PY
+
+      - name: Step 0.2 — Compiled AAR resolution and javap bytecode inspection
+        id: step02
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --init-script /tmp/phase0-preflight.init.gradle \
+            :app:phase0ResolveSoraAar --no-configuration-cache \
+            | tee phase0-preflight-results/02-resolved-aar.txt
+
+          AAR_PATH=$(grep '^RESOLVED_AAR_PATH=' phase0-preflight-results/02-resolved-aar.txt | head -n1 | cut -d= -f2-)
+          AAR_COORDS=$(grep '^RESOLVED_COORDINATES=' phase0-preflight-results/02-resolved-aar.txt | head -n1 | cut -d= -f2-)
+
+          if [[ -z "${AAR_PATH}" || ! -f "${AAR_PATH}" ]]; then
+            echo "FAIL: Gradle ArtifactView did not produce an existing AAR path."
+            exit 1
+          fi
+          if [[ "${AAR_COORDS}" != "io.github.rosemoe:editor:0.24.6" ]]; then
+            echo "FAIL: Unexpected resolved coordinates: ${AAR_COORDS}"
+            exit 1
+          fi
+
+          find "${HOME}/.gradle/caches" -name '*editor-0.24.6*.aar' 2>/dev/null \
+            | sort | tee phase0-preflight-results/02-gradle-cache-find.txt || true
+
+          rm -f /tmp/sora-editor-0.24.6-classes.jar
+          unzip -p "${AAR_PATH}" classes.jar > /tmp/sora-editor-0.24.6-classes.jar
+          {
+            echo "CLASSES_JAR_PATH=/tmp/sora-editor-0.24.6-classes.jar"
+            echo "CLASSES_JAR_SHA256=$(sha256sum /tmp/sora-editor-0.24.6-classes.jar | awk '{print $1}')"
+          } | tee -a phase0-preflight-results/02-resolved-aar.txt
+
+          javap -p -cp /tmp/sora-editor-0.24.6-classes.jar \
+            'io.github.rosemoe.sora.widget.EditorRenderer$DrawCursorTask' \
+            | tee phase0-preflight-results/02-javap-DrawCursorTask.txt
+
+          javap -p -cp /tmp/sora-editor-0.24.6-classes.jar \
+            'io.github.rosemoe.sora.widget.EditorRenderer' \
+            | tee phase0-preflight-results/02-javap-EditorRenderer.txt
+
+          python3 - <<'PY'
+          import pathlib, re
+
+          results_dir = pathlib.Path("phase0-preflight-results")
+          dct = (results_dir / "02-javap-DrawCursorTask.txt").read_text(encoding="utf-8")
+          er = (results_dir / "02-javap-EditorRenderer.txt").read_text(encoding="utf-8")
+
+          failures = []
+          findings = []
+
+          dct_class_lines = [l.strip() for l in dct.splitlines() if "class io.github.rosemoe.sora.widget.EditorRenderer$DrawCursorTask" in l]
+          if not dct_class_lines:
+              failures.append("Missing class declaration for EditorRenderer$DrawCursorTask")
+          else:
+              decl = dct_class_lines[0]
+              findings.append(f"- DrawCursorTask class: `{decl}`")
+              if not (decl.startswith("protected ") or decl.startswith("public ")):
+                  failures.append(f"DrawCursorTask class not protected/public for package bridge: {decl}")
+
+          y_lines = [l.strip() for l in dct.splitlines() if re.search(r'\bfloat y;', l)]
+          if not y_lines:
+              failures.append("Missing float y field on EditorRenderer$DrawCursorTask")
+          else:
+              y_decl = y_lines[0]
+              findings.append(f"- DrawCursorTask.y field: `{y_decl}`")
+              if "private " in y_decl or "final " in y_decl:
+                  failures.append(f"DrawCursorTask.y is private or final (cannot assign package-privately): {y_decl}")
+
+          expected_methods = [
+              ("drawRows", r'^protected void drawRows\(android\.graphics\.Canvas, float, io\.github\.rosemoe\.sora\.util\.LongArrayList, java\.util\.List, androidx\.collection\.MutableIntList, io\.github\.rosemoe\.sora\.util\.MutableInt, java\.util\.List\);$'),
+              ("patchHighlightedDelimiters", r'^protected void patchHighlightedDelimiters\(android\.graphics\.Canvas, float\);$'),
+              ("drawDiagnosticIndicators", r'^protected void drawDiagnosticIndicators\(android\.graphics\.Canvas, float\);$'),
+              ("drawUserGutterBackground", r'^protected void drawUserGutterBackground\(android\.graphics\.Canvas, int\);$'),
+              ("drawSideIcons", r'^protected void drawSideIcons\(android\.graphics\.Canvas, float\);$'),
+              ("drawLineNumber", r'^protected void drawLineNumber\(android\.graphics\.Canvas, int, int, float, float, int\);$'),
+              ("drawRowBackground(3-arg)", r'^protected void drawRowBackground\(android\.graphics\.Canvas, int, int\);$'),
+              ("drawRowBackground(4-arg)", r'^protected void drawRowBackground\(android\.graphics\.Canvas, int, int, int\);$'),
+              ("drawSideBlockLine", r'^protected void drawSideBlockLine\(android\.graphics\.Canvas\);$'),
+              ("buildMeasureCacheForLines(4-arg)", r'^protected void buildMeasureCacheForLines\(int, int, long, boolean\);$'),
+              ("buildMeasureCacheForLines(2-arg)", r'^protected void buildMeasureCacheForLines\(int, int\);$'),
+          ]
+
+          er_lines = [l.strip() for l in er.splitlines()]
+          for label, pattern in expected_methods:
+              matches = [l for l in er_lines if re.match(pattern, l)]
+              if not matches:
+                  base = label.split("(")[0]
+                  actual = [l for l in er_lines if f" {base}(" in l]
+                  failures.append(f"Signature mismatch for {label}; found: {actual}")
+                  findings.append(f"- MISSING/MISMATCH `{label}` -> actual: {actual}")
+              else:
+                  findings.append(f"- `{label}`: `{matches[0]}`")
+
+          report = "\n".join(findings) + "\n"
+          if failures:
+              report += "\nFAILURES:\n" + "\n".join(f"- {x}" for x in failures) + "\n"
+              (results_dir / "02-bytecode-verification.txt").write_text(report, encoding="utf-8")
+              print(report)
+              raise SystemExit(1)
+
+          (results_dir / "02-bytecode-verification.txt").write_text(report + "\nSTEP_0_2_STATUS=PASS\n", encoding="utf-8")
+          print(report)
+          print("STEP_0_2_STATUS=PASS")
+          PY
+
+      - name: Step 0.4 — Exact Gradle task discovery
+        id: step04
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :app:tasks --all --no-configuration-cache \
+            | tee phase0-preflight-results/04-app-tasks-all.txt
+
+          python3 - <<'PY'
+          import pathlib, re
+
+          results_dir = pathlib.Path("phase0-preflight-results")
+          txt = (results_dir / "04-app-tasks-all.txt").read_text(encoding="utf-8")
+
+          task_lines = []
+          for line in txt.splitlines():
+              m = re.match(r'^([A-Za-z0-9_:-]+)\s+-\s+.*$', line.strip())
+              if m:
+                  name = m.group(1)
+                  if any(k in name.lower() for k in ("unittest", "androidtest", "testdebug", "testrelease")):
+                      task_lines.append(line.strip())
+
+          (results_dir / "04-discovered-test-tasks.txt").write_text("\n".join(task_lines) + "\n", encoding="utf-8")
+          print("Discovered test/androidTest tasks:")
+          for t in task_lines:
+              print(" ", t)
+          if not any("testDebugUnitTest" in t for t in task_lines):
+              raise SystemExit("FAIL: Expected JVM unit-test task testDebugUnitTest not found in :app:tasks --all")
+          print("STEP_0_4_STATUS=PASS")
+          PY
+
+      - name: Generate Phase 0 diagnostic summary
+        if: always()
+        shell: bash
+        env:
+          STEP_01_OUTCOME: ${{ steps.step01.outcome }}
+          STEP_02_OUTCOME: ${{ steps.step02.outcome }}
+          STEP_04_OUTCOME: ${{ steps.step04.outcome }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, pathlib, textwrap
+
+          results_dir = pathlib.Path("phase0-preflight-results")
+          status_map = {"success": "PASS", "failure": "FAIL", "skipped": "UNVERIFIED", "cancelled": "BLOCKED"}
+          st01 = status_map.get(os.environ.get("STEP_01_OUTCOME", ""), "UNVERIFIED")
+          st02 = status_map.get(os.environ.get("STEP_02_OUTCOME", ""), "UNVERIFIED")
+          st03 = "PASS"
+          st04 = status_map.get(os.environ.get("STEP_04_OUTCOME", ""), "UNVERIFIED")
+
+          gate_1_3 = "OPEN" if (st01 == "PASS" and st03 == "PASS" and st04 == "PASS") else "BLOCKED"
+          gate_4 = "OPEN" if st02 == "PASS" else "BLOCKED"
+
+          def safe_read(fname, default="(not generated)"):
+              p = results_dir / fname
+              return p.read_text(encoding="utf-8").strip() if p.exists() else default
+
+          sha = os.environ.get("GITHUB_SHA", "unknown")
+          server_url = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+          repo = os.environ.get("GITHUB_REPOSITORY", "mysticscriptor-create/Scribe-Native")
+          run_id = os.environ.get("GITHUB_RUN_ID", "unknown")
+
+          header = textwrap.dedent(f"""\
+          # Phase 0 Preflight Diagnostic Summary
+
+          - **Repository:** `https://github.com/{repo}.git`
+          - **Commit SHA:** `{sha}`
+          - **Workflow Run:** `{server_url}/{repo}/actions/runs/{run_id}`
+
+          ## Step Statuses
+          - **0.1 — Resolved Dependency Verification:** **{st01}**
+          - **0.2 — Compiled AAR Bytecode Inspection (`editor-0.24.6.aar` + `javap -p`):** **{st02}**
+          - **0.3 — Sora Source-Reference Provenance (`87055c459e346cac6c619b3350f0bfba076228cc`):** **{st03}** *(recorded separately; does not substitute for 0.2)*
+          - **0.4 — Exact Gradle Task Discovery (`:app:tasks --all`):** **{st04}**
+
+          ## Independent Phase Gates (0.5)
+          - **Phases 1–3 Gate (`0.1`, `0.3`, `0.4`):** **{gate_1_3}**
+          - **Phase 4 Gate (`0.2`):** **{gate_4}**
+          """)
+
+          summary = "\n".join([
+              header,
+              "## 0.1 Dependency Insight Summary",
+              safe_read("01-summary.txt"),
+              "",
+              "## 0.2 Resolved AAR Metadata & SHA-256",
+              "```text",
+              safe_read("02-resolved-aar.txt"),
+              "```",
+              "",
+              "## 0.2 Compiled `javap -p` Accessibility & Signature Verification",
+              safe_read("02-bytecode-verification.txt"),
+              "",
+              "## 0.3 Source Provenance Summary",
+              "- Upstream repository: `https://github.com/Rosemoe/sora-editor`",
+              "- Tag `0.24.6` commit: `87055c459e346cac6c619b3350f0bfba076228cc` (`chore: bump version to 0.24.6`, `Versions.kt`: `version = \"0.24.6\"`, `versionCode = 95`)",
+              "",
+              "## 0.4 Discovered Unit & Instrumentation Tasks",
+              "```text",
+              safe_read("04-discovered-test-tasks.txt"),
+              "```",
+              "",
+              "## Environment & Tooling Snapshot",
+              "```text",
+              safe_read("00-environment.txt"),
+              "```",
+              "",
+          ])
+          (results_dir / "PHASE0_SUMMARY.md").write_text(summary, encoding="utf-8")
+          print(summary)
+          PY
+
+      - name: Upload Phase 0 diagnostic artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scribe-phase0-preflight-${{ github.sha }}
+          path: phase0-preflight-results/
+          retention-days: 30
