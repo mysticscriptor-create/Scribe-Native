@@ -168,26 +168,61 @@ jobs:
           import pathlib, re
 
           results_dir = pathlib.Path("phase0-preflight-results")
-          debug_text = (results_dir / "01-dependencyInsight-debugRuntimeClasspath.txt").read_text(encoding="utf-8")
-          if "io.github.rosemoe:editor:0.24.6" not in debug_text:
-              raise SystemExit("FAIL: debugRuntimeClasspath did not resolve io.github.rosemoe:editor:0.24.6")
+          required_configs = [
+              "debugRuntimeClasspath",
+              "releaseRuntimeClasspath",
+              "debugUnitTestRuntimeClasspath",
+          ]
+          informational_configs = [
+              "debugAndroidTestRuntimeClasspath",
+          ]
 
           bad = []
           summary_lines = []
-          for path in sorted(results_dir.glob("01-dependencyInsight-*.txt")):
-              cfg = path.name.removeprefix("01-dependencyInsight-").removesuffix(".txt")
-              txt = path.read_text(encoding="utf-8")
+
+          for cfg in required_configs:
+              p = results_dir / f"01-dependencyInsight-{cfg}.txt"
+              if not p.exists():
+                  bad.append(f"{cfg} (required configuration missing or not inspected)")
+                  summary_lines.append(f"- `{cfg}` [REQUIRED]: MISSING")
+                  continue
+              txt = p.read_text(encoding="utf-8")
               header_matches = re.findall(r'^io\.github\.rosemoe:editor:[^\s]+.*$', txt, re.M)
-              summary_lines.append(f"- `{cfg}`: {header_matches if header_matches else ['(no match line)']}")
-              if "io.github.rosemoe:editor:0.24.6" not in txt:
-                  bad.append(cfg)
-              if re.search(r'io\.github\.rosemoe:editor:(?!0\.24\.6\b)', txt):
-                  bad.append(f"{cfg} (unexpected version reference)")
+              has_exact = "io.github.rosemoe:editor:0.24.6" in txt
+              unexpected = re.findall(r'io\.github\.rosemoe:editor:(?!0\.24\.6\b)[^\s]+', txt)
+              has_arrow_sub = bool(re.search(r'io\.github\.rosemoe:editor:[^\n]*->', txt))
+              if not has_exact:
+                  bad.append(f"{cfg} (did not resolve io.github.rosemoe:editor:0.24.6)")
+              if unexpected or has_arrow_sub:
+                  bad.append(f"{cfg} (unexpected version/substitution: {unexpected})")
+              status_tag = "PASS" if (has_exact and not unexpected and not has_arrow_sub) else "FAIL"
+              summary_lines.append(f"- `{cfg}` [REQUIRED - {status_tag}]: {header_matches if header_matches else ['(no match line)']}")
+
+          for cfg in informational_configs:
+              p = results_dir / f"01-dependencyInsight-{cfg}.txt"
+              if not p.exists():
+                  summary_lines.append(f"- `{cfg}` [INFORMATIONAL]: SKIPPED (not present)")
+                  continue
+              txt = p.read_text(encoding="utf-8")
+              header_matches = re.findall(r'^io\.github\.rosemoe:editor:[^\s]+.*$', txt, re.M)
+              unexpected = re.findall(r'io\.github\.rosemoe:editor:(?!0\.24\.6\b)[^\s]+', txt)
+              if unexpected:
+                  bad.append(f"{cfg} (unexpected version reference: {unexpected})")
+              if "No dependencies matching given input were found" in txt:
+                  summary_lines.append(f"- `{cfg}` [INFORMATIONAL]: No independent match (app dependency provided via tested APK debugRuntimeClasspath)")
+              else:
+                  summary_lines.append(f"- `{cfg}` [INFORMATIONAL]: {header_matches if header_matches else ['(no match line)']}")
+
+          skipped_file = results_dir / "01-skipped-configurations.txt"
+          if skipped_file.exists():
+              for line in skipped_file.read_text(encoding="utf-8").splitlines():
+                  if line.strip():
+                      summary_lines.append(f"- [SKIPPED OPTIONAL]: {line.strip()}")
 
           (results_dir / "01-summary.txt").write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
           print("\n".join(summary_lines))
           if bad:
-              raise SystemExit(f"FAIL: unexpected dependency resolution in configurations: {bad}")
+              raise SystemExit(f"FAIL: required dependency verification failed: {bad}")
           print("STEP_0_1_STATUS=PASS")
           PY
 
@@ -232,57 +267,55 @@ jobs:
             | tee phase0-preflight-results/02-javap-EditorRenderer.txt
 
           python3 - <<'PY'
-          import pathlib, re
+          import pathlib
 
           results_dir = pathlib.Path("phase0-preflight-results")
-          dct = (results_dir / "02-javap-DrawCursorTask.txt").read_text(encoding="utf-8")
-          er = (results_dir / "02-javap-EditorRenderer.txt").read_text(encoding="utf-8")
+          dct_lines = [l.strip() for l in (results_dir / "02-javap-DrawCursorTask.txt").read_text(encoding="utf-8").splitlines()]
+          er_lines = [l.strip() for l in (results_dir / "02-javap-EditorRenderer.txt").read_text(encoding="utf-8").splitlines()]
+          dct_set = set(dct_lines)
+          er_set = set(er_lines)
 
           failures = []
           findings = []
 
-          dct_class_lines = [l.strip() for l in dct.splitlines() if "class io.github.rosemoe.sora.widget.EditorRenderer$DrawCursorTask" in l]
-          if not dct_class_lines:
-              failures.append("Missing class declaration for EditorRenderer$DrawCursorTask")
+          expected_dct_class = "public class io.github.rosemoe.sora.widget.EditorRenderer$DrawCursorTask {"
+          if expected_dct_class in dct_set:
+              findings.append(f"- DrawCursorTask class: `{expected_dct_class}`")
           else:
-              decl = dct_class_lines[0]
-              findings.append(f"- DrawCursorTask class: `{decl}`")
-              if not (decl.startswith("protected ") or decl.startswith("public ")):
-                  failures.append(f"DrawCursorTask class not protected/public for package bridge: {decl}")
+              actual_dct = [l for l in dct_lines if "EditorRenderer$DrawCursorTask" in l]
+              failures.append(f"Exact DrawCursorTask class declaration mismatch; expected `{expected_dct_class}`, found: {actual_dct}")
+              findings.append(f"- MISSING/MISMATCH DrawCursorTask class -> actual: {actual_dct}")
 
-          y_lines = [l.strip() for l in dct.splitlines() if re.search(r'\bfloat y;', l)]
-          if not y_lines:
-              failures.append("Missing float y field on EditorRenderer$DrawCursorTask")
+          expected_y_field = "protected float y;"
+          if expected_y_field in dct_set:
+              findings.append(f"- DrawCursorTask.y field: `{expected_y_field}` (direct same-package access in io.github.rosemoe.sora.widget without reflection, setAccessible, or Unsafe confirmed)")
           else:
-              y_decl = y_lines[0]
-              findings.append(f"- DrawCursorTask.y field: `{y_decl}`")
-              if "private " in y_decl or "final " in y_decl:
-                  failures.append(f"DrawCursorTask.y is private or final (cannot assign package-privately): {y_decl}")
+              actual_y = [l for l in dct_lines if " y;" in l]
+              failures.append(f"Exact DrawCursorTask.y field mismatch; expected `{expected_y_field}`, found: {actual_y}")
+              findings.append(f"- MISSING/MISMATCH DrawCursorTask.y -> actual: {actual_y}")
 
           expected_methods = [
-              ("drawRows", r'^protected void drawRows\(android\.graphics\.Canvas, float, io\.github\.rosemoe\.sora\.util\.LongArrayList, java\.util\.List, androidx\.collection\.MutableIntList, io\.github\.rosemoe\.sora\.util\.MutableInt, java\.util\.List\);$'),
-              ("patchHighlightedDelimiters", r'^protected void patchHighlightedDelimiters\(android\.graphics\.Canvas, float\);$'),
-              ("drawDiagnosticIndicators", r'^protected void drawDiagnosticIndicators\(android\.graphics\.Canvas, float\);$'),
-              ("drawUserGutterBackground", r'^protected void drawUserGutterBackground\(android\.graphics\.Canvas, int\);$'),
-              ("drawSideIcons", r'^protected void drawSideIcons\(android\.graphics\.Canvas, float\);$'),
-              ("drawLineNumber", r'^protected void drawLineNumber\(android\.graphics\.Canvas, int, int, float, float, int\);$'),
-              ("drawRowBackground(3-arg)", r'^protected void drawRowBackground\(android\.graphics\.Canvas, int, int\);$'),
-              ("drawRowBackground(4-arg)", r'^protected void drawRowBackground\(android\.graphics\.Canvas, int, int, int\);$'),
-              ("drawSideBlockLine", r'^protected void drawSideBlockLine\(android\.graphics\.Canvas\);$'),
-              ("buildMeasureCacheForLines(4-arg)", r'^protected void buildMeasureCacheForLines\(int, int, long, boolean\);$'),
-              ("buildMeasureCacheForLines(2-arg)", r'^protected void buildMeasureCacheForLines\(int, int\);$'),
+              ("drawRows", "protected void drawRows(android.graphics.Canvas, float, io.github.rosemoe.sora.util.LongArrayList, java.util.List<io.github.rosemoe.sora.widget.EditorRenderer$DrawCursorTask>, androidx.collection.MutableIntList, io.github.rosemoe.sora.util.MutableInt, java.util.List<io.github.rosemoe.sora.lang.styling.CodeBlock>);"),
+              ("patchHighlightedDelimiters", "protected void patchHighlightedDelimiters(android.graphics.Canvas, float);"),
+              ("drawDiagnosticIndicators", "protected void drawDiagnosticIndicators(android.graphics.Canvas, float);"),
+              ("drawUserGutterBackground", "protected void drawUserGutterBackground(android.graphics.Canvas, int);"),
+              ("drawSideIcons", "protected void drawSideIcons(android.graphics.Canvas, float);"),
+              ("drawLineNumber", "protected void drawLineNumber(android.graphics.Canvas, int, int, float, float, int);"),
+              ("drawRowBackground(3-arg)", "protected void drawRowBackground(android.graphics.Canvas, int, int);"),
+              ("drawRowBackground(4-arg)", "protected void drawRowBackground(android.graphics.Canvas, int, int, int);"),
+              ("drawSideBlockLine", "protected void drawSideBlockLine(android.graphics.Canvas);"),
+              ("buildMeasureCacheForLines(4-arg)", "protected void buildMeasureCacheForLines(int, int, long, boolean);"),
+              ("buildMeasureCacheForLines(2-arg)", "protected void buildMeasureCacheForLines(int, int);"),
           ]
 
-          er_lines = [l.strip() for l in er.splitlines()]
-          for label, pattern in expected_methods:
-              matches = [l for l in er_lines if re.match(pattern, l)]
-              if not matches:
+          for label, exact_sig in expected_methods:
+              if exact_sig in er_set:
+                  findings.append(f"- `{label}`: `{exact_sig}`")
+              else:
                   base = label.split("(")[0]
                   actual = [l for l in er_lines if f" {base}(" in l]
-                  failures.append(f"Signature mismatch for {label}; found: {actual}")
+                  failures.append(f"Exact signature mismatch for {label}; expected `{exact_sig}`, found: {actual}")
                   findings.append(f"- MISSING/MISMATCH `{label}` -> actual: {actual}")
-              else:
-                  findings.append(f"- `{label}`: `{matches[0]}`")
 
           report = "\n".join(findings) + "\n"
           if failures:
@@ -311,20 +344,45 @@ jobs:
           results_dir = pathlib.Path("phase0-preflight-results")
           txt = (results_dir / "04-app-tasks-all.txt").read_text(encoding="utf-8")
 
+          all_tasks = {}
           task_lines = []
           for line in txt.splitlines():
-              m = re.match(r'^([A-Za-z0-9_:-]+)\s+-\s+.*$', line.strip())
+              stripped = line.strip()
+              m = re.match(r'^([a-z][A-Za-z0-9]*)(?:\s+-\s+.*)?$', stripped)
               if m:
                   name = m.group(1)
+                  all_tasks[name] = stripped
                   if any(k in name.lower() for k in ("unittest", "androidtest", "testdebug", "testrelease")):
-                      task_lines.append(line.strip())
+                      task_lines.append(stripped)
 
-          (results_dir / "04-discovered-test-tasks.txt").write_text("\n".join(task_lines) + "\n", encoding="utf-8")
-          print("Discovered test/androidTest tasks:")
-          for t in task_lines:
-              print(" ", t)
-          if not any("testDebugUnitTest" in t for t in task_lines):
-              raise SystemExit("FAIL: Expected JVM unit-test task testDebugUnitTest not found in :app:tasks --all")
+          required_tasks = [
+              "testDebugUnitTest",
+              "connectedDebugAndroidTest",
+              "compileDebugAndroidTestKotlin",
+              "compileDebugAndroidTestJavaWithJavac",
+          ]
+          recommended_tasks = [
+              "compileDebugUnitTestKotlin",
+              "compileDebugUnitTestJavaWithJavac",
+          ]
+
+          missing_required = [t for t in required_tasks if t not in all_tasks]
+          missing_recommended = [t for t in recommended_tasks if t not in all_tasks]
+
+          out_lines = list(task_lines)
+          out_lines.append("")
+          out_lines.append("Required task presence check:")
+          for t in required_tasks:
+              out_lines.append(f"  - {t}: {'FOUND' if t in all_tasks else 'MISSING'}")
+          for t in recommended_tasks:
+              out_lines.append(f"  - {t}: {'FOUND' if t in all_tasks else 'MISSING'}")
+
+          (results_dir / "04-discovered-test-tasks.txt").write_text("\n".join(out_lines) + "\n", encoding="utf-8")
+          print("\n".join(out_lines))
+          if missing_required:
+              raise SystemExit(f"FAIL: Missing required Gradle test/instrumentation tasks: {missing_required}")
+          if missing_recommended:
+              print(f"NOTE: Optional unit-test compile tasks absent: {missing_recommended}")
           print("STEP_0_4_STATUS=PASS")
           PY
 
