@@ -543,6 +543,7 @@ class ScribeGapCollapsePolicyTest {
             safetyBounds = safeBounds
         )
         assertFalse(dZeroSpan.requiresMode1)
+        assertTrue(dZeroSpan.isProgressCoupled)
         val vZeroSpan = ScribeGapCollapsePolicy.computeMode2HandoffProgressVelocity(
             plan = dZeroSpan,
             mode1ActuallyStarted = false,
@@ -550,6 +551,13 @@ class ScribeGapCollapsePolicyTest {
             tauResumePx = 80f
         )
         assertEquals(0f, vZeroSpan, 0.0001f)
+        val vZeroSpanEvenIfStarted = ScribeGapCollapsePolicy.computeMode2HandoffProgressVelocity(
+            plan = dZeroSpan,
+            mode1ActuallyStarted = true,
+            smoothedPhysicalVelocityPxPerSec = -500f,
+            tauResumePx = 80f
+        )
+        assertEquals(0f, vZeroSpanEvenIfStarted, 0.0001f)
 
         // 2. Scenario D with nonzero physical span < 1px (0.4px)
         val dSub1PxSpan = planWithDefaults(
@@ -562,6 +570,7 @@ class ScribeGapCollapsePolicyTest {
             safetyBounds = safeBounds
         )
         assertFalse(dSub1PxSpan.requiresMode1)
+        assertTrue(dSub1PxSpan.isProgressCoupled)
         val vSub1PxEvenIfStarted = ScribeGapCollapsePolicy.computeMode2HandoffProgressVelocity(
             plan = dSub1PxSpan,
             mode1ActuallyStarted = true,
@@ -581,6 +590,7 @@ class ScribeGapCollapsePolicyTest {
             safetyBounds = safeBounds
         )
         assertTrue(dExact1PxSpan.requiresMode1)
+        assertTrue(dExact1PxSpan.isProgressCoupled)
         val vExact1Px = ScribeGapCollapsePolicy.computeMode2HandoffProgressVelocity(
             plan = dExact1PxSpan,
             mode1ActuallyStarted = true,
@@ -589,6 +599,15 @@ class ScribeGapCollapsePolicyTest {
         )
         assertTrue(vExact1Px.isFinite())
         assertTrue(vExact1Px in 0f..omega2)
+        // Verify exact progress-coupled value at 1px when unsaturated: -(10 / -1) * (-0.8) / 8 = 1.0f
+        val vExact1PxUnsaturated = ScribeGapCollapsePolicy.computeMode2HandoffProgressVelocity(
+            plan = dExact1PxSpan,
+            mode1ActuallyStarted = true,
+            smoothedPhysicalVelocityPxPerSec = -0.8f,
+            tauResumePx = 8f
+        )
+        assertEquals(1.0f, vExact1PxUnsaturated, 0.0001f)
+        assertTrue(vExact1PxUnsaturated in 0f..omega2)
 
         // 4. Scenario D with normal Mode-1 span
         val dNormalSpan = planWithDefaults(
@@ -631,6 +650,42 @@ class ScribeGapCollapsePolicyTest {
         )
         assertEquals(0f, vSnap, 0.0001f)
         assertTrue(vSnap.isFinite() && vSnap in 0f..omega2)
+
+        // 6. Lower-anchor B/C preserves direct physical velocity handoff when Mode 1 ran,
+        // and blocks nonzero handoff when Mode 1 was not required
+        val lowerAnchorMode1 = planWithDefaults(
+            isUpperVisible = false,
+            isLowerVisible = true,
+            preScrollY = 500,
+            deltaGapPx = 300f,
+            safetyBounds = SafetyFloorAndBounds(safeMax = 900, minSafeScroll = 350f, safeMinPhysical = 350, actualPhysicalScroll = 500)
+        )
+        assertTrue(lowerAnchorMode1.requiresMode1)
+        assertFalse(lowerAnchorMode1.isProgressCoupled)
+        val vLowerAnchor = ScribeGapCollapsePolicy.computeMode2HandoffProgressVelocity(
+            plan = lowerAnchorMode1,
+            mode1ActuallyStarted = true,
+            smoothedPhysicalVelocityPxPerSec = -600f,
+            tauResumePx = 150f
+        )
+        assertEquals(4f, vLowerAnchor, 0.0001f)
+        assertTrue(vLowerAnchor in 0f..omega2)
+
+        val lowerAnchorSub1Px = planWithDefaults(
+            isUpperVisible = false,
+            isLowerVisible = true,
+            preScrollY = 500,
+            deltaGapPx = 0.7f,
+            safetyBounds = safeBounds
+        )
+        assertFalse(lowerAnchorSub1Px.requiresMode1)
+        val vLowerAnchorSub1Px = ScribeGapCollapsePolicy.computeMode2HandoffProgressVelocity(
+            plan = lowerAnchorSub1Px,
+            mode1ActuallyStarted = true,
+            smoothedPhysicalVelocityPxPerSec = -600f,
+            tauResumePx = 0.7f
+        )
+        assertEquals(0f, vLowerAnchorSub1Px, 0.0001f)
     }
 
     @Test

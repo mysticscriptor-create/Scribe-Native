@@ -280,9 +280,9 @@ object ScribeGapCollapsePolicy {
         val requiresMode1 = distanceToEffective >= 1f
         val isProgressCoupled = when (scenario) {
             CollapseScenario.A_UPPER_ONLY ->
-                requiresMode1 && preScrollY < safetyBounds.safeMinPhysical
+                preScrollY < safetyBounds.safeMinPhysical
             CollapseScenario.D_SELECTION_ONLY_CENTERED ->
-                requiresMode1
+                true
             CollapseScenario.B_LOWER_ONLY,
             CollapseScenario.C_BOTH_VISIBLE,
             CollapseScenario.INELIGIBLE_FALLBACK,
@@ -390,7 +390,10 @@ object ScribeGapCollapsePolicy {
         if (!tauResumePx.isFinite() || tauResumePx <= MODE2_SETTLE_THRESHOLD_PX) {
             return 0f
         }
-        if (!mode1ActuallyStarted ||
+        if (!plan.requiresMode1 ||
+            !mode1ActuallyStarted ||
+            plan.isFallback ||
+            plan.scenario == CollapseScenario.E_OFFSCREEN_CARET_FOLLOW ||
             smoothedPhysicalVelocityPxPerSec == null ||
             !smoothedPhysicalVelocityPxPerSec.isFinite()
         ) {
@@ -398,7 +401,7 @@ object ScribeGapCollapsePolicy {
         }
         val tauDotHandoff = if (plan.isProgressCoupled) {
             val physicalSpan = plan.effectiveTargetScroll - plan.preScrollY.toFloat()
-            if (!physicalSpan.isFinite() || abs(physicalSpan) < 1f) {
+            if (!plan.deltaGapPx.isFinite() || !physicalSpan.isFinite() || abs(physicalSpan) < 1f) {
                 0f
             } else {
                 -(plan.deltaGapPx / physicalSpan) * smoothedPhysicalVelocityPxPerSec
