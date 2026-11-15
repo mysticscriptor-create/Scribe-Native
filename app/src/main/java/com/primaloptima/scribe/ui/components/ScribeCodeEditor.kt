@@ -208,7 +208,33 @@ class ScribeCodeEditor @JvmOverloads constructor(
             val offsetYBefore = offsetY
             val scrollEventsBefore = scrollEventCounter
             pCanvas.withPhysicalScrollOrigin(resolvedOrigin) {
-                super.scrollBy(x, y)
+                val activeScroller = scroller
+                if (y != 0 && activeScroller != null) {
+                    val currX = offsetX
+                    val currY = offsetY
+                    val targetX = if (x != 0) {
+                        val maxX = try { scrollMaxX.coerceAtLeast(0) } catch (_: Throwable) { 0 }
+                        (currX + x).coerceIn(0, maxX)
+                    } else {
+                        currX
+                    }
+                    val targetY = (currY + y).coerceIn(0, safeScrollMaxY)
+                    val dx = targetX - currX
+                    val dy = targetY - currY
+                    if (dx != 0 || dy != 0) {
+                        activeScroller.forceFinished(true)
+                        activeScroller.startScroll(currX, currY, dx, dy, 0)
+                        activeScroller.abortAnimation()
+                        try {
+                            renderContext.invalidateRenderNodes()
+                        } catch (_: Throwable) {}
+                        invalidate()
+                    }
+                } else if (y != 0) {
+                    super.scrollBy(x, y)
+                } else if (x != 0) {
+                    super.scrollBy(x, 0)
+                }
             }
             if (offsetY != offsetYBefore && scrollEventCounter == scrollEventsBefore) {
                 pCanvas.notifyViewportScrollChanged(resolvedOrigin)
