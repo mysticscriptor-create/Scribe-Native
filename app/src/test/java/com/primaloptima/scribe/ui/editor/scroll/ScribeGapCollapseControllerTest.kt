@@ -707,23 +707,50 @@ class ScribeGapCollapseControllerTest {
 
     @Test
     fun testFreezeForPointerDuringMode1WithZeroTauLower_IsPointerFrozenAndResumesToFinalSafety() {
-        val h = ControllerHarness()
-        val overscrollPlan = CollapsePlan(
-            scenario = CollapseScenario.B_LOWER_ONLY,
-            requestedTargetScroll = 700f,
-            effectiveTargetScroll = 700f,
-            safetyBounds = SafetyFloorAndBounds(safeMax = 700, minSafeScroll = 300f, safeMinPhysical = 300, actualPhysicalScroll = 850),
-            deltaGapPx = 100f,
-            preScrollY = 850,
-            requiresMode1 = true,
-            requiresSynchronousSnap = false,
-            synchronousSnapTarget = 850,
-            initialTauLowerPx = 0f,
-            isProgressCoupled = false,
-            requiresOffscreenCaretFollow = false
+        var settledCalls = 0
+        var endCalls = 0
+        var cancelledCalls = 0
+        var currentScroll = 850f
+        val postedRunnables = mutableListOf<Runnable>()
+        val coord = ScribeScrollCoordinator(totalScroll = currentScroll).apply {
+            onScrollBy = { delta ->
+                currentScroll += delta
+                0f
+            }
+        }
+        val animator = ScribeCanvasGlideAnimator(
+            scrollCoordinator = coord,
+            postOnAnimationAction = { postedRunnables.add(it) },
+            removeCallbacksAction = { postedRunnables.remove(it) },
+            onSettledCallback = { settledCalls++ },
+            onCancelledCallback = { _, _ -> cancelledCalls++ }
         )
+
+        var freezeAnimatorCalls = 0
+        lateinit var controller: ScribeGapCollapseController
+        controller = ScribeGapCollapseController(
+            scheduleFrame = { },
+            cancelFrame = { },
+            onFreezeMode1Animator = {
+                freezeAnimatorCalls++
+                animator.cancelPreservingTransaction("pointer_freeze_zero_tau")
+                coord.syncActualScroll(currentScroll)
+            }
+        )
+
+        val overscrollPlan = makeLowerOnlyPlan(
+            preScrollY = 850,
+            deltaGapPx = 100f,
+            minSafeScroll = 300f,
+            safeMax = 700
+        )
+        assertTrue(overscrollPlan.requiresMode1)
+        assertEquals(700f, overscrollPlan.effectiveTargetScroll, 0.001f)
+        assertEquals(100f, overscrollPlan.initialTauLowerPx, 0.001f)
+        assertFalse(overscrollPlan.isProgressCoupled)
+
         val gen = 15L
-        val epoch = h.controller.beginCollapse(
+        val epoch = controller.beginCollapse(
             owningGen = gen,
             plan = overscrollPlan,
             seamLine = 10,
@@ -732,16 +759,64 @@ class ScribeGapCollapseControllerTest {
             rowHeightPx = 40f,
             initialPhysicalScrollPx = 850f
         )
-        h.controller.markMode1Started(gen, epoch, 850f)
-        assertEquals(0f, h.controller.tauLower, 0.001f)
+        controller.markMode1Started(gen, epoch, 850f)
+        assertEquals(100f, controller.tauLower, 0.001f)
 
-        assertTrue(h.controller.freezeForPointer(gen))
-        assertEquals(GapCollapsePhase.POINTER_FROZEN, h.controller.phase)
-        assertTrue("Zero-tau Mode-1 pointer freeze must report isPointerFrozen=true so ACTION_UP never strands", h.controller.isPointerFrozen)
-        assertFalse(h.controller.isResumableCollapse)
+        assertTrue(
+            animator.startAuthoritativeAnimation(
+                currentScroll = 850f,
+                targetTotalScroll = overscrollPlan.effectiveTargetScroll,
+                reason = ScrollAnimationReason.DELETION_ANCHOR,
+                maxCanvasScroll = 900,
+                forceRetarget = true,
+                onEnd = { endCalls++ }
+            )
+        )
 
-        val resumed = h.controller.resumeFromPointerFrozen(gen, 800f)
+        // Advance Mode-1 physical glide past the gap delta (850 -> <=750) into Phase 1b where tauLower genuinely reaches 0f
+        var steps = 0
+        while (currentScroll > 745f && steps < 30) {
+            steps++
+            animator.advanceFrame(0.016f)
+            controller.onMode1FrameCommitted(
+                expectedGen = gen,
+                expectedCollapseEpoch = epoch,
+                actualPhysicalScrollPx = currentScroll,
+                boundaryHit = false,
+                frameTimeNanos = 1_000_000_000L + steps * 16_000_000L
+            )
+        }
+        assertTrue("Mode-1 glide must still be running in Phase 1b above safeMax target", animator.isGlideRunning)
+        assertTrue(currentScroll in 701f..750f)
+        assertEquals(GapCollapsePhase.MODE_1_PHYSICAL_COUPLED, controller.phase)
+        assertEquals(0f, controller.tauLower, 0.001f)
+
+        assertTrue(controller.freezeForPointer(gen))
+        assertEquals(1, freezeAnimatorCalls)
+        assertEquals(GapCollapsePhase.POINTER_FROZEN, controller.phase)
+        assertEquals(gen, controller.owningDeletionGen)
+        assertTrue("Zero-tau Mode-1 pointer freeze must report isPointerFrozen=true so ACTION_UP never strands", controller.isPointerFrozen)
+        assertFalse(controller.isResumableCollapse)
+        assertFalse("Mode-1 animator must be stopped on zero-tau pointer freeze", animator.isGlideRunning)
+        assertFalse("Coordinator operation must be stopped on zero-tau pointer freeze", coord.isAnimationActive)
+        assertEquals(0, endCalls)
+        assertEquals(0, settledCalls)
+        assertEquals(0, cancelledCalls)
+
+        val resumed = controller.resumeFromPointerFrozen(gen, currentScroll)
         assertEquals(GapCollapsePhase.FINAL_SAFETY_PENDING, resumed)
+        assertEquals(GapCollapsePhase.FINAL_SAFETY_PENDING, controller.phase)
+        assertEquals(gen, controller.owningDeletionGen)
+
+        val claim = controller.beginTeardownLockAndConsumeEval(
+            expectedGen = gen,
+            expectedSafetyEpoch = controller.safetyEpoch
+        )
+        assertNotNull("Event B must be able to claim and settle after zero-tau ACTION_UP", claim)
+        controller.commitIdle()
+        assertEquals(GapCollapsePhase.IDLE, controller.phase)
+        assertFalse(controller.isTransactionOwned)
+        assertFalse(controller.isPointerFrozen)
     }
 
     @Test

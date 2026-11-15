@@ -5,6 +5,7 @@ import android.app.Application
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
+import com.primaloptima.scribe.R
 import com.primaloptima.scribe.ui.editor.scroll.CollapsePlan
 import com.primaloptima.scribe.ui.editor.scroll.CollapseScenario
 import com.primaloptima.scribe.ui.editor.scroll.GapCollapsePhase
@@ -27,8 +28,14 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = Application::class)
 class UnifiedCanvasPointerAndOriginIntegrationTest {
 
+    private fun createThemedActivity(): Activity {
+        return Robolectric.buildActivity(Activity::class.java).create().get().apply {
+            setTheme(R.style.Theme_Scribe)
+        }
+    }
+
     private fun createLaidOutCanvas(headerHeightPx: Int = 200, lineCount: Int = 140): UnifiedCanvasLayout {
-        val activity = Robolectric.buildActivity(Activity::class.java).create().get()
+        val activity = createThemedActivity()
         val canvas = UnifiedCanvasLayout(activity)
         canvas.headerView.setPadding(0, headerHeightPx, 0, 0)
         canvas.editor.isWordwrap = false
@@ -305,7 +312,7 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
 
     @Test
     fun testScribeScrollInputController_DistinguishesProgrammaticStartScrollFromUserFling() {
-        val activity = Robolectric.buildActivity(Activity::class.java).create().get()
+        val activity = createThemedActivity()
         val observedOrigins = mutableListOf<PhysicalScrollOrigin>()
         var simulatedScrollD = 200
 
@@ -417,5 +424,101 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             upEv.recycle()
             canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "test_cleanup")
         }
+    }
+
+    private fun assertHostZeroTauPointerFreezeSettlesOnGestureEnd(endAction: Int) {
+        val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 200)
+        canvas.scrollCanvasBy(850f)
+        assertEquals(200, canvas.scrollD)
+        assertEquals(650, canvas.editor.offsetY)
+
+        val gen = startDeletionSnapshot(canvas)
+        val overscrollPlan = CollapsePlan(
+            scenario = CollapseScenario.B_LOWER_ONLY,
+            requestedTargetScroll = 750f,
+            effectiveTargetScroll = 700f,
+            safetyBounds = SafetyFloorAndBounds(
+                safeMax = 700,
+                minSafeScroll = 300f,
+                safeMinPhysical = 300,
+                actualPhysicalScroll = 850
+            ),
+            deltaGapPx = 100f,
+            preScrollY = 850,
+            requiresMode1 = true,
+            requiresSynchronousSnap = false,
+            synchronousSnapTarget = 850,
+            initialTauLowerPx = 100f,
+            isProgressCoupled = false,
+            requiresOffscreenCaretFollow = false
+        )
+        val collapseEpoch = canvas.gapCollapseController.beginCollapse(
+            owningGen = gen,
+            plan = overscrollPlan,
+            seamLine = 10,
+            seamFirstLowerRow = 10,
+            seamDocY = 400f,
+            rowHeightPx = canvas.editor.rowHeight.toFloat(),
+            initialPhysicalScrollPx = 850f
+        )
+        canvas.gapCollapseController.markMode1Started(gen, collapseEpoch, 850f)
+        assertTrue(
+            canvas.startAuthoritativeScrollAnimation(
+                targetTotalScroll = 700f,
+                reason = ScrollAnimationReason.DELETION_ANCHOR,
+                durationMs = ScribeScrollDeletionPolicy.DURATION_DELETION_ANCHOR_MS,
+                forceRetarget = true
+            )
+        )
+        // Advance Mode-1 physical retraction past the gap delta (850 -> 740) so tauLower genuinely saturates at 0f
+        canvas.withPhysicalScrollOrigin(PhysicalScrollOrigin.GAP_COLLAPSE_MODE_1) {
+            canvas.scrollCanvasBy(-110f)
+        }
+        val physicalBeforeFreeze = (canvas.scrollD + canvas.editor.offsetY).toFloat()
+        assertEquals(740f, physicalBeforeFreeze, 1f)
+        canvas.gapCollapseController.onMode1FrameCommitted(
+            expectedGen = gen,
+            expectedCollapseEpoch = collapseEpoch,
+            actualPhysicalScrollPx = physicalBeforeFreeze,
+            boundaryHit = false,
+            frameTimeNanos = 1_016_000_000L
+        )
+        assertEquals(GapCollapsePhase.MODE_1_PHYSICAL_COUPLED, canvas.gapCollapseController.phase)
+        assertEquals(0f, canvas.gapCollapseController.tauLower, 0.001f)
+        assertTrue(canvas.isGlideRunning)
+
+        val downTime = SystemClock.uptimeMillis()
+        val downEv = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, 200f, 500f, 0)
+        val endEv = MotionEvent.obtain(downTime, downTime + 40L, endAction, 200f, 500f, 0)
+        try {
+            canvas.dispatchTouchEvent(downEv)
+            assertEquals(GapCollapsePhase.POINTER_FROZEN, canvas.gapCollapseController.phase)
+            assertTrue(canvas.gapCollapseController.isPointerFrozen)
+            assertFalse(canvas.gapCollapseController.isResumableCollapse)
+            assertFalse("Mode-1 glide must stop on zero-tau pointer freeze", canvas.isGlideRunning)
+            assertFalse("Scroll coordinator must stop on zero-tau pointer freeze", canvas.scrollCoordinator.isAnimationActive)
+            assertEquals(gen, canvas.currentDeletionTransactionGeneration)
+            assertTrue(canvas.isDeletionTransactionActive)
+
+            canvas.dispatchTouchEvent(endEv)
+            assertFalse("Zero-tau POINTER_FROZEN must never remain stranded after pointer end", canvas.gapCollapseController.isPointerFrozen)
+            assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+            assertFalse(canvas.isDeletionTransactionActive)
+            assertEquals(gen + 1L, canvas.currentDeletionTransactionGeneration)
+        } finally {
+            downEv.recycle()
+            endEv.recycle()
+            canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "test_cleanup")
+        }
+    }
+
+    @Test
+    fun testRealHostPointerFreeze_ZeroTauMode1_ActionDownFreezesAndActionUpSettlesToFinalSafety() {
+        assertHostZeroTauPointerFreezeSettlesOnGestureEnd(MotionEvent.ACTION_UP)
+    }
+
+    @Test
+    fun testRealHostPointerFreeze_ZeroTauMode1_ActionDownFreezesAndActionCancelSettlesToFinalSafety() {
+        assertHostZeroTauPointerFreezeSettlesOnGestureEnd(MotionEvent.ACTION_CANCEL)
     }
 }
