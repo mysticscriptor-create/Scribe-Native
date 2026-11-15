@@ -69,7 +69,7 @@ class ScribeGapCollapseControllerTest {
         deltaGapPx: Float = 300f,
         minSafeScroll: Float = 350f,
         safeMax: Int = 900
-    ): ScribeGapCollapsePolicy.CollapsePlan {
+    ): CollapsePlan {
         val bounds = makeViewportBounds()
         val safety = SafetyFloorAndBounds(
             safeMax = safeMax,

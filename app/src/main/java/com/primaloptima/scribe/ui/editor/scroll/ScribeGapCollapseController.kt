@@ -104,7 +104,7 @@ class ScribeGapCollapseController(
     var rowHeightPx: Float = 0f
         private set
 
-    var currentPlan: ScribeGapCollapsePolicy.CollapsePlan? = null
+    var currentPlan: CollapsePlan? = null
         private set
 
     var tauLower: Float = 0f
@@ -242,7 +242,7 @@ class ScribeGapCollapseController(
 
     fun beginCollapse(
         owningGen: Long,
-        plan: ScribeGapCollapsePolicy.CollapsePlan,
+        plan: CollapsePlan,
         seamLine: Int,
         seamFirstLowerRow: Int,
         seamDocY: Float,

@@ -13,6 +13,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.EdgeEffect
 import android.widget.OverScroller
+import androidx.compose.ui.geometry.Rect as ComposeRect
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsAnimationCompat
@@ -1370,11 +1371,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val upperRowTopDocY = ((seam.seamFirstLowerRow - 1).coerceAtLeast(0)) * rHeight
         val upperTopScreen = headerRemainingPre + upperRowTopDocY
         val upperBottomScreen = headerRemainingPre + upperRowBottomDocY
-        val upperRect = Rect(
-            0,
-            upperTopScreen.roundToInt(),
-            width.coerceAtLeast(1),
-            upperBottomScreen.roundToInt().coerceAtLeast(upperTopScreen.roundToInt() + 1)
+        val upperRect = ComposeRect(
+            left = 0f,
+            top = upperTopScreen,
+            right = width.coerceAtLeast(1).toFloat(),
+            bottom = upperBottomScreen.coerceAtLeast(upperTopScreen + 1f)
         )
         val isUpperVisible = viewportBounds.isValid &&
             upperBottomScreen > viewportBounds.visibleEditorTop &&
@@ -1383,17 +1384,19 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
         val lowerTopScreen = headerRemainingPre + preCapture.preFirstLowerRowTopDocY
         val lowerBottomScreen = lowerTopScreen + rHeight
-        val lowerRect = Rect(
-            0,
-            lowerTopScreen.roundToInt(),
-            width.coerceAtLeast(1),
-            lowerBottomScreen.roundToInt().coerceAtLeast(lowerTopScreen.roundToInt() + 1)
-        )
-        val isLowerVisible = viewportBounds.isValid &&
-            preCapture.preFirstLowerRowTopDocY.isFinite() &&
+        val isLowerVisible = if (viewportBounds.isValid && preCapture.preFirstLowerRowTopDocY.isFinite()) {
+            val lowerRect = ComposeRect(
+                left = 0f,
+                top = lowerTopScreen,
+                right = width.coerceAtLeast(1).toFloat(),
+                bottom = lowerBottomScreen.coerceAtLeast(lowerTopScreen + 1f)
+            )
             lowerBottomScreen > viewportBounds.visibleEditorTop &&
-            lowerTopScreen < viewportBounds.visibleEditorBottom &&
-            viewportBounds.isRectUnobstructedByFloatingPills(lowerRect)
+                lowerTopScreen < viewportBounds.visibleEditorBottom &&
+                viewportBounds.isRectUnobstructedByFloatingPills(lowerRect)
+        } else {
+            false
+        }
 
         val selTopScreen = headerRemainingPre + preCapture.preSelectionTopDocY
         val selBottomScreen = headerRemainingPre + preCapture.preSelectionBottomDocY

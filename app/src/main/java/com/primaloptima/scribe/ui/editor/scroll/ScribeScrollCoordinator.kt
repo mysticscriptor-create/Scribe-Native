@@ -2,6 +2,19 @@ package com.primaloptima.scribe.ui.editor.scroll
 
 import kotlin.math.abs
 
+/**
+ * Reasons for automatic or programmatic canvas positioning operations.
+ */
+enum class ScrollAnimationReason {
+    CARET_VISIBILITY,
+    CONTRACTION_RESTORATION,
+    PREDICTIVE_GLIDE,
+    DELETION_ANCHOR,
+    RESET_TOP,
+    SAFE_BOUNDARY_CORRECTION,
+    PROGRAMMATIC
+}
+
 enum class StepTerminationReason {
     NONE,
     TARGET_REACHED,

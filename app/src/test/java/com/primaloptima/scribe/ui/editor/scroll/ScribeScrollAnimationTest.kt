@@ -1564,7 +1564,7 @@ class ScribeScrollAnimationTest {
             isValid = true,
             floatingPillLocalRects = emptyList()
         )
-        fun scenarioDPlan(preScroll: Int, centeredTarget: Float, minSafe: Float): ScribeGapCollapsePolicy.CollapsePlan {
+        fun scenarioDPlan(preScroll: Int, centeredTarget: Float, minSafe: Float): CollapsePlan {
             val safety = SafetyFloorAndBounds(
                 safeMax = 1200,
                 minSafeScroll = minSafe,
