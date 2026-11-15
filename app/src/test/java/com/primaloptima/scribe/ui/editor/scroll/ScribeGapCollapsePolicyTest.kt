@@ -10,11 +10,10 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Suite A — Phase 1 Policy, Overlay Registry, Single Safety Floor & Exact Equations Tests.
+ * Suite A — Phase 1 & Phase 2 Policy, Overlay Registry, Single Safety Floor, Exact Equations,
+ * `ScribeDeletionSnapshotCoordinator.onAfterInsert()`, and Case I / Case II Seam Geometry Tests.
  *
- * Covers Suite A cases 1–4.
- * Note: Suite A case 5 (`ScribeDeletionSnapshotCoordinator.onAfterInsert()` returning
- * `ClearTransactionAndClampOverscroll`) is Phase 2-dependent and verified upon Phase 2 completion.
+ * Covers Suite A cases 1–5 plus Phase 2 Case I / Case II pure geometry & RTL seam rules.
  */
 class ScribeGapCollapsePolicyTest {
 
@@ -828,5 +827,190 @@ class ScribeGapCollapsePolicyTest {
                 postSeamDocY = 400f
             ) is SeamMappingResult.FallbackRequired
         )
+    }
+
+    @Test
+    fun testSuiteACase5_SnapshotCoordinatorOnAfterInsert_NonEmptyAndEmptyReplace() {
+        val coordinator = ScribeDeletionSnapshotCoordinator()
+
+        // 1. Non-empty replacement while NOT overscrolled -> ClearTransaction (and resets isInContentReplace)
+        coordinator.onBeforeReplace()
+        assertTrue(coordinator.isInContentReplace)
+        coordinator.onAfterDelete(afterDeleteEndLine = 8, hasPendingDeletionSettlement = false)
+        assertTrue(coordinator.deletedDuringCurrentReplace)
+        val nonOverscrolled = coordinator.onAfterInsert(
+            insertedNotEmpty = true,
+            isTextEmpty = false,
+            currentTotalScroll = 300,
+            maxCanvasScroll = 500,
+            hasPendingOrActiveTransaction = true
+        )
+        assertFalse(coordinator.isInContentReplace)
+        assertEquals(ScribeDeletionSnapshotCoordinator.AfterInsertAction.ClearTransaction, nonOverscrolled)
+
+        // 2. Non-empty replacement while OVERSCROLLED -> ClearTransactionAndClampOverscroll (never None)
+        coordinator.onBeforeReplace()
+        coordinator.onAfterDelete(afterDeleteEndLine = 15, hasPendingDeletionSettlement = false)
+        val overscrolled = coordinator.onAfterInsert(
+            insertedNotEmpty = true,
+            isTextEmpty = false,
+            currentTotalScroll = 900,
+            maxCanvasScroll = 500,
+            hasPendingOrActiveTransaction = true
+        )
+        assertFalse(coordinator.isInContentReplace)
+        assertEquals(
+            ScribeDeletionSnapshotCoordinator.AfterInsertAction.ClearTransactionAndClampOverscroll,
+            overscrolled
+        )
+
+        // 3. Non-empty replacement on isTextEmpty edge -> ClearTransaction
+        coordinator.onBeforeReplace()
+        coordinator.onAfterDelete(afterDeleteEndLine = 0, hasPendingDeletionSettlement = false)
+        val emptyDocEdge = coordinator.onAfterInsert(
+            insertedNotEmpty = true,
+            isTextEmpty = true,
+            currentTotalScroll = 200,
+            maxCanvasScroll = 0,
+            hasPendingOrActiveTransaction = true
+        )
+        assertFalse(coordinator.isInContentReplace)
+        assertEquals(ScribeDeletionSnapshotCoordinator.AfterInsertAction.ClearTransaction, emptyDocEdge)
+
+        // 4. Empty replacement ("") -> SettleEmptyReplaceDelete (never clears prematurely)
+        coordinator.onBeforeReplace()
+        coordinator.onAfterDelete(afterDeleteEndLine = 10, hasPendingDeletionSettlement = false)
+        val emptyReplace = coordinator.onAfterInsert(
+            insertedNotEmpty = false,
+            isTextEmpty = false,
+            currentTotalScroll = 500,
+            maxCanvasScroll = 500,
+            hasPendingOrActiveTransaction = true
+        )
+        assertFalse(coordinator.isInContentReplace)
+        assertEquals(ScribeDeletionSnapshotCoordinator.AfterInsertAction.SettleEmptyReplaceDelete, emptyReplace)
+    }
+
+    @Test
+    fun testPreAndPostDeleteSeamGeometry_CaseI_And_CaseII_MatchesSpec() {
+        val rowHeight = 40f
+
+        // 1. Case I (C2 < preLineLen(L2)) with C1 == 0 -> eligible, seamLine = startLine, seamCol = 0
+        val caseIC0Pre = ScribeGapCollapsePolicy.classifyPreDeleteSeam(
+            isSelection = true,
+            l1 = 3,
+            c1 = 0,
+            l2 = 8,
+            c2 = 4,
+            preLineCount = 20,
+            preLineLenL2 = 12,
+            preScrollY = 100,
+            rowHeightPx = rowHeight,
+            rowIndexAt = { line, col -> if (line == 8 && col == 4) 14 else -1 }
+        )
+        assertEquals(DeletionSeamCase.CASE_I_MID_LINE_OR_WHOLE_LINE, caseIC0Pre.seamCase)
+        assertFalse(caseIC0Pre.isMergedPartialRowSeam)
+        assertTrue(caseIC0Pre.hasSurvivingUpper)
+        assertTrue(caseIC0Pre.hasSurvivingLower)
+        assertEquals(14 * rowHeight, caseIC0Pre.preFirstLowerRowTopDocY, 0.001f)
+
+        val caseIC0Post = ScribeGapCollapsePolicy.resolvePostDeleteSeamGeometry(
+            preCapture = caseIC0Pre,
+            postStartLine = 3,
+            postLineCount = 15,
+            rowHeightPx = rowHeight,
+            postRowIndexAt = { line, col -> if (line == 3 && col == 0) 5 else -1 }
+        )
+        assertTrue(caseIC0Post.isEligibleCase)
+        assertEquals(3, caseIC0Post.seamLine)
+        assertEquals(0, caseIC0Post.seamCol)
+        assertEquals(5, caseIC0Post.seamFirstLowerRow)
+        assertEquals(5 * rowHeight, caseIC0Post.activeSeamDocY, 0.001f)
+        assertEquals(9 * rowHeight, caseIC0Post.deltaGapPx, 0.001f)
+
+        // 2. Case I (C2 < preLineLen(L2)) with C1 > 0 -> V1 partial-line seam fallback (no horizontal split)
+        val caseIC1Gt0Pre = ScribeGapCollapsePolicy.classifyPreDeleteSeam(
+            isSelection = true,
+            l1 = 3,
+            c1 = 2,
+            l2 = 8,
+            c2 = 4,
+            preLineCount = 20,
+            preLineLenL2 = 12,
+            preScrollY = 100,
+            rowHeightPx = rowHeight,
+            rowIndexAt = { _, _ -> 14 }
+        )
+        assertTrue(caseIC1Gt0Pre.isMergedPartialRowSeam)
+        val caseIC1Gt0Post = ScribeGapCollapsePolicy.resolvePostDeleteSeamGeometry(
+            preCapture = caseIC1Gt0Pre,
+            postStartLine = 3,
+            postLineCount = 15,
+            rowHeightPx = rowHeight,
+            postRowIndexAt = { _, _ -> 5 }
+        )
+        assertFalse(caseIC1Gt0Post.isEligibleCase)
+        assertTrue(caseIC1Gt0Post.isMergedPartialRowSeam)
+
+        // 3. Case II (C2 == preLineLen(L2)) with surviving L2 + 1 (valid even when C1 > 0)
+        val caseIIPre = ScribeGapCollapsePolicy.classifyPreDeleteSeam(
+            isSelection = true,
+            l1 = 4,
+            c1 = 5,
+            l2 = 7,
+            c2 = 10,
+            preLineCount = 12,
+            preLineLenL2 = 10,
+            preScrollY = 120,
+            rowHeightPx = rowHeight,
+            rowIndexAt = { line, col -> if (line == 8 && col == 0) 11 else -1 }
+        )
+        assertEquals(DeletionSeamCase.CASE_II_LINE_END, caseIIPre.seamCase)
+        assertFalse(caseIIPre.isMergedPartialRowSeam)
+        assertTrue(caseIIPre.hasSurvivingUpper)
+        assertTrue(caseIIPre.hasSurvivingLower)
+        assertEquals(11 * rowHeight, caseIIPre.preFirstLowerRowTopDocY, 0.001f)
+
+        val caseIIPost = ScribeGapCollapsePolicy.resolvePostDeleteSeamGeometry(
+            preCapture = caseIIPre,
+            postStartLine = 4,
+            postLineCount = 9,
+            rowHeightPx = rowHeight,
+            postRowIndexAt = { line, col -> if (line == 5 && col == 0) 6 else -1 }
+        )
+        assertTrue(caseIIPost.isEligibleCase)
+        assertEquals(5, caseIIPost.seamLine)
+        assertEquals(0, caseIIPost.seamCol)
+        assertEquals(6, caseIIPost.seamFirstLowerRow)
+        assertEquals(6 * rowHeight, caseIIPost.activeSeamDocY, 0.001f)
+        assertEquals(5 * rowHeight, caseIIPost.deltaGapPx, 0.001f)
+
+        // 4. Case II at EOF (L2 + 1 >= preLineCount) -> hasSurvivingLower = false fallback
+        val caseIIEofPre = ScribeGapCollapsePolicy.classifyPreDeleteSeam(
+            isSelection = true,
+            l1 = 4,
+            c1 = 0,
+            l2 = 11,
+            c2 = 10,
+            preLineCount = 12,
+            preLineLenL2 = 10,
+            preScrollY = 120,
+            rowHeightPx = rowHeight,
+            rowIndexAt = { _, _ -> 15 }
+        )
+        assertFalse(caseIIEofPre.hasSurvivingLower)
+        val caseIIEofPost = ScribeGapCollapsePolicy.resolvePostDeleteSeamGeometry(
+            preCapture = caseIIEofPre,
+            postStartLine = 4,
+            postLineCount = 5,
+            rowHeightPx = rowHeight,
+            postRowIndexAt = { _, _ -> 4 }
+        )
+        assertFalse(caseIIEofPost.isEligibleCase)
+        assertFalse(caseIIEofPost.hasSurvivingLower)
+
+        // 5. RTL / Bidi detection at seam triggers fallback
+        assertTrue(ScribeGapCollapsePolicy.containsRtlOrBidi("hello \u0645\u0631\u062d\u0628\u0627"))
+        assertFalse(ScribeGapCollapsePolicy.containsRtlOrBidi("plain english prose 123"))
     }
 }

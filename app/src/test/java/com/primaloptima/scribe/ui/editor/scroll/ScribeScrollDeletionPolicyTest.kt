@@ -817,7 +817,7 @@ class ScribeScrollDeletionPolicyTest {
             captureBatchProbe = { null }
         )
         coordinator.onAfterDelete(afterDeleteEndLine = 15, hasPendingDeletionSettlement = false)
-        // Large selection replaced with 1 char still leaves totalScroll > new maxCanvasScroll -> do NOT clear txn
+        // Large selection replaced with 1 char still leaves totalScroll > new maxCanvasScroll -> ClearTransactionAndClampOverscroll
         val shrinkAction = coordinator.onAfterInsert(
             insertedNotEmpty = true,
             isTextEmpty = false,
@@ -825,7 +825,19 @@ class ScribeScrollDeletionPolicyTest {
             maxCanvasScroll = 500,
             hasPendingOrActiveTransaction = true
         )
-        assertEquals(ScribeDeletionSnapshotCoordinator.AfterInsertAction.None, shrinkAction)
+        assertEquals(ScribeDeletionSnapshotCoordinator.AfterInsertAction.ClearTransactionAndClampOverscroll, shrinkAction)
+
+        // Non-overscrolled non-empty replacement returns ClearTransaction
+        coordinator.onBeforeReplace()
+        coordinator.onAfterDelete(afterDeleteEndLine = 10, hasPendingDeletionSettlement = false)
+        val nonOverscrolledAction = coordinator.onAfterInsert(
+            insertedNotEmpty = true,
+            isTextEmpty = false,
+            currentTotalScroll = 400,
+            maxCanvasScroll = 500,
+            hasPendingOrActiveTransaction = true
+        )
+        assertEquals(ScribeDeletionSnapshotCoordinator.AfterInsertAction.ClearTransaction, nonOverscrolledAction)
 
         // Composing replace with empty string triggers SettleEmptyReplaceDelete
         coordinator.onBeforeReplace()

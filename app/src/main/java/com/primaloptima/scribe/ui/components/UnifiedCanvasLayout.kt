@@ -542,7 +542,20 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     // ── Coordinated Deletion Viewport Transaction ─────────────────────────────
     private var activeDeletionSnapshot: ScribeScrollDeletionPolicy.DeletionSnapshot? = null
     private var deletionTransactionGeneration: Long = 0L
+    private var settledClaimedGeneration: Long = -1L
     private var isDeletionTailAnchored: Boolean = false
+    var forceFallbackOnDelayedSettlement: Boolean = false
+        private set
+    var pendingPreDeleteSeamCapture: PreDeleteSeamCapture? = null
+        private set
+    var resolvedSeamGeometry: ResolvedSeamGeometry? = null
+        private set
+    var activeSeamLine: Int = -1
+        private set
+    var activeSeamFirstLowerRow: Int = -1
+        private set
+    var activeSeamDocY: Float = 0f
+        private set
     private var isDeletionResetRetractionActive: Boolean = false
     private var deletionResetGeneration: Long = 0L
     private var isInnerRetractionDebtActive: Boolean = false
@@ -553,8 +566,52 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var hasPendingDeletionSettlement: Boolean = false
         private set
 
+    val currentDeletionTransactionGeneration: Long
+        get() = deletionTransactionGeneration
+
+    // Phase 3 wires ScribeGapCollapseController.isTransactionOwned here.
+    val isGapCollapseTransactionOwned: Boolean
+        get() = false
+
     val isDeletionTransactionActive: Boolean
         get() = activeDeletionSnapshot != null
+
+    private fun clearActiveSeamBaseline() {
+        activeSeamLine = -1
+        activeSeamFirstLowerRow = -1
+        activeSeamDocY = 0f
+    }
+
+    fun canStillSettleGeneration(expectedGen: Long): Boolean {
+        val scribeEditor = editor as? ScribeCodeEditor
+        return isDeletionTransactionActive &&
+            deletionTransactionGeneration == expectedGen &&
+            hasPendingDeletionSettlement &&
+            settledClaimedGeneration != expectedGen &&
+            !isGapCollapseTransactionOwned &&
+            scribeEditor?.isInContentReplace != true
+    }
+
+    fun tryClaimPendingDeletionSettlement(expectedGen: Long): Boolean {
+        val scribeEditor = editor as? ScribeCodeEditor
+        val editorBusy = scribeEditor?.isLayoutBusy ?: editor.isLayoutComputing
+        if (height <= 0 ||
+            !isLaidOut ||
+            !editor.isLaidOut ||
+            !editor.isWordwrapReady() ||
+            editorBusy ||
+            editor.layout == null
+        ) {
+            return false
+        }
+        if (!canStillSettleGeneration(expectedGen)) {
+            return false
+        }
+        settledClaimedGeneration = expectedGen
+        hasPendingDeletionSettlement = false
+        clearPendingDeletionLayoutListener()
+        return true
+    }
 
     private val allowInnerTransitionalRetraction: Boolean
         get() = isDeletionTransactionActive || isDeletionResetRetractionActive || isInnerRetractionDebtActive
@@ -603,13 +660,36 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
     }
 
-    fun clearDeletionTransaction() {
+    fun claimAndClearLiveDeletionTransaction(preserveRetractionDebt: Boolean): Boolean {
+        val wasDeletionRetracting = isDeletionTransactionActive || isDeletionResetRetractionActive
+        val hasLiveTx = isDeletionTransactionActive ||
+            hasPendingDeletionSettlement ||
+            isDeletionTailAnchored ||
+            isDeletionResetRetractionActive
+        if (!hasLiveTx) {
+            return false
+        }
         clearPendingDeletionLayoutListener()
         activeDeletionSnapshot = null
+        pendingPreDeleteSeamCapture = null
+        resolvedSeamGeometry = null
         hasPendingDeletionSettlement = false
         isDeletionTailAnchored = false
-        clearAllRetractionDebt()
+        forceFallbackOnDelayedSettlement = false
+        clearActiveSeamBaseline()
+        clearDeletionResetRetraction()
+        if (preserveRetractionDebt && wasDeletionRetracting) {
+            updateRetractionDebtFromCurrentPosition(armIfOverscrolled = true)
+        } else {
+            clearAllRetractionDebt()
+        }
+        settledClaimedGeneration = -1L
         deletionTransactionGeneration++
+        return true
+    }
+
+    fun clearDeletionTransaction() {
+        claimAndClearLiveDeletionTransaction(preserveRetractionDebt = false)
     }
 
     fun markPendingDeletionSettlement() {
@@ -646,11 +726,17 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         wasAtTail: Boolean,
         affectsDocumentTail: Boolean,
         preEditLastNonBlankLine: Int = (preEditDocLineCount - 1).coerceAtLeast(0),
-        markPendingSettlement: Boolean = false
-    ) {
+        markPendingSettlement: Boolean = false,
+        preDeleteSeamCapture: PreDeleteSeamCapture? = null
+    ): Long {
         clearPendingDeletionLayoutListener()
         clearDeletionResetRetraction()
         clearAllRetractionDebt()
+        settledClaimedGeneration = -1L
+        forceFallbackOnDelayedSettlement = false
+        pendingPreDeleteSeamCapture = preDeleteSeamCapture
+        resolvedSeamGeometry = null
+        clearActiveSeamBaseline()
         deletionTransactionGeneration++
         activeDeletionSnapshot = ScribeScrollDeletionPolicy.DeletionSnapshot(
             transactionEpoch = deletionTransactionGeneration,
@@ -668,6 +754,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (markPendingSettlement) {
             hasPendingDeletionSettlement = true
         }
+        return deletionTransactionGeneration
     }
 
     fun notifyContentDeletionStarted() {
@@ -728,8 +815,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 if ((bottom - top) > 0 && editor.isLaidOut) {
                     clearPendingDeletionLayoutListener()
                     post {
-                        if (deletionTransactionGeneration == capturedGen && isDeletionTransactionActive) {
-                            handleDeletionSettlement(smooth = smooth)
+                        if (canStillSettleGeneration(capturedGen)) {
+                            handleDeletionSettlement(smooth = smooth, expectedGen = capturedGen)
                         }
                     }
                 }
@@ -807,22 +894,87 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         return false
     }
 
-    fun handleDeletionSettlement(smooth: Boolean = true) {
+    private fun initializeActiveSeamBaselineIfEligible(curLay: io.github.rosemoe.sora.widget.layout.Layout) {
+        val preCapture = pendingPreDeleteSeamCapture ?: return
+        val postContent = editor.text
+        val cur = try { editor.cursor } catch (_: Throwable) { null } ?: return
+        val postStartLine = cur.leftLine.coerceIn(0, (postContent.lineCount - 1).coerceAtLeast(0))
+        val rHeight = editor.rowHeight.toFloat()
+        val resolved = ScribeGapCollapsePolicy.resolvePostDeleteSeamGeometry(
+            preCapture = preCapture,
+            postStartLine = postStartLine,
+            postLineCount = postContent.lineCount,
+            rowHeightPx = rHeight,
+            postRowIndexAt = { line, col ->
+                try {
+                    val charIdx = postContent.indexer.getCharIndex(line, col)
+                    curLay.getRowIndexForPosition(charIdx)
+                } catch (_: Throwable) {
+                    -1
+                }
+            }
+        )
+        resolvedSeamGeometry = resolved
+        if (resolved.isEligibleCase) {
+            activeSeamLine = resolved.seamLine
+            activeSeamFirstLowerRow = resolved.seamFirstLowerRow
+            activeSeamDocY = resolved.seamFirstLowerRow * rHeight
+        } else {
+            clearActiveSeamBaseline()
+        }
+    }
+
+    fun prepareGapCollapseFrame1IfReady(fromGen: Long) {
+        if (!canStillSettleGeneration(fromGen)) return
+        val curLay = editor.layout
+        val scribeEditor = editor as? ScribeCodeEditor
+        val editorBusy = scribeEditor?.isLayoutBusy ?: editor.isLayoutComputing
+        if (height <= 0 || !isLaidOut || !editor.isLaidOut || curLay == null) {
+            if (!editor.isWordwrapReady()) {
+                forceFallbackOnDelayedSettlement = true
+            }
+            deferDeletionSettlementUntilLayoutReady(fromGen, smooth = true)
+            return
+        }
+        if (!editor.isWordwrapReady() || editorBusy) {
+            forceFallbackOnDelayedSettlement = true
+            return
+        }
+        if (!forceFallbackOnDelayedSettlement) {
+            initializeActiveSeamBaselineIfEligible(curLay)
+        }
+        handleDeletionSettlement(smooth = true, expectedGen = fromGen)
+    }
+
+    fun handleDeletionSettlement(
+        smooth: Boolean = true,
+        expectedGen: Long = deletionTransactionGeneration
+    ) {
         val snapshot = activeDeletionSnapshot ?: return
-        val currentGen = deletionTransactionGeneration
+        if (!canStillSettleGeneration(expectedGen)) return
+        val currentGen = expectedGen
         if (height <= 0 || !isLaidOut || !editor.isLaidOut) {
+            if (!editor.isWordwrapReady()) {
+                forceFallbackOnDelayedSettlement = true
+            }
             deferDeletionSettlementUntilLayoutReady(currentGen, smooth)
             return
         }
-        if (!editor.isWordwrapReady()) {
+        val curLay = editor.layout
+        val scribeEditor = editor as? ScribeCodeEditor
+        val editorBusy = scribeEditor?.isLayoutBusy ?: editor.isLayoutComputing
+        if (curLay == null || !editor.isWordwrapReady() || editorBusy) {
+            forceFallbackOnDelayedSettlement = true
+            return
+        }
+        if (activeSeamLine < 0 && !forceFallbackOnDelayedSettlement) {
+            initializeActiveSeamBaselineIfEligible(curLay)
+        }
+        if (!tryClaimPendingDeletionSettlement(currentGen)) {
             return
         }
 
-        hasPendingDeletionSettlement = false
-        clearPendingDeletionLayoutListener()
-
         val currentScroll = (scrollD + editor.offsetY).toFloat()
-        val curLay = editor.layout
         val newDocHeight = curLay?.layoutHeight?.toFloat() ?: 0f
         val content = editor.text
         val newDocLineCount = content.lineCount
@@ -1113,7 +1265,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     fun cancelCanvasAnimation(preserveRetractionDebt: Boolean = false) {
-        val wasDeletionRetracting = isDeletionTransactionActive || isDeletionResetRetractionActive
         cancelRestoration()
         canvasAnimator.cancel("cancelCanvasAnimation")
         outerScrollResidualPx = 0f
@@ -1122,11 +1273,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         isPredictiveGlideRunning = false
         targetPredictedScrollTotal = -1f
         endKeyboardTransaction()
-        clearDeletionTransaction()
+        claimAndClearLiveDeletionTransaction(preserveRetractionDebt = preserveRetractionDebt)
         clearDeletionResetRetraction()
-        if (preserveRetractionDebt && wasDeletionRetracting) {
-            updateRetractionDebtFromCurrentPosition(armIfOverscrolled = true)
-        }
         inputController.stopFling()
     }
 
@@ -1140,7 +1288,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
      */
     fun anchorCanvasAfterDeletion(smooth: Boolean = true) {
         if (isDeletionTransactionActive) {
-            handleDeletionSettlement(smooth = smooth)
+            val gen = deletionTransactionGeneration
+            if (canStillSettleGeneration(gen)) {
+                handleDeletionSettlement(smooth = smooth, expectedGen = gen)
+            }
             return
         }
         val deltaY = ScribeScrollDeletionPolicy.calculateDeletionAnchorDelta(

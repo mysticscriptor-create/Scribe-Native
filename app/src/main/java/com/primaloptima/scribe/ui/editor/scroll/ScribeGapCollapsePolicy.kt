@@ -76,6 +76,47 @@ data class Mode2StepResult(
     val isSettled: Boolean
 )
 
+enum class DeletionSeamCase {
+    NONE,
+    CASE_I_MID_LINE_OR_WHOLE_LINE,
+    CASE_II_LINE_END
+}
+
+data class PreDeleteSeamCapture(
+    val isSelection: Boolean,
+    val l1: Int,
+    val c1: Int,
+    val l2: Int,
+    val c2: Int,
+    val preLineCount: Int,
+    val preLineLenL2: Int,
+    val preScrollY: Int,
+    val seamCase: DeletionSeamCase,
+    val isMergedPartialRowSeam: Boolean,
+    val hasSurvivingUpper: Boolean,
+    val hasSurvivingLower: Boolean,
+    val preFirstLowerRowTopDocY: Float,
+    val preSelectionTopDocY: Float,
+    val preSelectionBottomDocY: Float,
+    val hasRtlOrBidiAtSeam: Boolean = false
+)
+
+data class ResolvedSeamGeometry(
+    val isEligibleCase: Boolean,
+    val isMergedPartialRowSeam: Boolean,
+    val hasSurvivingUpper: Boolean,
+    val hasSurvivingLower: Boolean,
+    val hasRtlOrBidiAtSeam: Boolean,
+    val seamLine: Int,
+    val seamCol: Int,
+    val seamFirstLowerRow: Int,
+    val activeSeamDocY: Float,
+    val preFirstLowerRowTopDocY: Float,
+    val deltaGapPx: Float,
+    val preSelectionTopDocY: Float,
+    val preSelectionBottomDocY: Float
+)
+
 sealed interface SeamMappingResult {
     data class PreservePhase(
         val newSeamLine: Int,
@@ -497,5 +538,212 @@ object ScribeGapCollapsePolicy {
                 if (deltaYInsert < -0.5f) "negative_seam_shift" else "insertion_exceeded_tau"
             )
         }
+    }
+
+    fun containsRtlOrBidi(text: CharSequence): Boolean {
+        for (i in 0 until text.length) {
+            when (Character.getDirectionality(text[i])) {
+                Character.DIRECTIONALITY_RIGHT_TO_LEFT,
+                Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC,
+                Character.DIRECTIONALITY_RIGHT_TO_LEFT_EMBEDDING,
+                Character.DIRECTIONALITY_RIGHT_TO_LEFT_OVERRIDE,
+                Character.DIRECTIONALITY_RIGHT_TO_LEFT_ISOLATE,
+                Character.DIRECTIONALITY_LEFT_TO_RIGHT_EMBEDDING,
+                Character.DIRECTIONALITY_LEFT_TO_RIGHT_OVERRIDE,
+                Character.DIRECTIONALITY_LEFT_TO_RIGHT_ISOLATE,
+                Character.DIRECTIONALITY_POP_DIRECTIONAL_FORMAT,
+                Character.DIRECTIONALITY_POP_DIRECTIONAL_ISOLATE -> return true
+            }
+        }
+        return false
+    }
+
+    fun classifyPreDeleteSeam(
+        isSelection: Boolean,
+        l1: Int,
+        c1: Int,
+        l2: Int,
+        c2: Int,
+        preLineCount: Int,
+        preLineLenL2: Int,
+        preScrollY: Int,
+        rowHeightPx: Float,
+        rowIndexAt: (line: Int, col: Int) -> Int,
+        preSelectionTopDocY: Float = 0f,
+        preSelectionBottomDocY: Float = 0f,
+        hasRtlOrBidiAtSeam: Boolean = false
+    ): PreDeleteSeamCapture {
+        if (!isSelection || preLineCount <= 0 || rowHeightPx <= 0f || !rowHeightPx.isFinite()) {
+            return PreDeleteSeamCapture(
+                isSelection = isSelection,
+                l1 = l1,
+                c1 = c1,
+                l2 = l2,
+                c2 = c2,
+                preLineCount = preLineCount,
+                preLineLenL2 = preLineLenL2,
+                preScrollY = preScrollY,
+                seamCase = DeletionSeamCase.NONE,
+                isMergedPartialRowSeam = false,
+                hasSurvivingUpper = false,
+                hasSurvivingLower = false,
+                preFirstLowerRowTopDocY = Float.NaN,
+                preSelectionTopDocY = preSelectionTopDocY,
+                preSelectionBottomDocY = preSelectionBottomDocY,
+                hasRtlOrBidiAtSeam = hasRtlOrBidiAtSeam
+            )
+        }
+        val hasSurvivingUpper = l1 > 0 || c1 > 0
+        if (c2 < preLineLenL2) {
+            // Case I (C2 < preLineLen(L2))
+            if (c1 > 0) {
+                return PreDeleteSeamCapture(
+                    isSelection = true,
+                    l1 = l1,
+                    c1 = c1,
+                    l2 = l2,
+                    c2 = c2,
+                    preLineCount = preLineCount,
+                    preLineLenL2 = preLineLenL2,
+                    preScrollY = preScrollY,
+                    seamCase = DeletionSeamCase.CASE_I_MID_LINE_OR_WHOLE_LINE,
+                    isMergedPartialRowSeam = true,
+                    hasSurvivingUpper = hasSurvivingUpper,
+                    hasSurvivingLower = true,
+                    preFirstLowerRowTopDocY = Float.NaN,
+                    preSelectionTopDocY = preSelectionTopDocY,
+                    preSelectionBottomDocY = preSelectionBottomDocY,
+                    hasRtlOrBidiAtSeam = hasRtlOrBidiAtSeam
+                )
+            }
+            val preRow = rowIndexAt(l2, c2)
+            val preTopDocY = if (preRow >= 0) preRow * rowHeightPx else Float.NaN
+            return PreDeleteSeamCapture(
+                isSelection = true,
+                l1 = l1,
+                c1 = c1,
+                l2 = l2,
+                c2 = c2,
+                preLineCount = preLineCount,
+                preLineLenL2 = preLineLenL2,
+                preScrollY = preScrollY,
+                seamCase = DeletionSeamCase.CASE_I_MID_LINE_OR_WHOLE_LINE,
+                isMergedPartialRowSeam = false,
+                hasSurvivingUpper = hasSurvivingUpper,
+                hasSurvivingLower = true,
+                preFirstLowerRowTopDocY = preTopDocY,
+                preSelectionTopDocY = preSelectionTopDocY,
+                preSelectionBottomDocY = preSelectionBottomDocY,
+                hasRtlOrBidiAtSeam = hasRtlOrBidiAtSeam
+            )
+        }
+        // Case II (C2 == preLineLen(L2))
+        if (l2 + 1 >= preLineCount) {
+            return PreDeleteSeamCapture(
+                isSelection = true,
+                l1 = l1,
+                c1 = c1,
+                l2 = l2,
+                c2 = c2,
+                preLineCount = preLineCount,
+                preLineLenL2 = preLineLenL2,
+                preScrollY = preScrollY,
+                seamCase = DeletionSeamCase.CASE_II_LINE_END,
+                isMergedPartialRowSeam = false,
+                hasSurvivingUpper = hasSurvivingUpper,
+                hasSurvivingLower = false,
+                preFirstLowerRowTopDocY = Float.NaN,
+                preSelectionTopDocY = preSelectionTopDocY,
+                preSelectionBottomDocY = preSelectionBottomDocY,
+                hasRtlOrBidiAtSeam = hasRtlOrBidiAtSeam
+            )
+        }
+        val preRow = rowIndexAt(l2 + 1, 0)
+        val preTopDocY = if (preRow >= 0) preRow * rowHeightPx else Float.NaN
+        return PreDeleteSeamCapture(
+            isSelection = true,
+            l1 = l1,
+            c1 = c1,
+            l2 = l2,
+            c2 = c2,
+            preLineCount = preLineCount,
+            preLineLenL2 = preLineLenL2,
+            preScrollY = preScrollY,
+            seamCase = DeletionSeamCase.CASE_II_LINE_END,
+            isMergedPartialRowSeam = false,
+            hasSurvivingUpper = hasSurvivingUpper,
+            hasSurvivingLower = true,
+            preFirstLowerRowTopDocY = preTopDocY,
+            preSelectionTopDocY = preSelectionTopDocY,
+            preSelectionBottomDocY = preSelectionBottomDocY,
+            hasRtlOrBidiAtSeam = hasRtlOrBidiAtSeam
+        )
+    }
+
+    fun resolvePostDeleteSeamGeometry(
+        preCapture: PreDeleteSeamCapture,
+        postStartLine: Int,
+        postLineCount: Int,
+        rowHeightPx: Float,
+        postRowIndexAt: (line: Int, col: Int) -> Int
+    ): ResolvedSeamGeometry {
+        fun ineligible(hasLower: Boolean = preCapture.hasSurvivingLower): ResolvedSeamGeometry =
+            ResolvedSeamGeometry(
+                isEligibleCase = false,
+                isMergedPartialRowSeam = preCapture.isMergedPartialRowSeam,
+                hasSurvivingUpper = preCapture.hasSurvivingUpper,
+                hasSurvivingLower = hasLower,
+                hasRtlOrBidiAtSeam = preCapture.hasRtlOrBidiAtSeam,
+                seamLine = -1,
+                seamCol = 0,
+                seamFirstLowerRow = -1,
+                activeSeamDocY = 0f,
+                preFirstLowerRowTopDocY = preCapture.preFirstLowerRowTopDocY,
+                deltaGapPx = 0f,
+                preSelectionTopDocY = preCapture.preSelectionTopDocY,
+                preSelectionBottomDocY = preCapture.preSelectionBottomDocY
+            )
+
+        if (!preCapture.isSelection ||
+            preCapture.isMergedPartialRowSeam ||
+            !preCapture.hasSurvivingUpper ||
+            !preCapture.hasSurvivingLower ||
+            preCapture.hasRtlOrBidiAtSeam ||
+            !preCapture.preFirstLowerRowTopDocY.isFinite() ||
+            rowHeightPx <= 0f ||
+            !rowHeightPx.isFinite()
+        ) {
+            return ineligible()
+        }
+
+        val seamLine = when (preCapture.seamCase) {
+            DeletionSeamCase.CASE_I_MID_LINE_OR_WHOLE_LINE -> postStartLine
+            DeletionSeamCase.CASE_II_LINE_END -> postStartLine + 1
+            DeletionSeamCase.NONE -> return ineligible()
+        }
+        if (seamLine < 0 || seamLine >= postLineCount) {
+            return ineligible(hasLower = false)
+        }
+        val seamFirstLowerRow = postRowIndexAt(seamLine, 0)
+        if (seamFirstLowerRow < 0) {
+            return ineligible()
+        }
+        val activeSeamDocY = seamFirstLowerRow * rowHeightPx
+        val deltaGapPx = preCapture.preFirstLowerRowTopDocY - activeSeamDocY
+        return ResolvedSeamGeometry(
+            isEligibleCase = true,
+            isMergedPartialRowSeam = false,
+            hasSurvivingUpper = true,
+            hasSurvivingLower = true,
+            hasRtlOrBidiAtSeam = false,
+            seamLine = seamLine,
+            seamCol = 0,
+            seamFirstLowerRow = seamFirstLowerRow,
+            activeSeamDocY = activeSeamDocY,
+            preFirstLowerRowTopDocY = preCapture.preFirstLowerRowTopDocY,
+            deltaGapPx = deltaGapPx,
+            preSelectionTopDocY = preCapture.preSelectionTopDocY,
+            preSelectionBottomDocY = preCapture.preSelectionBottomDocY
+        )
     }
 }

@@ -406,6 +406,7 @@ class ScribeDeletionSnapshotCoordinator {
     sealed class AfterInsertAction {
         data object None : AfterInsertAction()
         data object ClearTransaction : AfterInsertAction()
+        data object ClearTransactionAndClampOverscroll : AfterInsertAction()
         data object SettleEmptyReplaceDelete : AfterInsertAction()
     }
 
@@ -508,16 +509,20 @@ class ScribeDeletionSnapshotCoordinator {
         stagedBatchProbe = null
 
         if (wasReplaceWithDelete) {
-            if (insertedNotEmpty && !isTextEmpty && currentTotalScroll <= maxCanvasScroll) {
-                return AfterInsertAction.ClearTransaction
-            }
             if (!insertedNotEmpty) {
                 return AfterInsertAction.SettleEmptyReplaceDelete
             }
-            return AfterInsertAction.None
+            if (!isTextEmpty && currentTotalScroll > maxCanvasScroll) {
+                return AfterInsertAction.ClearTransactionAndClampOverscroll
+            }
+            return AfterInsertAction.ClearTransaction
         }
         if (insertedNotEmpty && hasPendingOrActiveTransaction) {
-            return AfterInsertAction.ClearTransaction
+            return if (!isTextEmpty && currentTotalScroll > maxCanvasScroll) {
+                AfterInsertAction.ClearTransactionAndClampOverscroll
+            } else {
+                AfterInsertAction.ClearTransaction
+            }
         }
         return AfterInsertAction.None
     }
