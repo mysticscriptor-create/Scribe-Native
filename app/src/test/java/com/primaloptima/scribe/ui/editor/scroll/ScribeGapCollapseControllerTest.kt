@@ -410,11 +410,13 @@ class ScribeGapCollapseControllerTest {
                 expectedSafetyEpoch = capturedSafetyEpoch
             )!!
             eventOrderLog.add("unresolved_locked:$reason")
+            assertTrue(controller.phase != GapCollapsePhase.IDLE)
             hasLiveSnapshot = false
             clearCount++
             retractionDebtPreserved = true
             deletionTransactionGeneration++
             controller.commitIdle()
+            eventOrderLog.add("idle_committed:${controller.phase}")
             claim.pendingEval?.let { dispatchedEvals.add(it) }
         }
 
@@ -512,22 +514,34 @@ class ScribeGapCollapseControllerTest {
             assertEquals(listOf(eval), h.dispatchedEvals)
         }
 
-        // 4. UNRESOLVED + PendingPostSafetyKeyboardEval exit 4
+        // 4. UNRESOLVED (layout retry exhaustion) + PendingPostSafetyKeyboardEval exit 4
         run {
             val h = EventBSafetyHarness()
-            // Contradictory bounds: safeMinPhysical (120) > safeMax (80)
-            h.maxCanvasScroll = 80
-            h.physicalScroll = 80
+            h.isLayoutReady = false
             val se = h.controller.transitionToFinalSafetyForFallback(10L)
             val eval = PendingPostSafetyKeyboardEval(10L, se, 540, true, true, true, false, true, ScribeDockTransition.NONE)
             assertTrue(h.controller.storePendingPostSafetyKeyboardEval(eval))
 
-            val res = h.runEventB(10L, se)
-            assertTrue(res is SafetyRevalidationResult.UNRESOLVED)
+            val res1 = h.runEventB(10L, se)
+            assertTrue(res1 is SafetyRevalidationResult.DEFERRED_UNTIL_LAYOUT_READY)
+            assertEquals(GapCollapsePhase.FINAL_SAFETY_PENDING, h.controller.phase)
+            assertEquals(10L, h.deletionTransactionGeneration)
+            assertTrue(h.hasLiveSnapshot)
+            assertEquals(0, h.clearCount)
+            assertTrue(h.dispatchedEvals.isEmpty())
+
+            // Keep layout unready and retry with same (gen, se) -> UNRESOLVED via retry exhaustion
+            val res2 = h.runEventB(10L, se)
+            assertTrue(res2 is SafetyRevalidationResult.UNRESOLVED)
+            assertEquals("retry_exhausted", (res2 as SafetyRevalidationResult.UNRESOLVED).reason)
             assertEquals(GapCollapsePhase.IDLE, h.controller.phase)
             assertEquals(11L, h.deletionTransactionGeneration)
+            assertFalse(h.hasLiveSnapshot)
+            assertEquals(1, h.clearCount)
             assertTrue(h.retractionDebtPreserved)
             assertEquals(listOf(eval), h.dispatchedEvals)
+            assertEquals("unresolved_locked:retry_exhausted", h.eventOrderLog[0])
+            assertEquals("idle_committed:IDLE", h.eventOrderLog[1])
         }
     }
 

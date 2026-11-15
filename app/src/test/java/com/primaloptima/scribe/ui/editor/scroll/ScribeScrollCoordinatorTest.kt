@@ -425,24 +425,41 @@ class ScribeScrollCoordinatorTest {
         assertTrue(coordinator.isAnimationActive)
         assertEquals(0, finishEvents)
 
-        // Sub-0.05px final settled tick with isSpringSettled=true still terminates via coordinator
-        assertTrue(coordinator.applyStepWithResult(399.98f, operationId = op1, isSpringSettled = false).isOperationFinished.not())
-        val settledSmallStep = coordinator.applyStepWithResult(400f, operationId = op1, isSpringSettled = true)
+        // Explicit TARGET_REACHED coverage: reaching 399.98 satisfies abs(totalScroll - target) < 0.5f
+        val targetReachedResult = coordinator.applyStepWithResult(399.98f, operationId = op1, isSpringSettled = false)
+        assertTrue(targetReachedResult.isOperationFinished)
+        assertEquals(StepTerminationReason.TARGET_REACHED, targetReachedResult.terminationReason)
+        assertEquals(399.98f, coordinator.totalScroll, 0.001f)
+        assertFalse(coordinator.isAnimationActive)
+        assertEquals(1, finishEvents)
+
+        // Independent SPRING_SETTLED coverage: sub-0.05px ticks far from target remain active until isSpringSettled=true
+        coordinator.syncActualScroll(300f)
+        assertTrue(coordinator.requestTarget(400f, ScrollAnimationReason.DELETION_ANCHOR))
+        val op2 = coordinator.activeOperationId
+
+        val unsettledSmallStep = coordinator.applyStepWithResult(300.02f, operationId = op2, isSpringSettled = false)
+        assertFalse(unsettledSmallStep.isOperationFinished)
+        assertEquals(StepTerminationReason.NONE, unsettledSmallStep.terminationReason)
+        assertTrue(coordinator.isAnimationActive)
+        assertEquals(1, finishEvents)
+
+        val settledSmallStep = coordinator.applyStepWithResult(300.04f, operationId = op2, isSpringSettled = true)
         assertTrue(settledSmallStep.isOperationFinished)
         assertEquals(StepTerminationReason.SPRING_SETTLED, settledSmallStep.terminationReason)
         assertFalse(coordinator.isAnimationActive)
-        assertEquals(1, finishEvents)
+        assertEquals(2, finishEvents)
 
         // Boundary hit terminates once via BOUNDARY_HIT
         coordinator.syncActualScroll(100f)
         coordinator.onScrollBy = { dy -> dy } // 100% unconsumed (blocked at boundary)
         assertTrue(coordinator.requestTarget(200f, ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION))
-        val op2 = coordinator.activeOperationId
-        val boundaryResult = coordinator.applyStepWithResult(120f, operationId = op2, isSpringSettled = false)
+        val op3 = coordinator.activeOperationId
+        val boundaryResult = coordinator.applyStepWithResult(120f, operationId = op3, isSpringSettled = false)
         assertTrue(boundaryResult.isOperationFinished)
         assertTrue(boundaryResult.boundaryHit)
         assertEquals(StepTerminationReason.BOUNDARY_HIT, boundaryResult.terminationReason)
         assertFalse(coordinator.isAnimationActive)
-        assertEquals(2, finishEvents)
+        assertEquals(3, finishEvents)
     }
 }
