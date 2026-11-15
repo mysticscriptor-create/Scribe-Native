@@ -42,6 +42,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.coerceAtMost
 import androidx.compose.ui.unit.dp
+import com.primaloptima.scribe.ui.editor.scroll.LocalOverlayBoundsRegistry
+import com.primaloptima.scribe.ui.editor.scroll.OverlayOcclusionRole
+import com.primaloptima.scribe.ui.editor.scroll.RegisterOverlayBoundsEffect
+import com.primaloptima.scribe.ui.editor.scroll.reportOverlayBounds
 import com.primaloptima.scribe.ui.theme.LocalBarBlurBitmap
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
@@ -587,16 +591,30 @@ fun CompactEditorLayout(
                     )
                 }
 
+                val overlayRegistry = LocalOverlayBoundsRegistry.current
+
                 // ── Layer 2: Dim / Scrim Backdrop Overlay ─────────────────────────
                 val scrimAlpha = when {
                     currentOffset.value > 0f -> (currentOffset.value / drawerWidthPx).coerceIn(0f, 1f) * 0.45f
                     currentOffset.value < 0f -> (abs(currentOffset.value) / panelWidthPx).coerceIn(0f, 1f) * 0.45f
                     else -> 0f
                 }
-                if (scrimAlpha > 0.001f) {
+                val isScrimVisible = scrimAlpha > 0.001f
+                RegisterOverlayBoundsEffect(
+                    key = "compact_drawer_scrim",
+                    isVisible = isScrimVisible,
+                    registry = overlayRegistry
+                )
+                if (isScrimVisible) {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
+                            .reportOverlayBounds(
+                                key = "compact_drawer_scrim",
+                                role = OverlayOcclusionRole.MODAL_BLOCKER,
+                                isVisible = isScrimVisible,
+                                registry = overlayRegistry
+                            )
                             .graphicsLayer { alpha = scrimAlpha }
                             .background(MaterialTheme.colorScheme.scrim)
                             .clickable(
@@ -616,11 +634,22 @@ fun CompactEditorLayout(
                 val isLeftDrawerVisible = currentActiveSide == ActiveDrawerSide.LEFT_DRAWER && currentOffset.value > 0.1f
                 val leftOverdragPx = (currentOffset.value - drawerWidthPx).coerceAtLeast(0f)
                 val leftStretchScaleX = 1f + (leftOverdragPx / drawerWidthPx) * 0.12f
+                RegisterOverlayBoundsEffect(
+                    key = "compact_left_drawer",
+                    isVisible = isLeftDrawerVisible,
+                    registry = overlayRegistry
+                )
 
                 Box(
                     modifier = Modifier
                         .fillMaxHeight()
                         .width(drawerWidthDp)
+                        .reportOverlayBounds(
+                            key = "compact_left_drawer",
+                            role = OverlayOcclusionRole.MODAL_BLOCKER,
+                            isVisible = isLeftDrawerVisible,
+                            registry = overlayRegistry
+                        )
                         .graphicsLayer {
                             // Background/container strictly anchored to left edge (Zero gaps)
                             translationX = (-drawerWidthPx + currentOffset.value.coerceAtLeast(0f)).coerceAtMost(0f)
@@ -643,10 +672,21 @@ fun CompactEditorLayout(
                 val isRightPanelVisible = currentActiveSide == ActiveDrawerSide.RIGHT_PANEL && currentOffset.value < -0.1f
                 val rightOverdragPx = (-panelWidthPx - currentOffset.value).coerceAtLeast(0f)
                 val rightStretchScaleX = 1f + (rightOverdragPx / panelWidthPx) * 0.12f
+                RegisterOverlayBoundsEffect(
+                    key = "compact_right_panel",
+                    isVisible = isRightPanelVisible,
+                    registry = overlayRegistry
+                )
 
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
+                        .reportOverlayBounds(
+                            key = "compact_right_panel",
+                            role = OverlayOcclusionRole.MODAL_BLOCKER,
+                            isVisible = isRightPanelVisible,
+                            registry = overlayRegistry
+                        )
                         .graphicsLayer {
                             // Background/container strictly anchored to right edge (Zero gaps)
                             translationX = (screenWidthPx + currentOffset.value.coerceAtMost(0f)).coerceAtLeast(0f)

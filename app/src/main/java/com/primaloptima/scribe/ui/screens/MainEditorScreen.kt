@@ -217,7 +217,12 @@ import com.primaloptima.scribe.ui.editor.scroll.AccessoryDrawerMode
 import com.primaloptima.scribe.ui.editor.scroll.AccessoryDrawerState
 import com.primaloptima.scribe.ui.editor.scroll.ScribeBottomSurfaceState
 import com.primaloptima.scribe.ui.editor.scroll.rememberScribeBottomSurfaceState
+import com.primaloptima.scribe.ui.editor.scroll.LocalOverlayBoundsRegistry
+import com.primaloptima.scribe.ui.editor.scroll.OverlayOcclusionRole
+import com.primaloptima.scribe.ui.editor.scroll.RegisterOverlayBoundsEffect
+import com.primaloptima.scribe.ui.editor.scroll.ScribeOverlayBoundsRegistry
 import com.primaloptima.scribe.ui.editor.scroll.ScribeScrollPolicy
+import com.primaloptima.scribe.ui.editor.scroll.reportOverlayBounds
 import com.primaloptima.scribe.navigation.EditorSessionClient
 import com.primaloptima.scribe.navigation.LocalEditorRestorationCoordinator
 import com.primaloptima.scribe.navigation.Route
@@ -1326,7 +1331,9 @@ fun MainEditorScreen(
     }
 
     val maxStandardKbBaselineDp = bottomSurfaceState.maxStandardKbBaselineDp
+    val overlayBoundsRegistry = remember { ScribeOverlayBoundsRegistry() }
 
+    CompositionLocalProvider(LocalOverlayBoundsRegistry provides overlayBoundsRegistry) {
     Box(modifier = Modifier.fillMaxSize()) {
         // ── Editor-only background image ──────────────────────────────────────
         if (isEditorOnlyBg) {
@@ -1507,6 +1514,7 @@ fun MainEditorScreen(
                                 bottomSurfaceState.activeTransition == com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition.DRAWER_TO_IME_HANDOFF ||
                                 bottomSurfaceState.isAwaitingKeyboardOpen
                             UnifiedCanvasLayout(ctx).apply {
+                                this.overlayBoundsRegistry = overlayBoundsRegistry
                                 horizontalPaddingDp = initialPadH
                                 setBackgroundColor(bgArgb)
                                 estimatedKeyboardHeightPx = curEstimatedKbPx
@@ -1748,6 +1756,9 @@ fun MainEditorScreen(
                             }
                         },
                         update = { layout ->
+                            if (layout.overlayBoundsRegistry !== overlayBoundsRegistry) {
+                                layout.overlayBoundsRegistry = overlayBoundsRegistry
+                            }
                             layout.onUserTouchDown = handleUserTouchDown
                             val density = layout.context.resources.displayMetrics.density
                             val curEstimatedKbPx = bottomSurfaceState.calculateEstimatedKeyboardHeightPx(
@@ -2071,6 +2082,11 @@ fun MainEditorScreen(
                     }
 
                     // ── Shortcut Bar & Accessory Drawer (Floating Keyboard Accessory) ────────────
+                    RegisterOverlayBoundsEffect(
+                        key = "shortcut_bar",
+                        isVisible = isBarVisible && isShortcutBarVisuallyVisible,
+                        registry = overlayBoundsRegistry
+                    )
                     if (isBarVisible) {
                         CompositionLocalProvider(LocalOneShotBitmap provides barBlurBitmap) {
                             val registerBounds = LocalInteractiveBoundsRegistry.current
@@ -2112,7 +2128,13 @@ fun MainEditorScreen(
                                         .height(shortcutBarHeight)
                                         .onGloballyPositioned { coords ->
                                             registerBounds("shortcut_bar", coords.boundsInRoot())
-                                        },
+                                        }
+                                        .reportOverlayBounds(
+                                            key = "shortcut_bar",
+                                            role = OverlayOcclusionRole.BOTTOM_BAR,
+                                            isVisible = isBarVisible && isShortcutBarVisuallyVisible,
+                                            registry = overlayBoundsRegistry
+                                        ),
                                     shape = RectangleShape,
                                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
                                     tonalElevation = 2.dp,
@@ -2725,6 +2747,11 @@ fun MainEditorScreen(
                     }
 
                     // ── Floating Pills Layer (Top-Left and Top-Right) ─────────
+                    RegisterOverlayBoundsEffect(
+                        key = "top_floating_pills",
+                        isVisible = !zenMode && floatingPillsVisible,
+                        registry = overlayBoundsRegistry
+                    )
                     if (!zenMode) {
                         AnimatedVisibility(
                             visible = floatingPillsVisible,
@@ -2746,7 +2773,13 @@ fun MainEditorScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .statusBarsPadding()
-                                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                                    .padding(horizontal = 16.dp, vertical = 6.dp)
+                                    .reportOverlayBounds(
+                                        key = "top_floating_pills",
+                                        role = OverlayOcclusionRole.FLOATING_PILL,
+                                        isVisible = !zenMode && floatingPillsVisible,
+                                        registry = overlayBoundsRegistry
+                                    ),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -2834,6 +2867,11 @@ fun MainEditorScreen(
                     // ── Subtle Indent Applying Progress Indicator (Requirement 5) ────────
                     // Placed at TopCenter (below status bar & above bottom sheet / keyboard) so it is always 100% visible
                     val isIndentIndicatorVisible = isApplyingIndent || (soraEditorRef as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)?.isProcessingIndent == true
+                    RegisterOverlayBoundsEffect(
+                        key = "indent_indicator",
+                        isVisible = isIndentIndicatorVisible,
+                        registry = overlayBoundsRegistry
+                    )
                     AnimatedVisibility(
                         visible = isIndentIndicatorVisible,
                         enter = fadeIn(tween(150)),
@@ -2844,6 +2882,12 @@ fun MainEditorScreen(
                             .padding(top = 10.dp)
                     ) {
                         Surface(
+                            modifier = Modifier.reportOverlayBounds(
+                                key = "indent_indicator",
+                                role = OverlayOcclusionRole.TOP_BAR,
+                                isVisible = isIndentIndicatorVisible,
+                                registry = overlayBoundsRegistry
+                            ),
                             shape = RoundedCornerShape(16.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
                             tonalElevation = 6.dp,
@@ -2873,11 +2917,22 @@ fun MainEditorScreen(
                     // nothing to indicate. The error overlay below is unchanged.
 
                     // ── Document Load Error Overlay ──
+                    RegisterOverlayBoundsEffect(
+                        key = "document_load_error_overlay",
+                        isVisible = loadState is DocumentLoadState.Error,
+                        registry = overlayBoundsRegistry
+                    )
                     if (loadState is DocumentLoadState.Error) {
                         val errorState = loadState as DocumentLoadState.Error
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
+                                .reportOverlayBounds(
+                                    key = "document_load_error_overlay",
+                                    role = OverlayOcclusionRole.MODAL_BLOCKER,
+                                    isVisible = true,
+                                    registry = overlayBoundsRegistry
+                                )
                                 .background(MaterialTheme.colorScheme.surface),
                             contentAlignment = Alignment.Center
                         ) {
@@ -2914,12 +2969,23 @@ fun MainEditorScreen(
                     }
 
                     // ── Crash Recovery Banner ──
+                    RegisterOverlayBoundsEffect(
+                        key = "crash_recovery_banner",
+                        isVisible = recoveryAvailable,
+                        registry = overlayBoundsRegistry
+                    )
                     if (recoveryAvailable) {
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 8.dp)
-                                .align(Alignment.TopCenter),
+                                .align(Alignment.TopCenter)
+                                .reportOverlayBounds(
+                                    key = "crash_recovery_banner",
+                                    role = OverlayOcclusionRole.TOP_BAR,
+                                    isVisible = true,
+                                    registry = overlayBoundsRegistry
+                                ),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
                         ) {
                             Row(
@@ -2963,13 +3029,24 @@ fun MainEditorScreen(
                     }
 
                     // ── External Sync Warning Banner ──
+                    RegisterOverlayBoundsEffect(
+                        key = "external_sync_banner",
+                        isVisible = externalSyncStatus is ExternalSyncStatus.SyncFailed,
+                        registry = overlayBoundsRegistry
+                    )
                     if (externalSyncStatus is ExternalSyncStatus.SyncFailed) {
                         val syncFailed = externalSyncStatus as ExternalSyncStatus.SyncFailed
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 8.dp)
-                                .align(Alignment.TopCenter),
+                                .align(Alignment.TopCenter)
+                                .reportOverlayBounds(
+                                    key = "external_sync_banner",
+                                    role = OverlayOcclusionRole.TOP_BAR,
+                                    isVisible = true,
+                                    registry = overlayBoundsRegistry
+                                ),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
                         ) {
                             Row(
@@ -3115,6 +3192,31 @@ fun MainEditorScreen(
             onToggleCollapse = { id -> editorVm.toggleCollapseFloatingWindow(id) },
             onMoveWindow     = { id, x, y -> editorVm.moveFloatingWindow(id, x, y) }
         )
+
+        val hasActiveModalOverlay = activeSheetPage != null ||
+            (showRenameDialog && activeNote != null) ||
+            showCreateNoteDialog ||
+            showOrnamentPicker ||
+            activeLightboxImageUri != null ||
+            showManuscriptPreview ||
+            showInsertImageDialog
+        RegisterOverlayBoundsEffect(
+            key = "main_editor_modal_blocker",
+            isVisible = hasActiveModalOverlay,
+            registry = overlayBoundsRegistry
+        )
+        if (hasActiveModalOverlay) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .reportOverlayBounds(
+                        key = "main_editor_modal_blocker",
+                        role = OverlayOcclusionRole.MODAL_BLOCKER,
+                        isVisible = true,
+                        registry = overlayBoundsRegistry
+                    )
+            )
+        }
 
         // ── Unified Editor Bottom Sheet ───────────────────────────────────────
         if (activeSheetPage != null) {
@@ -3461,6 +3563,7 @@ fun MainEditorScreen(
             }
         }
     } // end outer Box
+    } // end CompositionLocalProvider(LocalOverlayBoundsRegistry)
 }
 
 // ── Floating Action Pills (Editor Top Bar Alternative) ───────────────────────
@@ -3513,8 +3616,24 @@ private fun FindReplaceBar(
     onReplaceAll    : () -> Unit,
     onClose         : () -> Unit,
 ) {
+    val overlayRegistry = LocalOverlayBoundsRegistry.current
+    RegisterOverlayBoundsEffect(
+        key = "find_replace_bar",
+        isVisible = visible,
+        registry = overlayRegistry
+    )
     if (!visible) return
-    Surface(shadowElevation = ScribeTheme.metrics.elevationMedium, modifier = Modifier.fillMaxWidth()) {
+    Surface(
+        shadowElevation = ScribeTheme.metrics.elevationMedium,
+        modifier = Modifier
+            .fillMaxWidth()
+            .reportOverlayBounds(
+                key = "find_replace_bar",
+                role = OverlayOcclusionRole.TOP_BAR,
+                isVisible = visible,
+                registry = overlayRegistry
+            )
+    ) {
         Row(
             modifier          = Modifier.fillMaxWidth().padding(ScribeTheme.spacing.compact),
             verticalAlignment = Alignment.CenterVertically
@@ -3554,6 +3673,7 @@ private fun FindReplaceBar(
 @Composable
 fun WordCountPill(
     modifier        : Modifier = Modifier,
+    isVisible       : Boolean = true,
     pillOffsetX     : Float = 0f,
     pillOffsetY     : Float = 0f,
     onOffsetChange  : (Float, Float) -> Unit = { _, _ -> },
@@ -3566,9 +3686,15 @@ fun WordCountPill(
     hazeState       : dev.chrisbanes.haze.HazeState? = LocalHazeState.current,
 ) {
     val registerBounds = LocalInteractiveBoundsRegistry.current
+    val overlayRegistry = LocalOverlayBoundsRegistry.current
     DisposableEffect(Unit) {
         onDispose { registerBounds("word_count_pill", null) }
     }
+    RegisterOverlayBoundsEffect(
+        key = "word_count_pill",
+        isVisible = isVisible,
+        registry = overlayRegistry
+    )
 
     Box(
         modifier = modifier
@@ -3576,6 +3702,12 @@ fun WordCountPill(
             .onGloballyPositioned { coords ->
                 registerBounds("word_count_pill", coords.boundsInRoot())
             }
+            .reportOverlayBounds(
+                key = "word_count_pill",
+                role = OverlayOcclusionRole.FLOATING_PILL,
+                isVisible = isVisible,
+                registry = overlayRegistry
+            )
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             AnimatedVisibility(

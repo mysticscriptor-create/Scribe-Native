@@ -101,6 +101,80 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var targetImeObstructionPx: Float = 0f
 
     var dockGeometry: ScribeDockGeometry? = null
+    var overlayBoundsRegistry: ScribeOverlayBoundsRegistry? = null
+    private val canvasWindowLocation = IntArray(2)
+    private val canvasVisibleFrame = Rect()
+
+    fun resolveUnobstructedViewportBounds(): UnobstructedViewportBounds {
+        val w = width.toFloat().coerceAtLeast(0f)
+        val h = height.toFloat().coerceAtLeast(0f)
+        getLocationInWindow(canvasWindowLocation)
+        val canvasWindowLeft = canvasWindowLocation[0].toFloat()
+        val canvasWindowTop = canvasWindowLocation[1].toFloat()
+        getWindowVisibleDisplayFrame(canvasVisibleFrame)
+        val windowVisibleBottomLocal = if (canvasVisibleFrame.bottom > 0) {
+            (canvasVisibleFrame.bottom - canvasWindowLocation[1]).toFloat()
+        } else {
+            h
+        }
+        val headerBottomLocal = (headerHeight - scrollD).toFloat().coerceAtLeast(0f)
+        val registry = overlayBoundsRegistry
+        return if (registry != null) {
+            registry.resolveUnobstructedViewportBounds(
+                canvasWindowTopPx = canvasWindowTop,
+                canvasHeightPx = h,
+                headerBottomLocal = headerBottomLocal,
+                stickyBottomLocal = 0f,
+                windowVisibleBottomLocal = windowVisibleBottomLocal,
+                canvasWindowLeftPx = canvasWindowLeft,
+                canvasWidthPx = w
+            )
+        } else {
+            val visibleTop = maxOf(0f, headerBottomLocal)
+            val visibleBottom = minOf(h, windowVisibleBottomLocal)
+            val usable = (visibleBottom - visibleTop).coerceAtLeast(0f)
+            UnobstructedViewportBounds(
+                headerBottomLocal = headerBottomLocal,
+                stickyBottomLocal = 0f,
+                maxTopBarBottomLocal = 0f,
+                minBottomBarTopLocal = h,
+                windowVisibleBottomLocal = windowVisibleBottomLocal,
+                visibleEditorTop = visibleTop,
+                visibleEditorBottom = visibleBottom,
+                usableHeight = usable,
+                hasModalBlocker = false,
+                isValid = h > 0f && visibleBottom > visibleTop,
+                floatingPillLocalRects = emptyList()
+            )
+        }
+    }
+
+    fun resolveSafetyFloorAndBounds(
+        anchorDocBottom: Float,
+        maxCanvasScrollPost: Int = maxCanvasScroll,
+        viewportBounds: UnobstructedViewportBounds = resolveUnobstructedViewportBounds()
+    ): SafetyFloorAndBounds = ScribeGapCollapsePolicy.resolveSafetyFloorAndBounds(
+        headerHeight = headerHeight,
+        anchorDocBottom = anchorDocBottom,
+        breathingMarginPx = breathingMarginPx,
+        usableBottomForSafety = viewportBounds.visibleEditorBottom,
+        maxCanvasScrollPost = maxCanvasScrollPost,
+        scrollD = scrollD,
+        editorOffsetY = editor.offsetY
+    )
+
+    fun evaluateVisibilityConfidence(
+        viewportBounds: UnobstructedViewportBounds = resolveUnobstructedViewportBounds()
+    ): VisibilityConfidence = ScribeGapCollapsePolicy.evaluateVisibilityConfidence(
+        isCanvasLaidOut = isLaidOut,
+        isEditorLaidOut = editor.isLaidOut,
+        canvasWidthPx = width,
+        canvasHeightPx = height,
+        isWordwrapReady = editor.isWordwrapReady(),
+        isLayoutBusy = editor.isLayoutComputing,
+        hasPreLayout = editor.layout != null,
+        viewportBounds = viewportBounds
+    )
 
     fun applyDockGeometry(geometry: ScribeDockGeometry) {
         dockGeometry = geometry
@@ -319,7 +393,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             if (height <= 0) {
                 0f
             } else {
-                val maxBound = maxCanvasScroll.toFloat()
                 val cur = try { editor.cursor } catch (_: Throwable) { null }
                 val lay = editor.layout
                 val caretDocY = if (cur != null && lay != null) {
@@ -327,14 +400,16 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 } else {
                     0f
                 }
-                if (isDeletionTailAnchored) {
-                    val tailDocY = maxOf((lay?.layoutHeight ?: 0).toFloat(), caretDocY)
-                    (headerHeight + tailDocY + breathingMarginPx - height)
-                        .coerceIn(0f, maxBound)
+                val anchorDocBottom = if (isDeletionTailAnchored) {
+                    maxOf((lay?.layoutHeight ?: 0).toFloat(), caretDocY)
                 } else {
-                    (headerHeight + caretDocY + breathingMarginPx - height)
-                        .coerceIn(0f, maxBound)
+                    caretDocY
                 }
+                val viewportBounds = resolveUnobstructedViewportBounds()
+                resolveSafetyFloorAndBounds(
+                    anchorDocBottom = anchorDocBottom,
+                    viewportBounds = viewportBounds
+                ).safeMinPhysical.toFloat()
             }
         },
         onSettledCallback = { reason ->
@@ -677,6 +752,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val lay = editor.layout ?: return false
         val geom = getSelectionGeometry(cur, lay) ?: return false
         val currentScroll = (scrollD + editor.offsetY).toFloat()
+        val viewportBounds = resolveUnobstructedViewportBounds()
+        val usableBottomForSafety = viewportBounds.visibleEditorBottom
         val validation = ScribeScrollDeletionPolicy.validateSettledDeletionSafety(
             currentTotalScroll = currentScroll,
             headerHeight = headerHeight,
@@ -685,7 +762,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             usableViewportHeight = height,
             breathingMarginPx = breathingMarginPx,
             maxCanvasScroll = maxCanvasScroll,
-            isTailAnchored = isDeletionTailAnchored
+            isTailAnchored = isDeletionTailAnchored,
+            usableBottomForSafety = usableBottomForSafety
         )
         if (!validation.isSafe && allowCorrectiveAnimation) {
             val correctiveTarget = validation.correctiveTargetScroll
@@ -693,6 +771,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 if (!smooth) {
                     scrollCanvasBy(correctiveTarget - currentScroll)
                     val afterScroll = (scrollD + editor.offsetY).toFloat()
+                    val postViewportBounds = resolveUnobstructedViewportBounds()
                     val postValidation = ScribeScrollDeletionPolicy.validateSettledDeletionSafety(
                         currentTotalScroll = afterScroll,
                         headerHeight = headerHeight,
@@ -701,7 +780,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                         usableViewportHeight = height,
                         breathingMarginPx = breathingMarginPx,
                         maxCanvasScroll = maxCanvasScroll,
-                        isTailAnchored = isDeletionTailAnchored
+                        isTailAnchored = isDeletionTailAnchored,
+                        usableBottomForSafety = postViewportBounds.visibleEditorBottom
                     )
                     if (!postValidation.isSafe && abs(postValidation.correctiveTargetScroll - afterScroll) >= 1f) {
                         scrollCanvasBy(postValidation.correctiveTargetScroll - afterScroll)

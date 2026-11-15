@@ -18,6 +18,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.primaloptima.scribe.engine.ImageHintClickData
+import com.primaloptima.scribe.ui.editor.scroll.LocalOverlayBoundsRegistry
+import com.primaloptima.scribe.ui.editor.scroll.OverlayOcclusionRole
+import com.primaloptima.scribe.ui.editor.scroll.RegisterOverlayBoundsEffect
+import com.primaloptima.scribe.ui.editor.scroll.reportOverlayBounds
 import com.primaloptima.scribe.util.image.VaultImageManager
 
 /**
@@ -31,9 +35,16 @@ fun EditorImagePreviewCard(
     bookId: String?,
     noteId: String,
     modifier: Modifier = Modifier,
+    isVisible: Boolean = true,
     onExpandFullscreen: () -> Unit,
     onDismiss: () -> Unit = {}
 ) {
+    val overlayRegistry = LocalOverlayBoundsRegistry.current
+    RegisterOverlayBoundsEffect(
+        key = "editor_image_preview_card",
+        isVisible = isVisible,
+        registry = overlayRegistry
+    )
     val context = LocalContext.current
     val imageModel = remember(data.imageUri, bookId, noteId) {
         VaultImageManager.resolveModel(context, data.imageUri, bookId, noteId)
@@ -54,6 +65,12 @@ fun EditorImagePreviewCard(
 
     Surface(
         modifier = modifier
+            .reportOverlayBounds(
+                key = "editor_image_preview_card",
+                role = OverlayOcclusionRole.FLOATING_PILL,
+                isVisible = isVisible,
+                registry = overlayRegistry
+            )
             .height(110.dp)
             .width(targetWidth)
             .clip(RoundedCornerShape(14.dp))

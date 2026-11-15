@@ -20,6 +20,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.primaloptima.scribe.ui.editor.scroll.LocalOverlayBoundsRegistry
+import com.primaloptima.scribe.ui.editor.scroll.OverlayOcclusionRole
+import com.primaloptima.scribe.ui.editor.scroll.RegisterOverlayBoundsEffect
+import com.primaloptima.scribe.ui.editor.scroll.reportOverlayBounds
 import com.primaloptima.scribe.ui.theme.LocalBarBlurBitmap
 import com.primaloptima.scribe.ui.theme.LocalHazeState
 import com.primaloptima.scribe.ui.theme.LocalOneShotBitmap
@@ -53,8 +57,22 @@ fun ExpandedEditorLayout(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val navigator = rememberSupportingPaneScaffoldNavigator()
 
+    val overlayRegistry = LocalOverlayBoundsRegistry.current
     val isSupportingPaneOpen =
         navigator.scaffoldValue[SupportingPaneScaffoldRole.Supporting] == PaneAdaptedValue.Expanded
+    val isMainPaneHidden =
+        navigator.scaffoldValue[SupportingPaneScaffoldRole.Main] == PaneAdaptedValue.Hidden
+    val isDrawerVisible = drawerState.isOpen || drawerState.targetValue == DrawerValue.Open
+    RegisterOverlayBoundsEffect(
+        key = "expanded_modal_drawer",
+        isVisible = isDrawerVisible,
+        registry = overlayRegistry
+    )
+    RegisterOverlayBoundsEffect(
+        key = "expanded_supporting_pane",
+        isVisible = isSupportingPaneOpen,
+        registry = overlayRegistry
+    )
 
     // Dismiss Sora's text-action popup when modal drawer opens
     LaunchedEffect(drawerState.isOpen) {
@@ -83,7 +101,14 @@ fun ExpandedEditorLayout(
             CompositionLocalProvider(LocalOneShotBitmap provides LocalBarBlurBitmap.current) {
                 ModalDrawerSheet(
                     drawerContainerColor = Color.Transparent,
-                    modifier = Modifier.frostedPanel(hazeState)
+                    modifier = Modifier
+                        .reportOverlayBounds(
+                            key = "expanded_modal_drawer",
+                            role = OverlayOcclusionRole.MODAL_BLOCKER,
+                            isVisible = isDrawerVisible,
+                            registry = overlayRegistry
+                        )
+                        .frostedPanel(hazeState)
                 ) {
                     leftDrawerContent {
                         scope.launch { drawerState.close() }
@@ -121,7 +146,19 @@ fun ExpandedEditorLayout(
                 }
             },
             supportingPane = {
-                AnimatedPane {
+                val supportingRole = if (isMainPaneHidden) {
+                    OverlayOcclusionRole.MODAL_BLOCKER
+                } else {
+                    OverlayOcclusionRole.FLOATING_PILL
+                }
+                AnimatedPane(
+                    modifier = Modifier.reportOverlayBounds(
+                        key = "expanded_supporting_pane",
+                        role = supportingRole,
+                        isVisible = isSupportingPaneOpen,
+                        registry = overlayRegistry
+                    )
+                ) {
                     rightPanelContent {
                         scope.launch {
                             if (navigator.canNavigateBack()) {

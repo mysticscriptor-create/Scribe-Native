@@ -26,6 +26,10 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.primaloptima.scribe.data.Note
 import com.primaloptima.scribe.data.NoteMetadata
+import com.primaloptima.scribe.ui.editor.scroll.LocalOverlayBoundsRegistry
+import com.primaloptima.scribe.ui.editor.scroll.OverlayOcclusionRole
+import com.primaloptima.scribe.ui.editor.scroll.RegisterOverlayBoundsEffect
+import com.primaloptima.scribe.ui.editor.scroll.reportOverlayBounds
 import com.primaloptima.scribe.ui.screens.LocalInteractiveBoundsRegistry
 import com.primaloptima.scribe.ui.theme.ScribeColorScheme
 import com.primaloptima.scribe.ui.theme.ScribeTheme
@@ -80,9 +84,16 @@ private fun FloatingWindowItem(
     onMove: (Float, Float) -> Unit
 ) {
     val registerBounds = LocalInteractiveBoundsRegistry.current
+    val overlayRegistry = LocalOverlayBoundsRegistry.current
+    val overlayKey = "floating_window_${windowState.id}"
     DisposableEffect(windowState.id) {
-        onDispose { registerBounds("floating_window_${windowState.id}", null) }
+        onDispose { registerBounds(overlayKey, null) }
     }
+    RegisterOverlayBoundsEffect(
+        key = overlayKey,
+        isVisible = true,
+        registry = overlayRegistry
+    )
 
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
@@ -105,8 +116,14 @@ private fun FloatingWindowItem(
             .shadow(12.dp, windowShape)
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, windowShape)
             .onGloballyPositioned { coords ->
-                registerBounds("floating_window_${windowState.id}", coords.boundsInRoot())
-            },
+                registerBounds(overlayKey, coords.boundsInRoot())
+            }
+            .reportOverlayBounds(
+                key = overlayKey,
+                role = OverlayOcclusionRole.FLOATING_PILL,
+                isVisible = true,
+                registry = overlayRegistry
+            ),
         shape = windowShape,
         color = MaterialTheme.colorScheme.surface
     ) {

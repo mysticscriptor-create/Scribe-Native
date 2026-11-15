@@ -342,29 +342,35 @@ object ScribeScrollDeletionPolicy {
         usableViewportHeight: Int,
         breathingMarginPx: Float,
         maxCanvasScroll: Int,
-        isTailAnchored: Boolean
+        isTailAnchored: Boolean,
+        usableBottomForSafety: Float = usableViewportHeight.toFloat()
     ): DeletionSettlementValidation {
-        if (usableViewportHeight <= 0) {
+        if (usableViewportHeight <= 0 || usableBottomForSafety <= 0f) {
             return DeletionSettlementValidation(isSafe = true, correctiveTargetScroll = currentTotalScroll)
         }
-        val safeMax = maxCanvasScroll.toFloat().coerceAtLeast(0f)
-        val targetLineBottom = (usableViewportHeight.toFloat() - breathingMarginPx).coerceAtLeast(0f)
         val effectiveDocBottom = if (isTailAnchored) maxOf(layoutHeight, caretDocBottom) else caretDocBottom
-        val minSafeForCaret = (headerHeight.toFloat() + caretDocBottom - targetLineBottom).coerceAtLeast(0f)
-        val minSafeForEffective = (headerHeight.toFloat() + effectiveDocBottom - targetLineBottom).coerceAtLeast(0f)
-        val minRequiredSafe = maxOf(minSafeForCaret, if (isTailAnchored) minSafeForEffective else 0f)
-            .coerceIn(0f, safeMax)
+        val bounds = ScribeGapCollapsePolicy.resolveSafetyFloorAndBounds(
+            headerHeight = headerHeight,
+            anchorDocBottom = effectiveDocBottom,
+            breathingMarginPx = breathingMarginPx,
+            usableBottomForSafety = usableBottomForSafety,
+            maxCanvasScrollPost = maxCanvasScroll,
+            scrollD = currentTotalScroll.toInt(),
+            editorOffsetY = 0
+        )
+        val safeMinTarget = bounds.safeMinPhysical.toFloat()
+        val safeMaxTarget = bounds.safeMax.toFloat()
 
-        if (currentTotalScroll > safeMax + 0.5f) {
+        if (currentTotalScroll > safeMaxTarget) {
             return DeletionSettlementValidation(
                 isSafe = false,
-                correctiveTargetScroll = maxOf(safeMax, minRequiredSafe).coerceIn(0f, safeMax)
+                correctiveTargetScroll = bounds.clampPhysicalSafetyTarget(safeMaxTarget)
             )
         }
-        if (currentTotalScroll + 0.5f < minRequiredSafe) {
+        if (currentTotalScroll < safeMinTarget) {
             return DeletionSettlementValidation(
                 isSafe = false,
-                correctiveTargetScroll = minRequiredSafe
+                correctiveTargetScroll = bounds.clampPhysicalSafetyTarget(safeMinTarget)
             )
         }
         return DeletionSettlementValidation(isSafe = true, correctiveTargetScroll = currentTotalScroll)
