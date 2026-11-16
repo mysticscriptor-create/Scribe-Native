@@ -946,7 +946,9 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
         run {
             enterSplitCollapseAt(canvas, seamLine = 20, tauLowerPx = rowH * 4f, freezeToPointer = true)
             val prePhysical = canvas.scrollD + editor.offsetY
-            editor.text.replace(5, 0, 5, 4, "Repl")
+            assertEquals("", editor.text.getLineString(5))
+            assertTrue(editor.text.getColumnCount(6) >= 4)
+            editor.text.replace(6, 0, 6, 4, "Repl")
             assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
             assertEquals(prePhysical, canvas.scrollD + editor.offsetY)
 
