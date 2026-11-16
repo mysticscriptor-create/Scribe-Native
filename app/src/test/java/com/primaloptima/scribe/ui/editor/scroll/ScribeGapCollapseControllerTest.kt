@@ -1317,6 +1317,7 @@ class ScribeGapCollapseControllerTest {
         // Second scenario: CORRECTION_STARTED on dh < 0 IME_DISMISSAL preserves eval until fresh epoch finalizes
         val h2 = OptionBCursorAbortHarness()
         h2.beginMode1OrMode2Collapse(requiresMode1 = true, preScrollY = 300, deltaGapPx = 240f, minSafeScroll = 420f)
+        h2.safety.anchorDocBottom = 800f
         val gen2 = h2.safety.deletionTransactionGeneration
         val se2 = h2.controller.restartFinalSafetyClaim(gen2)!!
         val dismissalEval = PendingPostSafetyKeyboardEval(

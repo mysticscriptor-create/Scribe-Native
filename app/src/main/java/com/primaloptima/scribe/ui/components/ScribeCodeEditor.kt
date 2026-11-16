@@ -105,7 +105,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val tauLower: Float
     )
 
-    private val deletionSnapshotCoordinator = ScribeDeletionSnapshotCoordinator()
+    private val deletionSnapshotCoordinator: ScribeDeletionSnapshotCoordinator? =
+        ScribeDeletionSnapshotCoordinator()
     private var stagedPreDeleteSeamCapture: PreDeleteSeamCapture? = null
     private var preEditSeamSnapshot: PreEditSeamSnapshot? = null
     private var wasReplaceInterruptingActiveCollapse: Boolean = false
@@ -116,7 +117,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
     private var scrollEventCounter: Long = 0L
 
     val isInContentReplace: Boolean
-        get() = deletionSnapshotCoordinator.isInContentReplace
+        get() = deletionSnapshotCoordinator?.isInContentReplace == true
 
     val isLayoutBusy: Boolean
         get() = isLayoutComputing || isLayoutBusyState
@@ -381,7 +382,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         preEditSeamSnapshot = null
         wasReplaceInterruptingActiveCollapse = false
         stagedPreDeleteSeamCapture = null
-        deletionSnapshotCoordinator.reset()
+        deletionSnapshotCoordinator?.reset()
     }
 
     private fun hasRtlOrBidiAroundSeam(
@@ -1284,12 +1285,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
             )
             pCanvas.syncActualScrollFromViewport()
         }
-        deletionSnapshotCoordinator.onBeforeReplace()
+        deletionSnapshotCoordinator?.onBeforeReplace()
         val watchdog = Runnable {
             pendingReplaceWatchdog = null
             if (!isAttachedToWindow) return@Runnable
-            if (deletionSnapshotCoordinator.isInContentReplace) {
-                deletionSnapshotCoordinator.reset()
+            if (deletionSnapshotCoordinator?.isInContentReplace == true) {
+                deletionSnapshotCoordinator?.reset()
                 stagedPreDeleteSeamCapture = null
                 val pCanvas = parentCanvas
                 if (pCanvas != null) {
@@ -1311,7 +1312,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (preEditSeamSnapshot == null) {
             preEditSeamSnapshot = capturePreEditSeamSnapshotIfRebasable()
         }
-        deletionSnapshotCoordinator.onBeforeModification(
+        deletionSnapshotCoordinator?.onBeforeModification(
             hasPendingDeletionSettlement = pCanvas.hasPendingDeletionSettlement,
             captureInitialSnapshot = {
                 stagedPreDeleteSeamCapture = null
@@ -1416,7 +1417,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         var forceIneligibleRow5Fallback = false
         if (canMutateCanvas &&
             pCanvas != null &&
-            !deletionSnapshotCoordinator.isInContentReplace &&
+            !isInContentReplace &&
             pCanvas.gapCollapseController.isTransactionOwned
         ) {
             pCanvas.cancelGapCollapseAndDeletionTransaction(
@@ -1426,7 +1427,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
             pCanvas.syncActualScrollFromViewport()
             forceIneligibleRow5Fallback = true
         }
-        val action = deletionSnapshotCoordinator.onAfterDelete(
+        val action = deletionSnapshotCoordinator?.onAfterDelete(
             afterDeleteEndLine = endLine,
             hasPendingDeletionSettlement = pCanvas?.hasPendingDeletionSettlement == true
         )
@@ -1465,13 +1466,14 @@ class ScribeCodeEditor @JvmOverloads constructor(
                         pCanvas.markForceFallbackOnDelayedSettlement()
                     }
                 }
+                null -> Unit
             }
         }
         val txGen = pCanvas?.currentDeletionTransactionGeneration ?: -1L
         super.afterDelete(content, startLine, startColumn, endLine, endColumn, deletedContent)
         if (canMutateCanvas &&
             pCanvas != null &&
-            !deletionSnapshotCoordinator.isInContentReplace &&
+            !isInContentReplace &&
             txGen >= 0L &&
             pCanvas.canStillSettleGeneration(txGen)
         ) {
@@ -1508,7 +1510,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         stagedPreDeleteSeamCapture = null
         val pCanvas = parentCanvas
         val canMutateCanvas = pCanvas != null
-        val insertAction = deletionSnapshotCoordinator.onAfterInsert(
+        val insertAction = deletionSnapshotCoordinator?.onAfterInsert(
             insertedNotEmpty = insertedContent.isNotEmpty(),
             isTextEmpty = text.isEmpty(),
             currentTotalScroll = if (pCanvas != null) pCanvas.scrollD + offsetY else 0,
