@@ -3,6 +3,7 @@ package com.primaloptima.scribe.ui.components
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.RectF
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
@@ -465,6 +466,7 @@ class ScribeGapCollapseIntegrationTest {
             val canvas = host.canvas
             val ed = canvas.editor
             lateinit var aw: EditorTextActionWindow
+            var preDrawSeq = 0L
             try {
                 instr.runOnMainSync {
                     ed.requestFocus()
@@ -482,19 +484,31 @@ class ScribeGapCollapseIntegrationTest {
                     assertFalse("aw.isEnabled must remain false in IDLE before unsplit draw", aw.isEnabled)
                     assertFalse("aw must not show prior to unsplit draw", aw.isShowing)
 
-                    // Simulate stale postInLifecycle(displayWindow) while aw is disabled
-                    ed.postInLifecycle { aw.displayWindow() }
-                }
-                SystemClock.sleep(60L)
-                instr.runOnMainSync {
-                    assertFalse("Stale displayWindow() while disabled must be blocked", aw.isShowing)
-                    assertFalse("aw.isEnabled still false prior to real draw pass", aw.isEnabled)
+                    val renderer = ed.scribeEditorRenderer!!
+                    preDrawSeq = renderer.renderedDrawPassSeq
 
-                    // Now draw unsplit with !cursorAnimator.isRunning -> DrawCursorTask refreshes & enables
+                    // Invoke explicit stale displayWindow() on UI thread BEFORE returning control to Android draw traversal
+                    aw.displayWindow()
+                    assertFalse("aw.isEnabled must remain false when stale displayWindow() runs while disabled", aw.isEnabled)
+                    assertFalse("Stale displayWindow() while disabled must be blocked", aw.isShowing)
+
+                    // Trigger genuine eligible unsplit draw with !cursorAnimator.isRunning
                     drawEditorIntoBitmap(ed)
+                    assertTrue(
+                        "renderedDrawPassSeq must advance after eligible unsplit draw",
+                        renderer.renderedDrawPassSeq > preDrawSeq
+                    )
+                    assertTrue(
+                        "Cursor descriptors must refresh on eligible unsplit draw",
+                        renderer.didRefreshCursorDescriptorsOnLastDraw
+                    )
                 }
                 waitUntil(failureMsg = "aw.isEnabled must re-enable after unsplit !cursorAnimator.isRunning() draw") {
-                    aw.isEnabled
+                    val renderer = ed.scribeEditorRenderer
+                    renderer != null &&
+                        renderer.renderedDrawPassSeq > preDrawSeq &&
+                        renderer.didRefreshCursorDescriptorsOnLastDraw &&
+                        aw.isEnabled
                 }
                 instr.runOnMainSync { aw.dismiss() }
             } finally {
@@ -828,23 +842,54 @@ class ScribeGapCollapseIntegrationTest {
                     assertTrue(expectedSafeBounds != null)
                 }
 
-                // B) CursorAnimator Case 1: Idle at deletion start + Case-I lower insertion handle hit-testing
+                // B) CursorAnimator Case 1: Idle at deletion start + Case-I lower insertion handle hit-testing via actual descriptor
                 instr.runOnMainSync {
+                    // Position viewport near top of document so unshifted and +tauLower shifted caret on line 3 stay inside viewport
+                    canvas.scrollCanvasBy(canvas.headerHeight.toFloat() - (canvas.scrollD + ed.offsetY))
+                    ed.requestFocus()
                     ed.isCursorAnimationEnabled = false
                     ed.cursorAnimator.cancel()
-                    ed.requestFocus()
+                    ed.setSoftKeyboardEnabled(false)
+                    assertFalse("Soft keyboard must remain disabled for deterministic handle descriptor check", ed.isSoftKeyboardEnabled)
+                    assertTrue("Editor must retain focus for handle check", ed.isFocused)
+                    assertTrue("Editor must remain editable for handle check", ed.isEditable)
+                    assertFalse("Editor must not be layoutBusy for handle check", ed.isLayoutBusy)
+
                     val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
                     val tau = rowH * 3f
-                    ed.setSelection(20, 0, false)
-                    startCollapseTransaction(canvas, seamLine = 20, tauLowerPx = tau, requiresMode1 = false)
-                    val lay = ed.layout!!
-                    val curOff = lay.getCharLayoutOffset(20, 0)!!
-                    val handleX = curOff[1] + ed.measureTextRegionOffset() - ed.offsetX
-                    val unshiftedAnchorY = curOff[0] - ed.offsetY + rowH
-                    val shiftedAnchorY = unshiftedAnchorY + tau
-                    assertFalse(ed.isTouchOnHandle(handleX, unshiftedAnchorY + 6f))
-                    assertTrue(ed.isTouchOnHandle(handleX, shiftedAnchorY + 6f))
+                    ed.setSelection(3, 0, false)
+                    ed.cursorAnimator.cancel()
+                    ed.eventHandler.notifyLater()
+                    assertTrue("Insert handle timer must be armed before baseline draw", ed.eventHandler.shouldDrawInsertHandle())
+
+                    drawEditorIntoBitmap(ed)
+                    val unsplitDesc = RectF(ed.insertHandleDescriptor.position)
+                    assertFalse("Unsplit insertion handle descriptor must be non-empty", unsplitDesc.isEmpty)
+
+                    startCollapseTransaction(canvas, seamLine = 3, tauLowerPx = tau, requiresMode1 = false)
+                    drawEditorIntoBitmap(ed)
+                    val splitDesc = RectF(ed.insertHandleDescriptor.position)
+                    assertFalse("Split Pass-2 insertion handle descriptor must be non-empty", splitDesc.isEmpty)
+                    assertEquals("Pass-2 insertion handle top must shift by +tauLower ONCE", unsplitDesc.top + tau, splitDesc.top, 0.5f)
+                    assertEquals("Pass-2 insertion handle bottom must shift by +tauLower ONCE", unsplitDesc.bottom + tau, splitDesc.bottom, 0.5f)
+                    assertTrue(
+                        "Shifted insertion handle ($splitDesc) must lie inside editor viewport (0..${ed.width}, 0..${ed.height})",
+                        splitDesc.centerX() in 0f..ed.width.toFloat() &&
+                            splitDesc.top >= 0f &&
+                            splitDesc.bottom <= ed.height.toFloat()
+                    )
+
+                    assertTrue(
+                        "Hit testing at actual shifted descriptor must return true",
+                        ed.isTouchOnHandle(splitDesc.centerX(), splitDesc.top + 6f)
+                    )
+                    assertFalse(
+                        "Hit testing at old unshifted descriptor must return false",
+                        ed.isTouchOnHandle(unsplitDesc.centerX(), unsplitDesc.top + 6f)
+                    )
+
                     canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "ca_case1")
+                    ed.setSoftKeyboardEnabled(true)
                 }
 
                 // C) CursorAnimator Case 2: Already running at deletion start -> INELIGIBLE_FALLBACK

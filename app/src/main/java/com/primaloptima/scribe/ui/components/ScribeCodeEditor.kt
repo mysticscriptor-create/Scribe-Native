@@ -790,7 +790,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
             val textRegionOffset = measureTextRegionOffset()
             val scrollX = offsetX.toFloat()
             val scrollY = offsetY.toFloat()
-            val rHeight = rowHeight.toFloat()
             val density = context.resources.displayMetrics.density
 
             fun checkHandleHit(anchorX: Float, anchorY: Float, handleType: Int): Boolean {
@@ -834,8 +833,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 if (leftOffset != null && leftOffset.size >= 2) {
                     val leftCharX = leftOffset[1] + textRegionOffset - scrollX
                     val leftTranslationY = controller?.getTranslationForPosition(cur.leftLine, cur.leftColumn) ?: 0f
-                    val leftCharY = leftOffset[0] - scrollY + leftTranslationY
-                    val anchorY = leftCharY + rHeight
+                    val anchorY = leftOffset[0] - scrollY + leftTranslationY
                     if (checkHandleHit(leftCharX, anchorY, handleType = -1)) {
                         return true
                     }
@@ -844,8 +842,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 if (rightOffset != null && rightOffset.size >= 2) {
                     val rightCharX = rightOffset[1] + textRegionOffset - scrollX
                     val rightTranslationY = controller?.getTranslationForPosition(cur.rightLine, cur.rightColumn) ?: 0f
-                    val rightCharY = rightOffset[0] - scrollY + rightTranslationY
-                    val anchorY = rightCharY + rHeight
+                    val anchorY = rightOffset[0] - scrollY + rightTranslationY
                     if (checkHandleHit(rightCharX, anchorY, handleType = 1)) {
                         return true
                     }
@@ -855,8 +852,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 if (curOffset != null && curOffset.size >= 2) {
                     val curCharX = curOffset[1] + textRegionOffset - scrollX
                     val curTranslationY = controller?.getTranslationForPosition(cur.leftLine, cur.leftColumn) ?: 0f
-                    val curCharY = curOffset[0] - scrollY + curTranslationY
-                    val anchorY = curCharY + rHeight
+                    val anchorY = curOffset[0] - scrollY + curTranslationY
                     if (checkHandleHit(curCharX, anchorY, handleType = 0)) {
                         return true
                     }

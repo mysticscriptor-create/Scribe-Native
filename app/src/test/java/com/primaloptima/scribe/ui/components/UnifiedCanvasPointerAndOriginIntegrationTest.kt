@@ -843,7 +843,7 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
         val lay = editor.layout
         val leftOff = lay.getCharLayoutOffset(seamLine, 0)!!
         val handleX = leftOff[1] + editor.measureTextRegionOffset() - editor.offsetX
-        val unshiftedAnchorY = leftOff[0] - editor.offsetY + rowH
+        val unshiftedAnchorY = leftOff[0] - editor.offsetY
         val shiftedAnchorY = unshiftedAnchorY + tau
         assertFalse(
             "Unshifted Y must NOT match handle during split render",

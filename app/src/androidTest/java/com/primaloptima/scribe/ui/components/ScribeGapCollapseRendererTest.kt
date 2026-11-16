@@ -1040,6 +1040,12 @@ class ScribeGapCollapseRendererTest {
                 val splitP1Handle = RectF(ed.insertHandleDescriptor.position)
                 assertEquals("P1 caret handle top must NOT shift", unsplitP1Handle.top, splitP1Handle.top, 0.5f)
                 assertEquals("P1 caret handle bottom must NOT shift", unsplitP1Handle.bottom, splitP1Handle.bottom, 0.5f)
+                if (splitP1Handle.centerX() in 0f..ed.width.toFloat() && splitP1Handle.top + 6f in 0f..ed.height.toFloat()) {
+                    assertTrue(
+                        "P1 unshifted descriptor coordinate must pass hit testing",
+                        ed.isTouchOnHandle(splitP1Handle.centerX(), splitP1Handle.top + 6f)
+                    )
+                }
                 canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "layers_p1_caret")
 
                 // C) P2 Caret on '}' (line 12): exercises ALL 10 layers + Case-I lower handle shift ONCE
@@ -1140,6 +1146,16 @@ class ScribeGapCollapseRendererTest {
                 val splitDesc = RectF(ed.insertHandleDescriptor.position)
                 assertEquals("Layer 9 lower-region handle top must shift by +tauLower ONCE", unsplitDesc.top + tau, splitDesc.top, 0.5f)
                 assertEquals("Layer 9 lower-region handle bottom must shift by +tauLower ONCE", unsplitDesc.bottom + tau, splitDesc.bottom, 0.5f)
+                if (splitDesc.centerX() in 0f..ed.width.toFloat() && splitDesc.top + 6f in 0f..ed.height.toFloat()) {
+                    assertTrue(
+                        "Layer 9 lower-region hit test at actual +tauLower descriptor must succeed",
+                        ed.isTouchOnHandle(splitDesc.centerX(), splitDesc.top + 6f)
+                    )
+                    assertFalse(
+                        "Layer 9 unshifted descriptor Y must not hit shifted lower handle",
+                        ed.isTouchOnHandle(unsplitDesc.centerX(), unsplitDesc.top + 6f)
+                    )
+                }
 
                 } finally {
                     canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "layers")
