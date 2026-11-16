@@ -151,6 +151,14 @@ class ScribeGapCollapseController(
             activeSeamLine >= 0 &&
             tauLower > 0f
 
+    val hasActiveRebasableSeam: Boolean
+        get() = !isTeardownLocked &&
+            (phase == GapCollapsePhase.MODE_1_PHYSICAL_COUPLED ||
+                phase == GapCollapsePhase.MODE_2_VISUAL_SETTLING ||
+                phase == GapCollapsePhase.POINTER_FROZEN) &&
+            activeSeamLine >= 0 &&
+            tauLower > 0f
+
     val isPointerFrozen: Boolean
         get() = !isTeardownLocked && phase == GapCollapsePhase.POINTER_FROZEN
 
@@ -240,8 +248,78 @@ class ScribeGapCollapseController(
         phase = GapCollapsePhase.FINAL_SAFETY_PENDING
         tauLower = 0f
         mode2State = null
+        activeSeamLine = -1
+        activeSeamFirstLowerRow = -1
+        activeSeamDocY = 0f
         onInvalidateEditor()
         return safetyEpoch
+    }
+
+    fun applyIncrementalSeamPreserve(
+        expectedGen: Long,
+        newSeamLine: Int,
+        newSeamFirstLowerRow: Int,
+        newSeamDocY: Float
+    ): Boolean {
+        if (isTeardownLocked || owningDeletionGen != expectedGen || !hasActiveRebasableSeam) {
+            return false
+        }
+        activeSeamLine = newSeamLine
+        activeSeamFirstLowerRow = newSeamFirstLowerRow
+        activeSeamDocY = newSeamDocY
+        onInvalidateEditor()
+        return true
+    }
+
+    fun applyIncrementalSeamRebase(
+        expectedGen: Long,
+        newSeamLine: Int,
+        newSeamFirstLowerRow: Int,
+        newSeamDocY: Float,
+        residualTauLowerPx: Float,
+        actualPhysicalScrollPx: Float
+    ): GapCollapsePhase {
+        if (isTeardownLocked || owningDeletionGen != expectedGen || !hasActiveRebasableSeam) {
+            return phase
+        }
+        val previousPhase = phase
+        val clampedResidual = residualTauLowerPx.coerceAtLeast(0f)
+        activeSeamLine = newSeamLine
+        activeSeamFirstLowerRow = newSeamFirstLowerRow
+        activeSeamDocY = newSeamDocY
+        collapseAnimEpoch++
+
+        if (previousPhase == GapCollapsePhase.POINTER_FROZEN) {
+            tauLower = clampedResidual
+            onInvalidateEditor()
+            return GapCollapsePhase.POINTER_FROZEN
+        }
+
+        cancelMode2Frame()
+        if (previousPhase == GapCollapsePhase.MODE_1_PHYSICAL_COUPLED) {
+            onFreezeMode1Animator()
+        }
+
+        return if (clampedResidual > ScribeGapCollapsePolicy.MODE2_SETTLE_THRESHOLD_PX) {
+            tauLower = clampedResidual
+            startMode2Internal(actualPhysicalScrollPx, progressVelocity = 0f)
+            onInvalidateEditor()
+            GapCollapsePhase.MODE_2_VISUAL_SETTLING
+        } else {
+            val settledCollapseEpoch = collapseAnimEpoch
+            phase = GapCollapsePhase.FINAL_SAFETY_PENDING
+            tauLower = 0f
+            mode2State = null
+            activeSeamLine = -1
+            activeSeamFirstLowerRow = -1
+            activeSeamDocY = 0f
+            safetyEpoch++
+            safetyRetryAttempted = false
+            safetyCorrectionAttempted = false
+            onInvalidateEditor()
+            onMode2SettledToSafety(owningDeletionGen, settledCollapseEpoch)
+            phase
+        }
     }
 
     fun beginCollapse(

@@ -4434,6 +4434,12 @@ fun EditorContent(
 private fun CodeEditor.applyFormat(open: String, close: String) {
     val cur = cursor
     if (cur.isSelected) {
+        (this as? com.primaloptima.scribe.ui.components.ScribeCodeEditor)
+            ?.parentCanvas
+            ?.cancelGapCollapseAndDeletionTransaction(
+                preserveRetractionDebt = false,
+                reason = "apply_format_selection"
+            )
         val indexer  = text.indexer
         val startIdx = indexer.getCharIndex(cur.leftLine,  cur.leftColumn)
         val endIdx   = indexer.getCharIndex(cur.rightLine, cur.rightColumn)
@@ -4459,6 +4465,10 @@ private fun CodeEditor.applyLinePrefix(prefix: String) {
 
 private fun CodeEditor.applySmartPrefix(prefix: String, activeShortcuts: List<com.primaloptima.scribe.util.model.ShortcutAction> = emptyList()) {
     val scribeEditor = this as? com.primaloptima.scribe.ui.components.ScribeCodeEditor
+    scribeEditor?.parentCanvas?.cancelGapCollapseAndDeletionTransaction(
+        preserveRetractionDebt = false,
+        reason = "apply_smart_prefix"
+    )
     val indentSpaces = scribeEditor?.firstLineIndentSpaces ?: 0
     val baseIndent = if (indentSpaces > 0) " ".repeat(indentSpaces) else ""
     val isOrderedRequested = prefix.trim().firstOrNull()?.isDigit() == true

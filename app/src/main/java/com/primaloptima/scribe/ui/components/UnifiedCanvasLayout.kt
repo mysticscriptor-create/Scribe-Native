@@ -253,6 +253,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         private set
 
     private var scrollDFloat: Float = 0f
+    internal val outerScrollDFloatForTest: Float
+        get() = scrollDFloat
+    internal val outerScrollResidualPxForTest: Float
+        get() = outerScrollResidualPx
     private var outerScrollResidualPx: Float = 0f
     private var editorScrollResidualPx: Float = 0f
     private var lastScrollWasBoundaryClamped: Boolean = false
@@ -687,6 +691,24 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         activeSeamDocY = 0f
     }
 
+    internal fun syncActiveSeamBaselineFromController() {
+        if (gapCollapseController.shouldApplySplitRender) {
+            activeSeamLine = gapCollapseController.activeSeamLine
+            activeSeamFirstLowerRow = gapCollapseController.activeSeamFirstLowerRow
+            activeSeamDocY = gapCollapseController.activeSeamDocY
+        } else {
+            clearActiveSeamBaseline()
+        }
+    }
+
+    internal fun markForceFallbackOnDelayedSettlement() {
+        forceFallbackOnDelayedSettlement = true
+    }
+
+    internal fun syncActualScrollFromViewport() {
+        scrollCoordinator.syncActualScroll((scrollD + editor.offsetY).toFloat())
+    }
+
     fun canStillSettleGeneration(expectedGen: Long): Boolean {
         val scribeEditor = editor as? ScribeCodeEditor
         return isDeletionTransactionActive &&
@@ -839,14 +861,15 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         affectsDocumentTail: Boolean,
         preEditLastNonBlankLine: Int = (preEditDocLineCount - 1).coerceAtLeast(0),
         markPendingSettlement: Boolean = false,
-        preDeleteSeamCapture: PreDeleteSeamCapture? = null
+        preDeleteSeamCapture: PreDeleteSeamCapture? = null,
+        forceIneligibleFallback: Boolean = false
     ): Long {
         (editor as? ScribeCodeEditor)?.cancelPendingTextActionRefresh(clearSavedState = false)
         clearPendingDeletionLayoutListener()
         clearDeletionResetRetraction()
         clearAllRetractionDebt()
         settledClaimedGeneration = -1L
-        forceFallbackOnDelayedSettlement = false
+        forceFallbackOnDelayedSettlement = forceIneligibleFallback
         pendingPreDeleteSeamCapture = preDeleteSeamCapture
         resolvedSeamGeometry = null
         clearActiveSeamBaseline()
@@ -1366,8 +1389,36 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         ) {
             return
         }
-        if (eval.isHeightShrink && eval.shouldFollowExpansion) {
-            ensureCursorVisibleAboveKeyboard(smooth = true, force = false)
+        val targetH = eval.targetHeightPx
+        if (eval.isHeightShrink) {
+            val isTitleTargetActive = activeEditingTarget == EditingTarget.PRIMARY_TITLE ||
+                activeEditingTarget == EditingTarget.SECONDARY_TITLE
+            if (!isTitleTargetActive && eval.isAuthorizedTransition && eval.shouldFollowExpansion) {
+                evaluateHeightShrinkCursorFollow(targetH)
+            }
+        } else {
+            val isDismissing = eval.isKeyboardDismissing ||
+                isKeyboardDismissing ||
+                eval.dockTransition == ScribeDockTransition.IME_DISMISSAL ||
+                dockTransition == ScribeDockTransition.IME_DISMISSAL
+            if (isDismissing) {
+                cancelRestoration()
+                invalidateCompensation("Full keyboard dismissal: discard compensation without downward restoration")
+                return
+            }
+            if (!eval.shouldFollowExpansion) {
+                if (!eval.isDestinationSurfaceActive) {
+                    cancelRestoration()
+                    invalidateCompensation("Keyboard dismissing or bottom surface inactive")
+                }
+                return
+            }
+            val isDestinationActiveNow = (isBottomSurfaceActive || isKeyboardVisible || eval.isDestinationSurfaceActive) &&
+                !isDismissing
+            scheduleHeightExpandContractionRestoration(
+                targetH = targetH,
+                isDestinationSurfaceActive = isDestinationActiveNow
+            )
         }
     }
 
@@ -2634,122 +2685,268 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         applyTranslations()
     }
 
+    private fun markExpansionTransitionWindowAtHeightShrink() {
+        isExpansionTransitionActive = true
+        isKeyboardDismissing = false
+        resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
+        val rReset = Runnable {
+            isExpansionTransitionActive = false
+            checkKeyboardTransactionSettled()
+        }
+        resetExpansionTransitionRunnable = rReset
+        postDelayed(rReset, 600L)
+        val curC = try { editor.cursor } catch (_: Throwable) { null }
+        if (curC != null) {
+            expansionCaretLine = curC.leftLine
+            expansionCaretCol = curC.leftColumn
+            expansionHadSelection = curC.isSelected
+        }
+    }
+
+    private fun evaluateHeightShrinkCursorFollow(targetH: Int) {
+        val density = resources.displayMetrics.density
+        val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
+        val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
+
+        val cur = try { editor.cursor } catch (_: Throwable) { null } ?: return
+        val lay = try { editor.layout } catch (_: Throwable) { null } ?: return
+        val isAllSelected = ScribeScrollPolicy.isSelectAll(
+            isSelected = cur.isSelected,
+            leftLine = cur.leftLine,
+            leftCol = cur.leftColumn,
+            rightLine = cur.rightLine,
+            rightCol = cur.rightColumn,
+            lineCount = editor.text.lineCount,
+            lastLineColCount = try { editor.text.getColumnCount(editor.text.lineCount - 1) } catch (_: Throwable) { 0 }
+        )
+        if (isAllSelected && editor.selectAllScrollMode == ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION) {
+            return
+        }
+        val selGeom = getSelectionGeometry(cur, lay)
+        val caretDocBottom = selGeom?.bottomDocY ?: run {
+            val targetLine = if (isAllSelected) cur.rightLine else cur.leftLine
+            val targetCol = if (isAllSelected) cur.rightColumn else cur.leftColumn
+            getCharGeometry(lay, targetLine, targetCol, editor.rowHeight.toFloat()).bottomDocY
+        }
+        val headerRemaining = headerHeight - scrollD
+        val screenBottom = headerRemaining + caretDocBottom - editor.offsetY
+        val targetLineBottom = (targetH - marginPx).toFloat()
+
+        val isCurrentlySafe = screenBottom <= (targetLineBottom + deadbandPx)
+        val desiredTarget = if (isKeyboardTransactionActive) {
+            activeKeyboardTransaction?.calculateRetargetedDestination(
+                caretDocBottom = caretDocBottom,
+                headerHeight = headerHeight.toFloat(),
+                usableViewportHeight = targetH.toFloat(),
+                breathingMarginPx = marginPx.toFloat(),
+                maxCanvasScroll = maxCanvasScroll.toFloat()
+            ) ?: ((headerHeight + caretDocBottom - targetLineBottom).coerceAtLeast(0f)
+                .coerceIn(0f, maxCanvasScroll.toFloat()))
+        } else {
+            ((headerHeight + caretDocBottom - targetLineBottom).coerceAtLeast(0f)
+                .coerceIn(0f, maxCanvasScroll.toFloat()))
+        }
+
+        if (isGlideRunning && scrollCoordinator.isAnimationActive) {
+            val shouldRetarget = if (isKeyboardTransactionActive) {
+                activeKeyboardTransaction?.shouldRetargetEntranceGlide(
+                    glideTarget = glideTarget,
+                    desiredTarget = desiredTarget,
+                    deadbandPx = deadbandPx.toFloat()
+                ) ?: (desiredTarget > glideTarget + deadbandPx)
+            } else {
+                kotlin.math.abs(glideTarget - desiredTarget) > deadbandPx
+            }
+            if (shouldRetarget) {
+                startAuthoritativeScrollAnimation(
+                    targetTotalScroll = desiredTarget,
+                    reason = ScrollAnimationReason.PREDICTIVE_GLIDE,
+                    forceRetarget = true,
+                    onEnd = {
+                        checkKeyboardTransactionSettled()
+                    }
+                )
+            } else {
+                checkKeyboardTransactionSettled()
+            }
+        } else if (!isCurrentlySafe) {
+            val currentScroll = (scrollD + editor.offsetY).toFloat()
+            val scrollDelta = kotlin.math.abs(desiredTarget - currentScroll)
+            if (scrollDelta > deadbandPx) {
+                startAuthoritativeScrollAnimation(
+                    targetTotalScroll = desiredTarget,
+                    reason = ScrollAnimationReason.PREDICTIVE_GLIDE,
+                    durationMs = ScribeScrollPolicy.DURATION_PREDICTIVE_GLIDE_MS,
+                    onEnd = {
+                        checkKeyboardTransactionSettled()
+                    }
+                )
+            } else {
+                checkKeyboardTransactionSettled()
+            }
+        } else {
+            checkKeyboardTransactionSettled()
+        }
+    }
+
+    private fun scheduleHeightExpandContractionRestoration(
+        targetH: Int,
+        isDestinationSurfaceActive: Boolean
+    ) {
+        pendingRestorationRunnable?.let { removeCallbacks(it) }
+        val capturedGen = scrollCoordinator.interactionGeneration
+        val density = resources.displayMetrics.density
+        val rRestoration = Runnable {
+            if (scrollCoordinator.interactionGeneration != capturedGen) {
+                return@Runnable
+            }
+            pendingRestorationRunnable = null
+            val cur = try { editor.cursor } catch (_: Throwable) { null }
+            val lay = editor.layout ?: return@Runnable
+            val geom = getSelectionGeometry(cur, lay) ?: return@Runnable
+            val lineCount = try { editor.text.lineCount } catch (_: Throwable) { 1 }
+            val isAtLastLine = try {
+                (cur != null && cur.leftLine >= (lineCount - 1)) || (lineCount <= 1)
+            } catch (_: Throwable) { false }
+            val caretDocBottom = geom.bottomDocY
+            val caretDocTop = geom.topDocY
+
+            val headerRemaining = (headerHeight - scrollD).toFloat()
+            val caretScreenBottom = headerRemaining + caretDocBottom - editor.offsetY
+            val caretScreenTop = headerRemaining + caretDocTop - editor.offsetY
+            val totalScroll = (scrollD + editor.offsetY).toFloat()
+            val viewportH = if (height > 0) height else targetH
+
+            val result = ScribeScrollRestorationPolicy.resolveContractionRestorationDelta(
+                ScribeScrollRestorationPolicy.ContractionRestorationRequest(
+                    caretScreenBottom = caretScreenBottom,
+                    caretScreenTop = caretScreenTop,
+                    viewportHeight = viewportH,
+                    density = density,
+                    totalScroll = totalScroll,
+                    temporaryDisplacement = temporaryExpansionDisplacement,
+                    isAtLastLine = isAtLastLine,
+                    isKeyboardDismissing = isKeyboardDismissing,
+                    isBottomSurfaceActive = isDestinationSurfaceActive
+                )
+            )
+
+            if (result.shouldScroll) {
+                val candidateTarget = (totalScroll + result.deltaY).coerceAtLeast(0f)
+                val validation = ScribeScrollRestorationPolicy.validateFinalTarget(
+                    targetTotalScroll = candidateTarget,
+                    caretDocBottom = caretDocBottom,
+                    headerHeight = headerHeight,
+                    viewportHeight = viewportH,
+                    density = density
+                )
+                val safeTarget = if (!validation.isSafe) candidateTarget + validation.correctiveDeltaY else candidateTarget
+                startOrRetargetContractionRestoration(safeTarget)
+            } else if (isRestorationActive) {
+                cancelRestoration()
+            }
+        }
+        pendingRestorationRunnable = rRestoration
+        post(rRestoration)
+    }
+
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         topEdgeEffect?.setSize(w, h)
+        if (oldw > 0 && w != oldw) {
+            (editor as? ScribeCodeEditor)?.clearTextActionAndReplaceTokensOnReset()
+            cancelGapCollapseAndDeletionTransaction(
+                preserveRetractionDebt = false,
+                reason = "width_change"
+            )
+            syncActualScrollFromViewport()
+        }
         if (oldh > 0 && kotlin.math.abs(h - oldh) > 2) {
             val dh = oldh - h
+            if (w == oldw && gapCollapseController.isTransactionOwned) {
+                val g = gapCollapseController.owningDeletionGen
+                clearPendingDeletionLayoutListener()
+                canvasAnimator.cancelPreservingTransaction("height_resize_serialize")
+                cancelRestoration()
+                outerScrollResidualPx = 0f
+                editorScrollResidualPx = 0f
+                scrollDFloat = scrollD.toFloat()
+
+                val safetyEpoch = if (gapCollapseController.phase == GapCollapsePhase.FINAL_SAFETY_PENDING) {
+                    gapCollapseController.transitionToFinalSafetyForFallback(g)
+                } else {
+                    gapCollapseController.restartFinalSafetyClaim(g)
+                        ?: gapCollapseController.transitionToFinalSafetyForFallback(g)
+                }
+                clearActiveSeamBaseline()
+                resolvedSeamGeometry = null
+
+                val curActual = (scrollD + editor.offsetY).toFloat()
+                scrollCoordinator.syncActualScroll(curActual)
+
+                val isHeightShrink = dh > 0
+                val isTitleTargetActive = activeEditingTarget == EditingTarget.PRIMARY_TITLE ||
+                    activeEditingTarget == EditingTarget.SECONDARY_TITLE
+                val isAuthorizedTransition = isKeyboardTransactionActive || isBottomSurfaceActive || isKeyboardVisible
+                val isDismissing = isKeyboardDismissing || dockTransition == ScribeDockTransition.IME_DISMISSAL
+                val density = resources.displayMetrics.density
+                val rootH = rootView?.height ?: resources.displayMetrics.heightPixels
+                val hasBottomObstruction = (rootH - h) >= (140 * density).roundToInt()
+                val cur = try { editor.cursor } catch (_: Throwable) { null }
+                val lineCount = try { editor.text.lineCount } catch (_: Throwable) { 1 }
+                val isAtLastLine = try {
+                    (cur != null && cur.leftLine >= (lineCount - 1)) || (lineCount <= 1)
+                } catch (_: Throwable) { false }
+                val hasActiveScroll = scrollD > 0 || editor.offsetY > 0
+
+                if (isHeightShrink && isAuthorizedTransition) {
+                    markExpansionTransitionWindowAtHeightShrink()
+                } else if (!isHeightShrink) {
+                    isExpansionTransitionActive = false
+                    resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
+                }
+
+                val shouldFollowShrink = isHeightShrink && !isTitleTargetActive && isAuthorizedTransition
+                val shouldFollowContraction = !isHeightShrink && ScribeBottomSurfaceCoordinator.shouldFollowDownward(
+                    isKeyboardDismissing = isKeyboardDismissing,
+                    isBottomSurfaceActive = isBottomSurfaceActive,
+                    isKeyboardVisible = isKeyboardVisible,
+                    hasPhysicalBottomObstruction = hasBottomObstruction,
+                    isAtLastLine = isAtLastLine,
+                    hasActiveScroll = hasActiveScroll,
+                    temporaryDisplacement = temporaryExpansionDisplacement,
+                    activeTransition = dockTransition
+                )
+                val isDestinationSurfaceActive = (isBottomSurfaceActive || isKeyboardVisible || hasBottomObstruction) &&
+                    !isDismissing
+
+                gapCollapseController.storePendingPostSafetyKeyboardEval(
+                    PendingPostSafetyKeyboardEval(
+                        owningGen = g,
+                        expectedSafetyEpoch = safetyEpoch,
+                        targetHeightPx = h,
+                        isHeightShrink = isHeightShrink,
+                        isAuthorizedTransition = isAuthorizedTransition,
+                        shouldFollowExpansion = if (isHeightShrink) shouldFollowShrink else shouldFollowContraction,
+                        isKeyboardDismissing = isDismissing,
+                        isDestinationSurfaceActive = isDestinationSurfaceActive,
+                        dockTransition = dockTransition
+                    )
+                )
+                completeDeletionVisualTransaction(g, safetyEpoch)
+                return
+            }
             if (dh > 0) {
                 val isTitleTargetActive = activeEditingTarget == EditingTarget.PRIMARY_TITLE ||
                     activeEditingTarget == EditingTarget.SECONDARY_TITLE
                 val isAuthorizedTransition = isKeyboardTransactionActive || isBottomSurfaceActive || isKeyboardVisible
                 if (isAuthorizedTransition) {
-                    // Viewport shrinking during authorized keyboard entrance, accessory drawer opening, or IME expansion
-                    isExpansionTransitionActive = true
-                    isKeyboardDismissing = false // Opening/expanding: clear any stale dismissal flag
-                    resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
-                    val rReset = Runnable {
-                        isExpansionTransitionActive = false
-                        checkKeyboardTransactionSettled()
-                    }
-                    resetExpansionTransitionRunnable = rReset
-                    postDelayed(rReset, 600L)
-                    val curC = try { editor.cursor } catch (_: Throwable) { null }
-                    if (curC != null) {
-                        expansionCaretLine = curC.leftLine
-                        expansionCaretCol = curC.leftColumn
-                        expansionHadSelection = curC.isSelected
-                    }
+                    markExpansionTransitionWindowAtHeightShrink()
                 }
                 if (!isTitleTargetActive && isAuthorizedTransition) {
-                    val density = resources.displayMetrics.density
-                    val marginPx = (ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
-                    val deadbandPx = (ScribeScrollPolicy.CURSOR_DEADBAND_DP * density).roundToInt()
-
-                    val cur = try { editor.cursor } catch (_: Throwable) { null }
-                    val lay = try { editor.layout } catch (_: Throwable) { null }
-                    if (cur != null && lay != null) {
-                        val isAllSelected = ScribeScrollPolicy.isSelectAll(
-                            isSelected = cur.isSelected,
-                            leftLine = cur.leftLine,
-                            leftCol = cur.leftColumn,
-                            rightLine = cur.rightLine,
-                            rightCol = cur.rightColumn,
-                            lineCount = editor.text.lineCount,
-                            lastLineColCount = try { editor.text.getColumnCount(editor.text.lineCount - 1) } catch (_: Throwable) { 0 }
-                        )
-                        if (!(isAllSelected && editor.selectAllScrollMode == ScribeScrollPolicy.SelectAllScrollMode.KEEP_CURRENT_POSITION)) {
-                            val selGeom = getSelectionGeometry(cur, lay)
-                            val caretDocBottom = selGeom?.bottomDocY ?: run {
-                                val targetLine = if (isAllSelected) cur.rightLine else cur.leftLine
-                                val targetCol = if (isAllSelected) cur.rightColumn else cur.leftColumn
-                                getCharGeometry(lay, targetLine, targetCol, editor.rowHeight.toFloat()).bottomDocY
-                            }
-                            val headerRemaining = headerHeight - scrollD
-                            val screenBottom = headerRemaining + caretDocBottom - editor.offsetY
-                            val targetLineBottom = (h - marginPx).toFloat()
-
-                            val isCurrentlySafe = screenBottom <= (targetLineBottom + deadbandPx)
-                            val desiredTarget = if (isKeyboardTransactionActive) {
-                                activeKeyboardTransaction?.calculateRetargetedDestination(
-                                    caretDocBottom = caretDocBottom,
-                                    headerHeight = headerHeight.toFloat(),
-                                    usableViewportHeight = h.toFloat(),
-                                    breathingMarginPx = marginPx.toFloat(),
-                                    maxCanvasScroll = maxCanvasScroll.toFloat()
-                                ) ?: ((headerHeight + caretDocBottom - targetLineBottom).coerceAtLeast(0f)
-                                    .coerceIn(0f, maxCanvasScroll.toFloat()))
-                            } else {
-                                ((headerHeight + caretDocBottom - targetLineBottom).coerceAtLeast(0f)
-                                    .coerceIn(0f, maxCanvasScroll.toFloat()))
-                            }
-
-                            if (isGlideRunning && scrollCoordinator.isAnimationActive) {
-                                val shouldRetarget = if (isKeyboardTransactionActive) {
-                                    activeKeyboardTransaction?.shouldRetargetEntranceGlide(
-                                        glideTarget = glideTarget,
-                                        desiredTarget = desiredTarget,
-                                        deadbandPx = deadbandPx.toFloat()
-                                    ) ?: (desiredTarget > glideTarget + deadbandPx)
-                                } else {
-                                    kotlin.math.abs(glideTarget - desiredTarget) > deadbandPx
-                                }
-                                if (shouldRetarget) {
-                                    startAuthoritativeScrollAnimation(
-                                        targetTotalScroll = desiredTarget,
-                                        reason = ScrollAnimationReason.PREDICTIVE_GLIDE,
-                                        forceRetarget = true,
-                                        onEnd = {
-                                            checkKeyboardTransactionSettled()
-                                        }
-                                    )
-                                } else {
-                                    checkKeyboardTransactionSettled()
-                                }
-                            } else if (!isCurrentlySafe) {
-                                val currentScroll = (scrollD + editor.offsetY).toFloat()
-                                val scrollDelta = kotlin.math.abs(desiredTarget - currentScroll)
-                                if (scrollDelta > deadbandPx) {
-                                    startAuthoritativeScrollAnimation(
-                                        targetTotalScroll = desiredTarget,
-                                        reason = ScrollAnimationReason.PREDICTIVE_GLIDE,
-                                        durationMs = ScribeScrollPolicy.DURATION_PREDICTIVE_GLIDE_MS,
-                                        onEnd = {
-                                            checkKeyboardTransactionSettled()
-                                        }
-                                    )
-                                } else {
-                                    checkKeyboardTransactionSettled()
-                                }
-                            } else {
-                                // Caret is already safe! Suppress any secondary jump.
-                                checkKeyboardTransactionSettled()
-                            }
-                        }
-                    }
+                    evaluateHeightShrinkCursorFollow(h)
                 }
             } else if (dh < 0) {
-                // Viewport expanding (accessory drawer contracting, emoji keyboard closing, or bottom surface lowering)
                 isExpansionTransitionActive = false
                 resetExpansionTransitionRunnable?.let { removeCallbacks(it) }
 
@@ -2780,10 +2977,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     activeTransition = dockTransition
                 )
 
-                // Pure Writer Invariant:
-                // When keyboard is dismissed or closing, the document MUST remain
-                // completely stationary at the saved margin (keyboard height + shortcut bar + breathing margin).
-                // Never pull down to the bottom of the screen.
                 val isDestinationSurfaceActive = (isBottomSurfaceActive || isKeyboardVisible || hasBottomObstruction) &&
                     !isKeyboardDismissing && dockTransition != ScribeDockTransition.IME_DISMISSAL
 
@@ -2795,59 +2988,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     return
                 }
 
-                // Downward Following Invariant:
-                // When bottom surface remains active (e.g. accessory drawer collapsed to keyboard,
-                // or taller emoji keyboard returned to standard keyboard), safely restore temporary
-                // displacement across ALL caret positions, while ensuring the caret settles above
-                // the shortcut bar maintaining the exact 24dp breathing margin.
-                pendingRestorationRunnable?.let { removeCallbacks(it) }
-                val capturedGen = scrollCoordinator.interactionGeneration
-                val rRestoration = Runnable {
-                    if (scrollCoordinator.interactionGeneration != capturedGen) {
-                        return@Runnable
-                    }
-                    pendingRestorationRunnable = null
-                    val lay = editor.layout ?: return@Runnable
-                    val geom = getSelectionGeometry(cur, lay) ?: return@Runnable
-                    val caretDocBottom = geom.bottomDocY
-                    val caretDocTop = geom.topDocY
-
-                    val headerRemaining = (headerHeight - scrollD).toFloat()
-                    val caretScreenBottom = headerRemaining + caretDocBottom - editor.offsetY
-                    val caretScreenTop = headerRemaining + caretDocTop - editor.offsetY
-                    val totalScroll = (scrollD + editor.offsetY).toFloat()
-
-                    val result = ScribeScrollRestorationPolicy.resolveContractionRestorationDelta(
-                        ScribeScrollRestorationPolicy.ContractionRestorationRequest(
-                            caretScreenBottom = caretScreenBottom,
-                            caretScreenTop = caretScreenTop,
-                            viewportHeight = height,
-                            density = density,
-                            totalScroll = totalScroll,
-                            temporaryDisplacement = temporaryExpansionDisplacement,
-                            isAtLastLine = isAtLastLine,
-                            isKeyboardDismissing = isKeyboardDismissing,
-                            isBottomSurfaceActive = isDestinationSurfaceActive
-                        )
-                    )
-
-                    if (result.shouldScroll) {
-                        val candidateTarget = (totalScroll + result.deltaY).coerceAtLeast(0f)
-                        val validation = ScribeScrollRestorationPolicy.validateFinalTarget(
-                            targetTotalScroll = candidateTarget,
-                            caretDocBottom = caretDocBottom,
-                            headerHeight = headerHeight,
-                            viewportHeight = height,
-                            density = density
-                        )
-                        val safeTarget = if (!validation.isSafe) candidateTarget + validation.correctiveDeltaY else candidateTarget
-                        startOrRetargetContractionRestoration(safeTarget)
-                    } else if (isRestorationActive) {
-                        cancelRestoration()
-                    }
-                }
-                pendingRestorationRunnable = rRestoration
-                post(rRestoration)
+                scheduleHeightExpandContractionRestoration(
+                    targetH = h,
+                    isDestinationSurfaceActive = isDestinationSurfaceActive
+                )
             }
         }
     }
@@ -3231,7 +3375,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        (editor as? ScribeCodeEditor)?.clearTextActionAndReplaceTokensOnReset()
         cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "detached")
+        syncActualScrollFromViewport()
         clearPendingDeletionLayoutListener()
         resetDeletionActiveRunnable?.let { removeCallbacks(it) }
         resetDeletionActiveRunnable = null

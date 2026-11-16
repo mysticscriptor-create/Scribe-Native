@@ -14,7 +14,11 @@ import com.primaloptima.scribe.ui.editor.scroll.PhysicalScrollOrigin
 import com.primaloptima.scribe.ui.editor.scroll.SafetyFloorAndBounds
 import com.primaloptima.scribe.ui.editor.scroll.ScribeScrollDeletionPolicy
 import com.primaloptima.scribe.ui.editor.scroll.ScribeScrollInputController
+import com.primaloptima.scribe.ui.editor.scroll.PendingPostSafetyKeyboardEval
 import com.primaloptima.scribe.ui.editor.scroll.ScrollAnimationReason
+import com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition
+import com.primaloptima.scribe.ui.editor.scroll.ScribeGapCollapsePolicy
+import io.github.rosemoe.sora.util.IntPair
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -718,5 +722,334 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
                 canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "test_cleanup")
             }
         }
+    }
+
+    private fun enterSplitCollapseAt(
+        canvas: UnifiedCanvasLayout,
+        seamLine: Int,
+        tauLowerPx: Float,
+        requiresMode1: Boolean = false,
+        freezeToPointer: Boolean = false
+    ): Pair<Long, Long> {
+        canvas.editor.isWordwrap = true
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        val lay = canvas.editor.layout!!
+        val seamCharIdx = canvas.editor.text.getCharIndex(seamLine, 0)
+        val seamRow = lay.getRowIndexForPosition(seamCharIdx)
+        val rowH = canvas.editor.rowHeight.toFloat().coerceAtLeast(1f)
+        val seamDocY = seamRow * rowH
+        val preScrollY = (canvas.scrollD + canvas.editor.offsetY)
+        val gen = canvas.beginPreEditDeletionSnapshot(
+            isSelection = true,
+            selectionStartLine = (seamLine - 2).coerceAtLeast(0),
+            selectionEndLine = seamLine,
+            preEditDocLineCount = canvas.editor.text.lineCount,
+            preEditDocHeight = (canvas.headerHeight + lay.layoutHeight).toFloat(),
+            preEditScrollY = preScrollY.toFloat(),
+            preEditCaretScreenY = 300f,
+            wasAtTail = false,
+            affectsDocumentTail = false,
+            preEditLastNonBlankLine = canvas.editor.text.lineCount - 1,
+            markPendingSettlement = false
+        )
+        val plan = makeTestCollapsePlan(
+            preScrollY = preScrollY,
+            effectiveTargetScroll = if (requiresMode1) (preScrollY - 120).coerceAtLeast(0).toFloat() else preScrollY.toFloat(),
+            requiresMode1 = requiresMode1,
+            initialTauLowerPx = tauLowerPx,
+            safeMinPhysical = 0,
+            safeMax = canvas.maxCanvasScroll.coerceAtLeast(2500)
+        )
+        val epoch = canvas.gapCollapseController.beginCollapse(
+            owningGen = gen,
+            plan = plan,
+            seamLine = seamLine,
+            seamFirstLowerRow = seamRow,
+            seamDocY = seamDocY,
+            rowHeightPx = rowH,
+            initialPhysicalScrollPx = preScrollY.toFloat()
+        )
+        if (requiresMode1) {
+            canvas.gapCollapseController.markMode1Started(gen, epoch, preScrollY.toFloat())
+        }
+        if (freezeToPointer) {
+            assertTrue(canvas.gapCollapseController.freezeForPointer(gen))
+        }
+        canvas.syncActiveSeamBaselineFromController()
+        return gen to epoch
+    }
+
+    @Test
+    fun testTouchUntranslateYOffsetAndHandleHitTestingAcrossActiveSplitSeam() {
+        val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 80)
+        val editor = canvas.editor
+        editor.isCursorAnimationEnabled = false
+        canvas.scrollCanvasBy(350f)
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+        val rowH = editor.rowHeight.toFloat().coerceAtLeast(20f)
+        val tau = rowH * 4f
+        val seamLine = 20
+        enterSplitCollapseAt(canvas, seamLine = seamLine, tauLowerPx = tau, requiresMode1 = false)
+        assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+
+        val seamDocY = canvas.gapCollapseController.activeSeamDocY
+        // Upper region unchanged
+        assertEquals(seamDocY - 15f, editor.untranslateYOffset(seamDocY - 15f), 0.001f)
+        // Collapsed gap band [seamDocY, seamDocY + tau) clamps to seamDocY
+        assertEquals(seamDocY, editor.untranslateYOffset(seamDocY), 0.001f)
+        assertEquals(seamDocY, editor.untranslateYOffset(seamDocY + tau * 0.5f), 0.001f)
+        // Lower region subtracts tauLower at most once
+        assertEquals(seamDocY + rowH, editor.untranslateYOffset(seamDocY + tau + rowH), 0.001f)
+
+        // getPointPosition & getPointVisualPosition map lower screen Y back to logical line below seam
+        val testX = editor.measureTextRegionOffset() + 40f
+        val targetLine = seamLine + 2
+        val targetDocOffset = editor.layout.getCharLayoutOffset(targetLine, 0)!!
+        val visualTranslatedDocY = targetDocOffset[0] + tau + (rowH * 0.5f)
+        val packedPos = editor.getPointPosition(testX, visualTranslatedDocY)
+        val mappedLine = IntPair.getFirst(packedPos)
+        val visualPos = editor.getPointVisualPosition(testX, visualTranslatedDocY)
+        assertEquals("getPointPosition must untranslate lower region once", targetLine, mappedLine)
+        assertEquals("getPointVisualPosition must agree with untranslated row", targetLine, visualPos.line)
+
+        // Handle hit testing adds +tauLower for handles on or below activeSeamLine
+        editor.setSelectionRegion(seamLine, 0, seamLine + 1, 4, false)
+        val lay = editor.layout
+        val leftOff = lay.getCharLayoutOffset(seamLine, 0)!!
+        val handleX = leftOff[1] + editor.measureTextRegionOffset() - editor.offsetX
+        val unshiftedAnchorY = leftOff[0] - editor.offsetY + rowH
+        val shiftedAnchorY = unshiftedAnchorY + tau
+        assertFalse(
+            "Unshifted Y must NOT match handle during split render",
+            editor.isTouchOnHandle(handleX, unshiftedAnchorY + 6f)
+        )
+        assertTrue(
+            "Shifted Y (+tauLower) must hit selection handle during split render",
+            editor.isTouchOnHandle(handleX, shiftedAnchorY + 6f)
+        )
+
+        canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "test_cleanup")
+        assertEquals(seamDocY + tau, editor.untranslateYOffset(seamDocY + tau), 0.001f)
+    }
+
+    @Test
+    fun testMidCollapseEightRowOperationMatrixAndPolicyABMutations() {
+        val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
+        val editor = canvas.editor
+        editor.isCursorAnimationEnabled = false
+        canvas.scrollCanvasBy(400f)
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        val rowH = editor.rowHeight.toFloat().coerceAtLeast(20f)
+
+        // Row 1a: Insert strictly below active seam -> preserve phase, tauLower, G, E, baseline
+        run {
+            val (gen, epoch) = enterSplitCollapseAt(canvas, seamLine = 20, tauLowerPx = rowH * 4f, requiresMode1 = true)
+            val preBaseline = canvas.gapCollapseController.activeSeamDocY
+            editor.text.insert(30, 0, "tail line insert\n")
+            assertEquals(GapCollapsePhase.MODE_1_PHYSICAL_COUPLED, canvas.gapCollapseController.phase)
+            assertEquals(gen, canvas.gapCollapseController.owningDeletionGen)
+            assertEquals(epoch, canvas.gapCollapseController.collapseAnimEpoch)
+            assertEquals(preBaseline, canvas.gapCollapseController.activeSeamDocY, 0.001f)
+            assertEquals(rowH * 4f, canvas.gapCollapseController.tauLower, 0.001f)
+            canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "r1a")
+        }
+
+        // Row 1b: Insert above/at seam without row shift (deltaY == 0) -> preserve phase, tau, G, E, update baseline
+        run {
+            val (gen, epoch) = enterSplitCollapseAt(canvas, seamLine = 20, tauLowerPx = rowH * 4f, freezeToPointer = true)
+            editor.text.insert(15, 2, "abc")
+            assertEquals(GapCollapsePhase.POINTER_FROZEN, canvas.gapCollapseController.phase)
+            assertEquals(gen, canvas.gapCollapseController.owningDeletionGen)
+            assertEquals(epoch, canvas.gapCollapseController.collapseAnimEpoch)
+            assertEquals(20, canvas.gapCollapseController.activeSeamLine)
+            canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "r1b")
+        }
+
+        // Row 2: Small newline insert above seam (0.5f < deltaY <= tau) -> rebase residual tau into POINTER_FROZEN / Mode 2
+        run {
+            val (gen, epoch) = enterSplitCollapseAt(canvas, seamLine = 20, tauLowerPx = rowH * 4f, requiresMode1 = true)
+            editor.text.insert(10, 0, "\n")
+            assertEquals(GapCollapsePhase.MODE_2_VISUAL_SETTLING, canvas.gapCollapseController.phase)
+            assertEquals(gen, canvas.gapCollapseController.owningDeletionGen)
+            assertEquals(epoch + 1L, canvas.gapCollapseController.collapseAnimEpoch)
+            assertEquals(21, canvas.gapCollapseController.activeSeamLine)
+            assertEquals(rowH * 3f, canvas.gapCollapseController.tauLower, 1.5f)
+            canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "r2")
+        }
+
+        // Row 3: Undo/Redo small insert above seam -> identical rebase
+        run {
+            editor.text.insert(5, 0, "\n")
+            editor.undo()
+            val (gen, _) = enterSplitCollapseAt(canvas, seamLine = 20, tauLowerPx = rowH * 4f, freezeToPointer = true)
+            assertTrue(editor.canRedo())
+            editor.redo()
+            assertEquals(GapCollapsePhase.POINTER_FROZEN, canvas.gapCollapseController.phase)
+            assertEquals(gen, canvas.gapCollapseController.owningDeletionGen)
+            assertEquals(21, canvas.gapCollapseController.activeSeamLine)
+            assertEquals(rowH * 3f, canvas.gapCollapseController.tauLower, 1.5f)
+            canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "r3")
+        }
+
+        // Row 4: Inline insertion at (seamLine, 0) (newSeamCol != 0) or deltaY > tau -> fallback
+        run {
+            enterSplitCollapseAt(canvas, seamLine = 20, tauLowerPx = rowH * 2f, freezeToPointer = true)
+            editor.text.insert(20, 0, "X")
+            assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+            assertFalse(canvas.gapCollapseController.shouldApplySplitRender)
+
+            enterSplitCollapseAt(canvas, seamLine = 20, tauLowerPx = rowH * 1.5f, freezeToPointer = true)
+            editor.text.insert(10, 0, "\n\n\n")
+            assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+        }
+
+        // Row 5: Second deletion interrupts collapse and marks Deletion #2 INELIGIBLE_FALLBACK
+        run {
+            val (gen1, _) = enterSplitCollapseAt(canvas, seamLine = 20, tauLowerPx = rowH * 4f, freezeToPointer = true)
+            editor.setSelectionRegion(8, 0, 10, 0, false)
+            editor.deleteText()
+            assertFalse(canvas.gapCollapseController.shouldApplySplitRender)
+            assertNotEquals(gen1, canvas.currentDeletionTransactionGeneration)
+            assertTrue(canvas.forceFallbackOnDelayedSettlement || canvas.gapCollapseController.phase != GapCollapsePhase.POINTER_FROZEN)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertFalse("Second deletion must never launch gap collapse", canvas.gapCollapseController.shouldApplySplitRender)
+            canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "r5")
+        }
+
+        // Row 6: Content.replace + Policy B (updateImageDescription, removeImageTag, setText) cancel pre-mutation
+        run {
+            enterSplitCollapseAt(canvas, seamLine = 20, tauLowerPx = rowH * 4f, freezeToPointer = true)
+            val prePhysical = canvas.scrollD + editor.offsetY
+            editor.text.replace(5, 0, 5, 4, "Repl")
+            assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+            assertEquals(prePhysical, canvas.scrollD + editor.offsetY)
+
+            // Policy B: updateImageDescription / removeImageTag / applyFormattedTextSilently / setText cancel collapse pre-mutation
+            canvas.editor.text.insert(4, 0, "![alt](vault-img://img1)\n")
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            enterSplitCollapseAt(canvas, seamLine = 20, tauLowerPx = rowH * 4f, freezeToPointer = true)
+            editor.updateImageDescription("vault-img://img1", "updated-alt")
+            assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+
+            enterSplitCollapseAt(canvas, seamLine = 20, tauLowerPx = rowH * 4f, freezeToPointer = true)
+            editor.removeImageTag("vault-img://img1")
+            assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+
+            enterSplitCollapseAt(canvas, seamLine = 20, tauLowerPx = rowH * 4f, freezeToPointer = true)
+            editor.applyFormattedTextSilently(
+                newText = editor.text.toString(),
+                oldIndent = 0,
+                newIndent = 0,
+                savedLine = 4,
+                savedCol = 0,
+                adjustedCol = 0,
+                savedScrollX = 0,
+                savedScrollY = editor.offsetY,
+                savedCanvasScrollD = canvas.scrollD
+            )
+            assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+
+            enterSplitCollapseAt(canvas, seamLine = 20, tauLowerPx = rowH * 4f, freezeToPointer = true)
+            editor.setText("Fresh document line 1\nFresh document line 2\nFresh document line 3")
+            assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+            assertFalse(editor.isInContentReplace)
+        }
+
+        // Row 7: Empty replacement ("") interrupts active collapse without triggering a nested collapse
+        run {
+            val canvas2 = createLaidOutCanvas(headerHeightPx = 200, lineCount = 80)
+            canvas2.editor.isCursorAnimationEnabled = false
+            canvas2.scrollCanvasBy(350f)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            enterSplitCollapseAt(canvas2, seamLine = 20, tauLowerPx = rowH * 4f, freezeToPointer = true)
+            canvas2.editor.text.replace(6, 0, 9, 0, "")
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertFalse("Empty replace interrupting active collapse must settle as fallback without split render", canvas2.gapCollapseController.shouldApplySplitRender)
+            canvas2.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "r7")
+        }
+
+        // Policy A: handleProseNewline() with blank line indent normalization keeps collapse intact
+        run {
+            val canvas3 = createLaidOutCanvas(headerHeightPx = 200, lineCount = 80)
+            canvas3.editor.isCursorAnimationEnabled = false
+            canvas3.editor.firstLineIndentSpaces = 4
+            canvas3.editor.text.insert(8, 0, "\n")
+            canvas3.editor.text.replace(8, 0, 8, canvas3.editor.text.getColumnCount(8), "")
+            canvas3.scrollCanvasBy(350f)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            val rowH3 = canvas3.editor.rowHeight.toFloat().coerceAtLeast(20f)
+            enterSplitCollapseAt(canvas3, seamLine = 25, tauLowerPx = rowH3 * 4f, freezeToPointer = true)
+            canvas3.editor.setSelection(8, 0)
+            canvas3.editor.handleProseNewline()
+            assertEquals(
+                "Policy A handleProseNewline must rebase instead of false Policy-B cancel",
+                GapCollapsePhase.POINTER_FROZEN,
+                canvas3.gapCollapseController.phase
+            )
+            assertEquals(26, canvas3.gapCollapseController.activeSeamLine)
+            canvas3.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "pa_cleanup")
+        }
+    }
+
+    @Test
+    fun testWidthChangeDetachCleanupSerializedHeightResizeAndScrollDFloatInvariant() {
+        val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 120)
+        canvas.editor.isCursorAnimationEnabled = false
+        canvas.scrollCanvasBy(500f)
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        // scrollDFloat invariant: strictly scrollD.toFloat() + outerScrollResidualPx (never S_actual)
+        assertEquals(200, canvas.scrollD)
+        assertEquals(300, canvas.editor.offsetY)
+        assertEquals(
+            canvas.scrollD.toFloat() + canvas.outerScrollResidualPxForTest,
+            canvas.outerScrollDFloatForTest,
+            0.001f
+        )
+        assertNotEquals(
+            (canvas.scrollD + canvas.editor.offsetY).toFloat(),
+            canvas.outerScrollDFloatForTest
+        )
+
+        val rowH = canvas.editor.rowHeight.toFloat().coerceAtLeast(20f)
+        // Width change cancels active collapse and syncs scrollCoordinator
+        enterSplitCollapseAt(canvas, seamLine = 25, tauLowerPx = rowH * 4f, requiresMode1 = true)
+        assertTrue(canvas.gapCollapseController.isTransactionOwned)
+        canvas.measure(
+            View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(1200, View.MeasureSpec.EXACTLY)
+        )
+        canvas.layout(0, 0, 640, 1200)
+        assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+        assertFalse(canvas.gapCollapseController.isTransactionOwned)
+        assertEquals((canvas.scrollD + canvas.editor.offsetY).toFloat(), canvas.scrollCoordinator.totalScroll, 0.5f)
+
+        // Height-only shrink during active collapse serializes through FINAL_SAFETY_PENDING -> Event B -> Eval
+        canvas.isKeyboardVisible = true
+        val (genH, _) = enterSplitCollapseAt(canvas, seamLine = 25, tauLowerPx = rowH * 4f, freezeToPointer = true)
+        canvas.measure(
+            View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(900, View.MeasureSpec.EXACTLY)
+        )
+        canvas.layout(0, 0, 640, 900)
+        // Even if Event B completed synchronously on laid-out host, split rendering is immediately disabled
+        // and transaction transitions cleanly without stale Mode-1/Mode-2 overlap.
+        assertFalse(canvas.gapCollapseController.shouldApplySplitRender)
+        assertEquals(0f, canvas.gapCollapseController.tauLower, 0.001f)
+        assertTrue(
+            canvas.gapCollapseController.phase == GapCollapsePhase.IDLE ||
+                canvas.gapCollapseController.phase == GapCollapsePhase.FINAL_SAFETY_PENDING
+        )
+        assertEquals(canvas.scrollD.toFloat() + canvas.outerScrollResidualPxForTest, canvas.outerScrollDFloatForTest, 0.001f)
+        if (canvas.gapCollapseController.isTransactionOwned) {
+            assertEquals(genH, canvas.gapCollapseController.owningDeletionGen)
+            canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "h_cleanup")
+        }
+
+        // Detach cleanup cancels collapse and syncs physical scroll
+        enterSplitCollapseAt(canvas, seamLine = 25, tauLowerPx = rowH * 3f, freezeToPointer = true)
+        (canvas.parent as? android.view.ViewGroup)?.removeView(canvas)
+        assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+        assertEquals((canvas.scrollD + canvas.editor.offsetY).toFloat(), canvas.scrollCoordinator.totalScroll, 0.5f)
     }
 }

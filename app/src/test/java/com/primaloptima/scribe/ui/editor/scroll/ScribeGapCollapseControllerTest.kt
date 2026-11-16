@@ -1126,4 +1126,222 @@ class ScribeGapCollapseControllerTest {
             )
         }
     }
+
+    @Test
+    fun testIncrementalSeamRebase_PreserveAndRebaseAcrossPhasesAndFallbackBoundaries() {
+        var freezeCalls = 0
+        var settledToSafetyCount = 0
+        var scheduledFrame: ((Long) -> Unit)? = null
+        val controller = ScribeGapCollapseController(
+            scheduleFrame = { scheduledFrame = it },
+            cancelFrame = { scheduledFrame = null },
+            onFreezeMode1Animator = { freezeCalls++ },
+            onMode2SettledToSafety = { _, _ -> settledToSafetyCount++ }
+        )
+
+        // Pure policy bounds for (seamLine, 0) rebase
+        val preserveRes = ScribeGapCollapsePolicy.evaluateIncrementalSeamRebase(
+            isWordwrapReady = true,
+            isLayoutBusy = false,
+            preEditTauPx = 120f,
+            preEditSeamDocY = 400f,
+            newSeamLine = 10,
+            newSeamCol = 0,
+            newSeamFirstLowerRow = 10,
+            postSeamDocY = 400.4f
+        )
+        assertTrue(preserveRes is SeamMappingResult.PreservePhase)
+
+        val rebaseRes = ScribeGapCollapsePolicy.evaluateIncrementalSeamRebase(
+            isWordwrapReady = true,
+            isLayoutBusy = false,
+            preEditTauPx = 120f,
+            preEditSeamDocY = 400f,
+            newSeamLine = 11,
+            newSeamCol = 0,
+            newSeamFirstLowerRow = 11,
+            postSeamDocY = 440f
+        ) as SeamMappingResult.RebaseTau
+        assertEquals(80f, rebaseRes.residualTauLowerPx, 0.001f)
+
+        val colNonZeroFallback = ScribeGapCollapsePolicy.evaluateIncrementalSeamRebase(
+            isWordwrapReady = true,
+            isLayoutBusy = false,
+            preEditTauPx = 120f,
+            preEditSeamDocY = 400f,
+            newSeamLine = 10,
+            newSeamCol = 1,
+            newSeamFirstLowerRow = 10,
+            postSeamDocY = 400f
+        )
+        assertTrue(colNonZeroFallback is SeamMappingResult.FallbackRequired)
+
+        val overTauFallback = ScribeGapCollapsePolicy.evaluateIncrementalSeamRebase(
+            isWordwrapReady = true,
+            isLayoutBusy = false,
+            preEditTauPx = 120f,
+            preEditSeamDocY = 400f,
+            newSeamLine = 15,
+            newSeamCol = 0,
+            newSeamFirstLowerRow = 15,
+            postSeamDocY = 600f
+        )
+        assertTrue(overTauFallback is SeamMappingResult.FallbackRequired)
+
+        val negShiftFallback = ScribeGapCollapsePolicy.evaluateIncrementalSeamRebase(
+            isWordwrapReady = true,
+            isLayoutBusy = false,
+            preEditTauPx = 120f,
+            preEditSeamDocY = 400f,
+            newSeamLine = 9,
+            newSeamCol = 0,
+            newSeamFirstLowerRow = 9,
+            postSeamDocY = 360f
+        )
+        assertTrue(negShiftFallback is SeamMappingResult.FallbackRequired)
+
+        val busyFallback = ScribeGapCollapsePolicy.evaluateIncrementalSeamRebase(
+            isWordwrapReady = false,
+            isLayoutBusy = true,
+            preEditTauPx = 120f,
+            preEditSeamDocY = 400f,
+            newSeamLine = 10,
+            newSeamCol = 0,
+            newSeamFirstLowerRow = 10,
+            postSeamDocY = 400f
+        )
+        assertTrue(busyFallback is SeamMappingResult.FallbackRequired)
+
+        // Controller: Mode 1 preserve preserves phase, tauLower, G, E
+        val plan = makeLowerOnlyPlan(preScrollY = 500, deltaGapPx = 160f, minSafeScroll = 380f)
+        val gen = 21L
+        val epoch0 = controller.beginCollapse(
+            owningGen = gen,
+            plan = plan,
+            seamLine = 10,
+            seamFirstLowerRow = 10,
+            seamDocY = 400f,
+            rowHeightPx = 40f,
+            initialPhysicalScrollPx = 500f
+        )
+        controller.markMode1Started(gen, epoch0, 500f)
+        assertTrue(controller.hasActiveRebasableSeam)
+        assertTrue(controller.applyIncrementalSeamPreserve(gen, 11, 12, 480f))
+        assertEquals(GapCollapsePhase.MODE_1_PHYSICAL_COUPLED, controller.phase)
+        assertEquals(gen, controller.owningDeletionGen)
+        assertEquals(epoch0, controller.collapseAnimEpoch)
+        assertEquals(11, controller.activeSeamLine)
+        assertEquals(12, controller.activeSeamFirstLowerRow)
+        assertEquals(480f, controller.activeSeamDocY, 0.001f)
+        assertEquals(0, freezeCalls)
+
+        // Controller: Mode 1 rebase freezes Mode-1 animator and transitions to Mode 2 preserving G & bumping E
+        val phaseAfterRebase1 = controller.applyIncrementalSeamRebase(
+            expectedGen = gen,
+            newSeamLine = 12,
+            newSeamFirstLowerRow = 13,
+            newSeamDocY = 520f,
+            residualTauLowerPx = 80f,
+            actualPhysicalScrollPx = 460f
+        )
+        assertEquals(GapCollapsePhase.MODE_2_VISUAL_SETTLING, phaseAfterRebase1)
+        assertEquals(1, freezeCalls)
+        assertEquals(gen, controller.owningDeletionGen)
+        assertEquals(epoch0 + 1L, controller.collapseAnimEpoch)
+        assertEquals(80f, controller.tauLower, 0.001f)
+        assertNotNull(scheduledFrame)
+
+        // POINTER_FROZEN rebase preserves POINTER_FROZEN with residual tauLower
+        assertTrue(controller.freezeForPointer(gen))
+        val frozenEpoch = controller.collapseAnimEpoch
+        val phaseFrozenRebase = controller.applyIncrementalSeamRebase(
+            expectedGen = gen,
+            newSeamLine = 13,
+            newSeamFirstLowerRow = 14,
+            newSeamDocY = 560f,
+            residualTauLowerPx = 40f,
+            actualPhysicalScrollPx = 460f
+        )
+        assertEquals(GapCollapsePhase.POINTER_FROZEN, phaseFrozenRebase)
+        assertEquals(frozenEpoch + 1L, controller.collapseAnimEpoch)
+        assertEquals(40f, controller.tauLower, 0.001f)
+
+        // Resume into Mode 2, then rebase to <= MODE2_SETTLE_THRESHOLD_PX -> FINAL_SAFETY_PENDING
+        assertEquals(GapCollapsePhase.MODE_2_VISUAL_SETTLING, controller.resumeFromPointerFrozen(gen, 460f))
+        val settledPhase = controller.applyIncrementalSeamRebase(
+            expectedGen = gen,
+            newSeamLine = 14,
+            newSeamFirstLowerRow = 15,
+            newSeamDocY = 600f,
+            residualTauLowerPx = 0.25f,
+            actualPhysicalScrollPx = 460f
+        )
+        assertEquals(GapCollapsePhase.FINAL_SAFETY_PENDING, settledPhase)
+        assertEquals(0f, controller.tauLower, 0.001f)
+        assertFalse(controller.shouldApplySplitRender)
+        assertEquals(1, settledToSafetyCount)
+    }
+
+    @Test
+    fun testPendingPostSafetyKeyboardEval_ExpansionAndDismissalTransitionsAcrossSafetyExits() {
+        // Verify dh > 0 authorized follow AND dh < 0 contraction vs dismissal payloads survive
+        // Event B exits cleanly and are consumed strictly inside beginTeardownLockAndConsumeEval.
+        val h = OptionBCursorAbortHarness()
+        h.beginMode1OrMode2Collapse(requiresMode1 = true, preScrollY = 500, deltaGapPx = 220f, minSafeScroll = 350f)
+        val gen = h.safety.deletionTransactionGeneration
+        val newSafetyEpoch = h.controller.restartFinalSafetyClaim(gen)!!
+        assertEquals(-1, h.controller.activeSeamLine)
+        assertEquals(0f, h.controller.tauLower, 0.001f)
+        assertFalse(h.controller.shouldApplySplitRender)
+
+        val contractionEval = PendingPostSafetyKeyboardEval(
+            owningGen = gen,
+            expectedSafetyEpoch = newSafetyEpoch,
+            targetHeightPx = 780,
+            isHeightShrink = false,
+            isAuthorizedTransition = false,
+            shouldFollowExpansion = true,
+            isKeyboardDismissing = false,
+            isDestinationSurfaceActive = true,
+            dockTransition = ScribeDockTransition.DRAWER_TO_IME_HANDOFF
+        )
+        assertTrue(h.controller.storePendingPostSafetyKeyboardEval(contractionEval))
+        val res = h.completeAsyncSettlement {
+            h.safety.runEventB(gen, newSafetyEpoch)
+        }
+        assertEquals(SafetyRevalidationResult.VALIDATED_SAFE, res)
+        assertEquals(1, h.dispatchedEvals.size)
+        assertEquals(contractionEval, h.dispatchedEvals.single())
+        assertNull(h.controller.pendingPostSafetyKeyboardEval)
+
+        // Second scenario: CORRECTION_STARTED on dh < 0 IME_DISMISSAL preserves eval until fresh epoch finalizes
+        val h2 = OptionBCursorAbortHarness()
+        h2.beginMode1OrMode2Collapse(requiresMode1 = true, preScrollY = 300, deltaGapPx = 240f, minSafeScroll = 420f)
+        val gen2 = h2.safety.deletionTransactionGeneration
+        val se2 = h2.controller.restartFinalSafetyClaim(gen2)!!
+        val dismissalEval = PendingPostSafetyKeyboardEval(
+            owningGen = gen2,
+            expectedSafetyEpoch = se2,
+            targetHeightPx = 1100,
+            isHeightShrink = false,
+            isAuthorizedTransition = false,
+            shouldFollowExpansion = false,
+            isKeyboardDismissing = true,
+            isDestinationSurfaceActive = false,
+            dockTransition = ScribeDockTransition.IME_DISMISSAL
+        )
+        assertTrue(h2.controller.storePendingPostSafetyKeyboardEval(dismissalEval))
+        assertEquals(SafetyRevalidationResult.CORRECTION_STARTED, h2.safety.runEventB(gen2, se2))
+        assertTrue("Eval must remain pending while correction is running", h2.dispatchedEvals.isEmpty())
+        assertTrue(h2.controller.isTransactionOwned)
+        val freshSe2 = h2.controller.safetyEpoch
+        assertTrue(freshSe2 != se2)
+        val res2 = h2.completeAsyncSettlement {
+            h2.safety.finishCorrectionAndReenter(gen2, freshSe2, actualAfter = h2.safety.pendingCorrectionTarget!!)
+        }
+        assertEquals(SafetyRevalidationResult.CORRECTED_AND_VALIDATED, res2)
+        assertEquals(1, h2.dispatchedEvals.size)
+        assertTrue(h2.dispatchedEvals.single().isKeyboardDismissing)
+        assertEquals(ScribeDockTransition.IME_DISMISSAL, h2.dispatchedEvals.single().dockTransition)
+    }
 }
