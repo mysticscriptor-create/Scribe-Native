@@ -403,7 +403,6 @@ class ScribeGapCollapseRendererTest {
         wordwrap: Boolean = true,
         lineNumbers: Boolean = true,
         firstLnAlwaysVisible: Boolean = true,
-        pinnedLineNumbers: Boolean = false,
         headerHeightPx: Int = 160,
         viewportWidthPx: Int = 720,
         viewportHeightPx: Int = 960
@@ -426,7 +425,6 @@ class ScribeGapCollapseRendererTest {
                 isWordwrap = wordwrap
                 isLineNumberEnabled = lineNumbers
                 isFirstLineNumberAlwaysVisible = firstLnAlwaysVisible
-                isLineNumberPinned = pinnedLineNumbers
                 setTextSize(16f)
                 setText(text)
             }
@@ -657,8 +655,7 @@ class ScribeGapCollapseRendererTest {
             text = doc,
             wordwrap = true,
             lineNumbers = true,
-            firstLnAlwaysVisible = true,
-            pinnedLineNumbers = false
+            firstLnAlwaysVisible = true
         )
         host.scenario.use {
             val instr = InstrumentationRegistry.getInstrumentation()
