@@ -215,11 +215,16 @@ open class ScribeEditorRenderer(
             val layout = scribeEditor.layout ?: return
             val pass2FirstLine = layout.getLineNumberForRow(framePass2RowRange.first)
             val pass2LastLine = layout.getLineNumberForRow(framePass2RowRange.last)
-            val warmEnd = minOf(pass2LastLine, startLine - 1)
-            if (pass2FirstLine <= warmEnd) {
+            val rangesToWarm = listOf(
+                maxOf(pass2FirstLine, 0)..minOf(pass2LastLine, startLine - 1),
+                maxOf(pass2FirstLine, endLine + 1)..pass2LastLine
+            ).filter { it.first <= it.last }
+            if (rangesToWarm.isNotEmpty()) {
                 isWarmingPass2Cache = true
                 try {
-                    buildMeasureCacheForLines(pass2FirstLine, warmEnd)
+                    for (range in rangesToWarm) {
+                        buildMeasureCacheForLines(range.first, range.last)
+                    }
                 } finally {
                     isWarmingPass2Cache = false
                 }

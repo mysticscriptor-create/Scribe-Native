@@ -405,7 +405,8 @@ class ScribeGapCollapseRendererTest {
         firstLnAlwaysVisible: Boolean = true,
         headerHeightPx: Int = 160,
         viewportWidthPx: Int = 720,
-        viewportHeightPx: Int = 960
+        viewportHeightPx: Int = 960,
+        textSizePx: Float? = null
     ): HostHandle {
         val instr = InstrumentationRegistry.getInstrumentation()
         val intent = Intent(instr.targetContext, CrashActivity::class.java)
@@ -425,7 +426,11 @@ class ScribeGapCollapseRendererTest {
                 isWordwrap = wordwrap
                 isLineNumberEnabled = lineNumbers
                 isFirstLineNumberAlwaysVisible = firstLnAlwaysVisible
-                setTextSize(16f)
+                if (textSizePx != null) {
+                    setTextSizePx(textSizePx)
+                } else {
+                    setTextSize(16f)
+                }
                 setText(text)
             }
             container.addView(canvas, FrameLayout.LayoutParams(viewportWidthPx, viewportHeightPx))
@@ -615,7 +620,6 @@ class ScribeGapCollapseRendererTest {
                 val normalFirstVis = ed.getFirstVisibleRow()
                 val seamRow = normalFirstVis + 3
                 val seamLine = ed.layout.getLineNumberForRow(seamRow)
-                // Big tau (> 8 rows) exposes Pass-2 rows strictly above normalFirstVis to test cache warming
                 val tau = rowH * 8f
                 beginSplitCollapse(
                     canvas = canvas,
@@ -624,38 +628,94 @@ class ScribeGapCollapseRendererTest {
                     seamFirstLowerRow = seamRow,
                     tauPx = tau
                 )
+                try {
+                    val seqBefore = renderer.renderedDrawPassSeq
+                    assertNull(ed.renderPassRowRangeOverride)
+                    drawEditorInViewSpace(ed)
+                    assertEquals("Single super.draw lifecycle must increment renderedDrawPassSeq by 1", seqBefore + 1L, renderer.renderedDrawPassSeq)
+                    assertNull("renderPassRowRangeOverride must reset to null in finally", ed.renderPassRowRangeOverride)
+                    assertTrue(renderer.lastSplitFrameWasActive)
 
-                val seqBefore = renderer.renderedDrawPassSeq
-                assertNull(ed.renderPassRowRangeOverride)
-                drawEditorInViewSpace(ed)
-                assertEquals("Single super.draw lifecycle must increment renderedDrawPassSeq by 1", seqBefore + 1L, renderer.renderedDrawPassSeq)
-                assertNull("renderPassRowRangeOverride must reset to null in finally", ed.renderPassRowRangeOverride)
-                assertTrue(renderer.lastSplitFrameWasActive)
+                    val p1 = renderer.lastPass1RowRange
+                    val p2 = renderer.lastPass2RowRange
+                    assertFalse(p1.isEmpty())
+                    assertFalse(p2.isEmpty())
+                    assertTrue("Pass 1 and Pass 2 must be strictly disjoint around seamRow", p1.last < seamRow && p2.first >= seamRow)
+                    assertTrue(
+                        "Pass 2 with seamRow >= normalFirstVis must begin at or after normalFirstVis",
+                        p2.first >= seamRow &&
+                            ed.layout.getLineNumberForRow(p2.first) >= ed.layout.getLineNumberForRow(normalFirstVis)
+                    )
+                    assertNotNull(
+                        "Pass-2 source line measure cache must be warmed",
+                        ed.renderContext.cache.queryMeasureCache(ed.layout.getLineNumberForRow(p2.first))
+                    )
+                } finally {
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "lifecycle")
+                }
+            }
+        }
+    }
 
-                val p1 = renderer.lastPass1RowRange
-                val p2 = renderer.lastPass2RowRange
-                assertFalse(p1.isEmpty())
-                assertFalse(p2.isEmpty())
-                assertTrue("Pass 1 and Pass 2 must be strictly disjoint around seamRow", p1.last < seamRow && p2.first >= seamRow)
-                assertTrue("Pass 2 must warm source lines outside normal visible window", ed.layout.getLineNumberForRow(p2.first) < ed.layout.getLineNumberForRow(normalFirstVis))
-                assertNotNull(
-                    "Pass-2 source line measure cache must be warmed",
-                    ed.renderContext.cache.queryMeasureCache(ed.layout.getLineNumberForRow(p2.first))
+    @Test
+    fun testPass2MeasureCacheWarmsRowsOutsideNativePreparedWindow() {
+        val lines = (1..120).joinToString("\n") { idx -> "Line $idx steady." }
+        val host = launchHost(text = lines, wordwrap = true)
+        host.scenario.use {
+            val instr = InstrumentationRegistry.getInstrumentation()
+            instr.runOnMainSync {
+                val canvas = host.canvas
+                val ed = canvas.editor
+                assertTrue(ed.renderer is ScribeEditorRenderer)
+                val renderer = ed.renderer as ScribeEditorRenderer
+
+                val rowH = ed.rowHeight.coerceAtLeast(20)
+                scrollCanvasTo(canvas, canvas.headerHeight + rowH * 30f)
+                val normalFirstVis = ed.getFirstVisibleRow()
+                val normalFirstLine = ed.layout.getLineNumberForRow(normalFirstVis)
+                val seamRow = (normalFirstVis - 10).coerceAtLeast(0)
+                val seamLine = ed.layout.getLineNumberForRow(seamRow)
+                val tau = rowH * 8f
+                beginSplitCollapse(
+                    canvas = canvas,
+                    gen = 1L,
+                    seamLine = seamLine,
+                    seamFirstLowerRow = seamRow,
+                    tauPx = tau
                 )
+                try {
+                    drawEditorInViewSpace(ed)
+                    assertTrue(renderer.lastSplitFrameWasActive)
+                    assertTrue("Pass 1 must be empty when seamRow is above normalFirstVis", renderer.lastPass1RowRange.isEmpty())
+                    val p2 = renderer.lastPass2RowRange
+                    assertFalse(p2.isEmpty())
+                    val pass2FirstLine = ed.layout.getLineNumberForRow(p2.first)
+                    assertTrue(
+                        "Pass 2 must warm source lines outside Sora's native [normalFirstLine - 5, normalLastLine + 5] window (pass2FirstLine=$pass2FirstLine, normalFirstLine=$normalFirstLine)",
+                        pass2FirstLine < normalFirstLine - 5
+                    )
+                    assertNotNull(
+                        "Pass-2 source line measure cache must be warmed",
+                        ed.renderContext.cache.queryMeasureCache(pass2FirstLine)
+                    )
+                } finally {
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "cache_warm")
+                }
             }
         }
     }
 
     @Test
     fun testApproachA_AllSixFirstLnCases_IncludingWrappingAndCollision() {
-        val longLine0 = (1..24).joinToString(" ") { "longwrappedtoken$it" }
+        val longLine0 = (1..14).joinToString(" ") { "longwrappedtoken$it" }
         val shortLines = (2..60).joinToString("\n") { "S$it short" }
         val doc = "$longLine0\n$shortLines"
         val host = launchHost(
             text = doc,
             wordwrap = true,
             lineNumbers = true,
-            firstLnAlwaysVisible = true
+            firstLnAlwaysVisible = true,
+            textSizePx = 30f
         )
         host.scenario.use {
             val instr = InstrumentationRegistry.getInstrumentation()
@@ -761,8 +821,8 @@ class ScribeGapCollapseRendererTest {
                 canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "c3")
 
                 // --- Case 3 top WITH Case 4 collision (P1.isEmpty && pass2TopScreenY <= 0f && translatedTop2 <= bottom) ---
-                val tauColl3 = rowH * 0.6f
-                scrollCanvasTo(canvas, canvas.headerHeight + (line0Rows - 1) * rowH + rowH * 0.35f)
+                val tauColl3 = rowH * 0.45f
+                scrollCanvasTo(canvas, canvas.headerHeight + (line0Rows - 1) * rowH + rowH * 0.75f)
                 beginSplitCollapse(
                     canvas = canvas,
                     gen = 5L,
@@ -805,7 +865,7 @@ class ScribeGapCollapseRendererTest {
 
     @Test
     fun testPerLayerClipTranslationAndLowerInsertionHandleShiftZeroDoubleShift() {
-        val doc = (0..40).joinToString("\n") { i -> "Line $i {} sample text for layers and handle" }
+        val doc = (0..40).joinToString("\n") { i -> "Line $i {} sample" }
         val host = launchHost(text = doc, wordwrap = true)
         host.scenario.use {
             val instr = InstrumentationRegistry.getInstrumentation()
@@ -886,6 +946,10 @@ class ScribeGapCollapseRendererTest {
                 val tau = rowH * 2.5f
                 val divLeft = dividerLeftX(ed)
 
+                val wasCursorAnimationEnabled = ed.isCursorAnimationEnabled
+                ed.isCursorAnimationEnabled = false
+                ed.cursorAnimator.cancel()
+                try {
                 // A) Selection spanning P1 (line 2) -> P2 (line 12): verify selection background & P1/P2 text partition
                 ed.requestFocus()
                 ed.setSelectionRegion(2, 2, 12, 6, false)
@@ -910,6 +974,8 @@ class ScribeGapCollapseRendererTest {
 
                 // B) P1 Caret test: caret inside P1 (line 2) handle stays unshifted under split frame
                 ed.setSelection(2, 4, false)
+                ed.cursorAnimator.cancel()
+                assertFalse("CursorAnimator must not run for static P1 handle check", ed.cursorAnimator.isRunning)
                 drawEditorInViewSpace(ed)
                 val unsplitP1Handle = RectF(ed.insertHandleDescriptor.position)
                 beginSplitCollapse(
@@ -927,6 +993,8 @@ class ScribeGapCollapseRendererTest {
 
                 // C) P2 Caret on '}' (line 12): exercises ALL 10 layers + Case-I lower handle shift ONCE
                 ed.setSelection(12, closeCol + 1, false)
+                ed.cursorAnimator.cancel()
+                assertFalse("CursorAnimator must not run for static P2 handle check", ed.cursorAnimator.isRunning)
                 val unsplit = drawEditorInViewSpace(ed)
                 val unsplitDesc = RectF(ed.insertHandleDescriptor.position)
                 assertFalse("Unsplit baseline handle descriptor must be populated", unsplitDesc.isEmpty)
@@ -1016,7 +1084,10 @@ class ScribeGapCollapseRendererTest {
                 assertEquals("Layer 9 lower-region handle top must shift by +tauLower ONCE", unsplitDesc.top + tau, splitDesc.top, 0.5f)
                 assertEquals("Layer 9 lower-region handle bottom must shift by +tauLower ONCE", unsplitDesc.bottom + tau, splitDesc.bottom, 0.5f)
 
-                canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "layers")
+                } finally {
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "layers")
+                    ed.isCursorAnimationEnabled = wasCursorAnimationEnabled
+                }
             }
         }
     }
@@ -1060,10 +1131,16 @@ class ScribeGapCollapseRendererTest {
 
                 val planM2 = makePlan(preScrollY = 100, effectiveTargetScroll = 100f, requiresMode1 = false, initialTauPx = 80f)
                 val ep2 = testController.beginCollapse(2L, planM2, 10, 10, rowH * 10f, rowH, 100f)
-                val beforeM2Tick = invalidateCalls
+                val tauBeforeTick1 = testController.tauLower
+                val beforeM2Tick1 = invalidateCalls
                 testController.onMode2Frame(2L, ep2, 2_000_000_000L)
+                assertTrue("Mode-2 tick 1 must advance tauLower", testController.tauLower < tauBeforeTick1)
+                assertEquals("Outer-only Mode-2 tick 1 must synchronously invoke invalidate", beforeM2Tick1 + 1, invalidateCalls)
+                val tauBeforeTick2 = testController.tauLower
+                val beforeM2Tick2 = invalidateCalls
                 testController.onMode2Frame(2L, ep2, 2_016_000_000L)
-                assertEquals("Outer-only Mode-2 tick must synchronously invoke invalidate", beforeM2Tick + 1, invalidateCalls)
+                assertTrue("Mode-2 tick 2 must advance tauLower", testController.tauLower < tauBeforeTick2)
+                assertEquals("Outer-only Mode-2 tick 2 must synchronously invoke invalidate", beforeM2Tick2 + 1, invalidateCalls)
 
                 // Real canvas Option-B test: enter Mode 2 with remaining selection, verify aw.isEnabled == false
                 scrollCanvasTo(canvas, canvas.headerHeight.toFloat())
@@ -1249,6 +1326,9 @@ class ScribeGapCollapseRendererTest {
                 assertEquals(0f, canvas.gapCollapseController.tauLower, 0.001f)
                 assertFalse("aw.isEnabled must remain false while deferred", aw.isEnabled)
 
+                realAnimator.cancel()
+                assertFalse("CursorAnimator must stop before post-IDLE unsplit draw", ed.cursorAnimator.isRunning)
+
                 // Restore valid layout -> OnLayoutChangeListener schedules retry -> completes cleanly to IDLE
                 val wSpec = View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.EXACTLY)
                 val hSpec = View.MeasureSpec.makeMeasureSpec(960, View.MeasureSpec.EXACTLY)
@@ -1257,8 +1337,11 @@ class ScribeGapCollapseRendererTest {
             }
 
             waitUntil(failureMsg = "Deferred Event B must retry on layout ready and settle to IDLE") {
+                val ed = host.canvas.editor
                 host.canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
-                    !host.canvas.gapCollapseController.isTransactionOwned
+                    !host.canvas.gapCollapseController.isTransactionOwned &&
+                    !ed.cursorAnimator.isRunning &&
+                    !ed.isLayoutBusy
             }
             instr.runOnMainSync {
                 drawEditorInViewSpace(host.canvas.editor)
@@ -1266,6 +1349,7 @@ class ScribeGapCollapseRendererTest {
             waitUntil(failureMsg = "EditorTextActionWindow must restore after deferred Event-B settles") {
                 aw.isEnabled
             }
+            instr.runOnMainSync { aw.dismiss() }
         }
     }
 
@@ -1397,6 +1481,8 @@ class ScribeGapCollapseRendererTest {
                 instr.runOnMainSync {
                     assertFalse("Case 3b: must not enable/show while INVISIBLE", aw.isEnabled || aw.isShowing)
                     host.canvas.editor.visibility = View.VISIBLE
+                    host.canvas.editor.requestFocus()
+                    assertTrue("Case 3b: restored editor must reacquire focus", host.canvas.editor.hasFocus())
                 }
                 waitUntil(failureMsg = "Case 3b: must restore without new deletion when visibility returns") {
                     aw.isEnabled
