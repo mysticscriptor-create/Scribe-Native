@@ -1310,8 +1310,8 @@ class ScribeGapCollapseControllerTest {
             h.safety.runEventB(gen, newSafetyEpoch)
         }
         assertEquals(SafetyRevalidationResult.VALIDATED_SAFE, res)
-        assertEquals(1, h.dispatchedEvals.size)
-        assertEquals(contractionEval, h.dispatchedEvals.single())
+        assertEquals(1, h.safety.dispatchedEvals.size)
+        assertEquals(contractionEval, h.safety.dispatchedEvals.single())
         assertNull(h.controller.pendingPostSafetyKeyboardEval)
 
         // Second scenario: CORRECTION_STARTED on dh < 0 IME_DISMISSAL preserves eval until fresh epoch finalizes
@@ -1332,7 +1332,7 @@ class ScribeGapCollapseControllerTest {
         )
         assertTrue(h2.controller.storePendingPostSafetyKeyboardEval(dismissalEval))
         assertEquals(SafetyRevalidationResult.CORRECTION_STARTED, h2.safety.runEventB(gen2, se2))
-        assertTrue("Eval must remain pending while correction is running", h2.dispatchedEvals.isEmpty())
+        assertTrue("Eval must remain pending while correction is running", h2.safety.dispatchedEvals.isEmpty())
         assertTrue(h2.controller.isTransactionOwned)
         val freshSe2 = h2.controller.safetyEpoch
         assertTrue(freshSe2 != se2)
@@ -1340,8 +1340,8 @@ class ScribeGapCollapseControllerTest {
             h2.safety.finishCorrectionAndReenter(gen2, freshSe2, actualAfter = h2.safety.pendingCorrectionTarget!!)
         }
         assertEquals(SafetyRevalidationResult.CORRECTED_AND_VALIDATED, res2)
-        assertEquals(1, h2.dispatchedEvals.size)
-        assertTrue(h2.dispatchedEvals.single().isKeyboardDismissing)
-        assertEquals(ScribeDockTransition.IME_DISMISSAL, h2.dispatchedEvals.single().dockTransition)
+        assertEquals(1, h2.safety.dispatchedEvals.size)
+        assertTrue(h2.safety.dispatchedEvals.single().isKeyboardDismissing)
+        assertEquals(ScribeDockTransition.IME_DISMISSAL, h2.safety.dispatchedEvals.single().dockTransition)
     }
 }

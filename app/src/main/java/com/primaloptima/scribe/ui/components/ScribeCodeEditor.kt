@@ -720,7 +720,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 if (!isBatchApplyingIndent) {
                     documentVersion++
                 }
-                if (event.action == io.github.rosemoe.sora.event.ContentChangeEvent.ACTION_DELETE && !isInContentReplace) {
+                if (event.action == io.github.rosemoe.sora.event.ContentChangeEvent.ACTION_DELETE && !isInContentReplace && !isEnforcingIndentFloor) {
                     if (text.isEmpty()) {
                         val pCanvas = parent as? UnifiedCanvasLayout
                         pCanvas?.resetDocumentToTopFromDeletion(smooth = true)
@@ -924,6 +924,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
         val replacement = ScribeEditorIndentFormatter.computeEmptyLineFloor(lineStr, firstLineIndentSpaces)
         if (replacement != null) {
+            val preEditSeam = capturePreEditSeamSnapshotIfRebasable()
             isEnforcingIndentFloor = true
             try {
                 text.replace(line, 0, line, lineStr.length, replacement)
@@ -931,6 +932,18 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 notifyIMEExternalCursorChange()
             } finally {
                 isEnforcingIndentFloor = false
+            }
+            if (preEditSeam != null) {
+                parentCanvas?.let { pCanvas ->
+                    reconcileIncrementalSeamAfterMutation(
+                        pCanvas = pCanvas,
+                        preEditSeam = preEditSeam,
+                        startLine = line,
+                        startColumn = 0,
+                        endLine = line,
+                        endColumn = replacement.length
+                    )
+                }
             }
             return
         }
@@ -963,12 +976,25 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     } else {
                         text
                     }
+                    val preEditSeam = capturePreEditSeamSnapshotIfRebasable()
                     isEnforcingIndentFloor = true
                     try {
                         this.text.replace(line, 0, line, lineStr.length, replacement)
                         setSelection(line, replacement.length)
                     } finally {
                         isEnforcingIndentFloor = false
+                    }
+                    if (preEditSeam != null) {
+                        parentCanvas?.let { pCanvas ->
+                            reconcileIncrementalSeamAfterMutation(
+                                pCanvas = pCanvas,
+                                preEditSeam = preEditSeam,
+                                startLine = line,
+                                startColumn = 0,
+                                endLine = line,
+                                endColumn = replacement.length
+                            )
+                        }
                     }
                     super.commitText(processed, applyAutoIndent, applySymbolCompletion)
                     return
@@ -1091,11 +1117,24 @@ class ScribeCodeEditor @JvmOverloads constructor(
         // ── Phase 1: Indent Hierarchy & Single-Newline Calculation ───────────
         when (val action = ScribeEditorIndentFormatter.computeNewline(lineStr, line, col, firstLineIndentSpaces)) {
             is FormatterNewlineAction.ReplaceAndInsertNewline -> {
+                val preEditSeam = capturePreEditSeamSnapshotIfRebasable()
                 isEnforcingIndentFloor = true
                 try {
                     text.replace(action.lineToReplace, 0, action.lineToReplace, action.oldLineLength, action.normalizedLine)
                 } finally {
                     isEnforcingIndentFloor = false
+                }
+                if (preEditSeam != null) {
+                    parentCanvas?.let { pCanvas ->
+                        reconcileIncrementalSeamAfterMutation(
+                            pCanvas = pCanvas,
+                            preEditSeam = preEditSeam,
+                            startLine = action.lineToReplace,
+                            startColumn = 0,
+                            endLine = action.lineToReplace,
+                            endColumn = action.normalizedLine.length
+                        )
+                    }
                 }
                 text.insert(action.lineToReplace, action.normalizedLine.length, action.textToInsert)
                 setSelection(action.targetLine, action.targetCol)
@@ -1107,6 +1146,126 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 setSelection(action.targetLine, action.targetCol)
                 ensureSelectionVisible()
                 notifyIMEExternalCursorChange()
+            }
+        }
+    }
+
+    private fun capturePreEditSeamSnapshotIfRebasable(): PreEditSeamSnapshot? {
+        val controller = parentCanvas?.gapCollapseController ?: return null
+        if (!controller.hasActiveRebasableSeam) return null
+        return PreEditSeamSnapshot(
+            gen = controller.owningDeletionGen,
+            seamLine = controller.activeSeamLine,
+            seamFirstLowerRow = controller.activeSeamFirstLowerRow,
+            seamDocY = controller.activeSeamDocY,
+            tauLower = controller.tauLower
+        )
+    }
+
+    private fun reconcileIncrementalSeamAfterMutation(
+        pCanvas: UnifiedCanvasLayout,
+        preEditSeam: PreEditSeamSnapshot,
+        startLine: Int,
+        startColumn: Int,
+        endLine: Int,
+        endColumn: Int
+    ) {
+        val controller = pCanvas.gapCollapseController
+        if (!controller.hasActiveRebasableSeam || controller.owningDeletionGen != preEditSeam.gen) {
+            return
+        }
+        val lay = layout
+        val wordwrapReady = isWordwrapReady()
+        val editorBusy = isLayoutBusy
+        // Row 1a: Insert/mutation strictly below active seam
+        if (startLine > preEditSeam.seamLine) {
+            if (wordwrapReady && !editorBusy && lay != null) {
+                return
+            }
+            pCanvas.cancelGapCollapseAndDeletionTransaction(
+                preserveRetractionDebt = false,
+                reason = "incremental_seam_below_async_layout"
+            )
+            pCanvas.syncActualScrollFromViewport()
+            ensureSelectionVisible()
+            pCanvas.clampCanvasScrollToMax(smooth = true)
+            return
+        }
+
+        // Map (preEditSeam.seamLine, 0) post-mutation -> (newSeamLine, newSeamCol)
+        val newSeamLine: Int
+        val newSeamCol: Int
+        if (startLine < preEditSeam.seamLine) {
+            newSeamLine = preEditSeam.seamLine + (endLine - startLine)
+            newSeamCol = 0
+        } else if (startColumn == 0) {
+            newSeamLine = endLine
+            newSeamCol = endColumn
+        } else {
+            newSeamLine = preEditSeam.seamLine
+            newSeamCol = 0
+        }
+
+        val currentContent = text
+        val newSeamFirstLowerRow = if (lay != null &&
+            wordwrapReady &&
+            !editorBusy &&
+            newSeamCol == 0 &&
+            newSeamLine in 0 until currentContent.lineCount
+        ) {
+            try {
+                val charIdx = currentContent.indexer.getCharIndex(newSeamLine, 0)
+                lay.getRowIndexForPosition(charIdx)
+            } catch (_: Throwable) {
+                -1
+            }
+        } else {
+            -1
+        }
+        val postSeamDocY = if (newSeamFirstLowerRow >= 0) {
+            newSeamFirstLowerRow * rowHeight.toFloat()
+        } else {
+            Float.NaN
+        }
+
+        when (val mapping = ScribeGapCollapsePolicy.evaluateIncrementalSeamRebase(
+            isWordwrapReady = wordwrapReady,
+            isLayoutBusy = editorBusy || lay == null,
+            preEditTauPx = preEditSeam.tauLower,
+            preEditSeamDocY = preEditSeam.seamDocY,
+            newSeamLine = newSeamLine,
+            newSeamCol = newSeamCol,
+            newSeamFirstLowerRow = newSeamFirstLowerRow,
+            postSeamDocY = postSeamDocY
+        )) {
+            is SeamMappingResult.PreservePhase -> {
+                controller.applyIncrementalSeamPreserve(
+                    expectedGen = preEditSeam.gen,
+                    newSeamLine = mapping.newSeamLine,
+                    newSeamFirstLowerRow = mapping.newSeamFirstLowerRow,
+                    newSeamDocY = mapping.newSeamDocY
+                )
+                pCanvas.syncActiveSeamBaselineFromController()
+            }
+            is SeamMappingResult.RebaseTau -> {
+                controller.applyIncrementalSeamRebase(
+                    expectedGen = preEditSeam.gen,
+                    newSeamLine = mapping.newSeamLine,
+                    newSeamFirstLowerRow = mapping.newSeamFirstLowerRow,
+                    newSeamDocY = mapping.newSeamDocY,
+                    residualTauLowerPx = mapping.residualTauLowerPx,
+                    actualPhysicalScrollPx = (pCanvas.scrollD + offsetY).toFloat()
+                )
+                pCanvas.syncActiveSeamBaselineFromController()
+            }
+            is SeamMappingResult.FallbackRequired -> {
+                pCanvas.cancelGapCollapseAndDeletionTransaction(
+                    preserveRetractionDebt = false,
+                    reason = "incremental_seam_${mapping.reason}"
+                )
+                pCanvas.syncActualScrollFromViewport()
+                ensureSelectionVisible()
+                pCanvas.clampCanvasScrollToMax(smooth = true)
             }
         }
     }
@@ -1149,15 +1308,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
         super.beforeModification(content)
         if (isAwaitingLayoutReady || isBatchApplyingIndent || isEnforcingIndentFloor) return
         val pCanvas = parentCanvas ?: return
-        val controller = pCanvas.gapCollapseController
-        if (controller.hasActiveRebasableSeam && preEditSeamSnapshot == null) {
-            preEditSeamSnapshot = PreEditSeamSnapshot(
-                gen = controller.owningDeletionGen,
-                seamLine = controller.activeSeamLine,
-                seamFirstLowerRow = controller.activeSeamFirstLowerRow,
-                seamDocY = controller.activeSeamDocY,
-                tauLower = controller.tauLower
-            )
+        if (preEditSeamSnapshot == null) {
+            preEditSeamSnapshot = capturePreEditSeamSnapshotIfRebasable()
         }
         deletionSnapshotCoordinator.onBeforeModification(
             hasPendingDeletionSettlement = pCanvas.hasPendingDeletionSettlement,
@@ -1251,11 +1403,16 @@ class ScribeCodeEditor @JvmOverloads constructor(
         endColumn: Int,
         deletedContent: CharSequence
     ) {
-        val pCanvas = parentCanvas
         preEditSeamSnapshot = null
+        if (isAwaitingLayoutReady || isBatchApplyingIndent || isEnforcingIndentFloor) {
+            stagedPreDeleteSeamCapture = null
+            super.afterDelete(content, startLine, startColumn, endLine, endColumn, deletedContent)
+            return
+        }
+        val pCanvas = parentCanvas
         val seamCapture = stagedPreDeleteSeamCapture
         stagedPreDeleteSeamCapture = null
-        val canMutateCanvas = pCanvas != null && !isAwaitingLayoutReady && !isBatchApplyingIndent && !isEnforcingIndentFloor
+        val canMutateCanvas = pCanvas != null
         var forceIneligibleRow5Fallback = false
         if (canMutateCanvas &&
             pCanvas != null &&
@@ -1330,6 +1487,19 @@ class ScribeCodeEditor @JvmOverloads constructor(
         endColumn: Int,
         insertedContent: CharSequence
     ) {
+        if (isAwaitingLayoutReady || isBatchApplyingIndent || isEnforcingIndentFloor) {
+            preEditSeamSnapshot = null
+            stagedPreDeleteSeamCapture = null
+            super.afterInsert(content, startLine, startColumn, endLine, endColumn, insertedContent)
+            val pCanvas = parentCanvas
+            if (pCanvas != null &&
+                pCanvas.gapCollapseController.shouldApplySplitRender &&
+                cursorAnimator.isRunning
+            ) {
+                pCanvas.handleCursorAnimatorActivatedDuringCollapse()
+            }
+            return
+        }
         cancelPendingReplaceWatchdog()
         val preEditSeam = preEditSeamSnapshot
         preEditSeamSnapshot = null
@@ -1337,7 +1507,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         wasReplaceInterruptingActiveCollapse = false
         stagedPreDeleteSeamCapture = null
         val pCanvas = parentCanvas
-        val canMutateCanvas = pCanvas != null && !isAwaitingLayoutReady && !isBatchApplyingIndent && !isEnforcingIndentFloor
+        val canMutateCanvas = pCanvas != null
         val insertAction = deletionSnapshotCoordinator.onAfterInsert(
             insertedNotEmpty = insertedContent.isNotEmpty(),
             isTextEmpty = text.isEmpty(),
@@ -1402,104 +1572,15 @@ class ScribeCodeEditor @JvmOverloads constructor(
             return
         }
 
-        val controller = pCanvas.gapCollapseController
-        if (preEditSeam != null &&
-            controller.hasActiveRebasableSeam &&
-            controller.owningDeletionGen == preEditSeam.gen
-        ) {
-            val lay = layout
-            val wordwrapReady = isWordwrapReady()
-            val editorBusy = isLayoutBusy
-            // Row 1a: Insert strictly below active seam
-            if (startLine > preEditSeam.seamLine) {
-                if (wordwrapReady && !editorBusy && lay != null) {
-                    return
-                }
-                pCanvas.cancelGapCollapseAndDeletionTransaction(
-                    preserveRetractionDebt = false,
-                    reason = "incremental_seam_below_async_layout"
-                )
-                pCanvas.syncActualScrollFromViewport()
-                ensureSelectionVisible()
-                pCanvas.clampCanvasScrollToMax(smooth = true)
-                return
-            }
-
-            // Map (preEditSeam.seamLine, 0) post-insert -> (newSeamLine, newSeamCol)
-            val newSeamLine: Int
-            val newSeamCol: Int
-            if (startLine < preEditSeam.seamLine) {
-                newSeamLine = preEditSeam.seamLine + (endLine - startLine)
-                newSeamCol = 0
-            } else if (startColumn == 0) {
-                newSeamLine = endLine
-                newSeamCol = endColumn
-            } else {
-                newSeamLine = preEditSeam.seamLine
-                newSeamCol = 0
-            }
-
-            val newSeamFirstLowerRow = if (lay != null &&
-                wordwrapReady &&
-                !editorBusy &&
-                newSeamCol == 0 &&
-                newSeamLine in 0 until content.lineCount
-            ) {
-                try {
-                    val charIdx = content.indexer.getCharIndex(newSeamLine, 0)
-                    lay.getRowIndexForPosition(charIdx)
-                } catch (_: Throwable) {
-                    -1
-                }
-            } else {
-                -1
-            }
-            val postSeamDocY = if (newSeamFirstLowerRow >= 0) {
-                newSeamFirstLowerRow * rowHeight.toFloat()
-            } else {
-                Float.NaN
-            }
-
-            when (val mapping = ScribeGapCollapsePolicy.evaluateIncrementalSeamRebase(
-                isWordwrapReady = wordwrapReady,
-                isLayoutBusy = editorBusy || lay == null,
-                preEditTauPx = preEditSeam.tauLower,
-                preEditSeamDocY = preEditSeam.seamDocY,
-                newSeamLine = newSeamLine,
-                newSeamCol = newSeamCol,
-                newSeamFirstLowerRow = newSeamFirstLowerRow,
-                postSeamDocY = postSeamDocY
-            )) {
-                is SeamMappingResult.PreservePhase -> {
-                    controller.applyIncrementalSeamPreserve(
-                        expectedGen = preEditSeam.gen,
-                        newSeamLine = mapping.newSeamLine,
-                        newSeamFirstLowerRow = mapping.newSeamFirstLowerRow,
-                        newSeamDocY = mapping.newSeamDocY
-                    )
-                    pCanvas.syncActiveSeamBaselineFromController()
-                }
-                is SeamMappingResult.RebaseTau -> {
-                    controller.applyIncrementalSeamRebase(
-                        expectedGen = preEditSeam.gen,
-                        newSeamLine = mapping.newSeamLine,
-                        newSeamFirstLowerRow = mapping.newSeamFirstLowerRow,
-                        newSeamDocY = mapping.newSeamDocY,
-                        residualTauLowerPx = mapping.residualTauLowerPx,
-                        actualPhysicalScrollPx = (pCanvas.scrollD + offsetY).toFloat()
-                    )
-                    pCanvas.syncActiveSeamBaselineFromController()
-                }
-                is SeamMappingResult.FallbackRequired -> {
-                    pCanvas.cancelGapCollapseAndDeletionTransaction(
-                        preserveRetractionDebt = false,
-                        reason = "incremental_seam_${mapping.reason}"
-                    )
-                    pCanvas.syncActualScrollFromViewport()
-                    ensureSelectionVisible()
-                    pCanvas.clampCanvasScrollToMax(smooth = true)
-                }
-            }
+        if (preEditSeam != null) {
+            reconcileIncrementalSeamAfterMutation(
+                pCanvas = pCanvas,
+                preEditSeam = preEditSeam,
+                startLine = startLine,
+                startColumn = startColumn,
+                endLine = endLine,
+                endColumn = endColumn
+            )
         }
     }
 

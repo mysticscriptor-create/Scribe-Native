@@ -993,6 +993,160 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
     }
 
     @Test
+    fun testPolicyAAutoIndentFloorAndCommitTextSeamReconciliation() {
+        // Case 1: enforceAutoIndentFloor() during active collapse (above seam, below seam, and on seam line)
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
+            val editor = canvas.editor
+            editor.isCursorAnimationEnabled = false
+            // Create under-indented whitespace lines so text.replace triggers BOTH ACTION_DELETE and ACTION_INSERT
+            editor.text.insert(8, 0, "  \n")
+            editor.text.insert(31, 0, "  \n")
+            canvas.scrollCanvasBy(350f)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            val rowH = editor.rowHeight.toFloat().coerceAtLeast(20f)
+
+            // 1a: Above seam (line 8 < 25) -> PreservePhase, no ACTION_DELETE transaction corruption
+            val (gen, epoch) = enterSplitCollapseAt(canvas, seamLine = 25, tauLowerPx = rowH * 4f, freezeToPointer = true)
+            val preSeamDocY = canvas.gapCollapseController.activeSeamDocY
+            editor.setSelection(8, 0)
+            editor.firstLineIndentSpaces = 4
+            editor.enforceAutoIndentFloor()
+            assertEquals("    ", editor.text.getLineString(8))
+            assertEquals(4, editor.cursor.leftColumn)
+            assertEquals(GapCollapsePhase.POINTER_FROZEN, canvas.gapCollapseController.phase)
+            assertEquals(gen, canvas.gapCollapseController.owningDeletionGen)
+            assertEquals(epoch, canvas.gapCollapseController.collapseAnimEpoch)
+            assertEquals(25, canvas.gapCollapseController.activeSeamLine)
+            assertEquals(preSeamDocY, canvas.gapCollapseController.activeSeamDocY, 0.001f)
+            assertEquals(rowH * 4f, canvas.gapCollapseController.tauLower, 0.001f)
+            assertEquals(gen, canvas.currentDeletionTransactionGeneration)
+            assertFalse(canvas.hasPendingDeletionSettlement)
+
+            // 1b: Below seam (line 31 > 25) -> Row 1a preserves collapse intact
+            editor.firstLineIndentSpaces = 0
+            editor.setSelection(31, 0)
+            editor.firstLineIndentSpaces = 4
+            editor.enforceAutoIndentFloor()
+            assertEquals("    ", editor.text.getLineString(31))
+            assertEquals(GapCollapsePhase.POINTER_FROZEN, canvas.gapCollapseController.phase)
+            assertEquals(gen, canvas.gapCollapseController.owningDeletionGen)
+            assertEquals(epoch, canvas.gapCollapseController.collapseAnimEpoch)
+            assertEquals(rowH * 4f, canvas.gapCollapseController.tauLower, 0.001f)
+
+            // 1c: On the seam line itself (line 25 == seamLine) -> Row 4 conservative fallback
+            canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "1b_cleanup")
+            editor.firstLineIndentSpaces = 0
+            editor.text.replace(25, 0, 25, editor.text.getColumnCount(25), "  ")
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            enterSplitCollapseAt(canvas, seamLine = 25, tauLowerPx = rowH * 4f, freezeToPointer = true)
+            editor.setSelection(25, 0)
+            editor.firstLineIndentSpaces = 4
+            editor.enforceAutoIndentFloor()
+            assertEquals("    ", editor.text.getLineString(25))
+            assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+            assertFalse(canvas.gapCollapseController.shouldApplySplitRender)
+            assertEquals(0f, canvas.gapCollapseController.tauLower, 0.001f)
+            assertEquals((canvas.scrollD + editor.offsetY).toFloat(), canvas.scrollCoordinator.totalScroll, 0.5f)
+        }
+
+        // Case 2: commitText() with blank-line indentation normalization during active collapse
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
+            val editor = canvas.editor
+            editor.isCursorAnimationEnabled = false
+            editor.text.insert(8, 0, "  \n")
+            canvas.scrollCanvasBy(350f)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            val rowH = editor.rowHeight.toFloat().coerceAtLeast(20f)
+
+            // 2a: Single-line commitText on under-indented line above seam preserves phase cleanly
+            val (gen1, epoch1) = enterSplitCollapseAt(canvas, seamLine = 25, tauLowerPx = rowH * 4f, freezeToPointer = true)
+            val preDocY1 = canvas.gapCollapseController.activeSeamDocY
+            editor.setSelection(8, 0)
+            editor.firstLineIndentSpaces = 4
+            editor.commitText("Hello", false, false)
+            assertEquals("    Hello", editor.text.getLineString(8))
+            assertEquals(9, editor.cursor.leftColumn)
+            assertEquals(GapCollapsePhase.POINTER_FROZEN, canvas.gapCollapseController.phase)
+            assertEquals(gen1, canvas.gapCollapseController.owningDeletionGen)
+            assertEquals(epoch1, canvas.gapCollapseController.collapseAnimEpoch)
+            assertEquals(25, canvas.gapCollapseController.activeSeamLine)
+            assertEquals(preDocY1, canvas.gapCollapseController.activeSeamDocY, 0.001f)
+            assertEquals(rowH * 4f, canvas.gapCollapseController.tauLower, 0.001f)
+            assertEquals(gen1, canvas.currentDeletionTransactionGeneration)
+            assertFalse(canvas.hasPendingDeletionSettlement)
+            canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "c2a_cleanup")
+
+            // 2b: Multi-line commitText on under-indented line normalizes seam before super.commitText and rebases tauLower
+            editor.firstLineIndentSpaces = 0
+            editor.text.replace(8, 0, 8, editor.text.getColumnCount(8), "  ")
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            val (gen2, epoch2) = enterSplitCollapseAt(canvas, seamLine = 25, tauLowerPx = rowH * 4f, freezeToPointer = true)
+            val preDocY2 = canvas.gapCollapseController.activeSeamDocY
+            editor.setSelection(8, 0)
+            editor.firstLineIndentSpaces = 4
+            editor.commitText("Alpha\nBeta", false, false)
+            assertEquals("        Alpha", editor.text.getLineString(8))
+            assertEquals("    Beta", editor.text.getLineString(9))
+            assertEquals(GapCollapsePhase.POINTER_FROZEN, canvas.gapCollapseController.phase)
+            assertEquals(gen2, canvas.gapCollapseController.owningDeletionGen)
+            assertEquals(epoch2 + 1L, canvas.gapCollapseController.collapseAnimEpoch)
+            assertEquals(26, canvas.gapCollapseController.activeSeamLine)
+            assertEquals(preDocY2 + rowH, canvas.gapCollapseController.activeSeamDocY, 1.5f)
+            assertEquals(rowH * 3f, canvas.gapCollapseController.tauLower, 1.5f)
+            canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "c2b_cleanup")
+        }
+
+        // Case 3: Unavailable / busy layout during internal indent mutation triggers conservative fallback
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
+            val editor = canvas.editor
+            editor.isCursorAnimationEnabled = false
+            editor.text.insert(8, 0, "  \n")
+            canvas.scrollCanvasBy(350f)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            val rowH = editor.rowHeight.toFloat().coerceAtLeast(20f)
+
+            // 3a: enforceAutoIndentFloor() while layout is busy
+            enterSplitCollapseAt(canvas, seamLine = 25, tauLowerPx = rowH * 4f, freezeToPointer = true)
+            editor.setSelection(8, 0)
+            editor.firstLineIndentSpaces = 4
+            editor.isLayoutBusyState = true
+            try {
+                editor.enforceAutoIndentFloor()
+            } finally {
+                editor.isLayoutBusyState = false
+            }
+            assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+            assertFalse(canvas.gapCollapseController.shouldApplySplitRender)
+            assertEquals(0f, canvas.gapCollapseController.tauLower, 0.001f)
+            assertFalse(canvas.gapCollapseController.isTransactionOwned)
+            assertEquals((canvas.scrollD + editor.offsetY).toFloat(), canvas.scrollCoordinator.totalScroll, 0.5f)
+
+            // 3b: commitText() with indent normalization while layout is busy
+            editor.firstLineIndentSpaces = 0
+            editor.text.replace(8, 0, 8, editor.text.getColumnCount(8), "  ")
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            enterSplitCollapseAt(canvas, seamLine = 25, tauLowerPx = rowH * 4f, freezeToPointer = true)
+            editor.setSelection(8, 0)
+            editor.firstLineIndentSpaces = 4
+            editor.isLayoutBusyState = true
+            try {
+                editor.commitText("X", false, false)
+            } finally {
+                editor.isLayoutBusyState = false
+            }
+            assertEquals("    X", editor.text.getLineString(8))
+            assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+            assertFalse(canvas.gapCollapseController.shouldApplySplitRender)
+            assertEquals(0f, canvas.gapCollapseController.tauLower, 0.001f)
+            assertFalse(canvas.gapCollapseController.isTransactionOwned)
+            assertEquals((canvas.scrollD + editor.offsetY).toFloat(), canvas.scrollCoordinator.totalScroll, 0.5f)
+        }
+    }
+
+    @Test
     fun testWidthChangeDetachCleanupSerializedHeightResizeAndScrollDFloatInvariant() {
         val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 120)
         canvas.editor.isCursorAnimationEnabled = false
