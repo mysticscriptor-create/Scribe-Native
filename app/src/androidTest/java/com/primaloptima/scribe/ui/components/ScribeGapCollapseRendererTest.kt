@@ -564,9 +564,15 @@ class ScribeGapCollapseRendererTest {
         val w = editor.width.coerceAtLeast(1)
         val h = editor.height.coerceAtLeast(1)
         val rec = RecordingCanvas(w, h)
-        // CodeEditor.onDraw(canvas) calls renderer.draw(canvas) directly in view coordinates;
-        // EditorRenderer itself subtracts offsetX / offsetY internally.
-        editor.renderer.draw(rec)
+        // Android View.draw(Canvas) translates by (-scrollX, -scrollY) before calling CodeEditor.onDraw(canvas),
+        // and Sora EditorRenderer.draw(canvas) translates by (+offsetX, +offsetY) so drawView() runs at (0, 0).
+        rec.save()
+        rec.translate(-editor.scrollX.toFloat(), -editor.scrollY.toFloat())
+        try {
+            editor.renderer.draw(rec)
+        } finally {
+            rec.restore()
+        }
         rec.assertBalancedAndZeroTranslation()
         return rec
     }
@@ -973,11 +979,16 @@ class ScribeGapCollapseRendererTest {
                 canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "layers_sel")
 
                 // B) P1 Caret test: caret inside P1 (line 2) handle stays unshifted under split frame
+                ed.requestFocus()
                 ed.setSelection(2, 4, false)
                 ed.cursorAnimator.cancel()
+                ed.eventHandler.notifyLater()
+                assertTrue("Insert handle timer must be armed for static P1 handle check", ed.eventHandler.shouldDrawInsertHandle())
+                assertTrue("Editor must retain focus for static P1 handle check", ed.isFocused)
                 assertFalse("CursorAnimator must not run for static P1 handle check", ed.cursorAnimator.isRunning)
                 drawEditorInViewSpace(ed)
                 val unsplitP1Handle = RectF(ed.insertHandleDescriptor.position)
+                assertFalse("Unsplit P1 baseline handle descriptor must be populated", unsplitP1Handle.isEmpty)
                 beginSplitCollapse(
                     canvas = canvas,
                     gen = 2L,
@@ -992,8 +1003,12 @@ class ScribeGapCollapseRendererTest {
                 canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "layers_p1_caret")
 
                 // C) P2 Caret on '}' (line 12): exercises ALL 10 layers + Case-I lower handle shift ONCE
+                ed.requestFocus()
                 ed.setSelection(12, closeCol + 1, false)
                 ed.cursorAnimator.cancel()
+                ed.eventHandler.notifyLater()
+                assertTrue("Insert handle timer must be armed for static P2 handle check", ed.eventHandler.shouldDrawInsertHandle())
+                assertTrue("Editor must retain focus for static P2 handle check", ed.isFocused)
                 assertFalse("CursorAnimator must not run for static P2 handle check", ed.cursorAnimator.isRunning)
                 val unsplit = drawEditorInViewSpace(ed)
                 val unsplitDesc = RectF(ed.insertHandleDescriptor.position)
@@ -1295,6 +1310,7 @@ class ScribeGapCollapseRendererTest {
             waitUntil(failureMsg = "EditorTextActionWindow must restore after Event-B IDLE + unsplit draw") {
                 aw.isEnabled
             }
+            instr.runOnMainSync { aw.dismiss() }
 
             // Subcase 2: DEFERRED_UNTIL_LAYOUT_READY (height == 0) keeps FINAL_SAFETY_PENDING -> layout becomes ready -> retries to IDLE
             instr.runOnMainSync {
@@ -1304,7 +1320,11 @@ class ScribeGapCollapseRendererTest {
                 val rowH = ed.rowHeight.toFloat()
                 scrollCanvasTo(canvas, canvas.headerHeight.toFloat())
                 ed.requestFocus()
+                val wasAnimEnabled = ed.isCursorAnimationEnabled
+                ed.isCursorAnimationEnabled = false
                 ed.setSelectionRegion(6, 1, 6, 8, false)
+                realAnimator.cancel()
+                ed.isCursorAnimationEnabled = wasAnimEnabled
                 val seamRow = ed.layout.getRowIndexForPosition(ed.text.getCharIndex(6, 0))
                 beginSplitCollapse(canvas, gen = 50L, seamLine = 6, seamFirstLowerRow = seamRow, tauPx = rowH * 2f)
                 assertFalse(aw.isEnabled)
@@ -1334,6 +1354,9 @@ class ScribeGapCollapseRendererTest {
                 val hSpec = View.MeasureSpec.makeMeasureSpec(960, View.MeasureSpec.EXACTLY)
                 canvas.measure(wSpec, hSpec)
                 canvas.layout(0, 0, 720, 960)
+                if (!ed.hasFocus()) {
+                    ed.requestFocus()
+                }
             }
 
             waitUntil(failureMsg = "Deferred Event B must retry on layout ready and settle to IDLE") {
@@ -1344,10 +1367,37 @@ class ScribeGapCollapseRendererTest {
                     !ed.isLayoutBusy
             }
             instr.runOnMainSync {
-                drawEditorInViewSpace(host.canvas.editor)
+                val ed = host.canvas.editor
+                if (!ed.hasFocus()) {
+                    ed.requestFocus()
+                }
+                assertTrue("Editor must hold focus for deferred Event-B text action refresh", ed.hasFocus())
+                assertEquals(View.VISIBLE, ed.visibility)
+                assertTrue(ed.isAttachedToWindow)
+                assertTrue(ed.cursor.isSelected)
+                drawEditorInViewSpace(ed)
             }
-            waitUntil(failureMsg = "EditorTextActionWindow must restore after deferred Event-B settles") {
-                aw.isEnabled
+            val restoreDeadline = SystemClock.uptimeMillis() + 2_500L
+            while (SystemClock.uptimeMillis() < restoreDeadline) {
+                var enabled = false
+                instr.runOnMainSync { enabled = aw.isEnabled }
+                if (enabled) break
+                SystemClock.sleep(16L)
+            }
+            instr.runOnMainSync {
+                val canvas = host.canvas
+                val ed = canvas.editor
+                val renderer = ed.renderer as? ScribeEditorRenderer
+                assertTrue(
+                    "EditorTextActionWindow must restore after deferred Event-B settles " +
+                        "(awEnabled=${aw.isEnabled}, hasFocus=${ed.hasFocus()}, vis=${ed.visibility}, " +
+                        "attached=${ed.isAttachedToWindow}, selected=${ed.cursor.isSelected}, " +
+                        "layoutBusy=${ed.isLayoutBusy}, animRunning=${ed.cursorAnimator.isRunning}, " +
+                        "phase=${canvas.gapCollapseController.phase}, owned=${canvas.gapCollapseController.isTransactionOwned}, " +
+                        "heldHandle=${ed.eventHandler.hasAnyHeldHandle()}, dragSel=${ed.eventHandler.isDragSelecting}, " +
+                        "drawSeq=${renderer?.renderedDrawPassSeq}, gen=${canvas.currentDeletionTransactionGeneration})",
+                    aw.isEnabled
+                )
             }
             instr.runOnMainSync { aw.dismiss() }
         }
