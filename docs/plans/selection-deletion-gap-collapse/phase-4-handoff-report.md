@@ -2,8 +2,9 @@
 
 **Repository:** `https://github.com/mysticscriptor-create/Scribe-Native`
 **Branch:** `main`
-**Starting Commit Repaired From:** `a503f9be3141d1c35520ca583f0da32d20277f41`
-**Previous CI Run Remediated:** `43819532310` (`:app:compileDebugUnitTestKotlin` failure)
+**Current Base Commit Remediated From:** `b514051166889c2bd19d4e6eeeb25eba82f1627c`
+**Latest CI Run Remediated:** `43827526440` (Run `#871`: `:app:testDebugUnitTest` `432 tests completed, 1 failed` at `UnifiedCanvasPointerAndOriginIntegrationTest.kt:186`)
+**Prior Repaired Commit / Run:** `a503f9be3141d1c35520ca583f0da32d20277f41` / `43819532310` (`:app:compileDebugUnitTestKotlin` failure)
 **Previous Phase 4 / CI Baseline:** `7caaae2a7fa4eb01f811df45fe3868600817d517`
 **Sora Baseline Dependency:** `io.github.rosemoe:editor:0.24.6` (`87055c459e346cac6c619b3350f0bfba076228cc`)
 **Master Plan SHA-256 (verified intact):** `c667de445f39ca769ce0bca4176b29ad902da29b98e260d48dd6adb8f1dc6806`
@@ -55,14 +56,22 @@
    - Extended `RecordingCanvas` to capture `drawRect`, `drawRoundRect`, `drawColor`, `drawPath`, `drawText`, `drawTextRun` (`CharArray`/`CharSequence`), `drawLine`, `saveLayer`, and balanced `save`/`restore` depth (`assertBalancedAndZeroTranslation()`).
    - Strengthened `testApproachA_AllSixFirstLnCases_IncludingWrappingAndCollision` with Case-1 screen-space boundary assertions proving Pass-1 `postDrawLineNumbers` never paint across `[pass1ClipBottom, pass2ClipTop]` or overlap Pass-2.
    - Strengthened `testPerLayerClipTranslationAndLowerInsertionHandleShiftZeroDoubleShift` across all 10 layers (`WHOLE_BACKGROUND`, `buildMeasureCacheForLines`, `drawRows` selection + `CURRENT_LINE` + text + no duplicate rows, `patchHighlightedDelimiters` with `BracketsProvider` `{`/`}`, `drawDiagnosticIndicators` `WAVY_LINE`, `LINE_NUMBER_BACKGROUND` + `LineGutterBackground` + `LineSideIcon` + `LINE_DIVIDER` + Pass 1/2 line numbers, `drawSideBlockLine`, P1 unshifted caret + Case-I P2 `insertHandleDescriptor.position` shifted ONCE with zero double-shift).
-   - Added `testOptionBEventB_SafetyCorrectionAndDeferredLayoutRetryOnRealHost` exercising Event-B `CORRECTION_STARTED -> CORRECTED_AND_VALIDATED` and `DEFERRED_UNTIL_LAYOUT_READY -> OnLayoutChangeListener retry` on the real `UnifiedCanvasLayout` host.
+   - Added `testOptionBEventB_SafetyCorrectionAndDeferredLayoutRetryOnRealHost` exercising Event-B `CORRECTION_STARTED -> CORRECTED_AND_VALIDATED` (using a 60-line doc with lower selection at line 50 and scroll at `headerHeight`, verifying physical scroll dynamically below `safeMinPhysical` enters `FINAL_SAFETY_PENDING` with `isGlideRunning` and settles inside `[safeMinPhysical, safeMax]`) and `DEFERRED_UNTIL_LAYOUT_READY -> OnLayoutChangeListener retry` on the real `UnifiedCanvasLayout` host.
    - Added `testEditorTextActionWindow_AllSevenLifecycleCases` covering all 7 `EditorTextActionWindow` lifecycle cases (layout-busy block/clear, animator-running block/clear, `!hasFocus()` and `View.INVISIBLE` temporary blocks + recovery without new deletion, detach cleanup without popup display, reattach state preservation, new-transaction generation invalidation, and preserving pre-existing `isEnabled == false`).
+3. **Remediated & Extended (CI #871 Fix, Suite B2 Option-B):** `app/src/test/java/com/primaloptima/scribe/ui/components/UnifiedCanvasPointerAndOriginIntegrationTest.kt`
+   - Confirmed CI #871 (`43827526440`) failure root cause: in `testRealHostDispatchTouchEvent_FreezesMode1AnimatorPreservingTransactionAndResumesToMode2`, stationary `ACTION_DOWN -> ACTION_UP` without drag slop reaches Sora `onSingleTapUp` -> `setSelection(CAUSE_TAP)` -> `ScribeCursorAnimator.start()` -> `onAnimatorStarted` -> `handleCursorAnimatorActivatedDuringCollapse()`. Because `isTransactionOwned` includes `POINTER_FROZEN` per `phase-4.md` §4.3 (`shouldApplySplitRender == true`), Phase 4 Option B legitimately immediately evaluates Event B (`POINTER_FROZEN -> FINAL_SAFETY_PENDING -> VALIDATED_SAFE -> IDLE`) before `onPointerGestureEndedIfNeeded`.
+   - Isolated Phase 3's pointer-freeze/Mode-2-resume test from unrelated tap cursor gliding via `canvas.editor.isCursorAnimationEnabled = false` without weakening production Option-B safety.
+   - Added `testRealHostPointerFrozen_CursorAnimatorActivationTriggersOptionBAndFinalizesViaEventB()` validating both Case 1 (stationary `ACTION_DOWN -> ACTION_UP` tap under `POINTER_FROZEN` triggers real `CAUSE_TAP` -> `ScribeCursorAnimator.start()` -> Option-B `VALIDATED_SAFE -> IDLE`) and Case 2 (unsafe physical scroll `< dynamic safeMinPhysical` under `POINTER_FROZEN` -> `ScribeCursorAnimator.triggerGlide()` holds `FINAL_SAFETY_PENDING` through async `CORRECTION_STARTED` and converges via `CORRECTED_AND_VALIDATED -> IDLE` inside `[safeMinPhysical, safeMax]`).
+
+### CI Workflow Hardening
+- **Modified:** `.github/workflows/build.yml`
+  - Added `Upload JVM unit test reports` (`if: always()`, `actions/upload-artifact@v4`, `scribe-unitTest-reports-${{ github.sha }}`, uploading `app/build/test-results/testDebugUnitTest/` and `app/build/reports/tests/testDebugUnitTest/`, 14-day retention, `if-no-files-found: warn`) so unit test failure details remain directly downloadable when `testDebugUnitTest` fails.
 
 ---
 
 ## 2. Static Verification Performed (Zero Local Builds / Tests Executed)
 
-- Verified `implementation_plan.md` SHA-256 unchanged (`c667de445f39ca769ce0bca4176b29ad902da29b98e260d48dd6adb8f1dc6806`) and `phase-4.md` / `.github/workflows/build.yml` unmodified.
+- Verified `implementation_plan.md` SHA-256 unchanged (`c667de445f39ca769ce0bca4176b29ad902da29b98e260d48dd6adb8f1dc6806`) and `phase-4.md` unmodified; verified `.github/workflows/build.yml` YAML syntax cleanly.
 - Verified zero reflection, `setAccessible`, or `Unsafe` in `ScribeDrawCursorTaskAccessor.java`, `ScribeEditorRenderer.kt`, `ScribeCursorAnimator.kt`, and `ScribeGapCollapseRendererTest.kt`.
 - Verified zero `finishAnimation(` calls outside `ScribeScrollCoordinator.kt`.
 - Verified zero premature Phase 5/6 symbols (`untranslateYOffset`, multi-seam splitting, `C1 > 0` horizontal split, Sora `0.24.7` upgrade).

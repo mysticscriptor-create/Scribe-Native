@@ -1121,13 +1121,15 @@ class ScribeGapCollapseRendererTest {
 
     @Test
     fun testOptionBEventB_SafetyCorrectionAndDeferredLayoutRetryOnRealHost() {
-        val shortDoc = (1..24).joinToString("\n") { "Short doc line $it for Event-B safety bounds." }
-        val host = launchHost(text = shortDoc, wordwrap = true, headerHeightPx = 300)
+        val doc = (1..60).joinToString("\n") { "Event-B safety doc line $it for real host bounds." }
+        val host = launchHost(text = doc, wordwrap = true, headerHeightPx = 300)
         host.scenario.use {
             val instr = InstrumentationRegistry.getInstrumentation()
             lateinit var aw: EditorTextActionWindow
+            var expectedSafeMin = 0
+            var expectedSafeMax = 0
 
-            // Subcase 1: Unsafe physical scroll triggers Event B safety correction -> CORRECTED_AND_VALIDATED
+            // Subcase 1: Unsafe physical scroll (< dynamic safeMinPhysical) triggers Event B CORRECTION_STARTED -> CORRECTED_AND_VALIDATED
             instr.runOnMainSync {
                 val canvas = host.canvas
                 val ed = canvas.editor
@@ -1135,30 +1137,39 @@ class ScribeGapCollapseRendererTest {
                 val realAnimator = ed.cursorAnimator as ScribeCursorAnimator
                 val rowH = ed.rowHeight.toFloat()
 
-                // Scroll past safeMax (24 short lines ~ 24 * rowH, much smaller than 960px viewport -> maxSafe == 0)
-                val maxScroll = canvas.maxCanvasScroll.toFloat()
-                scrollCanvasTo(canvas, maxScroll)
+                ed.requestFocus()
+                val wasAnimEnabled = ed.isCursorAnimationEnabled
+                ed.isCursorAnimationEnabled = false
+                ed.setSelectionRegion(50, 1, 50, 8, false)
+                realAnimator.cancel()
+                ed.isCursorAnimationEnabled = wasAnimEnabled
+                scrollCanvasTo(canvas, canvas.headerHeight.toFloat())
                 val preCorrectionScroll = (canvas.scrollD + ed.offsetY).toFloat()
 
-                ed.requestFocus()
-                ed.setSelectionRegion(8, 1, 8, 8, false)
-                val seamRow = ed.layout.getRowIndexForPosition(ed.text.getCharIndex(8, 0))
+                val caretDocBottom = canvas.getCharGeometry(ed.layout, 50, 1, rowH).bottomDocY
+                val safeNow = canvas.resolveSafetyFloorAndBounds(anchorDocBottom = caretDocBottom)
+                expectedSafeMin = safeNow.safeMinPhysical
+                expectedSafeMax = safeNow.safeMax
+                assertTrue(
+                    "Physical scroll ($preCorrectionScroll) must be strictly below dynamic safeMinPhysical ($expectedSafeMin)",
+                    preCorrectionScroll + 100f < expectedSafeMin
+                )
+                assertTrue(
+                    "Safety bounds must be valid ($expectedSafeMin <= $expectedSafeMax)",
+                    expectedSafeMin <= expectedSafeMax
+                )
+
+                val seamRow = ed.layout.getRowIndexForPosition(ed.text.getCharIndex(50, 0))
                 val plan = makePlan(
                     preScrollY = preCorrectionScroll.toInt(),
                     effectiveTargetScroll = preCorrectionScroll,
                     requiresMode1 = false,
                     initialTauPx = rowH * 2f
-                ).let { base ->
-                    base.copy(
-                        safetyBounds = canvas.resolveSafetyFloorAndBounds(
-                            anchorDocBottom = (8 + 1) * rowH
-                        )
-                    )
-                }
+                ).copy(safetyBounds = safeNow)
                 canvas.beginPreEditDeletionSnapshot(
                     isSelection = true,
-                    selectionStartLine = 7,
-                    selectionEndLine = 8,
+                    selectionStartLine = 49,
+                    selectionEndLine = 50,
                     preEditDocLineCount = ed.text.lineCount + 2,
                     preEditDocHeight = (canvas.headerHeight + ed.layout.layoutHeight).toFloat(),
                     preEditScrollY = preCorrectionScroll,
@@ -1170,7 +1181,7 @@ class ScribeGapCollapseRendererTest {
                 canvas.gapCollapseController.beginCollapse(
                     owningGen = canvas.currentDeletionTransactionGeneration,
                     plan = plan,
-                    seamLine = 8,
+                    seamLine = 50,
                     seamFirstLowerRow = seamRow,
                     seamDocY = seamRow * rowH,
                     rowHeightPx = rowH,
@@ -1179,27 +1190,32 @@ class ScribeGapCollapseRendererTest {
                 ed.onGapCollapseSplitEntered()
                 assertFalse(aw.isEnabled)
 
-                // Now push physical scroll beyond safeMax so Event B requires corrective scroll back into safety bounds
-                val safeNow = canvas.resolveSafetyFloorAndBounds(anchorDocBottom = (8 + 1) * rowH)
-                if (safeNow.safeMax > 10) {
-                    scrollCanvasTo(canvas, safeNow.safeMax.toFloat() + 60f)
-                } else {
-                    scrollCanvasTo(canvas, maxOf(120f, safeNow.safeMinPhysical.toFloat() + 120f))
-                }
-
-                // Trigger real CursorAnimator Option-B interruption
+                // Trigger real CursorAnimator Option-B interruption while physically below safeMinPhysical
                 realAnimator.triggerGlide(0f, 0f, 120f, 40f, 20f, 20f)
                 assertFalse("Split rendering must disable immediately on Event B", canvas.gapCollapseController.shouldApplySplitRender)
                 assertEquals(0f, canvas.gapCollapseController.tauLower, 0.001f)
+                assertEquals(
+                    "Unsafe physical scroll must enter FINAL_SAFETY_PENDING during CORRECTION_STARTED",
+                    GapCollapsePhase.FINAL_SAFETY_PENDING,
+                    canvas.gapCollapseController.phase
+                )
+                assertTrue("Event-B SAFE_BOUNDARY_CORRECTION must start glide", canvas.isGlideRunning)
                 assertFalse("aw.isEnabled must stay false until post-IDLE unsplit draw pass", aw.isEnabled)
             }
 
             waitUntil(failureMsg = "Event-B safety correction must converge to IDLE") {
                 host.canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
-                    !host.canvas.gapCollapseController.isTransactionOwned
+                    !host.canvas.gapCollapseController.isTransactionOwned &&
+                    !host.canvas.editor.cursorAnimator.isRunning
             }
             instr.runOnMainSync {
-                val ed = host.canvas.editor
+                val canvas = host.canvas
+                val ed = canvas.editor
+                val actualAfter = canvas.scrollD + ed.offsetY
+                assertTrue(
+                    "Physical scroll ($actualAfter) must be corrected inside [$expectedSafeMin, $expectedSafeMax]",
+                    actualAfter in expectedSafeMin..expectedSafeMax
+                )
                 drawEditorInViewSpace(ed)
             }
             waitUntil(failureMsg = "EditorTextActionWindow must restore after Event-B IDLE + unsplit draw") {

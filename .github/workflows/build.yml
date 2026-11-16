@@ -107,6 +107,17 @@ jobs:
           retention-days: 30
           compression-level: 0
 
+      - name: Upload JVM unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scribe-unitTest-reports-${{ github.sha }}
+          path: |
+            app/build/test-results/testDebugUnitTest/
+            app/build/reports/tests/testDebugUnitTest/
+          retention-days: 14
+          if-no-files-found: warn
+
       # ── Android instrumentation tests (Cloud Emulator) ────────────────────
       - name: Enable KVM
         run: |

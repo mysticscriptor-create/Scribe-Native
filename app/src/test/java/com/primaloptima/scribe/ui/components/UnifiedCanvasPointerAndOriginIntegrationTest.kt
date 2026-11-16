@@ -125,6 +125,10 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
     @Test
     fun testRealHostDispatchTouchEvent_FreezesMode1AnimatorPreservingTransactionAndResumesToMode2() {
         val canvas = createLaidOutCanvas(headerHeightPx = 200)
+        // Isolate Phase 3 pointer freeze/resume from unrelated tap-navigation cursor gliding:
+        // a stationary tap (ACTION_DOWN/ACTION_UP without drag slop) triggers Sora onSingleTapUp ->
+        // setSelection(CAUSE_TAP) -> ScribeCursorAnimator.start(), which exercises Phase 4 Option B.
+        canvas.editor.isCursorAnimationEnabled = false
         canvas.scrollCanvasBy(500f)
         assertEquals(200, canvas.scrollD)
         assertEquals(300, canvas.editor.offsetY)
@@ -544,5 +548,175 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
     @Test
     fun testRealHostPointerFreeze_ZeroTauMode1_ActionDownFreezesAndActionCancelSettlesToFinalSafety() {
         assertHostZeroTauPointerFreezeSettlesOnGestureEnd(MotionEvent.ACTION_CANCEL)
+    }
+
+    @Test
+    fun testRealHostPointerFrozen_CursorAnimatorActivationTriggersOptionBAndFinalizesViaEventB() {
+        // Case 1: Stationary tap (ACTION_DOWN -> ACTION_UP) while pointer-frozen with cursor animation enabled
+        // triggers Sora setSelection(CAUSE_TAP) -> ScribeCursorAnimator.start() -> Phase 4 Option-B Event-B (VALIDATED_SAFE).
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200)
+            canvas.scrollCanvasBy(500f)
+            assertTrue(canvas.editor.isCursorAnimationEnabled)
+
+            val gen = startDeletionSnapshot(canvas)
+            val plan = makeTestCollapsePlan(
+                preScrollY = 500,
+                effectiveTargetScroll = 350f,
+                requiresMode1 = true,
+                initialTauLowerPx = 300f,
+                safeMax = canvas.maxCanvasScroll.coerceAtLeast(1000)
+            )
+            val collapseEpoch = canvas.gapCollapseController.beginCollapse(
+                owningGen = gen,
+                plan = plan,
+                seamLine = 10,
+                seamFirstLowerRow = 10,
+                seamDocY = 400f,
+                rowHeightPx = canvas.editor.rowHeight.toFloat(),
+                initialPhysicalScrollPx = 500f
+            )
+            canvas.gapCollapseController.markMode1Started(gen, collapseEpoch, 500f)
+            assertTrue(
+                canvas.startAuthoritativeScrollAnimation(
+                    targetTotalScroll = 350f,
+                    reason = ScrollAnimationReason.DELETION_ANCHOR,
+                    durationMs = ScribeScrollDeletionPolicy.DURATION_DELETION_ANCHOR_MS,
+                    forceRetarget = true
+                )
+            )
+
+            val downTime = SystemClock.uptimeMillis()
+            val downEv = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, 200f, 500f, 0)
+            val upEv = MotionEvent.obtain(downTime, downTime + 40L, MotionEvent.ACTION_UP, 200f, 500f, 0)
+            try {
+                canvas.dispatchTouchEvent(downEv)
+                assertEquals(GapCollapsePhase.POINTER_FROZEN, canvas.gapCollapseController.phase)
+                assertTrue(canvas.gapCollapseController.isTransactionOwned)
+                assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+                assertEquals(300f, canvas.gapCollapseController.tauLower, 0.01f)
+
+                // Stationary ACTION_UP triggers Sora onSingleTapUp -> setSelection -> ScribeCursorAnimator.start()
+                canvas.dispatchTouchEvent(upEv)
+                assertFalse("Split rendering must disable immediately on Option-B fallback", canvas.gapCollapseController.shouldApplySplitRender)
+                assertEquals(0f, canvas.gapCollapseController.tauLower, 0.001f)
+                assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+                assertFalse(canvas.gapCollapseController.isTransactionOwned)
+                assertFalse(canvas.isDeletionTransactionActive)
+                assertEquals(gen + 1L, canvas.currentDeletionTransactionGeneration)
+                assertFalse("No Mode-1/Mode-2 animation may run after Option-B fallback", canvas.isGlideRunning)
+                assertFalse(canvas.scrollCoordinator.isAnimationActive)
+            } finally {
+                downEv.recycle()
+                upEv.recycle()
+                (canvas.editor.cursorAnimator as? ScribeCursorAnimator)?.cancel()
+                canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "test_cleanup")
+            }
+        }
+
+        // Case 2: Unsafe physical scroll (actual < dynamic safeMinPhysical for lower caret) during POINTER_FROZEN ->
+        // ScribeCursorAnimator.triggerGlide() keeps FINAL_SAFETY_PENDING across async Event-B CORRECTION_STARTED ->
+        // converges via CORRECTED_AND_VALIDATED -> IDLE with physical scroll corrected inside [safeMinPhysical, safeMax].
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 200)
+            canvas.editor.isCursorAnimationEnabled = false
+            canvas.editor.setSelection(80, 0, false)
+            (canvas.editor.cursorAnimator as? ScribeCursorAnimator)?.cancel()
+            val afterSetScroll = (canvas.scrollD + canvas.editor.offsetY).toFloat()
+            canvas.scrollCanvasBy(250f - afterSetScroll)
+            assertEquals(250, canvas.scrollD + canvas.editor.offsetY)
+            canvas.editor.isCursorAnimationEnabled = true
+
+            val rowH = canvas.editor.rowHeight.toFloat()
+            val caretGeom = canvas.getCharGeometry(canvas.editor.layout!!, 80, 0, rowH)
+            val expectedBounds = canvas.resolveSafetyFloorAndBounds(anchorDocBottom = caretGeom.bottomDocY)
+            assertTrue(
+                "Expected physical scroll (250) strictly below dynamic safeMinPhysical (${expectedBounds.safeMinPhysical})",
+                250 + 50 < expectedBounds.safeMinPhysical
+            )
+            assertTrue(
+                "Expected non-contradictory safety bounds (${expectedBounds.safeMinPhysical} <= ${expectedBounds.safeMax})",
+                expectedBounds.safeMinPhysical <= expectedBounds.safeMax
+            )
+
+            val gen = startDeletionSnapshot(canvas)
+            val plan = makeTestCollapsePlan(
+                preScrollY = 250,
+                effectiveTargetScroll = 150f,
+                requiresMode1 = true,
+                initialTauLowerPx = 220f,
+                safeMinPhysical = expectedBounds.safeMinPhysical,
+                safeMax = expectedBounds.safeMax
+            )
+            val collapseEpoch = canvas.gapCollapseController.beginCollapse(
+                owningGen = gen,
+                plan = plan,
+                seamLine = 10,
+                seamFirstLowerRow = 10,
+                seamDocY = 400f,
+                rowHeightPx = rowH,
+                initialPhysicalScrollPx = 250f
+            )
+            canvas.gapCollapseController.markMode1Started(gen, collapseEpoch, 250f)
+            assertTrue(
+                canvas.startAuthoritativeScrollAnimation(
+                    targetTotalScroll = 150f,
+                    reason = ScrollAnimationReason.DELETION_ANCHOR,
+                    durationMs = ScribeScrollDeletionPolicy.DURATION_DELETION_ANCHOR_MS,
+                    forceRetarget = true
+                )
+            )
+
+            val downTime = SystemClock.uptimeMillis()
+            val downEv = MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, 200f, 500f, 0)
+            val cancelEv = MotionEvent.obtain(downTime, downTime + 40L, MotionEvent.ACTION_CANCEL, 200f, 500f, 0)
+            try {
+                canvas.dispatchTouchEvent(downEv)
+                assertEquals(GapCollapsePhase.POINTER_FROZEN, canvas.gapCollapseController.phase)
+                assertTrue(canvas.gapCollapseController.isTransactionOwned)
+                assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+
+                // Invoke real ScribeCursorAnimator while POINTER_FROZEN & physically below dynamic safeMinPhysical
+                val animator = canvas.editor.cursorAnimator as ScribeCursorAnimator
+                animator.triggerGlide(0f, 0f, 40f, 120f, 160f, 40f)
+
+                // Option B must disable split rendering immediately and hold FINAL_SAFETY_PENDING during CORRECTION_STARTED
+                assertFalse(canvas.gapCollapseController.shouldApplySplitRender)
+                assertEquals(0f, canvas.gapCollapseController.tauLower, 0.001f)
+                assertEquals(GapCollapsePhase.FINAL_SAFETY_PENDING, canvas.gapCollapseController.phase)
+                assertTrue(canvas.gapCollapseController.isTransactionOwned)
+                assertEquals(gen, canvas.gapCollapseController.owningDeletionGen)
+                assertTrue("Event-B SAFE_BOUNDARY_CORRECTION must run asynchronously", canvas.isGlideRunning)
+
+                // Drive Choreographer frames until spring safety correction finishes
+                var steps = 0
+                while (canvas.gapCollapseController.phase == GapCollapsePhase.FINAL_SAFETY_PENDING && steps < 120) {
+                    org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(32))
+                    Shadows.shadowOf(Looper.getMainLooper()).idle()
+                    steps++
+                }
+
+                // Event B must converge via CORRECTED_AND_VALIDATED to IDLE cleanly
+                assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+                assertFalse(canvas.gapCollapseController.isTransactionOwned)
+                assertFalse(canvas.isDeletionTransactionActive)
+                assertEquals(gen + 1L, canvas.currentDeletionTransactionGeneration)
+                val settledPhysical = canvas.scrollD + canvas.editor.offsetY
+                assertTrue(
+                    "Physical scroll ($settledPhysical) must be corrected inside [${expectedBounds.safeMinPhysical}, ${expectedBounds.safeMax}]",
+                    settledPhysical in expectedBounds.safeMinPhysical..expectedBounds.safeMax
+                )
+                assertFalse("No Mode-1 or Mode-2 animation may remain active after Event B settles", canvas.isGlideRunning)
+                assertFalse(canvas.scrollCoordinator.isAnimationActive)
+
+                canvas.dispatchTouchEvent(cancelEv)
+                assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+            } finally {
+                downEv.recycle()
+                cancelEv.recycle()
+                (canvas.editor.cursorAnimator as? ScribeCursorAnimator)?.cancel()
+                canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "test_cleanup")
+            }
+        }
     }
 }
