@@ -777,7 +777,7 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             assertTrue(canvas.gapCollapseController.freezeForPointer(gen))
         }
         canvas.syncActiveSeamBaselineFromController()
-        return gen to epoch
+        return gen to canvas.gapCollapseController.collapseAnimEpoch
     }
 
     @Test
@@ -807,7 +807,7 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
         val testX = editor.measureTextRegionOffset() + 40f
         val targetLine = seamLine + 2
         val targetDocOffset = editor.layout.getCharLayoutOffset(targetLine, 0)!!
-        val visualTranslatedDocY = targetDocOffset[0] + tau + (rowH * 0.5f)
+        val visualTranslatedDocY = targetDocOffset[0] + tau - (rowH * 0.5f)
         val packedPos = editor.getPointPosition(testX, visualTranslatedDocY)
         val mappedLine = IntPair.getFirst(packedPos)
         val visualPos = editor.getPointVisualPosition(testX, visualTranslatedDocY)

@@ -1335,12 +1335,12 @@ class ScribeGapCollapseControllerTest {
         assertEquals(SafetyRevalidationResult.CORRECTION_STARTED, h2.safety.runEventB(gen2, se2))
         assertTrue("Eval must remain pending while correction is running", h2.safety.dispatchedEvals.isEmpty())
         assertTrue(h2.controller.isTransactionOwned)
-        val freshSe2 = h2.controller.safetyEpoch
-        assertTrue(freshSe2 != se2)
+        assertEquals(se2, h2.controller.safetyEpoch)
         val res2 = h2.completeAsyncSettlement {
-            h2.safety.finishCorrectionAndReenter(gen2, freshSe2, actualAfter = h2.safety.pendingCorrectionTarget!!)
+            h2.safety.finishCorrectionAndReenter(gen2, se2, actualAfter = h2.safety.pendingCorrectionTarget!!)
         }
         assertEquals(SafetyRevalidationResult.CORRECTED_AND_VALIDATED, res2)
+        assertTrue(h2.controller.safetyEpoch > se2)
         assertEquals(1, h2.safety.dispatchedEvals.size)
         assertTrue(h2.safety.dispatchedEvals.single().isKeyboardDismissing)
         assertEquals(ScribeDockTransition.IME_DISMISSAL, h2.safety.dispatchedEvals.single().dockTransition)
