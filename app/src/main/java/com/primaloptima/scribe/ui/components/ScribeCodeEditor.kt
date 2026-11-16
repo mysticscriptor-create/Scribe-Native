@@ -1510,12 +1510,15 @@ class ScribeCodeEditor @JvmOverloads constructor(
         stagedPreDeleteSeamCapture = null
         val pCanvas = parentCanvas
         val canMutateCanvas = pCanvas != null
+        val isGapCollapseOwned = pCanvas?.gapCollapseController?.isTransactionOwned == true
         val insertAction = deletionSnapshotCoordinator?.onAfterInsert(
             insertedNotEmpty = insertedContent.isNotEmpty(),
             isTextEmpty = text.isEmpty(),
             currentTotalScroll = if (pCanvas != null) pCanvas.scrollD + offsetY else 0,
             maxCanvasScroll = pCanvas?.maxCanvasScroll ?: 0,
-            hasPendingOrActiveTransaction = pCanvas != null && (pCanvas.hasPendingDeletionSettlement || pCanvas.isDeletionRetractionInProgress)
+            hasPendingOrActiveTransaction = pCanvas != null &&
+                !isGapCollapseOwned &&
+                (pCanvas.hasPendingDeletionSettlement || pCanvas.isDeletionRetractionInProgress)
         )
         val isClearingReplacement =
             insertAction == ScribeDeletionSnapshotCoordinator.AfterInsertAction.ClearTransaction ||

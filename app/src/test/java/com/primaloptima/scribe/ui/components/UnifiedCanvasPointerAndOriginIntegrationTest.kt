@@ -725,6 +725,30 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
         }
     }
 
+    private fun awaitWordwrapLayoutReady(editor: ScribeCodeEditor, timeoutMs: Long = 5000L) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            if (editor.layout != null && editor.isWordwrapReady() && !editor.isLayoutBusy) {
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                if (editor.layout != null && editor.isWordwrapReady() && !editor.isLayoutBusy) {
+                    var readyDispatched = false
+                    editor.doOnLayoutReady { readyDispatched = true }
+                    Shadows.shadowOf(Looper.getMainLooper()).idle()
+                    if (readyDispatched && editor.layout != null && editor.isWordwrapReady() && !editor.isLayoutBusy) {
+                        return
+                    }
+                }
+            }
+            Thread.sleep(5L)
+        }
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(
+            "Wordwrap layout must be ready and not busy before entering split collapse (layout=${editor.layout != null}, wordwrapReady=${editor.isWordwrapReady()}, layoutBusy=${editor.isLayoutBusy})",
+            editor.layout != null && editor.isWordwrapReady() && !editor.isLayoutBusy
+        )
+    }
+
     private fun enterSplitCollapseAt(
         canvas: UnifiedCanvasLayout,
         seamLine: Int,
@@ -733,7 +757,7 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
         freezeToPointer: Boolean = false
     ): Pair<Long, Long> {
         canvas.editor.isWordwrap = true
-        Shadows.shadowOf(Looper.getMainLooper()).idle()
+        awaitWordwrapLayoutReady(canvas.editor)
         val lay = canvas.editor.layout!!
         val seamCharIdx = canvas.editor.text.getCharIndex(seamLine, 0)
         val seamRow = lay.getRowIndexForPosition(seamCharIdx)
