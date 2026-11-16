@@ -1,5 +1,7 @@
 package com.primaloptima.scribe.ui.components
 
+import android.animation.Animator
+import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.view.animation.PathInterpolator
 import io.github.rosemoe.sora.widget.CodeEditor
@@ -44,6 +46,18 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
     private var armedFallbackTargetY: Float? = null
 
     private var lastAnimateTimestamp: Long = 0L
+
+    /**
+     * Option-B Phase 4 callback invoked synchronously on the UI thread immediately
+     * when cursor glide animators start, before the next draw frame.
+     */
+    var onAnimatorStarted: (() -> Unit)? = null
+
+    private val endInvalidateListener = object : AnimatorListenerAdapter() {
+        override fun onAnimationEnd(animation: Animator) {
+            editor.postInvalidateOnAnimation()
+        }
+    }
 
     /**
      * Arms an intentional cursor glide BEFORE modifying document text or selection.
@@ -97,6 +111,7 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
             duration = glideDurationMs
             interpolator = glideInterpolator
             addUpdateListener(this@ScribeCursorAnimator)
+            addListener(endInvalidateListener)
         }
         val ay = ValueAnimator.ofFloat(fromY, toY).apply {
             duration = glideDurationMs
@@ -116,6 +131,7 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
         ax.start()
         ay.start()
         ah.start()
+        onAnimatorStarted?.invoke()
     }
 
     override fun markStartPos() {
@@ -194,6 +210,7 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
             duration = glideDurationMs
             interpolator = glideInterpolator
             addUpdateListener(this@ScribeCursorAnimator)
+            addListener(endInvalidateListener)
         }
         animatorY = ValueAnimator.ofFloat(fromY, toY).apply {
             duration = glideDurationMs
@@ -213,6 +230,9 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
         animatorX?.start()
         animatorY?.start()
         animatorHeight?.start()
+        if (animatorX != null || animatorY != null || animatorHeight != null) {
+            onAnimatorStarted?.invoke()
+        }
     }
 
     override fun cancel() {

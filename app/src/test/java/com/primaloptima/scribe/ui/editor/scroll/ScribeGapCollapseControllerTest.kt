@@ -852,4 +852,278 @@ class ScribeGapCollapseControllerTest {
         assertEquals(1, h.externalDriftEvents.size)
         assertEquals(12L, h.externalDriftEvents[0].first)
     }
+
+    /**
+     * Option-B harness mirroring UnifiedCanvasLayout.handleCursorAnimatorActivatedDuringCollapse(),
+     * routing every outcome through EventBSafetyHarness.runEventB() and tracking
+     * EditorTextActionWindow eligibility across FINAL_SAFETY_PENDING -> IDLE -> unsplit draw.
+     */
+    private class OptionBCursorAbortHarness {
+        val safety = EventBSafetyHarness()
+        val controller = safety.controller
+        var splitEnteredCount = 0
+        var textActionWindowEnabled = true
+        var savedTextActionWindowEnabled: Boolean? = null
+        var renderedDrawPassSeq = 0L
+        var pendingTextActionRefreshTargetSeq = -1L
+        var pendingTextActionRefreshGen = -1L
+        var cursorAnimatorRunning = false
+        var animatorCancelCount = 0
+        var restorationCancelCount = 0
+
+        fun beginMode1OrMode2Collapse(
+            requiresMode1: Boolean,
+            preScrollY: Int = 500,
+            deltaGapPx: Float = 240f,
+            minSafeScroll: Float = if (requiresMode1) 350f else 500f
+        ): Long {
+            val bounds = UnobstructedViewportBounds(
+                headerBottomLocal = 0f,
+                stickyBottomLocal = 0f,
+                maxTopBarBottomLocal = 0f,
+                minBottomBarTopLocal = safety.visibleBottom,
+                windowVisibleBottomLocal = safety.visibleBottom,
+                visibleEditorTop = 0f,
+                visibleEditorBottom = safety.visibleBottom,
+                usableHeight = safety.visibleBottom,
+                hasModalBlocker = false,
+                isValid = true,
+                floatingPillLocalRects = emptyList()
+            )
+            val safetyBounds = SafetyFloorAndBounds(
+                safeMax = safety.maxCanvasScroll,
+                minSafeScroll = minSafeScroll,
+                safeMinPhysical = kotlin.math.ceil(minSafeScroll.toDouble()).toInt().coerceAtMost(safety.maxCanvasScroll),
+                actualPhysicalScroll = preScrollY
+            )
+            val plan = ScribeGapCollapsePolicy.planCollapse(
+                deletionIntent = ScribeScrollDeletionPolicy.DeletionAnchorIntent.CARET_ANCHOR,
+                isSelection = true,
+                isWordwrap = true,
+                isWordwrapReady = true,
+                isLayoutBusy = false,
+                isComposing = false,
+                isCursorAnimationRunning = false,
+                hasRtlOrBidiAtSeam = false,
+                isMergedPartialRowSeam = false,
+                hasSurvivingUpper = true,
+                hasSurvivingLower = true,
+                deltaGapPx = deltaGapPx,
+                visibilityConfidence = VisibilityConfidence.RESOLVED,
+                isUpperVisible = false,
+                isLowerVisible = true,
+                isTouchedOnScreen = true,
+                preScrollY = preScrollY,
+                centeredTargetScroll = preScrollY.toFloat(),
+                viewportBounds = bounds,
+                safetyBounds = safetyBounds
+            )
+            safety.physicalScroll = preScrollY
+            val epoch = controller.beginCollapse(
+                owningGen = safety.deletionTransactionGeneration,
+                plan = plan,
+                seamLine = 10,
+                seamFirstLowerRow = 10,
+                seamDocY = 400f,
+                rowHeightPx = 40f,
+                initialPhysicalScrollPx = preScrollY.toFloat()
+            )
+            if (requiresMode1) {
+                controller.markMode1Started(safety.deletionTransactionGeneration, epoch, preScrollY.toFloat())
+            }
+            if (controller.shouldApplySplitRender) {
+                splitEnteredCount++
+                if (savedTextActionWindowEnabled == null) {
+                    savedTextActionWindowEnabled = textActionWindowEnabled
+                }
+                textActionWindowEnabled = false
+            }
+            return epoch
+        }
+
+        fun onCursorAnimatorStartedMidCollapse(): SafetyRevalidationResult? {
+            cursorAnimatorRunning = true
+            val gen = controller.owningDeletionGen
+            if (!controller.isTransactionOwned || gen != safety.deletionTransactionGeneration || controller.isTeardownLocked) {
+                return null
+            }
+            if (controller.phase == GapCollapsePhase.FINAL_SAFETY_PENDING) {
+                return null
+            }
+            animatorCancelCount++
+            restorationCancelCount++
+            val se = controller.restartFinalSafetyClaim(gen) ?: return null
+            val result = safety.runEventB(gen, se)
+            if (controller.phase == GapCollapsePhase.IDLE && savedTextActionWindowEnabled == true) {
+                pendingTextActionRefreshTargetSeq = renderedDrawPassSeq + 1L
+                pendingTextActionRefreshGen = safety.deletionTransactionGeneration
+            }
+            return result
+        }
+
+        fun completeAsyncSettlement(block: () -> SafetyRevalidationResult): SafetyRevalidationResult {
+            val result = block()
+            if (controller.phase == GapCollapsePhase.IDLE && savedTextActionWindowEnabled == true) {
+                pendingTextActionRefreshTargetSeq = renderedDrawPassSeq + 1L
+                pendingTextActionRefreshGen = safety.deletionTransactionGeneration
+            }
+            return result
+        }
+
+        fun simulateRendererDrawPass(): Boolean {
+            renderedDrawPassSeq++
+            val didRefreshCursorDescriptors = !controller.shouldApplySplitRender && !cursorAnimatorRunning
+            if (pendingTextActionRefreshTargetSeq >= 0L &&
+                renderedDrawPassSeq >= pendingTextActionRefreshTargetSeq &&
+                didRefreshCursorDescriptors &&
+                !controller.shouldApplySplitRender &&
+                controller.phase == GapCollapsePhase.IDLE &&
+                safety.deletionTransactionGeneration == pendingTextActionRefreshGen &&
+                savedTextActionWindowEnabled == true
+            ) {
+                pendingTextActionRefreshTargetSeq = -1L
+                pendingTextActionRefreshGen = -1L
+                savedTextActionWindowEnabled = null
+                textActionWindowEnabled = true
+            }
+            return didRefreshCursorDescriptors
+        }
+    }
+
+    @Test
+    fun testOptionB_MidCollapseCursorAnimatorAbort_AllSixEventBOutcomesAndTextActionGate() {
+        // 1. Mode 1 -> cursorAnimator starts -> VALIDATED_SAFE -> stays disabled until unsplit !isRunning draw
+        run {
+            val h = OptionBCursorAbortHarness()
+            h.safety.physicalScroll = 500
+            h.beginMode1OrMode2Collapse(requiresMode1 = true, preScrollY = 500, deltaGapPx = 300f, minSafeScroll = 350f)
+            assertTrue(h.controller.shouldApplySplitRender)
+            assertFalse(h.textActionWindowEnabled)
+
+            val res = h.onCursorAnimatorStartedMidCollapse()
+            assertEquals(SafetyRevalidationResult.VALIDATED_SAFE, res)
+            assertEquals(0f, h.controller.tauLower, 0.001f)
+            assertFalse(h.controller.shouldApplySplitRender)
+            assertEquals(GapCollapsePhase.IDLE, h.controller.phase)
+            assertEquals(1, h.animatorCancelCount)
+            assertEquals(1, h.restorationCancelCount)
+            // Even in IDLE, EditorTextActionWindow remains disabled while cursorAnimator is still running
+            assertFalse(h.textActionWindowEnabled)
+            assertFalse(h.simulateRendererDrawPass())
+            assertFalse(h.textActionWindowEnabled)
+            // Once cursorAnimator finishes, next unsplit draw refreshes descriptors and re-enables window
+            h.cursorAnimatorRunning = false
+            assertTrue(h.simulateRendererDrawPass())
+            assertTrue(h.textActionWindowEnabled)
+        }
+
+        // 2 & 3. Mode 2 -> cursorAnimator starts -> CORRECTION_STARTED keeps FINAL_SAFETY_PENDING + ownership ->
+        // split render disabled immediately, EditorTextActionWindow stays disabled -> CORRECTED_AND_VALIDATED
+        run {
+            val h = OptionBCursorAbortHarness()
+            h.beginMode1OrMode2Collapse(requiresMode1 = false, preScrollY = 500, deltaGapPx = 80f, minSafeScroll = 500f)
+            assertEquals(GapCollapsePhase.MODE_2_VISUAL_SETTLING, h.controller.phase)
+            assertNotNull(h.safety.controllerHarness.scheduledFrameCallback)
+            assertFalse(h.textActionWindowEnabled)
+
+            // Make scroll unsafe so Event B enters CORRECTION_STARTED
+            h.safety.anchorDocBottom = 700.4f
+            h.safety.physicalScroll = 100
+            val capturedGen = h.safety.deletionTransactionGeneration
+            val cancelBefore = h.safety.controllerHarness.cancelFrameCount
+
+            val res1 = h.onCursorAnimatorStartedMidCollapse()
+            assertEquals(SafetyRevalidationResult.CORRECTION_STARTED, res1)
+            assertTrue(h.safety.controllerHarness.cancelFrameCount > cancelBefore)
+            assertNull(h.safety.controllerHarness.scheduledFrameCallback)
+            // CRITICAL: split rendering disabled immediately EVEN THOUGH controller stays FINAL_SAFETY_PENDING
+            assertEquals(GapCollapsePhase.FINAL_SAFETY_PENDING, h.controller.phase)
+            assertEquals(0f, h.controller.tauLower, 0.001f)
+            assertFalse(h.controller.shouldApplySplitRender)
+            assertTrue(h.controller.isTransactionOwned)
+            assertEquals(capturedGen, h.controller.owningDeletionGen)
+            assertEquals(capturedGen, h.safety.deletionTransactionGeneration)
+            assertFalse(h.textActionWindowEnabled)
+
+            // Draw during FINAL_SAFETY_PENDING must NOT re-enable EditorTextActionWindow
+            h.cursorAnimatorRunning = false
+            h.simulateRendererDrawPass()
+            assertFalse(h.textActionWindowEnabled)
+
+            // Stale epoch callback rejected
+            assertEquals(
+                SafetyRevalidationResult.STALE_TRANSACTION,
+                h.safety.finishCorrectionAndReenter(capturedGen, expectedSafetyEpoch = 999L, actualAfter = 300)
+            )
+            assertEquals(GapCollapsePhase.FINAL_SAFETY_PENDING, h.controller.phase)
+
+            val se = h.controller.safetyEpoch
+            val res2 = h.completeAsyncSettlement {
+                h.safety.finishCorrectionAndReenter(capturedGen, se, actualAfter = h.safety.pendingCorrectionTarget!!)
+            }
+            assertEquals(SafetyRevalidationResult.CORRECTED_AND_VALIDATED, res2)
+            assertEquals(GapCollapsePhase.IDLE, h.controller.phase)
+            assertEquals(capturedGen + 1L, h.safety.deletionTransactionGeneration)
+            // Still disabled in IDLE prior to post-IDLE unsplit draw pass
+            assertFalse(h.textActionWindowEnabled)
+            assertTrue(h.simulateRendererDrawPass())
+            assertTrue(h.textActionWindowEnabled)
+        }
+
+        // 4. DEFERRED_UNTIL_LAYOUT_READY keeps FINAL_SAFETY_PENDING + ownership, split render false -> retry settles
+        run {
+            val h = OptionBCursorAbortHarness()
+            h.beginMode1OrMode2Collapse(requiresMode1 = true, preScrollY = 500, deltaGapPx = 240f, minSafeScroll = 350f)
+            val capturedGen = h.safety.deletionTransactionGeneration
+            h.safety.isLayoutReady = false
+
+            val res1 = h.onCursorAnimatorStartedMidCollapse()
+            assertTrue(res1 is SafetyRevalidationResult.DEFERRED_UNTIL_LAYOUT_READY)
+            assertEquals(GapCollapsePhase.FINAL_SAFETY_PENDING, h.controller.phase)
+            assertFalse(h.controller.shouldApplySplitRender)
+            assertEquals(0f, h.controller.tauLower, 0.001f)
+            assertTrue(h.controller.isTransactionOwned)
+            assertEquals(capturedGen, h.controller.owningDeletionGen)
+            assertFalse(h.textActionWindowEnabled)
+
+            val retryEpoch = h.controller.safetyEpoch
+            h.safety.isLayoutReady = true
+            h.cursorAnimatorRunning = false
+            val res2 = h.completeAsyncSettlement {
+                h.safety.runEventB(capturedGen, retryEpoch)
+            }
+            assertEquals(SafetyRevalidationResult.VALIDATED_SAFE, res2)
+            assertEquals(GapCollapsePhase.IDLE, h.controller.phase)
+            assertTrue(h.simulateRendererDrawPass())
+            assertTrue(h.textActionWindowEnabled)
+        }
+
+        // 5 & 6. UNRESOLVED + STALE_TRANSACTION rejection when newer generation replaces aborted tx
+        run {
+            val h = OptionBCursorAbortHarness()
+            h.beginMode1OrMode2Collapse(requiresMode1 = false, preScrollY = 500, deltaGapPx = 80f, minSafeScroll = 500f)
+            val oldGen = h.safety.deletionTransactionGeneration
+            h.safety.isLayoutReady = false
+
+            val deferred = h.onCursorAnimatorStartedMidCollapse()
+            assertTrue(deferred is SafetyRevalidationResult.DEFERRED_UNTIL_LAYOUT_READY)
+            val oldEpoch = h.controller.safetyEpoch
+
+            // Second retry still not ready -> UNRESOLVED via common finalizer
+            val unresolved = h.completeAsyncSettlement {
+                h.safety.runEventB(oldGen, oldEpoch)
+            }
+            assertTrue(unresolved is SafetyRevalidationResult.UNRESOLVED)
+            assertTrue(h.safety.retractionDebtPreserved)
+            assertEquals(GapCollapsePhase.IDLE, h.controller.phase)
+            assertEquals(oldGen + 1L, h.safety.deletionTransactionGeneration)
+
+            // Stale callbacks from oldGen / oldEpoch rejected without touching newer transaction
+            assertEquals(SafetyRevalidationResult.STALE_TRANSACTION, h.safety.runEventB(oldGen, oldEpoch))
+            assertEquals(
+                SafetyRevalidationResult.STALE_TRANSACTION,
+                h.safety.finishCorrectionAndReenter(oldGen, oldEpoch, actualAfter = 300)
+            )
+        }
+    }
 }

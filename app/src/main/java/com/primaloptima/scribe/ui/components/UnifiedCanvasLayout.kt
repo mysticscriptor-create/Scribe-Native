@@ -834,6 +834,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         markPendingSettlement: Boolean = false,
         preDeleteSeamCapture: PreDeleteSeamCapture? = null
     ): Long {
+        (editor as? ScribeCodeEditor)?.cancelPendingTextActionRefresh(clearSavedState = false)
         clearPendingDeletionLayoutListener()
         clearDeletionResetRetraction()
         clearAllRetractionDebt()
@@ -1265,10 +1266,37 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         editor.stopFling()
     }
 
+    internal fun handleCursorAnimatorActivatedDuringCollapse() {
+        val controller = gapCollapseController
+        if (!controller.isTransactionOwned) return
+        val capturedGen = controller.owningDeletionGen
+        if (capturedGen < 0L ||
+            capturedGen != deletionTransactionGeneration ||
+            controller.isTeardownLocked
+        ) {
+            return
+        }
+        if (controller.phase == GapCollapsePhase.FINAL_SAFETY_PENDING) {
+            editor.invalidate()
+            return
+        }
+        canvasAnimator.cancelPreservingTransaction("cursor_animator_active")
+        cancelRestoration()
+        outerScrollResidualPx = 0f
+        editorScrollResidualPx = 0f
+        scrollDFloat = scrollD.toFloat()
+        scrollCoordinator.syncActualScroll((scrollD + editor.offsetY).toFloat())
+        val nextSafetyEpoch = controller.restartFinalSafetyClaim(capturedGen) ?: return
+        editor.invalidate()
+        completeDeletionVisualTransaction(capturedGen, nextSafetyEpoch)
+    }
+
     private fun commitGapCollapseIdle() {
+        val completedGen = deletionTransactionGeneration
         gapCollapseController.commitIdle()
         clearActiveSeamBaseline()
         resolvedSeamGeometry = null
+        (editor as? ScribeCodeEditor)?.onGapCollapseCommitIdle(completedGen)
     }
 
     private fun finalizeCompletedGapCollapseTransaction(
@@ -1485,6 +1513,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (plan.requiresOffscreenCaretFollow) {
             if (!tryClaimPendingDeletionSettlement(fromGen)) return
             claimAndClearLiveDeletionTransaction(preserveRetractionDebt = false)
+            if (!gapCollapseController.isTransactionOwned) {
+                scribeEditor?.restoreTextActionWindowIfFallbackStranded(fromGen)
+            }
             ensureCursorVisibleAboveKeyboard(
                 smooth = true,
                 force = true,
@@ -1494,6 +1525,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
         if (plan.isFallback) {
+            if (!gapCollapseController.isTransactionOwned) {
+                scribeEditor?.restoreTextActionWindowIfFallbackStranded(fromGen)
+            }
             handleDeletionSettlement(smooth = true, expectedGen = fromGen)
             return
         }
@@ -1524,6 +1558,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             rowHeightPx = rHeight,
             initialPhysicalScrollPx = initialActualScroll
         )
+        if (gapCollapseController.shouldApplySplitRender) {
+            scribeEditor?.onGapCollapseSplitEntered()
+        }
 
         if (plan.requiresMode1) {
             canvasAnimator.cancelPreservingTransaction("begin_mode1_gap_collapse")

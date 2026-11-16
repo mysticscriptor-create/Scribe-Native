@@ -11,8 +11,12 @@ import android.util.AttributeSet
 import android.view.animation.DecelerateInterpolator
 import android.view.inputmethod.EditorInfo
 import android.view.MotionEvent
+import android.view.View
+import androidx.annotation.UiThread
 import kotlin.math.roundToInt
 import android.view.inputmethod.InputConnection
+import io.github.rosemoe.sora.widget.EditorRenderer
+import io.github.rosemoe.sora.widget.component.EditorTextActionWindow
 import io.github.rosemoe.sora.event.HandleStateChangeEvent
 import io.github.rosemoe.sora.event.InlayHintClickEvent
 import com.primaloptima.scribe.engine.ImageHintClickData
@@ -104,6 +108,143 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     val isLayoutBusy: Boolean
         get() = isLayoutComputing || isLayoutBusyState
+
+    internal val scribeEditorRenderer: ScribeEditorRenderer?
+        get() = renderer as? ScribeEditorRenderer
+
+    @get:UiThread
+    @set:UiThread
+    internal var renderPassRowRangeOverride: IntRange? = null
+
+    private var savedTextActionWindowEnabled: Boolean? = null
+    private var pendingTextActionRefreshTargetSeq: Long = -1L
+    private var pendingTextActionRefreshGen: Long = -1L
+    private var pendingTextActionRefreshRunnable: Runnable? = null
+
+    override fun onCreateRenderer(): EditorRenderer {
+        return ScribeEditorRenderer(this)
+    }
+
+    override fun getFirstVisibleRow(): Int {
+        val overrideRange = renderPassRowRangeOverride
+        if (overrideRange != null && !overrideRange.isEmpty()) {
+            return overrideRange.first.coerceAtLeast(0)
+        }
+        return super.getFirstVisibleRow()
+    }
+
+    override fun getLastVisibleRow(): Int {
+        val overrideRange = renderPassRowRangeOverride
+        if (overrideRange != null && !overrideRange.isEmpty()) {
+            val maxRow = (layout?.rowCount ?: 1) - 1
+            return overrideRange.last.coerceIn(0, maxOf(0, maxRow))
+        }
+        return super.getLastVisibleRow()
+    }
+
+    internal fun onGapCollapseSplitEntered() {
+        val aw = try {
+            getComponent(EditorTextActionWindow::class.java)
+        } catch (_: Throwable) {
+            null
+        } ?: return
+        if (savedTextActionWindowEnabled == null) {
+            savedTextActionWindowEnabled = aw.isEnabled
+        }
+        if (aw.isEnabled) {
+            aw.isEnabled = false
+        }
+    }
+
+    internal fun onGapCollapseCommitIdle(expectedGen: Long) {
+        if (savedTextActionWindowEnabled != true) {
+            savedTextActionWindowEnabled = null
+            return
+        }
+        pendingTextActionRefreshRunnable?.let { removeCallbacks(it) }
+        pendingTextActionRefreshRunnable = null
+        val currentSeq = scribeEditorRenderer?.renderedDrawPassSeq ?: 0L
+        pendingTextActionRefreshTargetSeq = currentSeq + 1L
+        pendingTextActionRefreshGen = expectedGen
+        val aw = try {
+            getComponent(EditorTextActionWindow::class.java)
+        } catch (_: Throwable) {
+            null
+        }
+        if (aw != null && aw.isEnabled) {
+            aw.isEnabled = false
+        }
+        invalidate()
+    }
+
+    internal fun restoreTextActionWindowIfFallbackStranded(expectedGen: Long) {
+        if (savedTextActionWindowEnabled == true &&
+            pendingTextActionRefreshTargetSeq < 0L &&
+            pendingTextActionRefreshRunnable == null
+        ) {
+            onGapCollapseCommitIdle(expectedGen)
+        }
+    }
+
+    internal fun onAfterRendererDrawPass(seq: Long, didRefreshCursorDescriptors: Boolean) {
+        val targetSeq = pendingTextActionRefreshTargetSeq
+        if (targetSeq < 0L || seq < targetSeq || !didRefreshCursorDescriptors) {
+            return
+        }
+        if (parentCanvas?.gapCollapseController?.shouldApplySplitRender == true) {
+            return
+        }
+        pendingTextActionRefreshTargetSeq = -1L
+        val targetGen = pendingTextActionRefreshGen
+        pendingTextActionRefreshRunnable?.let { removeCallbacks(it) }
+        val runnable = Runnable {
+            pendingTextActionRefreshRunnable = null
+            val pCanvas = parentCanvas
+            val cur = try { cursor } catch (_: Throwable) { null }
+            val aw = try {
+                getComponent(EditorTextActionWindow::class.java)
+            } catch (_: Throwable) {
+                null
+            } ?: return@Runnable
+            val commonValid = isAttachedToWindow &&
+                savedTextActionWindowEnabled == true &&
+                pCanvas != null &&
+                pCanvas.currentDeletionTransactionGeneration == targetGen &&
+                !pCanvas.gapCollapseController.shouldApplySplitRender &&
+                pCanvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                !eventHandler.hasAnyHeldHandle() &&
+                !eventHandler.isDragSelecting &&
+                !isLayoutBusy &&
+                !cursorAnimator.isRunning
+            if (!commonValid) {
+                return@Runnable
+            }
+            if (cur?.isSelected == true) {
+                if (hasFocus() && visibility == View.VISIBLE) {
+                    savedTextActionWindowEnabled = null
+                    pendingTextActionRefreshGen = -1L
+                    aw.isEnabled = true
+                    aw.displayWindow()
+                }
+            } else {
+                savedTextActionWindowEnabled = null
+                pendingTextActionRefreshGen = -1L
+                aw.isEnabled = true
+            }
+        }
+        pendingTextActionRefreshRunnable = runnable
+        postOnAnimation(runnable)
+    }
+
+    internal fun cancelPendingTextActionRefresh(clearSavedState: Boolean = true) {
+        pendingTextActionRefreshRunnable?.let { removeCallbacks(it) }
+        pendingTextActionRefreshRunnable = null
+        pendingTextActionRefreshTargetSeq = -1L
+        pendingTextActionRefreshGen = -1L
+        if (clearSavedState) {
+            savedTextActionWindowEnabled = null
+        }
+    }
 
     private fun cancelPendingReplaceWatchdog() {
         pendingReplaceWatchdog?.let { removeCallbacks(it) }
@@ -308,7 +449,14 @@ class ScribeCodeEditor @JvmOverloads constructor(
         props.deleteMultiSpaces = 1
         verticalExtraSpaceFactor = 0f
         try {
-            cursorAnimator = ScribeCursorAnimator(this)
+            cursorAnimator = ScribeCursorAnimator(this).apply {
+                onAnimatorStarted = {
+                    val pCanvas = parentCanvas
+                    if (pCanvas != null && pCanvas.gapCollapseController.isTransactionOwned) {
+                        pCanvas.handleCursorAnimatorActivatedDuringCollapse()
+                    }
+                }
+            }
             isCursorAnimationEnabled = true
         } catch (_: Throwable) { }
         try {
@@ -986,6 +1134,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
             pCanvas?.claimAndClearLiveDeletionTransaction(preserveRetractionDebt = false)
         }
         super.afterInsert(content, startLine, startColumn, endLine, endColumn, insertedContent)
+        if (pCanvas != null &&
+            pCanvas.gapCollapseController.shouldApplySplitRender &&
+            cursorAnimator.isRunning
+        ) {
+            pCanvas.handleCursorAnimatorActivatedDuringCollapse()
+        }
         if (!canMutateCanvas || pCanvas == null) return
 
         if (isClearingReplacement) {
@@ -2029,10 +2183,22 @@ class ScribeCodeEditor @JvmOverloads constructor(
         clearKeyMetaStates()
     }
 
+    override fun setSelection(line: Int, column: Int, makeItVisible: Boolean, cause: Int) {
+        super.setSelection(line, column, makeItVisible, cause)
+        val pCanvas = parentCanvas
+        if (pCanvas != null &&
+            pCanvas.gapCollapseController.shouldApplySplitRender &&
+            cursorAnimator.isRunning
+        ) {
+            pCanvas.handleCursorAnimatorActivatedDuringCollapse()
+        }
+    }
+
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         clearKeyMetaStates()
         cancelPendingReplaceWatchdog()
+        cancelPendingTextActionRefresh(clearSavedState = true)
         stagedPreDeleteSeamCapture = null
         isZoomGestureActive = false
         isZoomAwaitingSettlement = false
