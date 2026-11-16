@@ -1,17 +1,17 @@
-# Phase 4 Handoff Report — Renderer, Option B & TextActionWindow Integration (Hardened & Repaired)
+# Phase 4 Handoff Report — Renderer, Option B & TextActionWindow Integration (CI Verified)
 
 **Repository:** `https://github.com/mysticscriptor-create/Scribe-Native`
 **Branch:** `main`
-**Current Base Commit Remediated From:** `b514051166889c2bd19d4e6eeeb25eba82f1627c`
-**Latest CI Run Remediated:** `43827526440` (Run `#871`: `:app:testDebugUnitTest` `432 tests completed, 1 failed` at `UnifiedCanvasPointerAndOriginIntegrationTest.kt:186`)
-**Prior Repaired Commit / Run:** `a503f9be3141d1c35520ca583f0da32d20277f41` / `43819532310` (`:app:compileDebugUnitTestKotlin` failure)
-**Previous Phase 4 / CI Baseline:** `7caaae2a7fa4eb01f811df45fe3868600817d517`
+**Verified Phase 4 Code Commit:** `26946f863db005ec58a838529e270a82b6018b7b`
+**Verified Passing CI Run:** `43854845887` (Run `#876`, Job `133256342350` — all stages `success`: `:app:testDebugUnitTest` `433/433` passed, `:app:assembleDebug` passed, `:app:connectedDebugAndroidTest` `8/8` passed)
+**Phase 4 Progression:** `a503f9b` (#870) -> `b514051` (#871) -> `0aa4ea8` (#872) -> `6c0aa59` (#873) -> `14eb461` (#874) -> `07bb68b` (#875) -> `26946f8` (#876)
+**Pre-Phase 4 Baseline:** `7caaae2a7fa4eb01f811df45fe3868600817d517` (#869)
 **Sora Baseline Dependency:** `io.github.rosemoe:editor:0.24.6` (`87055c459e346cac6c619b3350f0bfba076228cc`)
 **Master Plan SHA-256 (verified intact):** `c667de445f39ca769ce0bca4176b29ad902da29b98e260d48dd6adb8f1dc6806`
 
 ---
 
-## 1. Phase 4 Deliverables (Implemented — Execution Pending CI)
+## 1. Phase 4 Deliverables (Implemented & Verified via GitHub Actions Run `#876`)
 
 ### Production Files Implemented / Hardened
 1. **Created:** `app/src/main/java/io/github/rosemoe/sora/widget/ScribeDrawCursorTaskAccessor.java`
@@ -22,7 +22,7 @@
    - Single native `super.draw(canvas)` and `super.drawView(canvas)` lifecycle (no second native draw lifecycle, no offscreen bitmap snapshot).
    - Pre-`super.draw(canvas)` and pre-`super.drawView(canvas)` Option-B defensive guards checking `controller.shouldApplySplitRender && scribeEditor.cursorAnimator.isRunning` -> `handleCursorAnimatorActivatedDuringCollapse()`.
    - Strictly disjoint Pass 1 (`[normalFirstVis, minOf(seamRow - 1, normalLastVis)]`) and Pass 2 (`[maxOf(seamRow, shiftedFirstVis), minOf(totalRows - 1, shiftedLastVis)]`) row partitions across all 10 draw layers:
-     - `buildMeasureCacheForLines` Pass-2 line-range measure cache warming (`isWarmingPass2Cache` guard, converting Pass-2 rows via `layout.getLineNumberForRow(...)`, calling 2-arg `buildMeasureCacheForLines(pass2FirstLine, warmEnd)` with `useCachedContent = false`).
+     - `buildMeasureCacheForLines` Pass-2 line-range measure cache warming (`isWarmingPass2Cache` guard, converting Pass-2 rows via `layout.getLineNumberForRow(...)`, calling 2-arg `buildMeasureCacheForLines(range.first, range.last)` with `useCachedContent = false` across both `pass2FirstLine..startLine - 1` and `endLine + 1..pass2LastLine` subranges outside Sora's normal visible window, repaired in `14eb461`).
      - `drawRows` Pass 1 (`postDrawLineNumbers`, `postDrawCursor`, `postDrawCurrentLines`, `pass1FirstLn`) unshifted under `clipRect(0f, stuckBottom, w, pass1ClipBottom)`, and Pass 2 (`framePass2LineNumbers`, `pass2CursorTasks`, `framePass2CurrentLines`, `pass2FirstLn`) under `clipRect(0f, pass2ClipTop, w, h)` **before** `canvas.translate(0f, frameTauLower)`, shifting `pass2CursorTasks` once via `ScribeDrawCursorTaskAccessor.addOffsetY(task, frameTauLower)`.
      - `patchHighlightedDelimiters`, `drawDiagnosticIndicators`, `drawUserGutterBackground` (painting `framePass2CurrentLines` via `super.drawRowBackground` + `super.drawUserGutterBackground`), `drawSideIcons` (Pass 1 + Pass 2 + Approach-A 6-case `firstLn` + `framePass2LineNumbers`), and `drawSideBlockLine` (`block.startLine < frameSeamLine` in Pass 1; `block.endLine >= frameSeamLine` in Pass 2).
    - Full implementation of all 6 Approach-A `firstLn` collision, gap, and wrapped continuation cases (`Cases 1–6`), using `clipRect(0f, frameStuckLineBottom, w, h)` for unshifted `overrideFirstLnLine` (`y_pinned` / `y_pushed_P2` strictly left of `dividerLeftX`) and `clipRect(gutterLeft, framePass2ClipTop, dividerLeftX, h)` + `translate(0f, frameTauLower)` for `framePass2LineNumbers` and Case-5 `framePass2FirstLn`.
@@ -45,17 +45,19 @@
    - Implements `internal fun handleCursorAnimatorActivatedDuringCollapse()` routing all 6 Event-B `SafetyRevalidationResult` outcomes through `completeDeletionVisualTransaction` and common finalizers (`finalizeCompletedGapCollapseTransaction` / `finalizeUnresolvedGapCollapseTransaction`) without duplicating teardown logic.
    - Updated `requiresOffscreenCaretFollow` (`1517`), `plan.isFallback` (`1527–1533`), and `claimAndClearLiveDeletionTransaction` (`793`) so post-increment `deletionTransactionGeneration` is passed to `restoreTextActionWindowIfFallbackStranded(...)` whenever non-collapse / fallback transactions finish cleanly in `GapCollapsePhase.IDLE` (`!isTransactionOwned`).
 
-### Test Files Fixed & Strengthened (Unexecuted Locally — Pending CI Run)
+### Test Files Fixed, Hardened & CI-Verified (`43854845887`)
 1. **Fixed & Verified Statically (Repair 1, Suite B1 Option-B):** `app/src/test/java/com/primaloptima/scribe/ui/editor/scroll/ScribeGapCollapseControllerTest.kt`
    - Fixed the confirmed CI `:app:compileDebugUnitTestKotlin` compilation error at line 1056 (`expectedSafetyEpoch = 999L` -> `capturedSafetyEpoch = 999L`).
    - Audited all `finishCorrectionAndReenter`, `runEventB`, and controller harness call sites in JVM tests.
 2. **Hardened & Extended (Repairs 2.4, 3, 4, 5, Suite C):** `app/src/androidTest/java/com/primaloptima/scribe/ui/components/ScribeGapCollapseRendererTest.kt`
    - Fixed `launchHost()` to size `UnifiedCanvasLayout` via explicit `FrameLayout.LayoutParams(viewportWidthPx, viewportHeightPx)` (`720x960`) and await `ed.windowToken != null` so emulator screen size does not expand editor width or break wrapping bounds.
-   - Fixed `drawEditorInViewSpace()` to invoke `editor.renderer.draw(rec)` directly in view space (matching `CodeEditor.onDraw` without spurious `rec.translate(-offsetX, -offsetY)`).
+   - Fixed `drawEditorInViewSpace()` in `07bb68b` to apply Android `View.draw`'s `rec.translate(-editor.scrollX.toFloat(), -editor.scrollY.toFloat())` pre-transform inside `rec.save()`/`rec.restore()` before `editor.renderer.draw(rec)`, matching real view-space rendering so `EditorRenderer.draw`'s `+offsetX`/`+offsetY` lands cleanly at `(0, 0)`.
    - Fixed CI `disable-animations: true` (`animator_duration_scale == 0`) determinism in `testSyncOuterOnlyInvalidation_OptionBCursorAnimator_AndTextActionWindowGate` by wrapping `realAnimator` with a delegating `CursorAnimator` (`override fun isRunning() = simulateAnimatorRunning || realAnimator.isRunning()`) while still triggering real `realAnimator.triggerGlide(...)` -> `onAnimatorStarted`.
    - Extended `RecordingCanvas` to capture `drawRect`, `drawRoundRect`, `drawColor`, `drawPath`, `drawText`, `drawTextRun` (`CharArray`/`CharSequence`), `drawLine`, `saveLayer`, and balanced `save`/`restore` depth (`assertBalancedAndZeroTranslation()`).
    - Strengthened `testApproachA_AllSixFirstLnCases_IncludingWrappingAndCollision` with Case-1 screen-space boundary assertions proving Pass-1 `postDrawLineNumbers` never paint across `[pass1ClipBottom, pass2ClipTop]` or overlap Pass-2.
-   - Strengthened `testPerLayerClipTranslationAndLowerInsertionHandleShiftZeroDoubleShift` across all 10 layers (`WHOLE_BACKGROUND`, `buildMeasureCacheForLines`, `drawRows` selection + `CURRENT_LINE` + text + no duplicate rows, `patchHighlightedDelimiters` with `BracketsProvider` `{`/`}`, `drawDiagnosticIndicators` `WAVY_LINE`, `LINE_NUMBER_BACKGROUND` + `LineGutterBackground` + `LineSideIcon` + `LINE_DIVIDER` + Pass 1/2 line numbers, `drawSideBlockLine`, P1 unshifted caret + Case-I P2 `insertHandleDescriptor.position` shifted ONCE with zero double-shift).
+   - Strengthened `testPerLayerClipTranslationAndLowerInsertionHandleShiftZeroDoubleShift` across all 10 layers (`WHOLE_BACKGROUND`, `buildMeasureCacheForLines`, `drawRows` selection + `CURRENT_LINE` + text + no duplicate rows, `patchHighlightedDelimiters` with `BracketsProvider` `{`/`}`, `drawDiagnosticIndicators` `WAVY_LINE`, `LINE_NUMBER_BACKGROUND` + `LineGutterBackground` + `LineSideIcon` + `LINE_DIVIDER` + Pass 1/2 line numbers, `drawSideBlockLine`, P1 unshifted caret + Case-I P2 `insertHandleDescriptor.position` shifted ONCE with zero double-shift), and repaired the test fixture in `26946f8`:
+     - **Confirmed CI #875 (`43845105406`) root cause:** Setting `ed.styles = styles` with `LineSideIcon` only invalidated without recreating layout; Step A's `drawEditorInViewSpace(ed)` triggered `EditorRenderer.drawView` (`cachedGutterWidth != gutterWidth`) -> `editor.createLayout(false)` -> `WordwrapLayout` (`setLayoutBusy(true)` synchronously, posting `setLayoutBusy(false)` via `EditorHandler` / `Looper.getMainLooper()`). Running Step A, B, and C in one blocking `instr.runOnMainSync` prevented `setLayoutBusy(false)` from executing, leaving `ed.isEditable == false` so `DrawCursorTask.execute` returned early on `HANDLE_TYPE_INSERT` (`EditorRenderer.java:2606`) without populating `insertHandleDescriptor.position`.
+     - **Fixture repair (`26946f8`):** Split into Stage A (`drawEditorInViewSpace` before and after `LineSideIcon` styles, asserting `hasSideHintIcons() == false -> ed.isLayoutBusy == true`), Stage B (`waitUntil { !ed.isLayoutBusy && ed.isWordwrapReady() }` outside `runOnMainSync` so the main Looper completes `WordwrapLayout`), and Stage C (`runOnMainSync` asserting `!ed.isLayoutBusy`, `ed.isWordwrapReady()`, `ed.isEditable`, and pre-draw editability before P1/P2 insertion-handle assertions).
    - Added `testOptionBEventB_SafetyCorrectionAndDeferredLayoutRetryOnRealHost` exercising Event-B `CORRECTION_STARTED -> CORRECTED_AND_VALIDATED` (using a 60-line doc with lower selection at line 50 and scroll at `headerHeight`, verifying physical scroll dynamically below `safeMinPhysical` enters `FINAL_SAFETY_PENDING` with `isGlideRunning` and settles inside `[safeMinPhysical, safeMax]`) and `DEFERRED_UNTIL_LAYOUT_READY -> OnLayoutChangeListener retry` on the real `UnifiedCanvasLayout` host.
    - Added `testEditorTextActionWindow_AllSevenLifecycleCases` covering all 7 `EditorTextActionWindow` lifecycle cases (layout-busy block/clear, animator-running block/clear, `!hasFocus()` and `View.INVISIBLE` temporary blocks + recovery without new deletion, detach cleanup without popup display, reattach state preservation, new-transaction generation invalidation, and preserving pre-existing `isEnabled == false`).
 3. **Remediated & Extended (CI #871 Fix, Suite B2 Option-B):** `app/src/test/java/com/primaloptima/scribe/ui/components/UnifiedCanvasPointerAndOriginIntegrationTest.kt`
@@ -77,7 +79,25 @@
 - Verified zero premature Phase 5/6 symbols (`untranslateYOffset`, multi-seam splitting, `C1 > 0` horizontal split, Sora `0.24.7` upgrade).
 - Verified all Sora `0.24.6` (`87055c459e346cac6c619b3350f0bfba076228cc`) signatures used by production and test code (`BracketsProvider`, `PairedBracket`, `AnalyzeManager`, `EditorStyleDelegate`, `EditorTextActionWindow`, `EditorRenderer`, `LayoutStateChangeEvent`).
 - Ran `git diff --check` cleanly across all modified files.
-- **No Gradle build, compilation, lint, or test task was executed locally.** Full compilation and test execution (`:app:testDebugUnitTest`, `:app:assembleDebug`, `:app:connectedDebugAndroidTest`) will run in GitHub Actions after push.
+- **No Gradle build, compilation, lint, or test task was executed locally.**
+
+---
+
+## 2b. Verified Remote CI Execution (GitHub Actions Run `#876` / `43854845887`, Commit `26946f863db005ec58a838529e270a82b6018b7b`)
+
+- **Workflow Job:** `build` (`133256342350`) — **conclusion: `success`**
+- **Step 8 (`Build and test debug APK` — `:app:testDebugUnitTest` + `:app:assembleDebug`):** `success`
+  - **JVM Unit Tests (`scribe-unitTest-reports-26946f863db005ec58a838529e270a82b6018b7b`):** **433 tests across 28 suites** (`0` failures, `0` errors, `0` skipped).
+- **Step 14 (`Run Android instrumentation tests` — `:app:connectedDebugAndroidTest` on `api-level: 34`, `google_apis`, `x86_64`, `pixel_2`, `disable-animations: true`):** `success`
+  - **Android Instrumentation Tests (`scribe-androidTest-reports-26946f863db005ec58a838529e270a82b6018b7b`):** **8 / 8 tests passed** (`0` failures, `0` errors, `0` skipped):
+    1. `AndroidEmulatorSmokeTest.instrumentationCanAccessTargetApplication` (`0.02s`, `PASS`)
+    2. `ScribeGapCollapseRendererTest.testSyncOuterOnlyInvalidation_OptionBCursorAnimator_AndTextActionWindowGate` (`5.456s`, `PASS`)
+    3. `ScribeGapCollapseRendererTest.testRendererLifecycleDisjointnessCacheWarmAndRowOverrideReset` (`1.678s`, `PASS`)
+    4. `ScribeGapCollapseRendererTest.testPass2MeasureCacheWarmsRowsOutsideNativePreparedWindow` (`2.037s`, `PASS`)
+    5. `ScribeGapCollapseRendererTest.testPerLayerClipTranslationAndLowerInsertionHandleShiftZeroDoubleShift` (`2.895s`, `PASS`)
+    6. `ScribeGapCollapseRendererTest.testOptionBEventB_SafetyCorrectionAndDeferredLayoutRetryOnRealHost` (`2.404s`, `PASS`)
+    7. `ScribeGapCollapseRendererTest.testApproachA_AllSixFirstLnCases_IncludingWrappingAndCollision` (`1.217s`, `PASS`)
+    8. `ScribeGapCollapseRendererTest.testEditorTextActionWindow_AllSevenLifecycleCases` (`6.907s`, `PASS`)
 
 ---
 
@@ -85,4 +105,4 @@
 
 1. **`ScribeGapCollapseController` Row/Position Translation Helpers:** Already expose `getTranslationForRow(rowIndex)` and `getTranslationForPosition(line, col)` for Phase 5 touch hit-testing (`isTouchOnHandle`) and `untranslateYOffset(yOffset)`.
 2. **Single-Lifecycle `ScribeEditorRenderer` & Hardened `EditorTextActionWindow` Gate:** Ready for Phase 5 touch untranslation, `(seamLine, 0)` incremental insertion rebasing, Policy A/B internal mutation routing, and height-resize serialization.
-3. **CI Verification Pending:** Confirm the triggered GitHub Actions workflow on `main` completes green across `:app:testDebugUnitTest`, `:app:assembleDebug`, and `:app:connectedDebugAndroidTest` before beginning Phase 5.
+3. **CI Gate Passed:** GitHub Actions Run `#876` (`43854845887` on `26946f863db005ec58a838529e270a82b6018b7b`) passed all stages (`433/433` JVM unit tests, `:app:assembleDebug`, and `8/8` Android instrumentation tests); Phase 4 is ready for Phase 5 handoff.
