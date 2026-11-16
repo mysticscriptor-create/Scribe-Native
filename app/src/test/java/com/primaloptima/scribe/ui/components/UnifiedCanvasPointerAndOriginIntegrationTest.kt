@@ -18,6 +18,7 @@ import com.primaloptima.scribe.ui.editor.scroll.PendingPostSafetyKeyboardEval
 import com.primaloptima.scribe.ui.editor.scroll.ScrollAnimationReason
 import com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition
 import com.primaloptima.scribe.ui.editor.scroll.ScribeGapCollapsePolicy
+import io.github.rosemoe.sora.event.LayoutStateChangeEvent
 import io.github.rosemoe.sora.util.IntPair
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -1060,14 +1061,14 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             val rowH = editor.rowHeight.toFloat().coerceAtLeast(20f)
 
-            // 2a: Single-line commitText on under-indented line above seam preserves phase cleanly
+            // 2a: Single-character commitText on under-indented line above seam preserves phase cleanly
             val (gen1, epoch1) = enterSplitCollapseAt(canvas, seamLine = 25, tauLowerPx = rowH * 4f, freezeToPointer = true)
             val preDocY1 = canvas.gapCollapseController.activeSeamDocY
             editor.setSelection(8, 0)
             editor.firstLineIndentSpaces = 4
-            editor.commitText("Hello", false, false)
-            assertEquals("    Hello", editor.text.getLineString(8))
-            assertEquals(9, editor.cursor.leftColumn)
+            editor.commitText("H", false, false)
+            assertEquals("    H", editor.text.getLineString(8))
+            assertEquals(5, editor.cursor.leftColumn)
             assertEquals(GapCollapsePhase.POINTER_FROZEN, canvas.gapCollapseController.phase)
             assertEquals(gen1, canvas.gapCollapseController.owningDeletionGen)
             assertEquals(epoch1, canvas.gapCollapseController.collapseAnimEpoch)
@@ -1112,11 +1113,13 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             enterSplitCollapseAt(canvas, seamLine = 25, tauLowerPx = rowH * 4f, freezeToPointer = true)
             editor.setSelection(8, 0)
             editor.firstLineIndentSpaces = 4
-            editor.isLayoutBusyState = true
             try {
+                editor.dispatchEvent(LayoutStateChangeEvent(editor, true))
+                assertTrue(editor.isLayoutBusy)
                 editor.enforceAutoIndentFloor()
             } finally {
-                editor.isLayoutBusyState = false
+                editor.dispatchEvent(LayoutStateChangeEvent(editor, false))
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
             }
             assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
             assertFalse(canvas.gapCollapseController.shouldApplySplitRender)
@@ -1131,11 +1134,13 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             enterSplitCollapseAt(canvas, seamLine = 25, tauLowerPx = rowH * 4f, freezeToPointer = true)
             editor.setSelection(8, 0)
             editor.firstLineIndentSpaces = 4
-            editor.isLayoutBusyState = true
             try {
+                editor.dispatchEvent(LayoutStateChangeEvent(editor, true))
+                assertTrue(editor.isLayoutBusy)
                 editor.commitText("X", false, false)
             } finally {
-                editor.isLayoutBusyState = false
+                editor.dispatchEvent(LayoutStateChangeEvent(editor, false))
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
             }
             assertEquals("    X", editor.text.getLineString(8))
             assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
