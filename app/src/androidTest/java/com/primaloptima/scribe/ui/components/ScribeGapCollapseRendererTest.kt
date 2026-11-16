@@ -875,27 +875,35 @@ class ScribeGapCollapseRendererTest {
         val host = launchHost(text = doc, wordwrap = true)
         host.scenario.use {
             val instr = InstrumentationRegistry.getInstrumentation()
+            // Configure distinct, easily identifiable colors for every layer
+            val colorWholeBg = 0xFF101216.toInt()
+            val colorLineNumBg = 0xFF181B22.toInt()
+            val colorDivider = 0xFF3A4150.toInt()
+            val colorCurrentLine = 0xFF282E3A.toInt()
+            val colorSelection = 0x664477CC
+            val colorDelimBg = 0x55FF8800
+            val colorDelimUnderline = 0xFFFF00FF.toInt()
+            val colorSideBlock = 0xFF00CCAA.toInt()
+            val colorIconP1 = 0xFF336699.toInt()
+            val colorIconP2 = 0xFF993366.toInt()
+            val colorGutterP1 = 0x4400AAFF
+            val colorGutterP2 = 0x4400FF00
+            var closeCol = 0
+
+            // Stage A: Install styles and trigger the LineSideIcon gutter-width layout transition,
+            // then exit the main-thread block so the main Looper can deliver WordwrapLayout completion.
             instr.runOnMainSync {
                 val canvas = host.canvas
                 val ed = canvas.editor
                 val renderer = ed.renderer as ScribeEditorRenderer
-                val rowH = ed.rowHeight.toFloat()
-                val h = ed.height.toFloat()
                 scrollCanvasTo(canvas, canvas.headerHeight.toFloat())
 
-                // Configure distinct, easily identifiable colors for every layer
-                val colorWholeBg = 0xFF101216.toInt()
-                val colorLineNumBg = 0xFF181B22.toInt()
-                val colorDivider = 0xFF3A4150.toInt()
-                val colorCurrentLine = 0xFF282E3A.toInt()
-                val colorSelection = 0x664477CC
-                val colorDelimBg = 0x55FF8800
-                val colorDelimUnderline = 0xFFFF00FF.toInt()
-                val colorSideBlock = 0xFF00CCAA.toInt()
-                val colorIconP1 = 0xFF336699.toInt()
-                val colorIconP2 = 0xFF993366.toInt()
-                val colorGutterP1 = 0x4400AAFF
-                val colorGutterP2 = 0x4400FF00
+                // Establish deterministic initial cachedGutterWidth with no side-icon styles installed
+                drawEditorInViewSpace(ed)
+                assertFalse(
+                    "hasSideHintIcons() must be false before installing LineSideIcon styles",
+                    renderer.hasSideHintIcons()
+                )
 
                 ed.colorScheme.setColor(EditorColorScheme.WHOLE_BACKGROUND, colorWholeBg)
                 ed.colorScheme.setColor(EditorColorScheme.LINE_NUMBER_BACKGROUND, colorLineNumBg)
@@ -914,7 +922,7 @@ class ScribeGapCollapseRendererTest {
 
                 // Open '{' at line 2 col 7 (P1) paired with '}' at line 12 col 9 (P2)
                 val openCol = ed.text.getLine(2).indexOf('{')
-                val closeCol = ed.text.getLine(12).indexOf('}')
+                closeCol = ed.text.getLine(12).indexOf('}')
                 val openIdx = ed.text.getCharIndex(2, openCol)
                 val closeIdx = ed.text.getCharIndex(12, closeCol)
                 installTestBracketsLanguage(
@@ -947,6 +955,36 @@ class ScribeGapCollapseRendererTest {
                 ed.diagnosticIndicatorStyle = DiagnosticIndicatorStyle.WAVY_LINE
                 ed.diagnostics = diag
 
+                // Trigger Sora EditorRenderer.drawView() gutter-width change -> createLayout(false) -> WordwrapLayout
+                drawEditorInViewSpace(ed)
+                assertTrue(
+                    "Gutter-width transition from LineSideIcon must make editor layoutBusy until Looper settles",
+                    ed.isLayoutBusy
+                )
+            }
+
+            // Stage B: Yield the main thread so EditorHandler can run WordwrapLayout's setLayoutBusy(false) callback
+            waitUntil(
+                timeoutMs = 5_000L,
+                failureMsg = "Style-induced WordwrapLayout must settle before per-layer assertions"
+            ) {
+                val ed = host.canvas.editor
+                !ed.isLayoutBusy && ed.isWordwrapReady()
+            }
+
+            // Stage C: Execute per-layer selection, P1/P2 insertion-handle, and 10-layer split-render assertions
+            instr.runOnMainSync {
+                val canvas = host.canvas
+                val ed = canvas.editor
+                val renderer = ed.renderer as ScribeEditorRenderer
+                assertFalse("Editor must not remain layoutBusy after gutter transition", ed.isLayoutBusy)
+                assertTrue("Wordwrap layout must be ready after gutter transition", ed.isWordwrapReady())
+                assertTrue("Editor must be editable after layoutBusy clears", ed.isEditable)
+                assertTrue("hasSideHintIcons() must remain true after styles settle", renderer.hasSideHintIcons())
+
+                scrollCanvasTo(canvas, canvas.headerHeight.toFloat())
+                val rowH = ed.rowHeight.toFloat()
+                val h = ed.height.toFloat()
                 val seamLine = 6
                 val seamRow = ed.layout.getRowIndexForPosition(ed.text.getCharIndex(seamLine, 0))
                 val tau = rowH * 2.5f
@@ -986,6 +1024,8 @@ class ScribeGapCollapseRendererTest {
                 assertTrue("Insert handle timer must be armed for static P1 handle check", ed.eventHandler.shouldDrawInsertHandle())
                 assertTrue("Editor must retain focus for static P1 handle check", ed.isFocused)
                 assertFalse("CursorAnimator must not run for static P1 handle check", ed.cursorAnimator.isRunning)
+                assertFalse("Editor must not be layoutBusy before static P1 handle draw", ed.isLayoutBusy)
+                assertTrue("Editor must remain editable before static P1 handle draw", ed.isEditable)
                 drawEditorInViewSpace(ed)
                 val unsplitP1Handle = RectF(ed.insertHandleDescriptor.position)
                 assertFalse("Unsplit P1 baseline handle descriptor must be populated", unsplitP1Handle.isEmpty)
@@ -1010,6 +1050,8 @@ class ScribeGapCollapseRendererTest {
                 assertTrue("Insert handle timer must be armed for static P2 handle check", ed.eventHandler.shouldDrawInsertHandle())
                 assertTrue("Editor must retain focus for static P2 handle check", ed.isFocused)
                 assertFalse("CursorAnimator must not run for static P2 handle check", ed.cursorAnimator.isRunning)
+                assertFalse("Editor must not be layoutBusy before static P2 handle draw", ed.isLayoutBusy)
+                assertTrue("Editor must remain editable before static P2 handle draw", ed.isEditable)
                 val unsplit = drawEditorInViewSpace(ed)
                 val unsplitDesc = RectF(ed.insertHandleDescriptor.position)
                 assertFalse("Unsplit baseline handle descriptor must be populated", unsplitDesc.isEmpty)
