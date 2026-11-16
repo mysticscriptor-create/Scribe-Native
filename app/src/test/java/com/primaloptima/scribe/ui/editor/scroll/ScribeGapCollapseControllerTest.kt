@@ -1053,7 +1053,7 @@ class ScribeGapCollapseControllerTest {
             // Stale epoch callback rejected
             assertEquals(
                 SafetyRevalidationResult.STALE_TRANSACTION,
-                h.safety.finishCorrectionAndReenter(capturedGen, expectedSafetyEpoch = 999L, actualAfter = 300)
+                h.safety.finishCorrectionAndReenter(capturedGen, capturedSafetyEpoch = 999L, actualAfter = 300)
             )
             assertEquals(GapCollapsePhase.FINAL_SAFETY_PENDING, h.controller.phase)
 

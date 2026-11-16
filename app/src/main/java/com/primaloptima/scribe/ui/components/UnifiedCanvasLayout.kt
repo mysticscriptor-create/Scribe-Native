@@ -790,6 +790,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
         settledClaimedGeneration = -1L
         deletionTransactionGeneration++
+        if (gapCollapseController.phase == GapCollapsePhase.IDLE &&
+            !gapCollapseController.isTransactionOwned
+        ) {
+            (editor as? ScribeCodeEditor)?.restoreTextActionWindowIfFallbackStranded(
+                deletionTransactionGeneration
+            )
+        }
         return true
     }
 
@@ -1514,7 +1521,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             if (!tryClaimPendingDeletionSettlement(fromGen)) return
             claimAndClearLiveDeletionTransaction(preserveRetractionDebt = false)
             if (!gapCollapseController.isTransactionOwned) {
-                scribeEditor?.restoreTextActionWindowIfFallbackStranded(fromGen)
+                scribeEditor?.restoreTextActionWindowIfFallbackStranded(deletionTransactionGeneration)
             }
             ensureCursorVisibleAboveKeyboard(
                 smooth = true,
@@ -1525,10 +1532,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
         if (plan.isFallback) {
-            if (!gapCollapseController.isTransactionOwned) {
-                scribeEditor?.restoreTextActionWindowIfFallbackStranded(fromGen)
-            }
             handleDeletionSettlement(smooth = true, expectedGen = fromGen)
+            if (!isDeletionTransactionActive &&
+                !gapCollapseController.isTransactionOwned &&
+                gapCollapseController.phase == GapCollapsePhase.IDLE
+            ) {
+                scribeEditor?.restoreTextActionWindowIfFallbackStranded(deletionTransactionGeneration)
+            }
             return
         }
 
