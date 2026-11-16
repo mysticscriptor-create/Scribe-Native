@@ -38,6 +38,7 @@ import com.primaloptima.scribe.ui.editor.scroll.ScribeDockMode
 import com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition
 import com.primaloptima.scribe.ui.editor.scroll.ScribeGapCollapsePolicy
 import com.primaloptima.scribe.ui.editor.scroll.ScribeOverlayBoundsRegistry
+import com.primaloptima.scribe.ui.editor.scroll.VisibilityConfidence
 import com.primaloptima.scribe.ui.editor.scroll.ScribeScrollDeletionPolicy
 import com.primaloptima.scribe.ui.editor.scroll.reportOverlayBounds
 import io.github.rosemoe.sora.event.LayoutStateChangeEvent
@@ -157,12 +158,17 @@ class ScribeGapCollapseIntegrationTest {
         val seamRow = lay.getRowIndexForPosition(ed.text.getCharIndex(seamLine, 0))
         val rowH = ed.rowHeight.toFloat().coerceAtLeast(1f)
         val actual = canvas.scrollD + ed.offsetY
-        val boundMax = (safeMax ?: canvas.maxCanvasScroll).coerceAtLeast(actual)
-        val target = effectiveTargetOverride ?: if (requiresMode1) {
-            (actual - tauLowerPx * 0.5f).coerceIn(safeMinPhysical.toFloat(), boundMax.toFloat())
+        val boundMax = safeMax ?: canvas.maxCanvasScroll
+        assertTrue(
+            "Safety bounds must form a valid interval: [$safeMinPhysical, $boundMax]",
+            safeMinPhysical <= boundMax
+        )
+        val rawTarget = effectiveTargetOverride ?: if (requiresMode1) {
+            actual - tauLowerPx * 0.5f
         } else {
-            actual.coerceIn(safeMinPhysical, boundMax).toFloat()
+            actual.toFloat()
         }
+        val target = rawTarget.coerceIn(safeMinPhysical.toFloat(), boundMax.toFloat())
         val gen = canvas.beginPreEditDeletionSnapshot(
             isSelection = true,
             selectionStartLine = (seamLine - 2).coerceAtLeast(0),
@@ -191,7 +197,14 @@ class ScribeGapCollapseIntegrationTest {
             requiresSynchronousSnap = false,
             synchronousSnapTarget = actual,
             initialTauLowerPx = tauLowerPx,
-            isProgressCoupled = requiresMode1 && scenario != CollapseScenario.E_OVERSCROLLED_CLAMP,
+            isProgressCoupled = when (scenario) {
+                CollapseScenario.A_UPPER_ONLY -> actual < safeMinPhysical
+                CollapseScenario.D_SELECTION_ONLY_CENTERED -> true
+                CollapseScenario.B_LOWER_ONLY,
+                CollapseScenario.C_BOTH_VISIBLE,
+                CollapseScenario.INELIGIBLE_FALLBACK,
+                CollapseScenario.E_OFFSCREEN_CARET_FOLLOW -> false
+            },
             requiresOffscreenCaretFollow = false
         )
         val epoch = canvas.gapCollapseController.beginCollapse(
@@ -291,7 +304,6 @@ class ScribeGapCollapseIntegrationTest {
                         seamLine = 22,
                         tauLowerPx = rowH * 2f,
                         requiresMode1 = true,
-                        scenario = CollapseScenario.E_OVERSCROLLED_CLAMP,
                         effectiveTargetOverride = (canvas.scrollD + canvas.editor.offsetY).toFloat()
                     )
                     assertTrue(canvas.gapCollapseController.freezeForPointer(genZero))
@@ -601,17 +613,27 @@ class ScribeGapCollapseIntegrationTest {
                 // 2. Non-empty replacement while OVERSCROLLED (ClearTransactionAndClampOverscroll) + delayed LayoutStateChangeEvent
                 instr.runOnMainSync {
                     canvas.scrollCanvasBy(canvas.maxCanvasScroll.toFloat() - (canvas.scrollD + ed.offsetY))
+                    val preReplaceScroll = canvas.scrollD + ed.offsetY
                     val targetReplaceEnd = ed.text.lineCount - 1
                     val targetReplaceStart = (targetReplaceEnd - 25).coerceAtLeast(2)
                     ed.setSelectionRegion(targetReplaceStart, 0, targetReplaceEnd, 0, false)
                     ed.text.replace(targetReplaceStart, 0, targetReplaceEnd, 0, "Short replacement")
+                    assertTrue(
+                        "Shrinking document by 25 lines must create overscroll ($preReplaceScroll > ${canvas.maxCanvasScroll})",
+                        preReplaceScroll > canvas.maxCanvasScroll
+                    )
                     assertFalse(canvas.gapCollapseController.shouldApplySplitRender)
+                    assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+                    assertFalse(canvas.isDeletionTransactionActive)
+                    assertFalse(canvas.hasPendingDeletionSettlement)
                     ed.dispatchEvent(LayoutStateChangeEvent(ed, false))
                 }
                 waitUntil(failureMsg = "Overscrolled non-empty replacement must clamp within maxCanvasScroll without gap collapse") {
                     !canvas.isGlideRunning &&
                         (canvas.scrollD + ed.offsetY) <= canvas.maxCanvasScroll &&
-                        canvas.gapCollapseController.phase == GapCollapsePhase.IDLE
+                        canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.gapCollapseController.shouldApplySplitRender &&
+                        !canvas.isDeletionTransactionActive
                 }
 
                 // 3. Empty replacement ("") while IDLE settles cleanly via SettleEmptyReplaceDelete
@@ -640,14 +662,113 @@ class ScribeGapCollapseIntegrationTest {
     }
 
     @Test
-    fun suiteE_scenarioEEventBSafetyReadBackAndCursorAnimatorCases1To4() {
+    fun suiteE_offscreenCaretFollowScenarioEAndEnsureCursorVisible() {
+        val host = launchCanvasHost(text = buildLines(95))
+        val instr = InstrumentationRegistry.getInstrumentation()
+        host.scenario.use {
+            val canvas = host.canvas
+            val ed = canvas.editor
+            var preScroll = 0
+            try {
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    ed.isCursorAnimationEnabled = false
+                    ed.cursorAnimator.cancel()
+                    val aw = ed.getComponent(EditorTextActionWindow::class.java)
+                    aw.isEnabled = true
+
+                    // Select lines 2..6 (leaving surviving upper 0..1 and lower 7..94), then scroll far down
+                    // below the selection while staying well clear of the bottom tail (CARET_ANCHOR intent).
+                    ed.setSelectionRegion(2, 0, 6, 0, false)
+                    val targetScroll = canvas.maxCanvasScroll * 0.55f
+                    canvas.scrollCanvasBy(targetScroll - (canvas.scrollD + ed.offsetY))
+                    preScroll = canvas.scrollD + ed.offsetY
+
+                    val lay = ed.layout!!
+                    val viewportBounds = canvas.resolveUnobstructedViewportBounds()
+                    val selGeom = canvas.getSelectionGeometry(ed.cursor, lay)!!
+                    val preSelBottomScreen = canvas.headerHeight - preScroll + selGeom.bottomDocY
+                    assertTrue(
+                        "Selection and seam rows must be strictly offscreen above visibleEditorTop ($preSelBottomScreen <= ${viewportBounds.visibleEditorTop})",
+                        preSelBottomScreen + ed.rowHeight <= viewportBounds.visibleEditorTop
+                    )
+
+                    val policyPlan = ScribeGapCollapsePolicy.planCollapse(
+                        deletionIntent = ScribeScrollDeletionPolicy.DeletionAnchorIntent.CARET_ANCHOR,
+                        isSelection = true,
+                        isWordwrap = true,
+                        isWordwrapReady = true,
+                        isLayoutBusy = false,
+                        isComposing = false,
+                        isCursorAnimationRunning = false,
+                        hasRtlOrBidiAtSeam = false,
+                        isMergedPartialRowSeam = false,
+                        hasSurvivingUpper = true,
+                        hasSurvivingLower = true,
+                        deltaGapPx = (selGeom.bottomDocY - selGeom.topDocY).coerceAtLeast(ed.rowHeight.toFloat()),
+                        visibilityConfidence = VisibilityConfidence.RESOLVED,
+                        isUpperVisible = false,
+                        isLowerVisible = false,
+                        isTouchedOnScreen = false,
+                        preScrollY = preScroll,
+                        centeredTargetScroll = 0f,
+                        viewportBounds = viewportBounds,
+                        safetyBounds = canvas.resolveSafetyFloorAndBounds(selGeom.bottomDocY, viewportBounds = viewportBounds)
+                    )
+                    assertEquals(CollapseScenario.E_OFFSCREEN_CARET_FOLLOW, policyPlan.scenario)
+                    assertTrue(policyPlan.requiresOffscreenCaretFollow)
+                    assertFalse(policyPlan.requiresMode1)
+                    assertFalse(policyPlan.isProgressCoupled)
+                    assertEquals(0f, policyPlan.initialTauLowerPx, 0.001f)
+
+                    // Trigger real offscreen selection deletion on the host -> UnifiedCanvasLayout Scenario E branch
+                    ed.deleteText()
+
+                    assertFalse("Scenario E must not enter split rendering", canvas.gapCollapseController.shouldApplySplitRender)
+                    assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+                    assertFalse(canvas.gapCollapseController.isTransactionOwned)
+                    assertFalse("Scenario E must claim and clear deletion transaction", canvas.isDeletionTransactionActive)
+                    assertFalse(canvas.hasPendingDeletionSettlement)
+                    assertTrue("TextActionWindow must remain enabled (not stranded) in Scenario E", aw.isEnabled)
+                }
+
+                waitUntil(failureMsg = "Scenario E must scroll offscreen caret back into view and remain IDLE") {
+                    !canvas.isGlideRunning &&
+                        canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isDeletionTransactionActive &&
+                        (canvas.scrollD + ed.offsetY) < preScroll
+                }
+
+                instr.runOnMainSync {
+                    val lay = ed.layout!!
+                    val cur = ed.cursor
+                    val finalPhysical = canvas.scrollD + ed.offsetY
+                    val caretGeom = canvas.getCharGeometry(lay, cur.leftLine, cur.leftColumn, ed.rowHeight.toFloat())
+                    val finalCaretScreenBottom = canvas.headerHeight + caretGeom.bottomDocY - finalPhysical
+                    assertTrue("Final scroll ($finalPhysical) must move up from preScroll ($preScroll)", finalPhysical < preScroll)
+                    assertTrue(
+                        "Caret screen bottom ($finalCaretScreenBottom) must be brought inside viewport [0, ${canvas.height}]",
+                        finalCaretScreenBottom >= 0f && finalCaretScreenBottom <= canvas.height.toFloat()
+                    )
+                    assertFalse(canvas.gapCollapseController.shouldApplySplitRender)
+                }
+            } finally {
+                instr.runOnMainSync {
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "suiteE_scenarioE_cleanup")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun suiteE_aMaxClampedEventBSafetyReadBackAndCursorAnimatorCases1To4() {
         val host = launchCanvasHost(text = buildLines(95))
         val instr = InstrumentationRegistry.getInstrumentation()
         host.scenario.use {
             val canvas = host.canvas
             val ed = canvas.editor
             try {
-                // A) Scenario E overscroll clamp + Event B safety bounds read-back
+                // A) A-MaxClamped (CollapseScenario.A_UPPER_ONLY with S_pre > safeMax) + Event B safety bounds read-back
                 var expectedSafeBounds: SafetyFloorAndBounds? = null
                 instr.runOnMainSync {
                     ed.isCursorAnimationEnabled = false
@@ -662,6 +783,10 @@ class ScribeGapCollapseIntegrationTest {
                     )
                     expectedSafeBounds = bounds
                     assertTrue(bounds.safeMinPhysical <= bounds.safeMax)
+                    assertTrue(
+                        "A-MaxClamped fixture must start overscrolled (${bounds.actualPhysicalScroll} > ${bounds.safeMax})",
+                        bounds.actualPhysicalScroll > bounds.safeMax
+                    )
                     val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
                     startCollapseTransaction(
                         canvas = canvas,
@@ -671,8 +796,12 @@ class ScribeGapCollapseIntegrationTest {
                         safeMinPhysical = bounds.safeMinPhysical,
                         safeMax = bounds.safeMax,
                         effectiveTargetOverride = bounds.safeMax.toFloat(),
-                        scenario = CollapseScenario.E_OVERSCROLLED_CLAMP
+                        scenario = CollapseScenario.A_UPPER_ONLY
                     )
+                    val activePlan = canvas.gapCollapseController.currentPlan!!
+                    assertEquals(CollapseScenario.A_UPPER_ONLY, activePlan.scenario)
+                    assertFalse(activePlan.isProgressCoupled)
+                    assertEquals(bounds.safeMax.toFloat(), activePlan.effectiveTargetScroll, 0.001f)
                     val settled = canvas.gapCollapseController.onMode1SettledOrHandoff(
                         expectedGen = canvas.gapCollapseController.owningDeletionGen,
                         expectedCollapseEpoch = canvas.gapCollapseController.collapseAnimEpoch,
@@ -684,7 +813,7 @@ class ScribeGapCollapseIntegrationTest {
                             settled == GapCollapsePhase.IDLE
                     )
                 }
-                waitUntil(failureMsg = "Scenario E must converge through Event B to IDLE") {
+                waitUntil(failureMsg = "A-MaxClamped must converge through Event B to IDLE") {
                     canvas.gapCollapseController.phase == GapCollapsePhase.IDLE
                 }
                 instr.runOnMainSync {
@@ -737,12 +866,17 @@ class ScribeGapCollapseIntegrationTest {
                         hasSurvivingUpper = true,
                         hasSurvivingLower = true,
                         deltaGapPx = 120f,
+                        visibilityConfidence = VisibilityConfidence.RESOLVED,
+                        isUpperVisible = true,
+                        isLowerVisible = true,
+                        isTouchedOnScreen = true,
                         preScrollY = canvas.scrollD + ed.offsetY,
                         centeredTargetScroll = 300f,
                         viewportBounds = canvas.resolveUnobstructedViewportBounds(),
                         safetyBounds = canvas.resolveSafetyFloorAndBounds(400f)
                     )
                     assertTrue("Active cursor animator at start must force fallback", plan.isFallback)
+                    assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, plan.scenario)
                     anim.cancel()
                 }
 
