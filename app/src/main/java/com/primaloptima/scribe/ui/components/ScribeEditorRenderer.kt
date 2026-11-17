@@ -87,6 +87,7 @@ open class ScribeEditorRenderer(
 
     override fun drawView(canvas: Canvas) {
         didRefreshCursorDescriptorsOnLastDraw = false
+        scribeEditor.ensureWordwrapLayoutConsistentBeforeRender()
         val controller = scribeEditor.parentCanvas?.gapCollapseController
         if (controller != null &&
             controller.shouldApplySplitRender &&

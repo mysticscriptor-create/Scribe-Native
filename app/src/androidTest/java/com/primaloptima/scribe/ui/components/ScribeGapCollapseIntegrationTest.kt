@@ -647,7 +647,17 @@ class ScribeGapCollapseIntegrationTest {
                         (canvas.scrollD + ed.offsetY) <= canvas.maxCanvasScroll &&
                         canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
                         !canvas.gapCollapseController.shouldApplySplitRender &&
-                        !canvas.isDeletionTransactionActive
+                        !canvas.isDeletionTransactionActive &&
+                        ed.isWordwrapReady() &&
+                        !ed.isLayoutBusy
+                }
+                instr.runOnMainSync {
+                    drawEditorIntoBitmap(ed)
+                    val lay = ed.layout!!
+                    assertTrue(lay.rowCount >= ed.text.lineCount)
+                    assertEquals(0, lay.getLineNumberForRow(0))
+                    assertEquals(ed.text.lineCount - 1, lay.getLineNumberForRow(lay.rowCount - 1))
+                    assertTrue((canvas.scrollD + ed.offsetY) in 0..canvas.maxCanvasScroll)
                 }
 
                 // 3. Empty replacement ("") while IDLE settles cleanly via SettleEmptyReplaceDelete
@@ -665,11 +675,140 @@ class ScribeGapCollapseIntegrationTest {
                     assertTrue(preScroll >= 300)
                 }
                 waitUntil(failureMsg = "Empty replace from IDLE must converge cleanly to IDLE") {
-                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE && !canvas.isDeletionTransactionActive
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isDeletionTransactionActive &&
+                        ed.isWordwrapReady() &&
+                        !ed.isLayoutBusy
+                }
+                instr.runOnMainSync {
+                    drawEditorIntoBitmap(ed)
+                    val lay = ed.layout!!
+                    assertTrue(lay.rowCount >= ed.text.lineCount)
+                    assertEquals(0, lay.getLineNumberForRow(0))
+                    assertEquals(ed.text.lineCount - 1, lay.getLineNumberForRow(lay.rowCount - 1))
                 }
             } finally {
                 instr.runOnMainSync {
                     canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "suiteE_replace_cleanup")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun suiteE_wordwrapAsyncGutterShrinkAndSubstantialLineCountDropRendersCleanly() {
+        val host = launchCanvasHost(text = buildLines(120))
+        val instr = InstrumentationRegistry.getInstrumentation()
+        host.scenario.use {
+            val canvas = host.canvas
+            val ed = canvas.editor
+            try {
+                // Case 1: Cross 3-digit -> 2-digit gutter boundary via replace + draw (triggers EditorRenderer.createLayout(false)),
+                // then immediately shrink substantially near the bottom while async wordwrap is computing.
+                instr.runOnMainSync {
+                    ed.isCursorAnimationEnabled = false
+                    ed.text.replace(0, 0, 21, 0, "Header line\n") // 120 - 21 + 1 = 100 lines
+                    ed.text.replace(0, 0, 2, 0, "Trimmed") // 100 -> 98 lines (3-digit -> 2-digit gutter change)
+                    drawEditorIntoBitmap(ed) // triggers EditorRenderer.drawView cachedGutterWidth != gutterWidth -> createLayout(false)
+                    canvas.scrollCanvasBy((canvas.maxCanvasScroll - (canvas.scrollD + ed.offsetY)).toFloat())
+                    val endLine = ed.text.lineCount - 1
+                    ed.setSelectionRegion(39, 0, endLine, 0, false)
+                    ed.text.replace(39, 0, endLine, 0, "Short tail")
+                    drawEditorIntoBitmap(ed)
+                }
+                waitUntil(failureMsg = "Substantial shrink across digit boundary must settle wordwrap and clamp scroll cleanly") {
+                    !canvas.isGlideRunning &&
+                        (canvas.scrollD + ed.offsetY) <= canvas.maxCanvasScroll &&
+                        canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isDeletionTransactionActive &&
+                        ed.isWordwrapReady() &&
+                        !ed.isLayoutBusy
+                }
+                instr.runOnMainSync {
+                    drawEditorIntoBitmap(ed)
+                    val lay = ed.layout!!
+                    assertEquals(40, ed.text.lineCount)
+                    assertTrue(lay.rowCount >= ed.text.lineCount)
+                    assertEquals(0, lay.getLineNumberForRow(0))
+                    assertEquals(ed.text.lineCount - 1, lay.getLineNumberForRow(lay.rowCount - 1))
+                    for (r in ed.getFirstVisibleRow()..ed.getLastVisibleRow()) {
+                        val ln = lay.getLineNumberForRow(r)
+                        assertTrue("Visible row $r mapped to out-of-bounds line $ln", ln in 0 until ed.text.lineCount)
+                    }
+                    assertTrue((canvas.scrollD + ed.offsetY) in 0..canvas.maxCanvasScroll)
+                }
+
+                // Case 2: Large doc scrolled to bottom, explicit async relayout in flight, shrink across 3-digit -> 1-digit (120 -> 9 lines)
+                instr.runOnMainSync {
+                    ed.setText(buildLines(120))
+                }
+                waitUntil(failureMsg = "120-line document wordwrap ready") {
+                    ed.layout != null && ed.isWordwrapReady() && !ed.isLayoutBusy
+                }
+                instr.runOnMainSync {
+                    canvas.scrollCanvasBy((canvas.maxCanvasScroll - (canvas.scrollD + ed.offsetY)).toFloat())
+                    ed.horizontalPaddingDp = 12f // triggers createLayout(false) -> async WordwrapAnalyzeTask(0..119) while scrolled to bottom
+                    val endLine = ed.text.lineCount - 1
+                    ed.setSelectionRegion(8, 0, endLine, 0, false)
+                    ed.text.replace(8, 0, endLine, 0, "Final surviving line")
+                    drawEditorIntoBitmap(ed)
+                }
+                SystemClock.sleep(50L)
+                instr.runOnMainSync {
+                    drawEditorIntoBitmap(ed)
+                }
+                waitUntil(failureMsg = "120->9 line shrink during async wordwrap must clamp and settle cleanly") {
+                    !canvas.isGlideRunning &&
+                        (canvas.scrollD + ed.offsetY) <= canvas.maxCanvasScroll &&
+                        canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isDeletionTransactionActive &&
+                        ed.isWordwrapReady() &&
+                        !ed.isLayoutBusy
+                }
+                instr.runOnMainSync {
+                    drawEditorIntoBitmap(ed)
+                    val lay = ed.layout!!
+                    assertEquals(9, ed.text.lineCount)
+                    assertTrue(lay.rowCount >= ed.text.lineCount)
+                    assertEquals(0, lay.getLineNumberForRow(0))
+                    assertEquals(ed.text.lineCount - 1, lay.getLineNumberForRow(lay.rowCount - 1))
+                    assertTrue((canvas.scrollD + ed.offsetY) in 0..canvas.maxCanvasScroll)
+                }
+
+                // Case 3: Large doc scrolled to bottom, async relayout in flight, empty-replacement deletion (100 -> 30 lines)
+                instr.runOnMainSync {
+                    ed.setText(buildLines(100))
+                }
+                waitUntil(failureMsg = "100-line document wordwrap ready") {
+                    ed.layout != null && ed.isWordwrapReady() && !ed.isLayoutBusy
+                }
+                instr.runOnMainSync {
+                    canvas.scrollCanvasBy((canvas.maxCanvasScroll - (canvas.scrollD + ed.offsetY)).toFloat())
+                    ed.horizontalPaddingDp = 10f // triggers createLayout(false) -> async WordwrapAnalyzeTask(0..99) while scrolled to bottom
+                    ed.setSelectionRegion(29, 0, 99, 0, false)
+                    ed.text.replace(29, 0, 99, 0, "")
+                    drawEditorIntoBitmap(ed)
+                }
+                waitUntil(failureMsg = "100->30 empty replace during async wordwrap must settle cleanly") {
+                    !canvas.isGlideRunning &&
+                        (canvas.scrollD + ed.offsetY) <= canvas.maxCanvasScroll &&
+                        canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isDeletionTransactionActive &&
+                        ed.isWordwrapReady() &&
+                        !ed.isLayoutBusy
+                }
+                instr.runOnMainSync {
+                    drawEditorIntoBitmap(ed)
+                    val lay = ed.layout!!
+                    assertEquals(30, ed.text.lineCount)
+                    assertTrue(lay.rowCount >= ed.text.lineCount)
+                    assertEquals(0, lay.getLineNumberForRow(0))
+                    assertEquals(ed.text.lineCount - 1, lay.getLineNumberForRow(lay.rowCount - 1))
+                    assertTrue((canvas.scrollD + ed.offsetY) in 0..canvas.maxCanvasScroll)
+                }
+            } finally {
+                instr.runOnMainSync {
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "suiteE_async_shrink_cleanup")
                 }
             }
         }

@@ -1404,6 +1404,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (isAwaitingLayoutReady || isBatchApplyingIndent || isEnforcingIndentFloor) {
             stagedPreDeleteSeamCapture = null
             super.afterDelete(content, startLine, startColumn, endLine, endColumn, deletedContent)
+            reconcileWordwrapLayoutAfterMutation()
             return
         }
         val pCanvas = parentCanvas
@@ -1467,6 +1468,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         }
         val txGen = pCanvas?.currentDeletionTransactionGeneration ?: -1L
         super.afterDelete(content, startLine, startColumn, endLine, endColumn, deletedContent)
+        reconcileWordwrapLayoutAfterMutation()
         if (canMutateCanvas &&
             pCanvas != null &&
             !isInContentReplace &&
@@ -1489,6 +1491,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
             preEditSeamSnapshot = null
             stagedPreDeleteSeamCapture = null
             super.afterInsert(content, startLine, startColumn, endLine, endColumn, insertedContent)
+            reconcileWordwrapLayoutAfterMutation()
             val pCanvas = parentCanvas
             if (pCanvas != null &&
                 pCanvas.gapCollapseController.shouldApplySplitRender &&
@@ -1524,6 +1527,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
             pCanvas?.syncActualScrollFromViewport()
         }
         super.afterInsert(content, startLine, startColumn, endLine, endColumn, insertedContent)
+        reconcileWordwrapLayoutAfterMutation()
         if (pCanvas != null &&
             pCanvas.gapCollapseController.shouldApplySplitRender &&
             cursorAnimator.isRunning
@@ -1942,6 +1946,59 @@ class ScribeCodeEditor @JvmOverloads constructor(
      * - Or when measured width > 0, background wordwrap analysis is NOT busy,
      *   and rowTable is populated (or text is empty).
      */
+    private fun hasOutOfBoundsOrPartialRowTable(lay: WordwrapLayout): Boolean {
+        val lineCount = text.lineCount
+        val field = rowTableField
+        if (field != null) {
+            val table = try { field.get(lay) as? List<*> } catch (_: Throwable) { null }
+                ?: return true
+            if (lineCount <= 0) {
+                return table.isNotEmpty()
+            }
+            if (table.isEmpty()) {
+                return false
+            }
+        }
+        if (lineCount <= 0) {
+            return lay.rowCount > 0
+        }
+        val rowCount = lay.rowCount
+        if (rowCount < lineCount) {
+            return true
+        }
+        val firstLine = lay.getLineNumberForRow(0)
+        val lastLine = lay.getLineNumberForRow(rowCount - 1)
+        return firstLine != 0 || lastLine != lineCount - 1
+    }
+
+    private fun reconcileWordwrapLayoutAfterMutation() {
+        if (!isWordwrap || isInsideWordwrapLayoutCreation) return
+        val lay = layout as? WordwrapLayout ?: return
+        val tableBad = hasOutOfBoundsOrPartialRowTable(lay)
+        val taskInFlight = layoutBusyField?.getBoolean(this) ?: isLayoutBusyState
+        if (tableBad || taskInFlight) {
+            // Replace the active WordwrapLayout so its oldLayout.editor becomes null; any
+            // already-queued WordwrapAnalyzeTask completion runnable from pre-mutation text
+            // will exit cleanly instead of overwriting rowTable with stale line ranges.
+            createLayout(clearWordwrapCache = tableBad)
+        }
+    }
+
+    internal fun ensureWordwrapLayoutConsistentBeforeRender() {
+        if (!isWordwrap || isInsideWordwrapLayoutCreation) return
+        val lay = layout as? WordwrapLayout ?: return
+        val table = try { rowTableField?.get(lay) as? List<*> } catch (_: Throwable) { null }
+        val tableBad = hasOutOfBoundsOrPartialRowTable(lay)
+        val taskInFlight = layoutBusyField?.getBoolean(this) ?: isLayoutBusyState
+        val missingTableWhenIdle = !taskInFlight && width > 0 && text.length > 0 && table != null && table.isEmpty()
+        if (tableBad || missingTableWhenIdle) {
+            createLayout(clearWordwrapCache = true)
+            try {
+                renderContext.invalidateRenderNodes()
+            } catch (_: Throwable) {}
+        }
+    }
+
     fun isWordwrapReady(): Boolean {
         if (width <= 0) return false
         val curLayout = layout ?: return false
@@ -1950,6 +2007,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
             if (isLayoutComputing) return false
             val table = try { rowTableField?.get(curLayout) as? List<*> } catch (_: Throwable) { null }
             if (table != null && text.length > 0 && table.isEmpty()) {
+                return false
+            }
+            if (hasOutOfBoundsOrPartialRowTable(curLayout)) {
                 return false
             }
             return true
@@ -2274,7 +2334,8 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
 
     override fun createLayout(clearWordwrapCache: Boolean) {
-        val shouldClear = clearWordwrapCache || isAwaitingLayoutReady || layout == null || forceNextLayoutClear
+        val staleOrPartialTable = (layout as? WordwrapLayout)?.let { hasOutOfBoundsOrPartialRowTable(it) } == true
+        val shouldClear = clearWordwrapCache || isAwaitingLayoutReady || layout == null || forceNextLayoutClear || staleOrPartialTable
         forceNextLayoutClear = false
         isInsideWordwrapLayoutCreation = true
         isLayoutBusyState = true
