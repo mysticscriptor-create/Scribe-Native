@@ -47,6 +47,11 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
 
     private var lastAnimateTimestamp: Long = 0L
 
+    internal var suspendMarkAndStart: Boolean = false
+    internal var deferAutoStartForPendingCollapse: Boolean = false
+    internal var hasDeferredPendingStart: Boolean = false
+        private set
+
     /**
      * Option-B Phase 4 callback invoked synchronously on the UI thread immediately
      * when cursor glide animators start, before the next draw frame.
@@ -126,6 +131,7 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
         animatorY = ay
         animatorHeight = ah
 
+        hasDeferredPendingStart = false
         lastAnimateTimestamp = System.currentTimeMillis()
         isAnimationReady = false
         ax.start()
@@ -135,6 +141,7 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
     }
 
     override fun markStartPos() {
+        if (suspendMarkAndStart) return
         if (isGlideArmed) {
             // Retain the pre-edit armed start position
             return
@@ -161,6 +168,7 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
     }
 
     override fun markEndPos() {
+        if (suspendMarkAndStart) return
         if (!editor.isCursorAnimationEnabled) return
 
         val fromX = if (isGlideArmed) armedStartX else currentVisualX
@@ -224,7 +232,13 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
     }
 
     override fun start() {
+        if (suspendMarkAndStart) return
         if (!editor.isCursorAnimationEnabled || !isAnimationReady) return
+        if (deferAutoStartForPendingCollapse) {
+            hasDeferredPendingStart = true
+            return
+        }
+        hasDeferredPendingStart = false
         isAnimationReady = false
         lastAnimateTimestamp = System.currentTimeMillis()
         animatorX?.start()
@@ -235,7 +249,21 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
         }
     }
 
+    internal fun discardDeferredStart() {
+        hasDeferredPendingStart = false
+        cancel()
+    }
+
+    internal fun flushDeferredStartIfNeeded() {
+        if (deferAutoStartForPendingCollapse || suspendMarkAndStart || !hasDeferredPendingStart) {
+            return
+        }
+        hasDeferredPendingStart = false
+        start()
+    }
+
     override fun cancel() {
+        hasDeferredPendingStart = false
         isAnimationReady = false
         animatorX?.cancel()
         animatorY?.cancel()

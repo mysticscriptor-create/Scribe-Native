@@ -1327,6 +1327,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         clearActiveSeamBaseline()
         resolvedSeamGeometry = null
         (editor as? ScribeCodeEditor)?.onGapCollapseCommitIdle(completedGen)
+        (editor as? ScribeCodeEditor)?.flushDeferredHintsAndDiagnosticsAfterCollapse()
     }
 
     private fun finalizeCompletedGapCollapseTransaction(
@@ -1496,45 +1497,35 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val viewportBounds = resolveUnobstructedViewportBounds()
         val visibilityConfidence = evaluateVisibilityConfidence(viewportBounds)
         val preScrollY = preCapture.preScrollY
-        val headerRemainingPre = (headerHeight - preScrollY).toFloat()
-        val upperRowBottomDocY = seam.seamFirstLowerRow * rHeight
-        val upperRowTopDocY = ((seam.seamFirstLowerRow - 1).coerceAtLeast(0)) * rHeight
-        val upperTopScreen = headerRemainingPre + upperRowTopDocY
-        val upperBottomScreen = headerRemainingPre + upperRowBottomDocY
-        val upperRect = ComposeRect(
-            left = 0f,
-            top = upperTopScreen,
-            right = width.coerceAtLeast(1).toFloat(),
-            bottom = upperBottomScreen.coerceAtLeast(upperTopScreen + 1f)
+        val viewportWidthPx = width.coerceAtLeast(1).toFloat()
+        val editorHeightPx = if (preCapture.preEditorHeightPx > 0) preCapture.preEditorHeightPx else editor.height
+
+        val isUpperVisible = ScribeGapCollapsePolicy.isHandleVisibleInViewport(
+            handleDoc = preCapture.preUpperHandleDoc,
+            preScrollX = preCapture.preScrollX,
+            preScrollY = preScrollY,
+            headerHeight = headerHeight,
+            editorHeightPx = editorHeightPx,
+            viewportWidthPx = viewportWidthPx,
+            viewportBounds = viewportBounds
         )
-        val isUpperVisible = viewportBounds.isValid &&
-            upperBottomScreen > viewportBounds.visibleEditorTop &&
-            upperTopScreen < viewportBounds.visibleEditorBottom &&
-            viewportBounds.isRectUnobstructedByFloatingPills(upperRect)
-
-        val lowerTopScreen = headerRemainingPre + preCapture.preFirstLowerRowTopDocY
-        val lowerBottomScreen = lowerTopScreen + rHeight
-        val isLowerVisible = if (viewportBounds.isValid && preCapture.preFirstLowerRowTopDocY.isFinite()) {
-            val lowerRect = ComposeRect(
-                left = 0f,
-                top = lowerTopScreen,
-                right = width.coerceAtLeast(1).toFloat(),
-                bottom = lowerBottomScreen.coerceAtLeast(lowerTopScreen + 1f)
-            )
-            lowerBottomScreen > viewportBounds.visibleEditorTop &&
-                lowerTopScreen < viewportBounds.visibleEditorBottom &&
-                viewportBounds.isRectUnobstructedByFloatingPills(lowerRect)
-        } else {
-            false
-        }
-
-        val selTopScreen = headerRemainingPre + preCapture.preSelectionTopDocY
-        val selBottomScreen = headerRemainingPre + preCapture.preSelectionBottomDocY
-        val isTouchedOnScreen = isUpperVisible || isLowerVisible || (
-            viewportBounds.isValid &&
-                selBottomScreen > viewportBounds.visibleEditorTop &&
-                selTopScreen < viewportBounds.visibleEditorBottom
-            )
+        val isLowerVisible = ScribeGapCollapsePolicy.isHandleVisibleInViewport(
+            handleDoc = preCapture.preLowerHandleDoc,
+            preScrollX = preCapture.preScrollX,
+            preScrollY = preScrollY,
+            headerHeight = headerHeight,
+            editorHeightPx = editorHeightPx,
+            viewportWidthPx = viewportWidthPx,
+            viewportBounds = viewportBounds
+        )
+        val isTouchedOnScreen = ScribeGapCollapsePolicy.isSelectionTouchedOnScreen(
+            isUpperVisible = isUpperVisible,
+            isLowerVisible = isLowerVisible,
+            preCapture = preCapture,
+            headerHeight = headerHeight,
+            viewportWidthPx = viewportWidthPx,
+            viewportBounds = viewportBounds
+        )
 
         val usableMidLocal = (viewportBounds.visibleEditorTop + viewportBounds.visibleEditorBottom) * 0.5f
         val seamDocY = seam.seamFirstLowerRow * rHeight
@@ -1552,7 +1543,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             isWordwrapReady = editor.isWordwrapReady(),
             isLayoutBusy = editorBusy,
             isComposing = editor.hasComposingText(),
-            isCursorAnimationRunning = editor.cursorAnimator.isRunning(),
+            isCursorAnimationRunning = preCapture.wasCursorAnimationRunningBeforeDelete || editor.cursorAnimator.isRunning,
             hasRtlOrBidiAtSeam = seam.hasRtlOrBidiAtSeam,
             isMergedPartialRowSeam = seam.isMergedPartialRowSeam,
             hasSurvivingUpper = seam.hasSurvivingUpper,
@@ -1579,6 +1570,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 force = true,
                 allowDuringDeletionRetraction = true
             )
+            if (!isGlideRunning && (scrollD + editor.offsetY) > maxCanvasScroll) {
+                clampCanvasScrollToMax(smooth = true)
+            }
             return
         }
 
@@ -2427,6 +2421,34 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     private var lastEnsureCursorTime = 0L
 
+    private fun resolveTopObstructionAndBreathing(
+        viewportBounds: UnobstructedViewportBounds,
+        caretScreenLeft: Float,
+        caretScreenRight: Float,
+        rowHeightPx: Float
+    ): Pair<Float, Float> {
+        val density = resources.displayMetrics.density
+        val baseTop = if (viewportBounds.isValid) viewportBounds.visibleEditorTop.coerceAtLeast(0f) else 0f
+        val topBreathing = minOf(8f * density, (rowHeightPx * 0.35f).coerceAtLeast(0f))
+        var effectiveTop = baseTop
+        if (viewportBounds.isValid) {
+            val marginBottomPx = ScribeScrollPolicy.CURSOR_BOTTOM_MARGIN_DP * density
+            val desiredBottomAtBase = baseTop + topBreathing + rowHeightPx
+            val caretL = minOf(caretScreenLeft, caretScreenRight) - 2f * density
+            val caretR = maxOf(caretScreenLeft, caretScreenRight) + 2f * density
+            val maxSafeTop = (viewportBounds.visibleEditorBottom - marginBottomPx - rowHeightPx - topBreathing)
+                .coerceAtLeast(baseTop)
+            for (pill in viewportBounds.floatingPillLocalRects) {
+                val horizontalHit = pill.right > caretL && pill.left < caretR
+                val verticalHitAtSafeTop = pill.bottom > baseTop && pill.top < desiredBottomAtBase
+                if (horizontalHit && verticalHitAtSafeTop && pill.bottom <= maxSafeTop) {
+                    effectiveTop = maxOf(effectiveTop, pill.bottom)
+                }
+            }
+        }
+        return effectiveTop to topBreathing
+    }
+
     fun ensureCursorVisibleAboveKeyboard(
         targetLine: Int? = null,
         targetCol: Int? = null,
@@ -2440,7 +2462,14 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         ) {
             return
         }
-        if ((!editor.isFocused && !isBottomSurfaceActive) || isKeyboardDismissing || suppressCursorVisibilityScroll || isRestoringViewport || (!allowDuringDeletionRetraction && (hasPendingDeletionSettlement || isDeletionRetractionInProgress))) return
+        if ((!editor.isFocused && !isBottomSurfaceActive && !allowDuringDeletionRetraction) ||
+            isKeyboardDismissing ||
+            suppressCursorVisibilityScroll ||
+            isRestoringViewport ||
+            (!allowDuringDeletionRetraction && (hasPendingDeletionSettlement || isDeletionRetractionInProgress))
+        ) {
+            return
+        }
         if (!force && editor.isPasteTransactionActive) return
         val now = System.currentTimeMillis()
         if (!force && now - lastEnsureCursorTime < 16L) return
@@ -2520,11 +2549,24 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val headerRemaining = headerHeight - scrollD
         val screenBottom = headerRemaining + yOffset - editor.offsetY
         val screenTop = screenBottom - rowHeight
+        val caretScreenX = editor.measureTextRegionOffset() + (layoutOffset?.getOrNull(1) ?: 0f) - editor.offsetX
 
         val visibleHeight = height
         val density = resources.displayMetrics.density
         val isLastLine = line >= (editor.text.lineCount - 1)
         val hasScroll = scrollD > 0 || editor.offsetY > 0
+        val viewportBounds = resolveUnobstructedViewportBounds()
+        val (effectiveVisibleTop, topBreathing) = resolveTopObstructionAndBreathing(
+            viewportBounds = viewportBounds,
+            caretScreenLeft = caretScreenX,
+            caretScreenRight = caretScreenX,
+            rowHeightPx = rowHeight.toFloat()
+        )
+        val effectiveVisibleBottom = if (viewportBounds.isValid) {
+            viewportBounds.visibleEditorBottom
+        } else {
+            visibleHeight.toFloat()
+        }
 
         val resolution = ScribeScrollPolicy.resolveCursorScrollDelta(
             screenBottom = screenBottom,
@@ -2533,7 +2575,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             density = density,
             isLastLine = isLastLine,
             isDeletionActive = isLastLineDeletionActive,
-            hasScrollOffset = hasScroll
+            hasScrollOffset = hasScroll,
+            visibleEditorTop = effectiveVisibleTop,
+            visibleEditorBottom = effectiveVisibleBottom,
+            topBreathingMarginPx = topBreathing
         )
 
         if (resolution.shouldScroll) {
@@ -3048,13 +3093,28 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val screenBottom = (headerHeight - scrollD) + rectangle.bottom
             val density = resources.displayMetrics.density
             val hasScrollOffset = (scrollD > 0 || editor.offsetY > 0) && (isKeyboardVisible || isBottomSurfaceActive)
+            val viewportBounds = resolveUnobstructedViewportBounds()
+            val (effectiveVisibleTop, topBreathing) = resolveTopObstructionAndBreathing(
+                viewportBounds = viewportBounds,
+                caretScreenLeft = rectangle.left.toFloat(),
+                caretScreenRight = rectangle.right.toFloat(),
+                rowHeightPx = (rectangle.bottom - rectangle.top).toFloat().coerceAtLeast(editor.rowHeight.toFloat())
+            )
+            val effectiveVisibleBottom = if (viewportBounds.isValid) {
+                viewportBounds.visibleEditorBottom
+            } else {
+                height.toFloat()
+            }
 
             val resolution = ScribeScrollPolicy.resolveCursorScrollDelta(
                 screenBottom = screenBottom.toFloat(),
                 screenTop = screenTop.toFloat(),
                 visibleHeight = height,
                 density = density,
-                hasScrollOffset = hasScrollOffset
+                hasScrollOffset = hasScrollOffset,
+                visibleEditorTop = effectiveVisibleTop,
+                visibleEditorBottom = effectiveVisibleBottom,
+                topBreathingMarginPx = topBreathing
             )
 
             if (resolution.shouldScroll) {

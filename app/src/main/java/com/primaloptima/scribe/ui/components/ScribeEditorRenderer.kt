@@ -29,6 +29,14 @@ open class ScribeEditorRenderer(
     var didRefreshCursorDescriptorsOnLastDraw: Boolean = false
         private set
 
+    internal fun rowTopForBackgroundDocY(row: Int): Float = getRowTopForBackground(row).toFloat()
+
+    internal fun rowBottomForBackgroundDocY(row: Int): Float = getRowBottomForBackground(row).toFloat()
+
+    internal fun emptyLineSelectionWidthPx(): Float = paintGeneral.spaceWidth * 2f
+
+    internal fun softWrapMiniGraphWidthPx(): Float = getMiniGraphWidth()
+
     // Observational state for Suite C static/instrumentation verification
     internal var lastSplitFrameWasActive: Boolean = false
         private set

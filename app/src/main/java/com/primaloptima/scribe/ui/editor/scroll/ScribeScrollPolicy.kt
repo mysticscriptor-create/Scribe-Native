@@ -82,15 +82,23 @@ object ScribeScrollPolicy {
         density: Float,
         isLastLine: Boolean = false,
         isDeletionActive: Boolean = false,
-        hasScrollOffset: Boolean = false
+        hasScrollOffset: Boolean = false,
+        visibleEditorTop: Float = 0f,
+        visibleEditorBottom: Float = visibleHeight.toFloat(),
+        topBreathingMarginPx: Float = 0f
     ): ScrollResolution {
         if (visibleHeight <= 0) {
             return ScrollResolution(0f, false)
         }
 
+        val safeBottomBound = if (visibleEditorBottom.isFinite() && visibleEditorBottom > 0f) {
+            minOf(visibleHeight.toFloat(), visibleEditorBottom)
+        } else {
+            visibleHeight.toFloat()
+        }
         val marginPx = (CURSOR_BOTTOM_MARGIN_DP * density).roundToInt()
         val deadbandPx = (CURSOR_DEADBAND_DP * density).roundToInt()
-        val targetLineBottom = visibleHeight - marginPx
+        val targetLineBottom = safeBottomBound - marginPx
 
         // Case 1: Cursor is occluded below target line (overflow into shortcut bar / keyboard)
         if (screenBottom > (targetLineBottom + deadbandPx)) {
@@ -103,15 +111,29 @@ object ScribeScrollPolicy {
             )
         }
 
-        // Case 2: Cursor scrolled above top edge of visible canvas
-        if (screenTop < -deadbandPx && hasScrollOffset) {
-            val underflow = screenTop
-            return ScrollResolution(
-                deltaY = underflow,
-                shouldScroll = true,
-                isAnchorDownward = false,
-                recommendedDurationMs = DURATION_ENSURE_CURSOR_MS
-            )
+        // Case 2: Cursor scrolled above top edge of visible canvas or behind a top obstruction
+        val safeTop = if (visibleEditorTop.isFinite()) visibleEditorTop.coerceAtLeast(0f) else 0f
+        val topMargin = if (topBreathingMarginPx.isFinite()) topBreathingMarginPx.coerceAtLeast(0f) else 0f
+        val isUnderTopObstruction = if (safeTop <= 0f && topMargin <= 0f) {
+            screenTop < -deadbandPx
+        } else {
+            val desiredTop = safeTop + topMargin
+            screenTop < safeTop || screenTop < (desiredTop - deadbandPx)
+        }
+        if (isUnderTopObstruction && hasScrollOffset) {
+            val underflow = if (safeTop <= 0f && topMargin <= 0f) {
+                screenTop
+            } else {
+                screenTop - (safeTop + topMargin)
+            }
+            if (underflow < 0f) {
+                return ScrollResolution(
+                    deltaY = underflow,
+                    shouldScroll = true,
+                    isAnchorDownward = false,
+                    recommendedDurationMs = DURATION_ENSURE_CURSOR_MS
+                )
+            }
         }
 
         // Case 3: Cursor is within visible safe zone — rock solid, no scroll needed

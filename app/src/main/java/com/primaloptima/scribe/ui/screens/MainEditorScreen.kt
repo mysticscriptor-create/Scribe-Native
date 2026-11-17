@@ -2747,9 +2747,20 @@ fun MainEditorScreen(
                     }
 
                     // ── Floating Pills Layer (Top-Left and Top-Right) ─────────
+                    val topPillsVisible = !zenMode && floatingPillsVisible
                     RegisterOverlayBoundsEffect(
-                        key = "top_floating_pills",
-                        isVisible = !zenMode && floatingPillsVisible,
+                        key = "top_pill_search",
+                        isVisible = topPillsVisible,
+                        registry = overlayBoundsRegistry
+                    )
+                    RegisterOverlayBoundsEffect(
+                        key = "top_pill_checkpoint",
+                        isVisible = topPillsVisible,
+                        registry = overlayBoundsRegistry
+                    )
+                    RegisterOverlayBoundsEffect(
+                        key = "top_pill_menu",
+                        isVisible = topPillsVisible,
                         registry = overlayBoundsRegistry
                     )
                     if (!zenMode) {
@@ -2773,13 +2784,7 @@ fun MainEditorScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .statusBarsPadding()
-                                    .padding(horizontal = 16.dp, vertical = 6.dp)
-                                    .reportOverlayBounds(
-                                        key = "top_floating_pills",
-                                        role = OverlayOcclusionRole.FLOATING_PILL,
-                                        isVisible = !zenMode && floatingPillsVisible,
-                                        registry = overlayBoundsRegistry
-                                    ),
+                                    .padding(horizontal = 16.dp, vertical = 6.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -2788,6 +2793,12 @@ fun MainEditorScreen(
                                     icon = Icons.Default.Search,
                                     contentDescription = "Find & Replace",
                                     hazeState = hazeState,
+                                    modifier = Modifier.reportOverlayBounds(
+                                        key = "top_pill_search",
+                                        role = OverlayOcclusionRole.FLOATING_PILL,
+                                        isVisible = topPillsVisible,
+                                        registry = overlayBoundsRegistry
+                                    ),
                                     onClick = { showFindBar = !showFindBar }
                                 )
 
@@ -2801,6 +2812,12 @@ fun MainEditorScreen(
                                         icon = Icons.Default.BookmarkAdd,
                                         contentDescription = "Save Checkpoint",
                                         hazeState = hazeState,
+                                        modifier = Modifier.reportOverlayBounds(
+                                            key = "top_pill_checkpoint",
+                                            role = OverlayOcclusionRole.FLOATING_PILL,
+                                            isVisible = topPillsVisible,
+                                            registry = overlayBoundsRegistry
+                                        ),
                                         onClick = {
                                             activeNote?.let { note ->
                                                 editorVm.saveManualSnapshot(
@@ -2817,6 +2834,12 @@ fun MainEditorScreen(
                                         icon = Icons.Default.MoreVert,
                                         contentDescription = "Menu",
                                         hazeState = hazeState,
+                                        modifier = Modifier.reportOverlayBounds(
+                                            key = "top_pill_menu",
+                                            role = OverlayOcclusionRole.FLOATING_PILL,
+                                            isVisible = topPillsVisible,
+                                            registry = overlayBoundsRegistry
+                                        ),
                                         onClick = {
                                             captureSessionScrollBeforeNavigate()
                                             keyboardController?.hide()

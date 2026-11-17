@@ -1013,4 +1013,304 @@ class ScribeGapCollapsePolicyTest {
         assertTrue(ScribeGapCollapsePolicy.containsRtlOrBidi("hello \u0645\u0631\u062d\u0628\u0627"))
         assertFalse(ScribeGapCollapsePolicy.containsRtlOrBidi("plain english prose 123"))
     }
+
+    // ── V1 Behavioral Corrections: Handle Visibility, Case II, Span Touched & Animator Guard ──
+
+    @Test
+    fun testComputeHandleRectDoc_SideDropAndDropAlignments() {
+        val leftSideDrop = ScribeGapCollapsePolicy.computeHandleRectDoc(
+            anchorXDoc = 120f,
+            anchorYDoc = 400f,
+            rowTopDocY = 360f,
+            rowBottomDocY = 400f,
+            handleWidthPx = 44f,
+            handleHeightPx = 44f,
+            alignment = HandleHorizontalAlignment.ALIGN_LEFT
+        )
+        assertEquals(76f, leftSideDrop.leftDocX, 0.001f)
+        assertEquals(120f, leftSideDrop.rightDocX, 0.001f)
+        assertEquals(400f, leftSideDrop.topDocY, 0.001f)
+        assertEquals(444f, leftSideDrop.bottomDocY, 0.001f)
+
+        val rightSideDrop = ScribeGapCollapsePolicy.computeHandleRectDoc(
+            anchorXDoc = 120f,
+            anchorYDoc = 400f,
+            rowTopDocY = 360f,
+            rowBottomDocY = 400f,
+            handleWidthPx = 44f,
+            handleHeightPx = 44f,
+            alignment = HandleHorizontalAlignment.ALIGN_RIGHT
+        )
+        assertEquals(120f, rightSideDrop.leftDocX, 0.001f)
+        assertEquals(164f, rightSideDrop.rightDocX, 0.001f)
+
+        val centeredDrop = ScribeGapCollapsePolicy.computeHandleRectDoc(
+            anchorXDoc = 120f,
+            anchorYDoc = 400f,
+            rowTopDocY = 360f,
+            rowBottomDocY = 400f,
+            handleWidthPx = 40f,
+            handleHeightPx = 60f,
+            alignment = HandleHorizontalAlignment.ALIGN_CENTER
+        )
+        assertEquals(100f, centeredDrop.leftDocX, 0.001f)
+        assertEquals(140f, centeredDrop.rightDocX, 0.001f)
+        assertEquals(460f, centeredDrop.bottomDocY, 0.001f)
+    }
+
+    @Test
+    fun testIsHandleVisibleInViewport_ClippingDrawWindowAndPills() {
+        val pillTopRight = Rect(left = 540f, top = 120f, right = 700f, bottom = 200f)
+        val bounds = makeValidViewportBounds(
+            top = 100f,
+            bottom = 860f,
+            floatingPills = listOf(pillTopRight)
+        )
+        val headerH = 160
+        val preScrollY = 400 // preEditorOffsetY = 240, headerRemaining = -240
+
+        // Visible mid-screen unobstructed handle: row 300..340 -> doc handle 340..384 -> local 100..144
+        val visibleHandle = ScribeGapCollapsePolicy.computeHandleRectDoc(
+            anchorXDoc = 200f,
+            anchorYDoc = 380f,
+            rowTopDocY = 340f,
+            rowBottomDocY = 380f,
+            handleWidthPx = 44f,
+            handleHeightPx = 44f,
+            alignment = HandleHorizontalAlignment.ALIGN_RIGHT
+        )
+        assertTrue(
+            ScribeGapCollapsePolicy.isHandleVisibleInViewport(
+                handleDoc = visibleHandle,
+                preScrollX = 0,
+                preScrollY = preScrollY,
+                headerHeight = headerH,
+                editorHeightPx = 900,
+                viewportWidthPx = 720f,
+                viewportBounds = bounds
+            )
+        )
+
+        // Horizontally scrolled offscreen left
+        assertFalse(
+            ScribeGapCollapsePolicy.isHandleVisibleInViewport(
+                handleDoc = visibleHandle,
+                preScrollX = 250,
+                preScrollY = preScrollY,
+                headerHeight = headerH,
+                editorHeightPx = 900,
+                viewportWidthPx = 720f,
+                viewportBounds = bounds
+            )
+        )
+
+        // Clipped behind TOP_BAR (visibleEditorTop = 100f): rowBottom = 335 -> handle 335..379 -> local 95..139;
+        // Wait: at headerRemaining = -240, handle top = 95, bottom = 139 overlaps visibleEditorTop = 100.
+        // Place row at 245..285 (within draw window >= 240) with handle 285..329 -> local 45..89 <= visibleEditorTop 100 -> false!
+        val behindTopBar = ScribeGapCollapsePolicy.computeHandleRectDoc(
+            anchorXDoc = 200f,
+            anchorYDoc = 285f,
+            rowTopDocY = 245f,
+            rowBottomDocY = 285f,
+            handleWidthPx = 44f,
+            handleHeightPx = 44f,
+            alignment = HandleHorizontalAlignment.ALIGN_RIGHT
+        )
+        assertFalse(
+            ScribeGapCollapsePolicy.isHandleVisibleInViewport(
+                handleDoc = behindTopBar,
+                preScrollX = 0,
+                preScrollY = preScrollY,
+                headerHeight = headerH,
+                editorHeightPx = 900,
+                viewportWidthPx = 720f,
+                viewportBounds = bounds
+            )
+        )
+
+        // Draw-window cutoff: rowBottomDocY <= preEditorOffsetY (238 <= 240), even if handle extends into >= 240!
+        val outsideDrawWindow = ScribeGapCollapsePolicy.computeHandleRectDoc(
+            anchorXDoc = 200f,
+            anchorYDoc = 238f,
+            rowTopDocY = 198f,
+            rowBottomDocY = 238f,
+            handleWidthPx = 44f,
+            handleHeightPx = 44f,
+            alignment = HandleHorizontalAlignment.ALIGN_RIGHT
+        )
+        assertFalse(
+            ScribeGapCollapsePolicy.isHandleVisibleInViewport(
+                handleDoc = outsideDrawWindow,
+                preScrollX = 0,
+                preScrollY = preScrollY,
+                headerHeight = headerH,
+                editorHeightPx = 900,
+                viewportWidthPx = 720f,
+                viewportBounds = makeValidViewportBounds(top = 0f, bottom = 860f)
+            )
+        )
+
+        // Occluded by tight FLOATING_PILL in top-right corner, whereas mid-row handle is unobstructed
+        val underRightPill = ScribeGapCollapsePolicy.computeHandleRectDoc(
+            anchorXDoc = 560f,
+            anchorYDoc = 380f,
+            rowTopDocY = 340f,
+            rowBottomDocY = 380f,
+            handleWidthPx = 44f,
+            handleHeightPx = 44f,
+            alignment = HandleHorizontalAlignment.ALIGN_RIGHT
+        )
+        // local rect: left = 560, right = 604, top = -240 + 380 = 140, bottom = 184 -> inside pill [540..700, 120..200]
+        assertFalse(
+            ScribeGapCollapsePolicy.isHandleVisibleInViewport(
+                handleDoc = underRightPill,
+                preScrollX = 0,
+                preScrollY = preScrollY,
+                headerHeight = headerH,
+                editorHeightPx = 900,
+                viewportWidthPx = 720f,
+                viewportBounds = bounds
+            )
+        )
+    }
+
+    @Test
+    fun testCaseII_LowerHandleVisibleWhileNextLineOffscreenBelow_ClassifiedAsB_NotAOrE() {
+        val headerH = 160
+        val preScrollY = 500
+        val rowHeight = 40f
+        // Bounds: visible [0, 740]; editor local window has docY visible up to preScrollY - headerH + 740 = 1080
+        val bounds = makeValidViewportBounds(top = 0f, bottom = 740f)
+
+        // Case II (L1=10, C1=4, L2=27, C2=preLineLen(L2)):
+        // Upper handle at L1 (docY = 400 -> local 60) -> offscreen above draw window? Wait: preEditorOffsetY = 340, local = 400 + 160 - 500 = 60 -> visible.
+        // Test both B_LOWER_ONLY (upper offscreen at docY = 200) and C_BOTH_VISIBLE (upper visible).
+        // L2 row ends at docY = 1060 -> local anchorY = 160 - 500 + 1060 = 720 (< 740, visible!),
+        // whereas L2+1 row starts at docY = 1080 -> local = 740 (at/below bottom edge)!
+        val lowerHandleAtL2 = ScribeGapCollapsePolicy.computeHandleRectDoc(
+            anchorXDoc = 260f,
+            anchorYDoc = 1060f,
+            rowTopDocY = 1020f,
+            rowBottomDocY = 1060f,
+            handleWidthPx = 44f,
+            handleHeightPx = 44f,
+            alignment = HandleHorizontalAlignment.ALIGN_RIGHT
+        )
+        val upperHandleOffscreenAbove = ScribeGapCollapsePolicy.computeHandleRectDoc(
+            anchorXDoc = 80f,
+            anchorYDoc = 200f,
+            rowTopDocY = 160f,
+            rowBottomDocY = 200f,
+            handleWidthPx = 44f,
+            handleHeightPx = 44f,
+            alignment = HandleHorizontalAlignment.ALIGN_LEFT
+        )
+        val isUpperVis = ScribeGapCollapsePolicy.isHandleVisibleInViewport(
+            handleDoc = upperHandleOffscreenAbove,
+            preScrollX = 0,
+            preScrollY = preScrollY,
+            headerHeight = headerH,
+            editorHeightPx = 900,
+            viewportWidthPx = 720f,
+            viewportBounds = bounds
+        )
+        val isLowerVis = ScribeGapCollapsePolicy.isHandleVisibleInViewport(
+            handleDoc = lowerHandleAtL2,
+            preScrollX = 0,
+            preScrollY = preScrollY,
+            headerHeight = headerH,
+            editorHeightPx = 900,
+            viewportWidthPx = 720f,
+            viewportBounds = bounds
+        )
+        assertFalse(isUpperVis)
+        assertTrue(isLowerVis)
+
+        val plan = planWithDefaults(
+            isUpperVisible = isUpperVis,
+            isLowerVisible = isLowerVis,
+            isTouchedOnScreen = true,
+            preScrollY = preScrollY,
+            deltaGapPx = rowHeight * 12f,
+            viewportBounds = bounds
+        )
+        assertEquals(CollapseScenario.B_LOWER_ONLY, plan.scenario)
+    }
+
+    @Test
+    fun testIsSelectionTouchedOnScreen_RowSpansClippingAndFloatingPills() {
+        val headerH = 160
+        val preScrollY = 400 // headerRemaining = -240
+        val pill = Rect(left = 20f, top = 120f, right = 180f, bottom = 200f)
+        val bounds = makeValidViewportBounds(top = 100f, bottom = 860f, floatingPills = listOf(pill))
+
+        // 1. Selected span wholly outside horizontal viewport -> false
+        val offscreenXCapture = ScribeGapCollapsePolicy.classifyPreDeleteSeam(
+            isSelection = true,
+            l1 = 10, c1 = 0, l2 = 20, c2 = 0,
+            preLineCount = 40, preLineLenL2 = 20,
+            preScrollY = preScrollY, rowHeightPx = 40f,
+            rowIndexAt = { _, _ -> 20 },
+            preScrollX = 500,
+            preSelectedRowSpansDoc = listOf(Rect(40f, 360f, 300f, 400f)),
+            hasSelectedRowSpans = true
+        )
+        assertFalse(
+            ScribeGapCollapsePolicy.isSelectionTouchedOnScreen(
+                isUpperVisible = false,
+                isLowerVisible = false,
+                preCapture = offscreenXCapture,
+                headerHeight = headerH,
+                viewportWidthPx = 720f,
+                viewportBounds = bounds
+            )
+        )
+
+        // 2. Selected span wholly covered by floating pill (local y: 370-240=130 .. 400-240=160, x: 40..150) -> false
+        val coveredByPillCapture = offscreenXCapture.copy(
+            preScrollX = 0,
+            preSelectedRowSpansDoc = listOf(Rect(40f, 370f, 150f, 400f))
+        )
+        assertFalse(
+            ScribeGapCollapsePolicy.isSelectionTouchedOnScreen(
+                isUpperVisible = false,
+                isLowerVisible = false,
+                preCapture = coveredByPillCapture,
+                headerHeight = headerH,
+                viewportWidthPx = 720f,
+                viewportBounds = bounds
+            )
+        )
+
+        // 3. Partially visible row span outside pills -> true
+        val visibleSpanCapture = offscreenXCapture.copy(
+            preScrollX = 0,
+            preSelectedRowSpansDoc = listOf(Rect(40f, 460f, 520f, 500f))
+        )
+        assertTrue(
+            ScribeGapCollapsePolicy.isSelectionTouchedOnScreen(
+                isUpperVisible = false,
+                isLowerVisible = false,
+                preCapture = visibleSpanCapture,
+                headerHeight = headerH,
+                viewportWidthPx = 720f,
+                viewportBounds = bounds
+            )
+        )
+    }
+
+    @Test
+    fun testWasCursorAnimationRunningBeforeDelete_PreservedAndTriggersFallback() {
+        val preCapture = ScribeGapCollapsePolicy.classifyPreDeleteSeam(
+            isSelection = true,
+            l1 = 4, c1 = 0, l2 = 8, c2 = 0,
+            preLineCount = 20, preLineLenL2 = 15,
+            preScrollY = 300, rowHeightPx = 40f,
+            rowIndexAt = { _, _ -> 8 },
+            wasCursorAnimationRunningBeforeDelete = true
+        )
+        assertTrue(preCapture.wasCursorAnimationRunningBeforeDelete)
+        val fallbackPlan = planWithDefaults(isCursorAnimationRunning = preCapture.wasCursorAnimationRunningBeforeDelete)
+        assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, fallbackPlan.scenario)
+    }
 }

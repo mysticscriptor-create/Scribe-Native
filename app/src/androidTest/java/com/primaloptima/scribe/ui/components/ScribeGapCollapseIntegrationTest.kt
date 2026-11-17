@@ -5,8 +5,10 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.RectF
 import android.os.SystemClock
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.inputmethod.EditorInfo
 import android.widget.FrameLayout
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Box
@@ -1093,6 +1095,402 @@ class ScribeGapCollapseIntegrationTest {
                 instr.runOnMainSync {
                     (ed.cursorAnimator as? ScribeCursorAnimator)?.cancel()
                     canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "suiteE_final_cleanup")
+                }
+            }
+        }
+    }
+
+    private fun buildIndentedLines(count: Int): String =
+        (1..count).joinToString("\n") { idx ->
+            "    Paragraph line $idx: verification body content for integrated gap collapse tests."
+        }
+
+    private fun installDefaultOverlays(
+        canvas: UnifiedCanvasLayout,
+        topBarHeightPx: Float = 80f,
+        bottomBarHeightPx: Float = 120f
+    ): ScribeOverlayBoundsRegistry {
+        val registry = ScribeOverlayBoundsRegistry()
+        val loc = IntArray(2)
+        canvas.getLocationInWindow(loc)
+        val left = loc[0].toFloat()
+        val top = loc[1].toFloat()
+        val right = left + canvas.width.toFloat()
+        val bottom = top + canvas.height.toFloat()
+        if (topBarHeightPx > 0f) {
+            registry.update(
+                "test_top_bar",
+                OverlayOcclusionRole.TOP_BAR,
+                androidx.compose.ui.geometry.Rect(left, top, right, top + topBarHeightPx)
+            )
+        }
+        if (bottomBarHeightPx > 0f) {
+            registry.update(
+                "test_bottom_bar",
+                OverlayOcclusionRole.BOTTOM_BAR,
+                androidx.compose.ui.geometry.Rect(left, bottom - bottomBarHeightPx, right, bottom)
+            )
+        }
+        registry.update(
+            "top_pill_search",
+            OverlayOcclusionRole.FLOATING_PILL,
+            androidx.compose.ui.geometry.Rect(left + 16f, top + 12f, left + 96f, top + 60f)
+        )
+        registry.update(
+            "top_pill_menu",
+            OverlayOcclusionRole.FLOATING_PILL,
+            androidx.compose.ui.geometry.Rect(right - 96f, top + 12f, right - 16f, top + 60f)
+        )
+        canvas.overlayBoundsRegistry = registry
+        return registry
+    }
+
+    @Test
+    fun suiteE_realSelectionDeletions_ScenariosC_A_B_AndAnimatorIndentRace() {
+        val host = launchCanvasHost(text = buildIndentedLines(105))
+        val instr = InstrumentationRegistry.getInstrumentation()
+        host.scenario.use {
+            val canvas = host.canvas
+            val ed = canvas.editor
+            try {
+                // 1. Default / Scenario C via real ed.cutText() with cursor animation & indent floor active
+                var cPreScroll = 0
+                var cDeltaGap = 0f
+                var cPreLowerLineText = ""
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    ed.firstLineIndentSpaces = 4
+                    ed.isCursorAnimationEnabled = true
+                    ed.cursorAnimator.cancel()
+                    installDefaultOverlays(canvas, topBarHeightPx = 80f, bottomBarHeightPx = 120f)
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * 24f) - (canvas.scrollD + ed.offsetY))
+                    cPreScroll = canvas.scrollD + ed.offsetY
+
+                    val lay = ed.layout!!
+                    val bounds = canvas.resolveUnobstructedViewportBounds()
+                    val firstVisRow = kotlin.math.ceil(((cPreScroll - canvas.headerHeight) + bounds.visibleEditorTop) / rowH).toInt()
+                    val lastVisRow = kotlin.math.floor(((cPreScroll - canvas.headerHeight) + bounds.visibleEditorBottom) / rowH).toInt()
+                    val startLine = (lay.getLineNumberForRow(firstVisRow + 2) + 1).coerceIn(4, 70)
+                    var endLine = (startLine + 1).coerceAtMost(85)
+                    while (endLine + 1 < 85) {
+                        val candidateRow = lay.getRowIndexForPosition(ed.text.getCharIndex(endLine + 1, 0))
+                        if (candidateRow > lastVisRow - 3) break
+                        endLine++
+                    }
+                    cPreLowerLineText = ed.text.getLineString(endLine)
+                    val startRow = lay.getRowIndexForPosition(ed.text.getCharIndex(startLine, 0))
+                    val endRow = lay.getRowIndexForPosition(ed.text.getCharIndex(endLine, 0))
+                    assertTrue("Scenario C fixture handles must stay inside unobstructed viewport ($startRow..$endRow in $firstVisRow..$lastVisRow)", endRow > startRow && endRow <= lastVisRow - 2)
+                    cDeltaGap = (endRow - startRow) * rowH
+
+                    ed.setSelectionRegion(startLine, 0, endLine, 0, false)
+                    ed.cutText()
+
+                    val plan = canvas.gapCollapseController.currentPlan
+                    assertTrue("Real cutText() must enter gap collapse transaction", canvas.gapCollapseController.isTransactionOwned)
+                    assertEquals(CollapseScenario.C_BOTH_VISIBLE, plan?.scenario)
+                    assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+                    assertFalse("Deletion-induced cursor animation must NOT abort collapse", ed.cursorAnimator.isRunning)
+                    assertEquals(4, ed.cursor.leftColumn)
+                    assertEquals(cPreLowerLineText, ed.text.getLineString(canvas.gapCollapseController.activeSeamLine))
+                    drawEditorIntoBitmap(ed)
+                }
+                waitUntil(failureMsg = "Scenario C real cutText() must settle cleanly to IDLE") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+                instr.runOnMainSync {
+                    val finalScroll = canvas.scrollD + ed.offsetY
+                    val expectedTarget = maxOf(0f, cPreScroll - cDeltaGap)
+                    assertTrue(
+                        "Scenario C must scroll up by deltaGap so lower content stays stationary (pre=$cPreScroll, final=$finalScroll, expected=$expectedTarget)",
+                        kotlin.math.abs(finalScroll - expectedTarget) <= ed.rowHeight.toFloat()
+                    )
+                    drawEditorIntoBitmap(ed)
+                }
+
+                // 2. Scenario A (upper handle visible, lower handle offscreen below) via KeyEvent.KEYCODE_DEL
+                var aPreScroll = 0
+                instr.runOnMainSync {
+                    ed.setText(buildIndentedLines(105))
+                }
+                waitUntil(failureMsg = "Document reload ready for Scenario A") {
+                    ed.layout != null && ed.isWordwrapReady() && !ed.isLayoutBusy
+                }
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    ed.isCursorAnimationEnabled = true
+                    ed.cursorAnimator.cancel()
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * 20f) - (canvas.scrollD + ed.offsetY))
+                    aPreScroll = canvas.scrollD + ed.offsetY
+
+                    val lay = ed.layout!!
+                    val bounds = canvas.resolveUnobstructedViewportBounds()
+                    val firstVisRow = kotlin.math.ceil(((aPreScroll - canvas.headerHeight) + bounds.visibleEditorTop) / rowH).toInt()
+                    val lastVisRow = kotlin.math.floor(((aPreScroll - canvas.headerHeight) + bounds.visibleEditorBottom) / rowH).toInt()
+                    val l1 = (lay.getLineNumberForRow(firstVisRow + 2) + 1).coerceIn(2, 60)
+                    val l2 = (lay.getLineNumberForRow((lastVisRow + 8).coerceAtMost(lay.rowCount - 1))).coerceAtLeast(l1 + 8)
+                    ed.setSelectionRegion(l1, 0, l2, 0, false)
+
+                    val now = SystemClock.uptimeMillis()
+                    ed.dispatchKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL, 0))
+                    ed.dispatchKeyEvent(KeyEvent(now, now + 10L, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL, 0))
+
+                    val plan = canvas.gapCollapseController.currentPlan
+                    assertTrue("KeyEvent KEYCODE_DEL must trigger gap collapse", canvas.gapCollapseController.isTransactionOwned)
+                    assertEquals(CollapseScenario.A_UPPER_ONLY, plan?.scenario)
+                    assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+                    assertFalse(ed.cursorAnimator.isRunning)
+                    drawEditorIntoBitmap(ed)
+                }
+                waitUntil(failureMsg = "Scenario A must converge cleanly to IDLE") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+                instr.runOnMainSync {
+                    assertEquals(aPreScroll, canvas.scrollD + ed.offsetY)
+                    drawEditorIntoBitmap(ed)
+                }
+
+                // 3. Scenario B Case II (lower handle at (L2, C2) visible while L2+1 is near/below bottom edge) via deleteSurroundingText
+                instr.runOnMainSync {
+                    ed.setText(buildIndentedLines(105))
+                }
+                waitUntil(failureMsg = "Document reload ready for Scenario B Case II") {
+                    ed.layout != null && ed.isWordwrapReady() && !ed.isLayoutBusy
+                }
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    ed.isCursorAnimationEnabled = true
+                    ed.cursorAnimator.cancel()
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    val bounds = canvas.resolveUnobstructedViewportBounds()
+                    val l2 = 42
+                    val lay = ed.layout!!
+                    val l2Len = ed.text.getColumnCount(l2)
+                    val l2Row = lay.getRowIndexForPosition(ed.text.getCharIndex(l2, l2Len))
+                    val targetRowBottomLocal = bounds.visibleEditorBottom - 10f
+                    val targetScroll = canvas.headerHeight + ((l2Row + 1) * rowH) - targetRowBottomLocal
+                    canvas.scrollCanvasBy(targetScroll - (canvas.scrollD + ed.offsetY))
+                    val l1 = (l2 - 14).coerceAtLeast(4)
+                    ed.setSelectionRegion(l1, 2, l2, l2Len, false)
+
+                    val ic = ed.onCreateInputConnection(EditorInfo())!!
+                    ic.deleteSurroundingText(1, 0)
+
+                    val plan = canvas.gapCollapseController.currentPlan
+                    assertTrue("InputConnection deleteSurroundingText must enter collapse", canvas.gapCollapseController.isTransactionOwned)
+                    assertEquals(CollapseScenario.B_LOWER_ONLY, plan?.scenario)
+                    assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+                    assertFalse(ed.cursorAnimator.isRunning)
+                    assertEquals(4, ed.cursor.leftColumn)
+                    drawEditorIntoBitmap(ed)
+                }
+                waitUntil(failureMsg = "Scenario B Case II must converge cleanly to IDLE") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+                instr.runOnMainSync {
+                    drawEditorIntoBitmap(ed)
+                }
+            } finally {
+                instr.runOnMainSync {
+                    (ed.cursorAnimator as? ScribeCursorAnimator)?.cancel()
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "suiteE_real_cab_cleanup")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun suiteE_realSelectionDeletions_ScenariosD_And_E_WithOverlays() {
+        val host = launchCanvasHost(text = buildIndentedLines(115))
+        val instr = InstrumentationRegistry.getInstrumentation()
+        host.scenario.use {
+            val canvas = host.canvas
+            val ed = canvas.editor
+            try {
+                // 1. Scenario D (neither handle visible, selected text visible in middle of screen)
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    ed.firstLineIndentSpaces = 4
+                    ed.isCursorAnimationEnabled = true
+                    ed.cursorAnimator.cancel()
+                    installDefaultOverlays(canvas, topBarHeightPx = 90f, bottomBarHeightPx = 120f)
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * 30f) - (canvas.scrollD + ed.offsetY))
+
+                    val lay = ed.layout!!
+                    val bPre = canvas.resolveUnobstructedViewportBounds()
+                    val firstVisRow = ((canvas.scrollD + ed.offsetY - canvas.headerHeight) / rowH).toInt()
+                    val lastVisRow = (((canvas.scrollD + ed.offsetY - canvas.headerHeight) + bPre.visibleEditorBottom) / rowH).toInt()
+                    val l1 = lay.getLineNumberForRow((firstVisRow - 4).coerceAtLeast(1))
+                    val l2 = lay.getLineNumberForRow((lastVisRow + 4).coerceAtMost(lay.rowCount - 2))
+                    ed.setSelectionRegion(l1, 0, l2, 0, false)
+                    ed.deleteText()
+
+                    val plan = canvas.gapCollapseController.currentPlan
+                    assertTrue("Scenario D must enter gap collapse", canvas.gapCollapseController.isTransactionOwned)
+                    assertEquals(CollapseScenario.D_SELECTION_ONLY_CENTERED, plan?.scenario)
+                    assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+                    assertFalse(ed.cursorAnimator.isRunning)
+                    drawEditorIntoBitmap(ed)
+                }
+                waitUntil(failureMsg = "Scenario D must converge cleanly to IDLE") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+                instr.runOnMainSync {
+                    val lay = ed.layout!!
+                    val bounds = canvas.resolveUnobstructedViewportBounds()
+                    val cur = ed.cursor
+                    val caretGeom = canvas.getCharGeometry(lay, cur.leftLine, cur.leftColumn, ed.rowHeight.toFloat())
+                    val screenBottom = canvas.headerHeight + caretGeom.bottomDocY - (canvas.scrollD + ed.offsetY)
+                    assertTrue(
+                        "Scenario D resulting caret ($screenBottom) must be inside unobstructed viewport [${bounds.visibleEditorTop}, ${bounds.visibleEditorBottom}]",
+                        screenBottom >= bounds.visibleEditorTop && screenBottom <= bounds.visibleEditorBottom
+                    )
+                    drawEditorIntoBitmap(ed)
+                }
+
+                // 2. Scenario E (offscreen below BOTTOM_BAR, then offscreen behind TOP_BAR)
+                var preBelowScroll = 0
+                instr.runOnMainSync {
+                    ed.setText(buildIndentedLines(115))
+                }
+                waitUntil(failureMsg = "Document reload ready for Scenario E") {
+                    ed.layout != null && ed.isWordwrapReady() && !ed.isLayoutBusy
+                }
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    ed.isCursorAnimationEnabled = true
+                    ed.cursorAnimator.cancel()
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * 4f) - (canvas.scrollD + ed.offsetY))
+                    preBelowScroll = canvas.scrollD + ed.offsetY
+                    ed.setSelectionRegion(62, 0, 66, 0, false)
+                    ed.deleteText()
+                    assertFalse("Scenario E below viewport must bypass split rendering", canvas.gapCollapseController.shouldApplySplitRender)
+                    assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+                }
+                waitUntil(failureMsg = "Scenario E below viewport must scroll caret up into unobstructed view") {
+                    !canvas.isGlideRunning &&
+                        canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        (canvas.scrollD + ed.offsetY) > preBelowScroll
+                }
+                instr.runOnMainSync {
+                    val lay = ed.layout!!
+                    val bounds = canvas.resolveUnobstructedViewportBounds()
+                    val cur = ed.cursor
+                    val caretGeom = canvas.getCharGeometry(lay, cur.leftLine, cur.leftColumn, ed.rowHeight.toFloat())
+                    val screenBottom = canvas.headerHeight + caretGeom.bottomDocY - (canvas.scrollD + ed.offsetY)
+                    assertTrue(
+                        "Scenario E offscreen-below caret ($screenBottom) must land above BOTTOM_BAR (${bounds.visibleEditorBottom})",
+                        screenBottom <= bounds.visibleEditorBottom
+                    )
+
+                    // Subcase: offscreen behind TOP_BAR
+                    canvas.scrollCanvasBy((canvas.maxCanvasScroll * 0.55f) - (canvas.scrollD + ed.offsetY))
+                    ed.setSelectionRegion(4, 0, 8, 0, false)
+                    ed.deleteText()
+                    assertFalse(canvas.gapCollapseController.shouldApplySplitRender)
+                }
+                waitUntil(failureMsg = "Scenario E behind TOP_BAR must bring caret below visibleEditorTop") {
+                    !canvas.isGlideRunning &&
+                        canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isDeletionTransactionActive
+                }
+                instr.runOnMainSync {
+                    val lay = ed.layout!!
+                    val bounds = canvas.resolveUnobstructedViewportBounds()
+                    val cur = ed.cursor
+                    val caretGeom = canvas.getCharGeometry(lay, cur.leftLine, cur.leftColumn, ed.rowHeight.toFloat())
+                    val screenTop = canvas.headerHeight + caretGeom.topDocY - (canvas.scrollD + ed.offsetY)
+                    assertTrue(
+                        "Scenario E top-occluded caret ($screenTop) must be below visibleEditorTop (${bounds.visibleEditorTop})",
+                        screenTop >= bounds.visibleEditorTop
+                    )
+                    drawEditorIntoBitmap(ed)
+                }
+            } finally {
+                instr.runOnMainSync {
+                    (ed.cursorAnimator as? ScribeCursorAnimator)?.cancel()
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "suiteE_real_de_cleanup")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun suiteE_v1ShortfallAtZeroScrollAndPreExistingRunningAnimatorFallback() {
+        val host = launchCanvasHost(text = buildIndentedLines(95))
+        val instr = InstrumentationRegistry.getInstrumentation()
+        host.scenario.use {
+            val canvas = host.canvas
+            val ed = canvas.editor
+            try {
+                // 1. V1 Shortfall > 0 at preScrollY == 0 (Scenario C clamped at 0 -> Mode 2 closes remaining tau)
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    ed.firstLineIndentSpaces = 4
+                    ed.isCursorAnimationEnabled = true
+                    ed.cursorAnimator.cancel()
+                    installDefaultOverlays(canvas, topBarHeightPx = 0f, bottomBarHeightPx = 100f)
+                    canvas.scrollCanvasBy(-(canvas.scrollD + ed.offsetY).toFloat())
+                    assertEquals(0, canvas.scrollD + ed.offsetY)
+
+                    ed.setSelectionRegion(1, 0, 5, 0, false)
+                    ed.deleteText()
+
+                    val plan = canvas.gapCollapseController.currentPlan
+                    assertTrue("V1 shortfall at preScrollY=0 must still enter gap collapse", canvas.gapCollapseController.isTransactionOwned)
+                    assertEquals(CollapseScenario.C_BOTH_VISIBLE, plan?.scenario)
+                    assertEquals(0f, plan?.effectiveTargetScroll ?: -1f, 0.001f)
+                    assertTrue((plan?.initialTauLowerPx ?: 0f) > 0f)
+                    assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+                    drawEditorIntoBitmap(ed)
+                }
+                waitUntil(failureMsg = "V1 shortfall at scroll=0 must finish Mode 2 to IDLE") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+                instr.runOnMainSync {
+                    assertEquals(0, canvas.scrollD + ed.offsetY)
+                    assertEquals(0f, canvas.gapCollapseController.tauLower, 0.001f)
+                    drawEditorIntoBitmap(ed)
+                }
+
+                // 2. Genuine unrelated running cursor animator before deletion -> INELIGIBLE_FALLBACK
+                instr.runOnMainSync {
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * 18f) - (canvas.scrollD + ed.offsetY))
+                    ed.setSelectionRegion(22, 0, 26, 0, false)
+                    val anim = ed.cursorAnimator as ScribeCursorAnimator
+                    anim.triggerGlide(0f, 0f, rowH, 160f, 360f, rowH)
+                    assertTrue("Animator must genuinely be running BEFORE deleteText()", anim.isRunning)
+
+                    ed.deleteText()
+
+                    assertFalse("Pre-existing running cursor glide must reject gap collapse via INELIGIBLE_FALLBACK", canvas.gapCollapseController.shouldApplySplitRender)
+                    assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+                    drawEditorIntoBitmap(ed)
+                }
+                waitUntil(failureMsg = "Pre-existing animator fallback deletion must converge cleanly to IDLE") {
+                    !canvas.isGlideRunning &&
+                        canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isDeletionTransactionActive
+                }
+            } finally {
+                instr.runOnMainSync {
+                    (ed.cursorAnimator as? ScribeCursorAnimator)?.cancel()
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "suiteE_shortfall_anim_cleanup")
                 }
             }
         }

@@ -82,6 +82,21 @@ enum class DeletionSeamCase {
     CASE_II_LINE_END
 }
 
+enum class HandleHorizontalAlignment {
+    ALIGN_CENTER,
+    ALIGN_LEFT,
+    ALIGN_RIGHT
+}
+
+data class PreDeleteHandleDocRect(
+    val leftDocX: Float,
+    val topDocY: Float,
+    val rightDocX: Float,
+    val bottomDocY: Float,
+    val rowTopDocY: Float,
+    val rowBottomDocY: Float
+)
+
 data class PreDeleteSeamCapture(
     val isSelection: Boolean,
     val l1: Int,
@@ -98,7 +113,14 @@ data class PreDeleteSeamCapture(
     val preFirstLowerRowTopDocY: Float,
     val preSelectionTopDocY: Float,
     val preSelectionBottomDocY: Float,
-    val hasRtlOrBidiAtSeam: Boolean = false
+    val hasRtlOrBidiAtSeam: Boolean = false,
+    val preScrollX: Int = 0,
+    val preEditorHeightPx: Int = 0,
+    val preUpperHandleDoc: PreDeleteHandleDocRect? = null,
+    val preLowerHandleDoc: PreDeleteHandleDocRect? = null,
+    val preSelectedRowSpansDoc: List<Rect> = emptyList(),
+    val hasSelectedRowSpans: Boolean = false,
+    val wasCursorAnimationRunningBeforeDelete: Boolean = false
 )
 
 data class ResolvedSeamGeometry(
@@ -558,6 +580,116 @@ object ScribeGapCollapsePolicy {
         return false
     }
 
+    fun computeHandleRectDoc(
+        anchorXDoc: Float,
+        anchorYDoc: Float,
+        rowTopDocY: Float,
+        rowBottomDocY: Float,
+        handleWidthPx: Float,
+        handleHeightPx: Float,
+        alignment: HandleHorizontalAlignment
+    ): PreDeleteHandleDocRect {
+        val safeW = handleWidthPx.coerceAtLeast(1f)
+        val safeH = handleHeightPx.coerceAtLeast(1f)
+        val left = when (alignment) {
+            HandleHorizontalAlignment.ALIGN_LEFT -> anchorXDoc - safeW
+            HandleHorizontalAlignment.ALIGN_RIGHT -> anchorXDoc
+            HandleHorizontalAlignment.ALIGN_CENTER -> anchorXDoc - safeW * 0.5f
+        }
+        val right = left + safeW
+        return PreDeleteHandleDocRect(
+            leftDocX = left,
+            topDocY = anchorYDoc,
+            rightDocX = right,
+            bottomDocY = anchorYDoc + safeH,
+            rowTopDocY = rowTopDocY,
+            rowBottomDocY = rowBottomDocY
+        )
+    }
+
+    fun isHandleVisibleInViewport(
+        handleDoc: PreDeleteHandleDocRect?,
+        preScrollX: Int,
+        preScrollY: Int,
+        headerHeight: Int,
+        editorHeightPx: Int,
+        viewportWidthPx: Float,
+        viewportBounds: UnobstructedViewportBounds
+    ): Boolean {
+        if (handleDoc == null || !viewportBounds.isValid || viewportWidthPx <= 0f) {
+            return false
+        }
+        val preEditorOffsetY = (preScrollY - headerHeight).coerceAtLeast(0)
+        // Sora's drawRows() only enqueues DrawCursorTask for rows inside the editor's draw window.
+        if (editorHeightPx > 0) {
+            if (handleDoc.rowBottomDocY <= preEditorOffsetY.toFloat() ||
+                handleDoc.rowTopDocY > (preEditorOffsetY + editorHeightPx).toFloat()
+            ) {
+                return false
+            }
+        }
+        val headerRemainingPre = (headerHeight - preScrollY).toFloat()
+        val scrollXFloat = preScrollX.toFloat()
+        val localLeft = handleDoc.leftDocX - scrollXFloat
+        val localRight = handleDoc.rightDocX - scrollXFloat
+        val localTop = headerRemainingPre + handleDoc.topDocY
+        val localBottom = headerRemainingPre + handleDoc.bottomDocY
+
+        val clipLeft = maxOf(0f, localLeft)
+        val clipRight = minOf(viewportWidthPx, localRight)
+        val clipTop = maxOf(viewportBounds.visibleEditorTop, localTop)
+        val clipBottom = minOf(viewportBounds.visibleEditorBottom, localBottom)
+        if ((clipRight - clipLeft) < 1f || (clipBottom - clipTop) < 1f) {
+            return false
+        }
+        val clippedRect = Rect(clipLeft, clipTop, clipRight, clipBottom)
+        return viewportBounds.isRectUnobstructedByFloatingPills(clippedRect)
+    }
+
+    fun isSelectionTouchedOnScreen(
+        isUpperVisible: Boolean,
+        isLowerVisible: Boolean,
+        preCapture: PreDeleteSeamCapture,
+        headerHeight: Int,
+        viewportWidthPx: Float,
+        viewportBounds: UnobstructedViewportBounds
+    ): Boolean {
+        if (isUpperVisible || isLowerVisible) {
+            return true
+        }
+        if (!viewportBounds.isValid || viewportWidthPx <= 0f) {
+            return false
+        }
+        val headerRemainingPre = (headerHeight - preCapture.preScrollY).toFloat()
+        if (preCapture.hasSelectedRowSpans) {
+            val scrollXFloat = preCapture.preScrollX.toFloat()
+            for (spanDoc in preCapture.preSelectedRowSpansDoc) {
+                val clipLeft = maxOf(0f, spanDoc.left - scrollXFloat)
+                val clipRight = minOf(viewportWidthPx, spanDoc.right - scrollXFloat)
+                val clipTop = maxOf(viewportBounds.visibleEditorTop, headerRemainingPre + spanDoc.top)
+                val clipBottom = minOf(viewportBounds.visibleEditorBottom, headerRemainingPre + spanDoc.bottom)
+                if ((clipRight - clipLeft) < 1f || (clipBottom - clipTop) < 1f) {
+                    continue
+                }
+                val clippedSpan = Rect(clipLeft, clipTop, clipRight, clipBottom)
+                val whollyCoveredByPill = viewportBounds.floatingPillLocalRects.any { pill ->
+                    pill.left <= clippedSpan.left &&
+                        pill.top <= clippedSpan.top &&
+                        pill.right >= clippedSpan.right &&
+                        pill.bottom >= clippedSpan.bottom
+                }
+                if (!whollyCoveredByPill) {
+                    return true
+                }
+            }
+            return false
+        }
+        val selTopScreen = headerRemainingPre + preCapture.preSelectionTopDocY
+        val selBottomScreen = headerRemainingPre + preCapture.preSelectionBottomDocY
+        return selBottomScreen > viewportBounds.visibleEditorTop &&
+            selTopScreen < viewportBounds.visibleEditorBottom
+    }
+
     fun classifyPreDeleteSeam(
         isSelection: Boolean,
         l1: Int,
@@ -571,7 +703,14 @@ object ScribeGapCollapsePolicy {
         rowIndexAt: (line: Int, col: Int) -> Int,
         preSelectionTopDocY: Float = 0f,
         preSelectionBottomDocY: Float = 0f,
-        hasRtlOrBidiAtSeam: Boolean = false
+        hasRtlOrBidiAtSeam: Boolean = false,
+        preScrollX: Int = 0,
+        preEditorHeightPx: Int = 0,
+        preUpperHandleDoc: PreDeleteHandleDocRect? = null,
+        preLowerHandleDoc: PreDeleteHandleDocRect? = null,
+        preSelectedRowSpansDoc: List<Rect> = emptyList(),
+        hasSelectedRowSpans: Boolean = false,
+        wasCursorAnimationRunningBeforeDelete: Boolean = false
     ): PreDeleteSeamCapture {
         if (!isSelection || preLineCount <= 0 || rowHeightPx <= 0f || !rowHeightPx.isFinite()) {
             return PreDeleteSeamCapture(
@@ -590,7 +729,14 @@ object ScribeGapCollapsePolicy {
                 preFirstLowerRowTopDocY = Float.NaN,
                 preSelectionTopDocY = preSelectionTopDocY,
                 preSelectionBottomDocY = preSelectionBottomDocY,
-                hasRtlOrBidiAtSeam = hasRtlOrBidiAtSeam
+                hasRtlOrBidiAtSeam = hasRtlOrBidiAtSeam,
+                preScrollX = preScrollX,
+                preEditorHeightPx = preEditorHeightPx,
+                preUpperHandleDoc = preUpperHandleDoc,
+                preLowerHandleDoc = preLowerHandleDoc,
+                preSelectedRowSpansDoc = preSelectedRowSpansDoc,
+                hasSelectedRowSpans = hasSelectedRowSpans,
+                wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete
             )
         }
         val hasSurvivingUpper = l1 > 0 || c1 > 0
@@ -613,7 +759,14 @@ object ScribeGapCollapsePolicy {
                     preFirstLowerRowTopDocY = Float.NaN,
                     preSelectionTopDocY = preSelectionTopDocY,
                     preSelectionBottomDocY = preSelectionBottomDocY,
-                    hasRtlOrBidiAtSeam = hasRtlOrBidiAtSeam
+                    hasRtlOrBidiAtSeam = hasRtlOrBidiAtSeam,
+                    preScrollX = preScrollX,
+                    preEditorHeightPx = preEditorHeightPx,
+                    preUpperHandleDoc = preUpperHandleDoc,
+                    preLowerHandleDoc = preLowerHandleDoc,
+                    preSelectedRowSpansDoc = preSelectedRowSpansDoc,
+                    hasSelectedRowSpans = hasSelectedRowSpans,
+                    wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete
                 )
             }
             val preRow = rowIndexAt(l2, c2)
@@ -634,7 +787,14 @@ object ScribeGapCollapsePolicy {
                 preFirstLowerRowTopDocY = preTopDocY,
                 preSelectionTopDocY = preSelectionTopDocY,
                 preSelectionBottomDocY = preSelectionBottomDocY,
-                hasRtlOrBidiAtSeam = hasRtlOrBidiAtSeam
+                hasRtlOrBidiAtSeam = hasRtlOrBidiAtSeam,
+                preScrollX = preScrollX,
+                preEditorHeightPx = preEditorHeightPx,
+                preUpperHandleDoc = preUpperHandleDoc,
+                preLowerHandleDoc = preLowerHandleDoc,
+                preSelectedRowSpansDoc = preSelectedRowSpansDoc,
+                hasSelectedRowSpans = hasSelectedRowSpans,
+                wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete
             )
         }
         // Case II (C2 == preLineLen(L2))
@@ -655,7 +815,14 @@ object ScribeGapCollapsePolicy {
                 preFirstLowerRowTopDocY = Float.NaN,
                 preSelectionTopDocY = preSelectionTopDocY,
                 preSelectionBottomDocY = preSelectionBottomDocY,
-                hasRtlOrBidiAtSeam = hasRtlOrBidiAtSeam
+                hasRtlOrBidiAtSeam = hasRtlOrBidiAtSeam,
+                preScrollX = preScrollX,
+                preEditorHeightPx = preEditorHeightPx,
+                preUpperHandleDoc = preUpperHandleDoc,
+                preLowerHandleDoc = preLowerHandleDoc,
+                preSelectedRowSpansDoc = preSelectedRowSpansDoc,
+                hasSelectedRowSpans = hasSelectedRowSpans,
+                wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete
             )
         }
         val preRow = rowIndexAt(l2 + 1, 0)
@@ -676,7 +843,14 @@ object ScribeGapCollapsePolicy {
             preFirstLowerRowTopDocY = preTopDocY,
             preSelectionTopDocY = preSelectionTopDocY,
             preSelectionBottomDocY = preSelectionBottomDocY,
-            hasRtlOrBidiAtSeam = hasRtlOrBidiAtSeam
+            hasRtlOrBidiAtSeam = hasRtlOrBidiAtSeam,
+            preScrollX = preScrollX,
+            preEditorHeightPx = preEditorHeightPx,
+            preUpperHandleDoc = preUpperHandleDoc,
+            preLowerHandleDoc = preLowerHandleDoc,
+            preSelectedRowSpansDoc = preSelectedRowSpansDoc,
+            hasSelectedRowSpans = hasSelectedRowSpans,
+            wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete
         )
     }
 

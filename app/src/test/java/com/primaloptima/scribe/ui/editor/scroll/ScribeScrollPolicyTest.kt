@@ -1013,4 +1013,74 @@ class ScribeScrollPolicyTest {
         assertEquals(maxCanvas, headerHeight + innerWhenHeaderScrolledOut)
     }
 
+    @Test
+    fun testResolveCursorScrollDelta_RespectsTopObstructionAndBreathingWithBackwardsCompat() {
+        val visibleHeight = 1200
+        val density = 2.0f // deadbandPx = 8
+
+        // 1. Caret occluded behind TOP_BAR (visibleEditorTop = 140f) with 12px top breathing -> desiredTop = 152f
+        val topOccluded = ScribeScrollPolicy.resolveCursorScrollDelta(
+            screenBottom = 130f,
+            screenTop = 90f,
+            visibleHeight = visibleHeight,
+            density = density,
+            hasScrollOffset = true,
+            visibleEditorTop = 140f,
+            visibleEditorBottom = 1100f,
+            topBreathingMarginPx = 12f
+        )
+        assertTrue(topOccluded.shouldScroll)
+        assertEquals(90f - 152f, topOccluded.deltaY, 0.001f)
+
+        // 2. Caret at screenTop in [-deadbandPx .. 0) behind topBar (visibleEditorTop = 140f, breathing = 0f) -> scrolls up!
+        val topSubZeroUnderBar = ScribeScrollPolicy.resolveCursorScrollDelta(
+            screenBottom = 36f,
+            screenTop = -4f,
+            visibleHeight = visibleHeight,
+            density = density,
+            hasScrollOffset = true,
+            visibleEditorTop = 140f,
+            visibleEditorBottom = 1100f,
+            topBreathingMarginPx = 0f
+        )
+        assertTrue(topSubZeroUnderBar.shouldScroll)
+        assertEquals(-144f, topSubZeroUnderBar.deltaY, 0.001f)
+
+        // 3. Default visibleEditorTop = 0f, topBreathingMarginPx = 0f preserves [-deadbandPx .. 0) deadband
+        val defaultTopDeadband = ScribeScrollPolicy.resolveCursorScrollDelta(
+            screenBottom = 36f,
+            screenTop = -4f,
+            visibleHeight = visibleHeight,
+            density = density,
+            hasScrollOffset = true
+        )
+        assertFalse(defaultTopDeadband.shouldScroll)
+
+        // 4. Caret safely inside [visibleEditorTop, visibleEditorBottom] with topBreathing deadband -> no scroll
+        val safeTopZone = ScribeScrollPolicy.resolveCursorScrollDelta(
+            screenBottom = 186f,
+            screenTop = 146f,
+            visibleHeight = visibleHeight,
+            density = density,
+            hasScrollOffset = true,
+            visibleEditorTop = 140f,
+            visibleEditorBottom = 1100f,
+            topBreathingMarginPx = 12f
+        )
+        assertFalse(safeTopZone.shouldScroll)
+
+        // 5. No scroll offset -> top occlusion does not request negative scroll
+        val noScrollOffset = ScribeScrollPolicy.resolveCursorScrollDelta(
+            screenBottom = 130f,
+            screenTop = 90f,
+            visibleHeight = visibleHeight,
+            density = density,
+            hasScrollOffset = false,
+            visibleEditorTop = 140f,
+            visibleEditorBottom = 1100f,
+            topBreathingMarginPx = 12f
+        )
+        assertFalse(noScrollOffset.shouldScroll)
+    }
+
 }
