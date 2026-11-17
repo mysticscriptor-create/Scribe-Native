@@ -1240,29 +1240,37 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
 
     @Test
     fun testDeferredPostDeletionIndentFloorPreservesSeamAndNoOpPreservesCursorAnimator() {
-        // Part A: Deferred post-deletion empty-line indent floor preserves (seamLine, 0) during active collapse
+        // Part A: Explicit deferred post-deletion indent floor (preserveSeamColZeroOnFloor = true) preserves (seamLine, 0),
+        // contrasting with ordinary enforceAutoIndentFloor() (preserveSeamColZeroOnFloor = false) tested in Case 1c.
         run {
             val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
             val editor = canvas.editor
-            editor.requestFocus()
             editor.isCursorAnimationEnabled = false
-            editor.firstLineIndentSpaces = 4
             canvas.scrollCanvasBy(350f)
             Shadows.shadowOf(Looper.getMainLooper()).idle()
+            val rowH = editor.rowHeight.toFloat().coerceAtLeast(20f)
 
-            // Make line 15 wrap so deleting it (Case II -> seamLine = 16, line 15 becomes "" -> deferred floor "    ")
-            // produces positive deltaGapPx and triggers deferred post-deletion indent floor during active collapse.
-            val line15Len = editor.text.getColumnCount(15)
-            editor.text.replace(15, 0, 15, line15Len, "    " + "Wrapped second-pass text ".repeat(12))
+            editor.text.replace(25, 0, 25, editor.text.getColumnCount(25), "  ")
             Shadows.shadowOf(Looper.getMainLooper()).idle()
-            val updatedLen = editor.text.getColumnCount(15)
-            editor.setSelectionRegion(15, 0, 15, updatedLen, false)
-            editor.deleteText()
+            val (gen, epoch) = enterSplitCollapseAt(canvas, seamLine = 25, tauLowerPx = rowH * 4f, freezeToPointer = true)
+            val preSeamDocY = canvas.gapCollapseController.activeSeamDocY
+            editor.setSelection(25, 0)
+            editor.firstLineIndentSpaces = 4
+            val applied = editor.enforceAutoIndentFloor(
+                suppressCursorAnimator = true,
+                makeSelectionVisible = false,
+                preserveSeamColZeroOnFloor = true
+            )
 
-            assertEquals("    ", editor.text.getLineString(15))
+            assertTrue(applied)
+            assertEquals("    ", editor.text.getLineString(25))
             assertEquals(4, editor.cursor.leftColumn)
-            assertTrue("Collapse must remain active after deferred indent floor", canvas.gapCollapseController.shouldApplySplitRender)
-            assertEquals(16, canvas.gapCollapseController.activeSeamLine)
+            assertEquals(GapCollapsePhase.POINTER_FROZEN, canvas.gapCollapseController.phase)
+            assertEquals(gen, canvas.gapCollapseController.owningDeletionGen)
+            assertEquals(epoch, canvas.gapCollapseController.collapseAnimEpoch)
+            assertEquals(25, canvas.gapCollapseController.activeSeamLine)
+            assertEquals(preSeamDocY, canvas.gapCollapseController.activeSeamDocY, 0.001f)
+            assertTrue("Deferred indent floor with preserveSeamColZeroOnFloor = true must keep split render active", canvas.gapCollapseController.shouldApplySplitRender)
             canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "partA_cleanup")
         }
 

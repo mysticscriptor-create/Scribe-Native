@@ -1659,4 +1659,59 @@ class ScribeGapCollapseIntegrationTest {
         }
     }
 
+
+    @Test
+    fun suiteE_realWrappedLineDeletionLeavingEmptyLineTriggersDeferredIndentFloorInsideCollapse() {
+        val lines = buildList {
+            for (i in 0 until 45) {
+                if (i == 15) {
+                    add("    " + "Wrapped line content slated for full line deletion without newline ".repeat(6).trimEnd())
+                } else {
+                    add("    Body paragraph $i with ordinary prose.")
+                }
+            }
+        }.joinToString("\n")
+        val host = launchCanvasHost(text = lines)
+        val instr = InstrumentationRegistry.getInstrumentation()
+        host.scenario.use {
+            val canvas = host.canvas
+            val ed = canvas.editor
+            try {
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    ed.firstLineIndentSpaces = 4
+                    ed.isCursorAnimationEnabled = true
+                    ed.cursorAnimator.cancel()
+                    installDefaultOverlays(canvas, topBarHeightPx = 80f, bottomBarHeightPx = 100f)
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * 8f) - (canvas.scrollD + ed.offsetY))
+
+                    // Delete all characters on line 15 without its trailing newline -> Case II, line 15 becomes "",
+                    // deferred enforceAutoIndentFloor restores "    " at (15, 4) while collapse stays active at seam 16.
+                    val len15 = ed.text.getColumnCount(15)
+                    ed.setSelectionRegion(15, 0, 15, len15, false)
+                    ed.deleteText()
+
+                    assertEquals("    ", ed.text.getLineString(15))
+                    assertEquals(4, ed.cursor.leftColumn)
+                    assertTrue("Gap collapse must enter and stay active after deferred indent floor", canvas.gapCollapseController.isTransactionOwned)
+                    assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+                    assertEquals(16, canvas.gapCollapseController.activeSeamLine)
+                    assertFalse("Deferred indent floor inside collapse must not trigger cursor animator", ed.cursorAnimator.isRunning)
+                    drawEditorIntoBitmap(ed)
+                }
+                waitUntil(failureMsg = "Wrapped Case II empty-line indent floor collapse must converge to IDLE") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+            } finally {
+                instr.runOnMainSync {
+                    (ed.cursorAnimator as? ScribeCursorAnimator)?.cancel()
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "suiteE_empty_floor_cleanup")
+                }
+            }
+        }
+    }
+
 }
