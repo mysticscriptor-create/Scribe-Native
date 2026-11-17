@@ -1313,4 +1313,67 @@ class ScribeGapCollapsePolicyTest {
         val fallbackPlan = planWithDefaults(isCursorAnimationRunning = preCapture.wasCursorAnimationRunningBeforeDelete)
         assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, fallbackPlan.scenario)
     }
+
+    @Test
+    fun testHandleEligibilitySuppression_RoutesVisibleSelectionToScenarioDAndOffscreenToScenarioE() {
+        val bounds = makeValidViewportBounds(top = 100f, bottom = 860f)
+        val preCaptureVisible = ScribeGapCollapsePolicy.classifyPreDeleteSeam(
+            isSelection = true,
+            l1 = 10, c1 = 0, l2 = 14, c2 = 0,
+            preLineCount = 40, preLineLenL2 = 20,
+            preScrollY = 300, rowHeightPx = 40f,
+            rowIndexAt = { line, _ -> line },
+            preUpperHandleDoc = null, // suppressed (e.g., unfocused / imeConsumingInput / mouseMode)
+            preLowerHandleDoc = null,
+            preSelectedRowSpansDoc = listOf(Rect(20f, 360f, 400f, 400f)),
+            hasSelectedRowSpans = true
+        )
+        val upperVis = ScribeGapCollapsePolicy.isHandleVisibleInViewport(
+            handleDoc = preCaptureVisible.preUpperHandleDoc,
+            preScrollX = 0, preScrollY = 300, headerHeight = 100, editorHeightPx = 900, viewportWidthPx = 720f, viewportBounds = bounds
+        )
+        val lowerVis = ScribeGapCollapsePolicy.isHandleVisibleInViewport(
+            handleDoc = preCaptureVisible.preLowerHandleDoc,
+            preScrollX = 0, preScrollY = 300, headerHeight = 100, editorHeightPx = 900, viewportWidthPx = 720f, viewportBounds = bounds
+        )
+        assertFalse(upperVis)
+        assertFalse(lowerVis)
+        val touchedVisible = ScribeGapCollapsePolicy.isSelectionTouchedOnScreen(
+            isUpperVisible = upperVis,
+            isLowerVisible = lowerVis,
+            preCapture = preCaptureVisible,
+            headerHeight = 100,
+            viewportWidthPx = 720f,
+            viewportBounds = bounds
+        )
+        assertTrue(touchedVisible)
+        val planD = planWithDefaults(
+            isUpperVisible = upperVis,
+            isLowerVisible = lowerVis,
+            isTouchedOnScreen = touchedVisible,
+            viewportBounds = bounds
+        )
+        assertEquals(CollapseScenario.D_SELECTION_ONLY_CENTERED, planD.scenario)
+
+        val preCaptureOffscreen = preCaptureVisible.copy(
+            preSelectedRowSpansDoc = listOf(Rect(20f, 1200f, 400f, 1240f))
+        )
+        val touchedOffscreen = ScribeGapCollapsePolicy.isSelectionTouchedOnScreen(
+            isUpperVisible = false,
+            isLowerVisible = false,
+            preCapture = preCaptureOffscreen,
+            headerHeight = 100,
+            viewportWidthPx = 720f,
+            viewportBounds = bounds
+        )
+        assertFalse(touchedOffscreen)
+        val planE = planWithDefaults(
+            isUpperVisible = false,
+            isLowerVisible = false,
+            isTouchedOnScreen = touchedOffscreen,
+            viewportBounds = bounds
+        )
+        assertEquals(CollapseScenario.E_OFFSCREEN_CARET_FOLLOW, planE.scenario)
+    }
+
 }

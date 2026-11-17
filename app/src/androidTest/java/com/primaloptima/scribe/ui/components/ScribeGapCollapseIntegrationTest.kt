@@ -1495,4 +1495,168 @@ class ScribeGapCollapseIntegrationTest {
             }
         }
     }
+
+    @Test
+    fun suiteE_secondLastParagraphDeletion_KeepsBottomParagraphStationaryAtTailProximity() {
+        val lines = buildList {
+            for (i in 0 until 45) {
+                if (i == 43) {
+                    add("    Second-last paragraph with enough wrapped prose to span multiple rows before deletion happens cleanly.")
+                } else if (i == 44) {
+                    add("    Final one-row paragraph.")
+                } else {
+                    add("    Body paragraph $i with ordinary prose.")
+                }
+            }
+        }.joinToString("\n")
+        val host = launchCanvasHost(text = lines)
+        val instr = InstrumentationRegistry.getInstrumentation()
+        host.scenario.use {
+            val canvas = host.canvas
+            val ed = canvas.editor
+            try {
+                var preScroll = 0
+                var preLastScreenTop = 0f
+                var preUpperScreenTop = 0f
+                var deltaGapPx = 0f
+                val secondLastLine = 43
+                val lastLine = 44
+
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    ed.firstLineIndentSpaces = 4
+                    ed.isCursorAnimationEnabled = true
+                    ed.cursorAnimator.cancel()
+                    installDefaultOverlays(canvas, topBarHeightPx = 80f, bottomBarHeightPx = 100f)
+
+                    val lay = ed.layout!!
+                    val bounds = canvas.resolveUnobstructedViewportBounds()
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    val lastRow = lay.getRowIndexForPosition(ed.text.getCharIndex(lastLine, 0))
+                    val secondLastStartRow = lay.getRowIndexForPosition(ed.text.getCharIndex(secondLastLine, 0))
+                    val upperRefRow = lay.getRowIndexForPosition(ed.text.getCharIndex(secondLastLine - 1, 0))
+                    assertTrue("Final paragraph must wrap to 1 row for this regression test", lastRow == lay.rowCount - 1)
+
+                    // Scroll so final paragraph sits comfortably inside lower unobstructed viewport (wasAtTail == true
+                    // AND both selection handles are unobstructed inside viewport -> Scenario C).
+                    val targetLastBottomLocal = bounds.visibleEditorBottom - rowH * 3f
+                    val desiredScroll = (canvas.headerHeight + (lastRow + 1) * rowH - targetLastBottomLocal).coerceAtLeast(0f)
+                    canvas.scrollCanvasBy(desiredScroll - (canvas.scrollD + ed.offsetY))
+                    preScroll = canvas.scrollD + ed.offsetY
+                    val docH = canvas.headerHeight + lay.layoutHeight.toFloat()
+                    assertTrue(
+                        "Test fixture must satisfy tail proximity (wasAtTail == true)",
+                        (preScroll + canvas.height.toFloat()) >= (docH - canvas.breathingMarginPx - 4f)
+                    )
+                    preLastScreenTop = canvas.headerHeight - preScroll + (lastRow * rowH)
+                    preUpperScreenTop = canvas.headerHeight - preScroll + (upperRefRow * rowH)
+                    deltaGapPx = (lastRow - secondLastStartRow) * rowH
+                    assertTrue("Deleted second-last paragraph must have positive gap height", deltaGapPx >= rowH)
+
+                    // Delete second-last paragraph including trailing newline: (43, 0)..(44, 0)
+                    ed.setSelectionRegion(secondLastLine, 0, lastLine, 0, false)
+                    ed.deleteText()
+
+                    val plan = canvas.gapCollapseController.currentPlan
+                    assertTrue(
+                        "Second-last paragraph deletion MUST enter gap collapse (not TAIL_ANCHOR fallback)",
+                        canvas.gapCollapseController.isTransactionOwned
+                    )
+                    assertEquals(CollapseScenario.C_BOTH_VISIBLE, plan?.scenario)
+                    assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+                    assertEquals(secondLastLine, canvas.gapCollapseController.activeSeamLine)
+
+                    // Verify Frame-1 visual screen top of final paragraph stays stationary (no upward jump)
+                    val frame1Scroll = (canvas.scrollD + ed.offsetY).toFloat()
+                    val frame1LastVisualTop = canvas.headerHeight - frame1Scroll +
+                        canvas.gapCollapseController.activeSeamDocY +
+                        canvas.gapCollapseController.tauLower
+                    assertEquals(
+                        "Frame 1 visual position of final paragraph must not jump upward",
+                        preLastScreenTop,
+                        frame1LastVisualTop,
+                        1.5f
+                    )
+                    drawEditorIntoBitmap(ed)
+                }
+
+                waitUntil(failureMsg = "Second-last paragraph deletion must converge cleanly to IDLE") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+
+                instr.runOnMainSync {
+                    val lay = ed.layout!!
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    val finalScroll = (canvas.scrollD + ed.offsetY).toFloat()
+                    val survivingLastRow = lay.getRowIndexForPosition(ed.text.getCharIndex(secondLastLine, 0))
+                    val survivingUpperRow = lay.getRowIndexForPosition(ed.text.getCharIndex(secondLastLine - 1, 0))
+                    val finalLastScreenTop = canvas.headerHeight - finalScroll + (survivingLastRow * rowH)
+                    val finalUpperScreenTop = canvas.headerHeight - finalScroll + (survivingUpperRow * rowH)
+
+                    assertEquals(
+                        "Settled screen position of final paragraph must stay stationary",
+                        preLastScreenTop,
+                        finalLastScreenTop,
+                        2.0f
+                    )
+                    assertEquals(
+                        "Settled upper paragraph must have glided downward by deltaGapPx",
+                        preUpperScreenTop + deltaGapPx,
+                        finalUpperScreenTop,
+                        2.0f
+                    )
+                    assertEquals(4, ed.cursor.leftColumn)
+                    drawEditorIntoBitmap(ed)
+                }
+            } finally {
+                instr.runOnMainSync {
+                    (ed.cursorAnimator as? ScribeCursorAnimator)?.cancel()
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "suiteE_second_last_cleanup")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun suiteE_unfocusedHandleSuppressionRoutesVisibleSelectionToScenarioD() {
+        val host = launchCanvasHost(text = buildIndentedLines(95))
+        val instr = InstrumentationRegistry.getInstrumentation()
+        host.scenario.use {
+            val canvas = host.canvas
+            val ed = canvas.editor
+            try {
+                instr.runOnMainSync {
+                    ed.isCursorAnimationEnabled = false
+                    ed.cursorAnimator.cancel()
+                    installDefaultOverlays(canvas, topBarHeightPx = 80f, bottomBarHeightPx = 100f)
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * 20f) - (canvas.scrollD + ed.offsetY))
+
+                    // Select visible region then clear focus before deletion -> handles are not drawn by Sora!
+                    ed.setSelectionRegion(24, 0, 28, 0, false)
+                    ed.clearFocus()
+                    assertFalse(ed.isFocused)
+
+                    ed.deleteText()
+
+                    val plan = canvas.gapCollapseController.currentPlan
+                    assertTrue("Visible selection with suppressed handles must still collapse via Scenario D", canvas.gapCollapseController.isTransactionOwned)
+                    assertEquals(CollapseScenario.D_SELECTION_ONLY_CENTERED, plan?.scenario)
+                    drawEditorIntoBitmap(ed)
+                }
+                waitUntil(failureMsg = "Suppressed-handle Scenario D collapse must settle to IDLE") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+            } finally {
+                instr.runOnMainSync {
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "suiteE_unfocused_cleanup")
+                }
+            }
+        }
+    }
+
 }

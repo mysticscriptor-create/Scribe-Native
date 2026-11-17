@@ -3725,12 +3725,6 @@ fun WordCountPill(
             .onGloballyPositioned { coords ->
                 registerBounds("word_count_pill", coords.boundsInRoot())
             }
-            .reportOverlayBounds(
-                key = "word_count_pill",
-                role = OverlayOcclusionRole.FLOATING_PILL,
-                isVisible = isVisible,
-                registry = overlayRegistry
-            )
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             AnimatedVisibility(
@@ -3752,6 +3746,12 @@ fun WordCountPill(
                 tonalElevation  = 0.dp,
                 shadowElevation = ScribeTheme.metrics.elevationLow,
                 modifier        = Modifier
+                    .reportOverlayBounds(
+                        key = "word_count_pill",
+                        role = OverlayOcclusionRole.FLOATING_PILL,
+                        isVisible = isVisible,
+                        registry = overlayRegistry
+                    )
                     .clip(CircleShape)
                     .frostedFab(hazeState)
                     .pointerInput(Unit) {

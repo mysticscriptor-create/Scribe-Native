@@ -839,12 +839,21 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
     }
 
-    fun mergeDeletionBatchTail(batchEndLine: Int, batchLastNonBlankLine: Int? = null) {
+    fun mergeDeletionBatchTail(
+        batchEndLine: Int,
+        batchLastNonBlankLine: Int? = null,
+        batchStartLine: Int? = null,
+        batchEndColumn: Int = 1,
+        batchIsSelection: Boolean = false
+    ) {
         activeDeletionSnapshot = activeDeletionSnapshot?.let { snap ->
             ScribeScrollDeletionPolicy.mergeDeletionBatchSnapshot(
                 existing = snap,
                 batchEndLine = batchEndLine,
-                currentLastNonBlankLine = batchLastNonBlankLine ?: snap.preEditLastNonBlankLine
+                currentLastNonBlankLine = batchLastNonBlankLine ?: snap.preEditLastNonBlankLine,
+                batchStartLine = batchStartLine ?: snap.selectionStartLine,
+                batchEndColumn = batchEndColumn,
+                batchIsSelection = batchIsSelection
             )
         }
     }
@@ -910,11 +919,20 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             0f
         }
         val caretScreenY = (headerHeight + caretDocY - currentScroll)
-        val endLine = if (cur?.isSelected == true) cur.rightLine else (cur?.leftLine ?: 0)
+        val isSel = cur?.isSelected == true
+        val startLine = cur?.leftLine ?: 0
+        val endLine = if (isSel) cur!!.rightLine else startLine
+        val endCol = if (isSel) cur!!.rightColumn else (cur?.leftColumn ?: 0)
         val lastNonBlankLine = ScribeScrollDeletionPolicy.findLastNonBlankLine(content.lineCount) { idx ->
             content.getLine(idx)
         }
-        val affectsDocumentTail = ScribeScrollDeletionPolicy.isLineRangeAffectingLogicalTail(endLine, lastNonBlankLine)
+        val affectsDocumentTail = ScribeScrollDeletionPolicy.isLineRangeAffectingLogicalTail(
+            startLine = startLine,
+            endLine = endLine,
+            endColumn = endCol,
+            isSelection = isSel,
+            lastNonBlankLine = lastNonBlankLine
+        )
         beginPreEditDeletionSnapshot(
             isSelection = cur?.isSelected == true,
             selectionStartLine = cur?.leftLine ?: 0,

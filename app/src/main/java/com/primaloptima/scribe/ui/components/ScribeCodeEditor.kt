@@ -432,12 +432,24 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (collapseStarted) {
             scribeAnimator?.discardDeferredStart()
             if (needIndentFloor) {
-                enforceAutoIndentFloor(suppressCursorAnimator = true, makeSelectionVisible = false)
+                enforceAutoIndentFloor(
+                    suppressCursorAnimator = true,
+                    makeSelectionVisible = false,
+                    preserveSeamColZeroOnFloor = true
+                )
             }
         } else {
             if (needIndentFloor) {
-                scribeAnimator?.discardDeferredStart()
-                enforceAutoIndentFloor(suppressCursorAnimator = false, makeSelectionVisible = true)
+                val appliedFloor = enforceAutoIndentFloor(
+                    suppressCursorAnimator = false,
+                    makeSelectionVisible = true,
+                    preserveSeamColZeroOnFloor = false
+                )
+                if (!appliedFloor) {
+                    scribeAnimator?.flushDeferredStartIfNeeded()
+                } else if (scribeAnimator != null && !scribeAnimator.isRunning) {
+                    scribeAnimator.discardDeferredStart()
+                }
             } else {
                 scribeAnimator?.flushDeferredStartIfNeeded()
             }
@@ -451,7 +463,14 @@ class ScribeCodeEditor @JvmOverloads constructor(
         col: Int,
         isUpper: Boolean
     ): PreDeleteHandleDocRect? {
-        if (lay == null || rowHeight <= 0) return null
+        if (lay == null ||
+            rowHeight <= 0 ||
+            !isFocused ||
+            isInMouseMode ||
+            ScribeDrawCursorTaskAccessor.isImeConsumingInput(this)
+        ) {
+            return null
+        }
         val row = try {
             lay.getRowIndexForPosition(content.indexer.getCharIndex(line, col))
         } catch (_: Throwable) {
@@ -1191,14 +1210,15 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     fun enforceAutoIndentFloor(
         suppressCursorAnimator: Boolean = false,
-        makeSelectionVisible: Boolean = true
-    ) {
-        if (firstLineIndentSpaces <= 0 || isEnforcingIndentFloor || isBatchApplyingIndent) return
-        val cur = try { cursor } catch (_: Throwable) { null } ?: return
-        if (cur.isSelected) return
+        makeSelectionVisible: Boolean = true,
+        preserveSeamColZeroOnFloor: Boolean = false
+    ): Boolean {
+        if (firstLineIndentSpaces <= 0 || isEnforcingIndentFloor || isBatchApplyingIndent) return false
+        val cur = try { cursor } catch (_: Throwable) { null } ?: return false
+        if (cur.isSelected) return false
         val line = cur.leftLine
         val col = cur.leftColumn
-        if (line >= text.lineCount) return
+        if (line >= text.lineCount) return false
         val lineStr = try { text.getLineString(line) } catch (_: Throwable) { "" }
 
         val scribeAnimator = cursorAnimator as? ScribeCursorAnimator
@@ -1234,11 +1254,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
                         startColumn = 0,
                         endLine = line,
                         endColumn = replacement.length,
-                        preserveSeamColZeroOnFloor = true
+                        preserveSeamColZeroOnFloor = preserveSeamColZeroOnFloor
                     )
                 }
             }
-            return
+            return true
         }
 
         // If line starts with the auto-indent floor and cursor landed inside the floor (col < firstLineIndentSpaces):
@@ -1261,7 +1281,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     scribeAnimator?.suspendMarkAndStart = prevSuspend
                 }
             }
+            return true
         }
+        return false
     }
 
     override fun commitText(text: CharSequence, applyAutoIndent: Boolean, applySymbolCompletion: Boolean) {
@@ -1733,18 +1755,24 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     preEditScrollY = currentScroll,
                     preEditCaretScreenY = caretScreenY,
                     wasAtTail = wasAtTail,
-                    preEditLastNonBlankLine = lastNonBlankLine
+                    preEditLastNonBlankLine = lastNonBlankLine,
+                    selectionEndColumn = if (isSel) cur.rightColumn else cur.leftColumn
                 )
             },
             captureBatchProbe = {
                 val cur = try { cursor } catch (_: Throwable) { null }
-                val endLine = if (cur?.isSelected == true) cur.rightLine else (cur?.leftLine ?: 0)
+                val isBatchSel = cur?.isSelected == true
+                val endLine = if (isBatchSel) cur!!.rightLine else (cur?.leftLine ?: 0)
+                val endCol = if (isBatchSel) cur!!.rightColumn else (cur?.leftColumn ?: 0)
                 val lastNonBlankLine = ScribeScrollDeletionPolicy.findLastNonBlankLine(content.lineCount) { idx ->
                     content.getLine(idx)
                 }
                 ScribeDeletionSnapshotCoordinator.BatchTailProbe(
                     endLine = endLine,
-                    lastNonBlankLine = lastNonBlankLine
+                    lastNonBlankLine = lastNonBlankLine,
+                    startLine = cur?.leftLine ?: 0,
+                    endColumn = endCol,
+                    isSelection = isBatchSel
                 )
             }
         )
@@ -1785,7 +1813,10 @@ class ScribeCodeEditor @JvmOverloads constructor(
         }
         val action = deletionSnapshotCoordinator?.onAfterDelete(
             afterDeleteEndLine = endLine,
-            hasPendingDeletionSettlement = pCanvas?.hasPendingDeletionSettlement == true
+            hasPendingDeletionSettlement = pCanvas?.hasPendingDeletionSettlement == true,
+            afterDeleteStartLine = startLine,
+            afterDeleteEndColumn = endColumn,
+            afterDeleteIsSelection = seamCapture?.isSelection ?: false
         )
         if (canMutateCanvas && pCanvas != null) {
             when (action) {
@@ -1810,7 +1841,10 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 is ScribeDeletionSnapshotCoordinator.AfterDeleteAction.MergeExistingBatch -> {
                     pCanvas.mergeDeletionBatchTail(
                         batchEndLine = action.batchEndLine,
-                        batchLastNonBlankLine = action.batchLastNonBlankLine
+                        batchLastNonBlankLine = action.batchLastNonBlankLine,
+                        batchStartLine = action.batchStartLine,
+                        batchEndColumn = action.batchEndColumn,
+                        batchIsSelection = action.batchIsSelection
                     )
                     if (forceIneligibleRow5Fallback) {
                         pCanvas.markForceFallbackOnDelayedSettlement()

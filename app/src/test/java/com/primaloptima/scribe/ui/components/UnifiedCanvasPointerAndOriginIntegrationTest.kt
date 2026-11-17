@@ -1237,4 +1237,67 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
         assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
         assertEquals((canvas.scrollD + canvas.editor.offsetY).toFloat(), canvas.scrollCoordinator.totalScroll, 0.5f)
     }
+
+    @Test
+    fun testDeferredPostDeletionIndentFloorPreservesSeamAndNoOpPreservesCursorAnimator() {
+        // Part A: Deferred post-deletion empty-line indent floor preserves (seamLine, 0) during active collapse
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
+            val editor = canvas.editor
+            editor.requestFocus()
+            editor.isCursorAnimationEnabled = false
+            editor.firstLineIndentSpaces = 4
+            canvas.scrollCanvasBy(350f)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            // Make line 15 wrap so deleting it (Case II -> seamLine = 16, line 15 becomes "" -> deferred floor "    ")
+            // produces positive deltaGapPx and triggers deferred post-deletion indent floor during active collapse.
+            val line15Len = editor.text.getColumnCount(15)
+            editor.text.replace(15, 0, 15, line15Len, "    " + "Wrapped second-pass text ".repeat(12))
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            val updatedLen = editor.text.getColumnCount(15)
+            editor.setSelectionRegion(15, 0, 15, updatedLen, false)
+            editor.deleteText()
+
+            assertEquals("    ", editor.text.getLineString(15))
+            assertEquals(4, editor.cursor.leftColumn)
+            assertTrue("Collapse must remain active after deferred indent floor", canvas.gapCollapseController.shouldApplySplitRender)
+            assertEquals(16, canvas.gapCollapseController.activeSeamLine)
+            canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "partA_cleanup")
+        }
+
+        // Part B: Non-collapse fallback deletion where enforceAutoIndentFloor is a no-op preserves deferred cursor animator
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
+            val editor = canvas.editor
+            editor.requestFocus()
+            editor.firstLineIndentSpaces = 4
+            editor.isCursorAnimationEnabled = true
+            editor.text.replace(4, 0, 4, editor.text.getColumnCount(4), "    Surviving indented line")
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            // Pre-arm a real deferred cursor animation transition (from (4, 16) -> (4, 4)) that will be
+            // deferred during deleteText() on a merged partial-row seam (c1 = 4 -> INELIGIBLE_FALLBACK).
+            // Because line 4 already starts with "    " and caret is at col 4, enforceAutoIndentFloor() is a no-op!
+            val scribeAnim = editor.cursorAnimator as ScribeCursorAnimator
+            val rowH = editor.rowHeight.toFloat().coerceAtLeast(20f)
+            editor.setSelectionRegion(4, 4, 6, 0, false)
+            scribeAnim.armGlide(
+                startX = 240f,
+                startY = rowH * 4f,
+                startHeight = rowH,
+                fallbackTargetY = rowH * 4f
+            )
+            editor.deleteText()
+
+            assertFalse("c1 > 0 merged seam falls back to non-collapse", canvas.gapCollapseController.shouldApplySplitRender)
+            assertEquals(4, editor.cursor.leftColumn)
+            assertTrue(
+                "No-op enforceAutoIndentFloor must flush (not discard) deferred cursor animation",
+                scribeAnim.isRunning
+            )
+            scribeAnim.cancel()
+        }
+    }
+
 }

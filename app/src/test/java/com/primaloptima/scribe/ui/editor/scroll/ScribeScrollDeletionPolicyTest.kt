@@ -851,4 +851,90 @@ class ScribeScrollDeletionPolicyTest {
         )
         assertEquals(ScribeDeletionSnapshotCoordinator.AfterInsertAction.SettleEmptyReplaceDelete, emptyReplaceAction)
     }
+
+    @Test
+    fun testDeletionIntent_SecondLastParagraphSelectionWithOneRowFinalParagraph_ClassifiesAsCaretAnchor() {
+        val preLines = MutableList(20) { idx ->
+            if (idx == 19) "Final one-row line." else "Paragraph line $idx with text."
+        }
+        val lastNonBlank = ScribeScrollDeletionPolicy.findLastNonBlankLine(preLines.size) { preLines[it] }
+        assertEquals(19, lastNonBlank)
+
+        // Selection (18, 0)..(19, 0) deletes zero chars of line 19 -> must NOT affect logical tail
+        assertFalse(
+            ScribeScrollDeletionPolicy.isLineRangeAffectingLogicalTail(
+                startLine = 18,
+                endLine = 19,
+                endColumn = 0,
+                isSelection = true,
+                lastNonBlankLine = lastNonBlank
+            )
+        )
+        // Selection extending into line 19 (endColumn > 0) DOES affect logical tail
+        assertTrue(
+            ScribeScrollDeletionPolicy.isLineRangeAffectingLogicalTail(
+                startLine = 18,
+                endLine = 19,
+                endColumn = 5,
+                isSelection = true,
+                lastNonBlankLine = lastNonBlank
+            )
+        )
+
+        val coordinator = ScribeDeletionSnapshotCoordinator()
+        coordinator.onBeforeModification(
+            hasPendingDeletionSettlement = false,
+            captureInitialSnapshot = {
+                ScribeScrollDeletionPolicy.PreModificationSnapshot(
+                    isSelection = true,
+                    selectionStartLine = 18,
+                    selectionEndLine = 19,
+                    preEditDocLineCount = 20,
+                    preEditDocHeight = 1200f,
+                    preEditScrollY = 600f,
+                    preEditCaretScreenY = 700f,
+                    wasAtTail = true,
+                    preEditLastNonBlankLine = lastNonBlank,
+                    selectionEndColumn = 0
+                )
+            },
+            captureBatchProbe = { null }
+        )
+        val action = coordinator.onAfterDelete(
+            afterDeleteEndLine = 19,
+            hasPendingDeletionSettlement = false,
+            afterDeleteStartLine = 18,
+            afterDeleteEndColumn = 0,
+            afterDeleteIsSelection = true
+        ) as ScribeDeletionSnapshotCoordinator.AfterDeleteAction.BeginTransaction
+        assertFalse(action.affectsDocumentTail)
+        assertFalse(action.snapshot.affectsDocumentTail)
+
+        // Post-edit: line 19 shifted up to line 18 (1 wrapped row, layoutHeight == newCaretDocY)
+        val postLines = MutableList(19) { idx ->
+            if (idx == 18) "Final one-row line." else "Paragraph line $idx with text."
+        }
+        val isPostAtTail = ScribeScrollDeletionPolicy.isCaretAtLogicalTail(
+            lineCount = postLines.size,
+            caretLine = 18,
+            caretCol = 0,
+            lineAt = { postLines[it] },
+            newCaretDocY = 950f,
+            layoutHeight = 950f,
+            rowHeight = 50f
+        )
+        assertFalse("Caret at start of surviving 1-row final paragraph is NOT at logical tail", isPostAtTail)
+
+        val intent = ScribeScrollDeletionPolicy.classifyDeletionIntent(
+            snapshot = action.snapshot,
+            newDocLineCount = postLines.size,
+            newDocHeight = 1150f,
+            usableViewportHeight = 800f,
+            breathingMarginPx = 48f,
+            isTextEmpty = false,
+            isPostEditCaretAtLogicalTail = isPostAtTail
+        )
+        assertEquals(ScribeScrollDeletionPolicy.DeletionAnchorIntent.CARET_ANCHOR, intent)
+    }
+
 }

@@ -21,4 +21,8 @@ public final class ScribeDrawCursorTaskAccessor {
     public static float getY(@Nullable EditorRenderer.DrawCursorTask task) {
         return task != null ? task.y : 0f;
     }
+
+    public static boolean isImeConsumingInput(@Nullable CodeEditor editor) {
+        return editor != null && editor.inputConnection != null && editor.inputConnection.imeConsumingInput;
+    }
 }

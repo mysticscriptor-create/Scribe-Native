@@ -11,18 +11,22 @@
 ## 1. Files Modified / Added
 
 ### Production Code
-1. `app/src/main/java/com/primaloptima/scribe/ui/editor/scroll/ScribeScrollPolicy.kt`
-2. `app/src/main/java/com/primaloptima/scribe/ui/editor/scroll/ScribeGapCollapsePolicy.kt`
-3. `app/src/main/java/com/primaloptima/scribe/ui/components/ScribeCursorAnimator.kt`
-4. `app/src/main/java/com/primaloptima/scribe/ui/components/ScribeEditorRenderer.kt`
-5. `app/src/main/java/com/primaloptima/scribe/ui/components/ScribeCodeEditor.kt`
-6. `app/src/main/java/com/primaloptima/scribe/ui/components/UnifiedCanvasLayout.kt`
-7. `app/src/main/java/com/primaloptima/scribe/ui/screens/MainEditorScreen.kt`
+1. `app/src/main/java/io/github/rosemoe/sora/widget/ScribeDrawCursorTaskAccessor.java`
+2. `app/src/main/java/com/primaloptima/scribe/ui/editor/scroll/ScribeScrollPolicy.kt`
+3. `app/src/main/java/com/primaloptima/scribe/ui/editor/scroll/ScribeScrollDeletionPolicy.kt`
+4. `app/src/main/java/com/primaloptima/scribe/ui/editor/scroll/ScribeGapCollapsePolicy.kt`
+5. `app/src/main/java/com/primaloptima/scribe/ui/components/ScribeCursorAnimator.kt`
+6. `app/src/main/java/com/primaloptima/scribe/ui/components/ScribeEditorRenderer.kt`
+7. `app/src/main/java/com/primaloptima/scribe/ui/components/ScribeCodeEditor.kt`
+8. `app/src/main/java/com/primaloptima/scribe/ui/components/UnifiedCanvasLayout.kt`
+9. `app/src/main/java/com/primaloptima/scribe/ui/screens/MainEditorScreen.kt`
 
 ### Tests Added (Preserving All Existing 439 Unit Tests & 15 Instrumentation Tests)
 1. `app/src/test/java/com/primaloptima/scribe/ui/editor/scroll/ScribeGapCollapsePolicyTest.kt`
-2. `app/src/test/java/com/primaloptima/scribe/ui/editor/scroll/ScribeScrollPolicyTest.kt`
-3. `app/src/androidTest/java/com/primaloptima/scribe/ui/components/ScribeGapCollapseIntegrationTest.kt`
+2. `app/src/test/java/com/primaloptima/scribe/ui/editor/scroll/ScribeScrollDeletionPolicyTest.kt`
+3. `app/src/test/java/com/primaloptima/scribe/ui/editor/scroll/ScribeScrollPolicyTest.kt`
+4. `app/src/test/java/com/primaloptima/scribe/ui/components/UnifiedCanvasPointerAndOriginIntegrationTest.kt`
+5. `app/src/androidTest/java/com/primaloptima/scribe/ui/components/ScribeGapCollapseIntegrationTest.kt`
 
 ### Documentation
 1. `docs/plans/selection-deletion-gap-collapse/phase-5-behavioral-correction.md`
@@ -33,7 +37,9 @@
 ## 2. Behavioral Summary
 
 - **Scenario Integrity (A, B, C, D, E):** Preserved all five V1 scenario definitions while evaluating real pre-deletion handle geometry `(L1, C1)` / `(L2, C2)` and per-row background selection spans against Sora `drawRows()` bounds, horizontal/vertical viewport clipping, and tight overlay pill bounds.
-- **Cursor-Animator & Auto-Indent Timing Fix:** Captured genuinely pre-existing running cursor animations prior to `super.beforeModification()`, deferred deletion-induced cursor animations and `enforceAutoIndentFloor()` until `prepareGapCollapseFrame1IfReady()` resolves across both `afterDelete()` and empty `afterInsert()`, and preserved `(seamLine, 0)` during deferred floor normalization.
+- **Second-Last Paragraph Classification Fix:** Propagated selection end-column awareness into `isLineRangeAffectingLogicalTail` and tightened `isCaretAtLogicalTail` to return `false` whenever non-whitespace text survives after the caret, eliminating spurious `TAIL_ANCHOR` fallbacks when deleting non-terminal paragraphs near the document bottom.
+- **Cursor-Animator & Auto-Indent Timing Fix:** Captured genuinely pre-existing running cursor animations prior to `super.beforeModification()`, deferred deletion-induced cursor animations and `enforceAutoIndentFloor()` until `prepareGapCollapseFrame1IfReady()` resolves across both `afterDelete()` and empty `afterInsert()`, kept `preserveSeamColZeroOnFloor = false` on ordinary seam mutations, passed `true` only during deferred post-deletion indent correction, and flushed deferred cursor animations when `enforceAutoIndentFloor()` is a no-op.
+- **Sora Handle Eligibility & Pill Bounds Tightening:** Gated `capturePreDeleteHandleRectDoc()` on `isFocused`, `!isInMouseMode`, and `!ScribeDrawCursorTaskAccessor.isImeConsumingInput(this)`, and scoped `WordCountPill` overlay occlusion bounds to its pill `Surface`.
 - **Hint/Diagnostics Deferral:** Deferred inlay hint, diagnostic, and visual indent refreshes across active gap-collapse transactions until `commitGapCollapseIdle()`.
 - **Scenario E Top-Obstruction Follow:** Updated `ScribeScrollPolicy.resolveCursorScrollDelta()` and `UnifiedCanvasLayout` callers (`ensureCursorVisibleAboveKeyboard`, `requestChildRectangleOnScreen`) to respect top bars, top floating pills covering the caret band, and bottom obstructions.
 

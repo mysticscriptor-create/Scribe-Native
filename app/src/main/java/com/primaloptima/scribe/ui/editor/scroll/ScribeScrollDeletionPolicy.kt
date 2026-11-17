@@ -24,7 +24,8 @@ object ScribeScrollDeletionPolicy {
         val preEditCaretScreenY: Float,
         val wasAtTail: Boolean,
         val affectsDocumentTail: Boolean,
-        val preEditLastNonBlankLine: Int = (preEditDocLineCount - 1).coerceAtLeast(0)
+        val preEditLastNonBlankLine: Int = (preEditDocLineCount - 1).coerceAtLeast(0),
+        val selectionEndColumn: Int = 1
     )
 
     enum class DeletionAnchorIntent {
@@ -48,7 +49,8 @@ object ScribeScrollDeletionPolicy {
         val preEditScrollY: Float,
         val preEditCaretScreenY: Float,
         val wasAtTail: Boolean,
-        val preEditLastNonBlankLine: Int
+        val preEditLastNonBlankLine: Int,
+        val selectionEndColumn: Int = 1
     )
 
     data class DeletionSettlementValidation(
@@ -63,17 +65,41 @@ object ScribeScrollDeletionPolicy {
     fun mergeDeletionBatchSnapshot(
         existing: DeletionSnapshot,
         batchEndLine: Int,
-        currentLastNonBlankLine: Int = existing.preEditLastNonBlankLine
+        currentLastNonBlankLine: Int = existing.preEditLastNonBlankLine,
+        batchStartLine: Int = existing.selectionStartLine,
+        batchEndColumn: Int = 1,
+        batchIsSelection: Boolean = false
     ): DeletionSnapshot {
         val mergedEndLine = maxOf(existing.selectionEndLine, batchEndLine)
+        val mergedEndColumn = when {
+            batchEndLine > existing.selectionEndLine -> batchEndColumn
+            batchEndLine < existing.selectionEndLine -> existing.selectionEndColumn
+            else -> maxOf(existing.selectionEndColumn, batchEndColumn)
+        }
         val mergedAffectsTail = existing.affectsDocumentTail ||
-            isLineRangeAffectingLogicalTail(mergedEndLine, existing.preEditLastNonBlankLine) ||
-            isLineRangeAffectingLogicalTail(batchEndLine, currentLastNonBlankLine)
-        return if (mergedEndLine == existing.selectionEndLine && mergedAffectsTail == existing.affectsDocumentTail) {
+            isLineRangeAffectingLogicalTail(
+                startLine = minOf(existing.selectionStartLine, batchStartLine),
+                endLine = mergedEndLine,
+                endColumn = mergedEndColumn,
+                isSelection = existing.isSelection || batchIsSelection,
+                lastNonBlankLine = existing.preEditLastNonBlankLine
+            ) ||
+            isLineRangeAffectingLogicalTail(
+                startLine = batchStartLine,
+                endLine = batchEndLine,
+                endColumn = batchEndColumn,
+                isSelection = batchIsSelection,
+                lastNonBlankLine = currentLastNonBlankLine
+            )
+        return if (mergedEndLine == existing.selectionEndLine &&
+            mergedEndColumn == existing.selectionEndColumn &&
+            mergedAffectsTail == existing.affectsDocumentTail
+        ) {
             existing
         } else {
             existing.copy(
                 selectionEndLine = mergedEndLine,
+                selectionEndColumn = mergedEndColumn,
                 affectsDocumentTail = mergedAffectsTail
             )
         }
@@ -106,6 +132,25 @@ object ScribeScrollDeletionPolicy {
     }
 
     /**
+     * Range-aware overload: a multi-line selection ending cleanly at `(lastNonBlankLine, 0)`
+     * deletes zero characters of `lastNonBlankLine`, leaving the final paragraph intact below.
+     */
+    fun isLineRangeAffectingLogicalTail(
+        startLine: Int,
+        endLine: Int,
+        endColumn: Int,
+        isSelection: Boolean,
+        lastNonBlankLine: Int
+    ): Boolean {
+        if (endLine > lastNonBlankLine) return true
+        if (endLine < lastNonBlankLine) return false
+        if (isSelection && startLine < endLine && endColumn <= 0) {
+            return false
+        }
+        return true
+    }
+
+    /**
      * Checks whether the resulting collapsed post-edit caret sits at the logical document tail
      * (no meaningful non-blank lines or non-whitespace wrapped rows below it).
      */
@@ -134,7 +179,7 @@ object ScribeScrollDeletionPolicy {
                 break
             }
         }
-        if (hasNonWhitespaceAfter && (layoutHeight - newCaretDocY) > rowHeight * 0.5f) {
+        if (hasNonWhitespaceAfter) {
             return false
         }
         return true
@@ -386,7 +431,10 @@ class ScribeDeletionSnapshotCoordinator {
 
     data class BatchTailProbe(
         val endLine: Int,
-        val lastNonBlankLine: Int
+        val lastNonBlankLine: Int,
+        val startLine: Int = 0,
+        val endColumn: Int = 1,
+        val isSelection: Boolean = false
     )
 
     sealed class AfterDeleteAction {
@@ -397,7 +445,10 @@ class ScribeDeletionSnapshotCoordinator {
 
         data class MergeExistingBatch(
             val batchEndLine: Int,
-            val batchLastNonBlankLine: Int?
+            val batchLastNonBlankLine: Int?,
+            val batchStartLine: Int = 0,
+            val batchEndColumn: Int = 1,
+            val batchIsSelection: Boolean = false
         ) : AfterDeleteAction()
 
         data object MarkPendingOnly : AfterDeleteAction()
@@ -446,7 +497,10 @@ class ScribeDeletionSnapshotCoordinator {
 
     fun onAfterDelete(
         afterDeleteEndLine: Int,
-        hasPendingDeletionSettlement: Boolean
+        hasPendingDeletionSettlement: Boolean,
+        afterDeleteStartLine: Int = -1,
+        afterDeleteEndColumn: Int = Int.MIN_VALUE,
+        afterDeleteIsSelection: Boolean? = null
     ): AfterDeleteAction {
         val initial = stagedInitialSnapshot
         val probe = stagedBatchProbe
@@ -456,9 +510,24 @@ class ScribeDeletionSnapshotCoordinator {
             deletedDuringCurrentReplace = true
         }
         return if (initial != null) {
+            val effectiveStartLine = if (afterDeleteStartLine >= 0) {
+                minOf(initial.selectionStartLine, afterDeleteStartLine)
+            } else {
+                initial.selectionStartLine
+            }
             val effectiveEndLine = maxOf(afterDeleteEndLine, initial.selectionEndLine)
+            val resolvedAfterCol = if (afterDeleteEndColumn != Int.MIN_VALUE) afterDeleteEndColumn else initial.selectionEndColumn
+            val effectiveEndColumn = when {
+                afterDeleteEndLine > initial.selectionEndLine -> if (afterDeleteEndColumn != Int.MIN_VALUE) afterDeleteEndColumn else 1
+                afterDeleteEndLine < initial.selectionEndLine -> initial.selectionEndColumn
+                else -> maxOf(initial.selectionEndColumn, resolvedAfterCol)
+            }
+            val effectiveIsSelection = afterDeleteIsSelection ?: initial.isSelection
             val affectsTail = ScribeScrollDeletionPolicy.isLineRangeAffectingLogicalTail(
+                startLine = effectiveStartLine,
                 endLine = effectiveEndLine,
+                endColumn = effectiveEndColumn,
+                isSelection = effectiveIsSelection,
                 lastNonBlankLine = initial.preEditLastNonBlankLine
             )
             if (!hasPendingDeletionSettlement) {
@@ -474,21 +543,43 @@ class ScribeDeletionSnapshotCoordinator {
                         preEditCaretScreenY = initial.preEditCaretScreenY,
                         wasAtTail = initial.wasAtTail,
                         affectsDocumentTail = affectsTail,
-                        preEditLastNonBlankLine = initial.preEditLastNonBlankLine
+                        preEditLastNonBlankLine = initial.preEditLastNonBlankLine,
+                        selectionEndColumn = effectiveEndColumn
                     ),
                     affectsDocumentTail = affectsTail
                 )
             } else {
                 AfterDeleteAction.MergeExistingBatch(
                     batchEndLine = effectiveEndLine,
-                    batchLastNonBlankLine = initial.preEditLastNonBlankLine
+                    batchLastNonBlankLine = initial.preEditLastNonBlankLine,
+                    batchStartLine = effectiveStartLine,
+                    batchEndColumn = effectiveEndColumn,
+                    batchIsSelection = effectiveIsSelection
                 )
             }
         } else if (hasPendingDeletionSettlement) {
-            val effectiveEndLine = maxOf(afterDeleteEndLine, probe?.endLine ?: afterDeleteEndLine)
+            val probeEndLine = probe?.endLine ?: afterDeleteEndLine
+            val effectiveEndLine = maxOf(afterDeleteEndLine, probeEndLine)
+            val probeEndCol = probe?.endColumn ?: 1
+            val resolvedAfterCol = if (afterDeleteEndColumn != Int.MIN_VALUE) afterDeleteEndColumn else probeEndCol
+            val effectiveEndColumn = when {
+                afterDeleteEndLine > probeEndLine -> if (afterDeleteEndColumn != Int.MIN_VALUE) afterDeleteEndColumn else 1
+                afterDeleteEndLine < probeEndLine -> probeEndCol
+                else -> maxOf(probeEndCol, resolvedAfterCol)
+            }
+            val effectiveStartLine = when {
+                afterDeleteStartLine >= 0 && probe != null -> minOf(afterDeleteStartLine, probe.startLine)
+                afterDeleteStartLine >= 0 -> afterDeleteStartLine
+                probe != null -> probe.startLine
+                else -> 0
+            }
+            val effectiveIsSelection = (afterDeleteIsSelection ?: false) || (probe?.isSelection ?: false)
             AfterDeleteAction.MergeExistingBatch(
                 batchEndLine = effectiveEndLine,
-                batchLastNonBlankLine = probe?.lastNonBlankLine
+                batchLastNonBlankLine = probe?.lastNonBlankLine,
+                batchStartLine = effectiveStartLine,
+                batchEndColumn = effectiveEndColumn,
+                batchIsSelection = effectiveIsSelection
             )
         } else {
             AfterDeleteAction.MarkPendingOnly
