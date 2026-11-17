@@ -19,6 +19,7 @@ import androidx.compose.ui.geometry.Rect as ComposeRect
 import kotlin.math.roundToInt
 import android.view.inputmethod.InputConnection
 import io.github.rosemoe.sora.widget.EditorRenderer
+import io.github.rosemoe.sora.widget.ScribeDrawCursorTaskAccessor
 import io.github.rosemoe.sora.widget.component.EditorTextActionWindow
 import io.github.rosemoe.sora.widget.style.SelectionHandleStyle
 import io.github.rosemoe.sora.widget.style.builtin.HandleStyleDrop
