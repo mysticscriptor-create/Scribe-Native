@@ -115,7 +115,7 @@ class ScribeGapCollapsePolicyTest {
             viewportBounds = makeValidViewportBounds(top = 0f, bottom = 1000f)
         )
         assertEquals(CollapseScenario.D_SELECTION_ONLY_CENTERED, dOverCap.scenario)
-        assertTrue(dOverCap.requiresCenteredCollapse)
+        assertTrue(dOverCap.isProgressCoupled)
 
         val ePlan = planWithDefaults(isUpperVisible = false, isLowerVisible = false, isTouchedOnScreen = false)
         assertEquals(CollapseScenario.E_OFFSCREEN_CARET_FOLLOW, ePlan.scenario)

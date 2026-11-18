@@ -1982,7 +1982,7 @@ class ScribeGapCollapseIntegrationTest {
                         canvas.gapCollapseController.isTransactionOwned
                     )
                     assertEquals(CollapseScenario.D_SELECTION_ONLY_CENTERED, plan?.scenario)
-                    assertTrue(plan?.requiresCenteredCollapse == true)
+                    assertTrue(plan?.isProgressCoupled == true)
                     drawEditorIntoBitmap(ed)
                 }
                 waitUntil(failureMsg = "Large Scenario D collapse must settle cleanly to IDLE") {
