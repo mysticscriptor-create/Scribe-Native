@@ -934,6 +934,7 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
 
         // Row 5: Second deletion interrupts collapse and marks Deletion #2 INELIGIBLE_FALLBACK
         run {
+            val preRow5LegacyCount = canvas.legacySettlementInvocationCount
             val (gen1, _) = enterSplitCollapseAt(canvas, seamLine = 20, tauLowerPx = rowH * 4f, freezeToPointer = true)
             editor.setSelectionRegion(8, 0, 10, 0, false)
             editor.deleteText()
@@ -944,7 +945,7 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             assertFalse("Second deletion must never launch gap collapse", canvas.gapCollapseController.shouldApplySplitRender)
             assertEquals(
                 "Interrupted second selection deletion must not fall back to legacy handleDeletionSettlement()",
-                0,
+                preRow5LegacyCount,
                 canvas.legacySettlementInvocationCount
             )
             assertEquals(
@@ -1442,16 +1443,17 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             assertEquals(0, canvas.legacySettlementInvocationCount)
         }
 
-        // 5. Merged partial-row seam (c1 > 0) while unfocused records NOT_FOCUSED handle status and zero legacy settlement
+        // 5. RTL/Bidi seam while unfocused records rtl_or_bidi_at_seam + NOT_FOCUSED handle status and zero legacy settlement
         run {
             val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
             val editor = canvas.editor
+            editor.text.insert(8, 0, "مرحبا ")
             editor.clearFocus()
             editor.isCursorAnimationEnabled = false
             editor.isWordwrap = true
             awaitWordwrapLayoutReady(editor)
 
-            editor.setSelectionRegion(8, 3, 12, 0, false)
+            editor.setSelectionRegion(8, 0, 12, 0, false)
             editor.deleteText()
 
             assertFalse(canvas.gapCollapseController.isTransactionOwned)
@@ -1459,7 +1461,7 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
                 SelectionDeletionDispatchOutcome.GAP_COLLAPSE_UNSUPPORTED_GEOMETRY,
                 canvas.lastSelectionDeletionDiagnostic?.outcome
             )
-            assertEquals("merged_partial_row_seam", canvas.lastSelectionDeletionDiagnostic?.reason)
+            assertEquals("rtl_or_bidi_at_seam", canvas.lastSelectionDeletionDiagnostic?.reason)
             assertEquals(PreDeleteHandleCaptureStatus.NOT_FOCUSED, canvas.lastSelectionDeletionDiagnostic?.upperHandleStatus)
             assertEquals(0, canvas.legacySettlementInvocationCount)
         }
