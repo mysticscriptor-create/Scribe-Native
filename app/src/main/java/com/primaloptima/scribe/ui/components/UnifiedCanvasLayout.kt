@@ -662,6 +662,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         private set
     var activeSeamLine: Int = -1
         private set
+    var activeSeamCol: Int = 0
+        private set
     var activeSeamFirstLowerRow: Int = -1
         private set
     var activeSeamDocY: Float = 0f
@@ -687,6 +689,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
 
     private fun clearActiveSeamBaseline() {
         activeSeamLine = -1
+        activeSeamCol = 0
         activeSeamFirstLowerRow = -1
         activeSeamDocY = 0f
     }
@@ -694,6 +697,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     internal fun syncActiveSeamBaselineFromController() {
         if (gapCollapseController.shouldApplySplitRender) {
             activeSeamLine = gapCollapseController.activeSeamLine
+            activeSeamCol = gapCollapseController.activeSeamCol
             activeSeamFirstLowerRow = gapCollapseController.activeSeamFirstLowerRow
             activeSeamDocY = gapCollapseController.activeSeamDocY
         } else {
@@ -1048,11 +1052,16 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         return false
     }
 
-    private fun initializeActiveSeamBaselineIfEligible(curLay: io.github.rosemoe.sora.widget.layout.Layout) {
+    private fun initializeActiveSeamBaselineIfEligible(
+        curLay: io.github.rosemoe.sora.widget.layout.Layout,
+        anchorUpper: Boolean = false
+    ) {
         val preCapture = pendingPreDeleteSeamCapture ?: return
         val postContent = editor.text
         val cur = try { editor.cursor } catch (_: Throwable) { null } ?: return
         val postStartLine = cur.leftLine.coerceIn(0, (postContent.lineCount - 1).coerceAtLeast(0))
+        val postCaretCol = cur.leftColumn.coerceAtLeast(0)
+        val postLineLenAtStart = try { postContent.getColumnCount(postStartLine) } catch (_: Throwable) { 0 }
         val rHeight = editor.rowHeight.toFloat()
         val resolved = ScribeGapCollapsePolicy.resolvePostDeleteSeamGeometry(
             preCapture = preCapture,
@@ -1066,11 +1075,23 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 } catch (_: Throwable) {
                     -1
                 }
+            },
+            postCaretCol = postCaretCol,
+            postLineLenAtStart = postLineLenAtStart,
+            isTextEmpty = postContent.isEmpty(),
+            anchorUpper = anchorUpper,
+            postRowStartCol = { row ->
+                try {
+                    curLay.getRowAt(row).startColumn
+                } catch (_: Throwable) {
+                    0
+                }
             }
         )
         resolvedSeamGeometry = resolved
         if (resolved.isEligibleCase) {
             activeSeamLine = resolved.seamLine
+            activeSeamCol = resolved.seamCol
             activeSeamFirstLowerRow = resolved.seamFirstLowerRow
             activeSeamDocY = resolved.seamFirstLowerRow * rHeight
         } else {
@@ -1111,7 +1132,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 left: Int, top: Int, right: Int, bottom: Int,
                 oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int
             ) {
-                if ((bottom - top) > 0 && editor.isLaidOut && editor.isWordwrapReady()) {
+                val scribeEditor = editor as? ScribeCodeEditor
+                val editorBusy = scribeEditor?.isLayoutBusy ?: editor.isLayoutComputing
+                if ((bottom - top) > 0 && editor.isLaidOut && editor.isWordwrapReady() && !editorBusy) {
                     clearPendingDeletionLayoutListener()
                     post {
                         if (gapCollapseController.matchesSafetyEpoch(capturedGen, capturedSafetyEpoch) &&
@@ -1128,6 +1151,48 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         addOnAttachStateChangeListener(attachListener)
         addOnLayoutChangeListener(layoutListener)
         return SafetyRevalidationResult.DEFERRED_UNTIL_LAYOUT_READY("layout_or_bounds_not_ready")
+    }
+
+    internal fun onEditorLayoutStateReadyForGapCollapse() {
+        val controller = gapCollapseController
+        if (!controller.isTransactionOwned || controller.isTeardownLocked) return
+        val scribeEditor = editor as? ScribeCodeEditor
+        val editorBusy = scribeEditor?.isLayoutBusy ?: editor.isLayoutComputing
+        val lay = editor.layout ?: return
+        if (editorBusy || !editor.isWordwrapReady()) return
+
+        if (controller.phase == GapCollapsePhase.FINAL_SAFETY_PENDING) {
+            val capturedGen = controller.owningDeletionGen
+            val capturedEpoch = controller.safetyEpoch
+            if (capturedGen == deletionTransactionGeneration &&
+                controller.matchesSafetyEpoch(capturedGen, capturedEpoch)
+            ) {
+                clearPendingDeletionLayoutListener()
+                completeDeletionVisualTransaction(capturedGen, capturedEpoch)
+            }
+            return
+        }
+
+        if (controller.hasActiveRebasableSeam && controller.owningDeletionGen == deletionTransactionGeneration) {
+            val line = controller.activeSeamLine
+            val col = controller.activeSeamCol
+            val content = editor.text
+            if (line in 0 until content.lineCount) {
+                val safeCol = col.coerceIn(0, content.getColumnCount(line))
+                val newRow = try {
+                    lay.getRowIndexForPosition(content.indexer.getCharIndex(line, safeCol))
+                } catch (_: Throwable) {
+                    -1
+                }
+                if (newRow >= 0 && newRow != controller.activeSeamFirstLowerRow) {
+                    val newDocY = newRow * editor.rowHeight.toFloat()
+                    if (controller.updateSeamRowBaseline(deletionTransactionGeneration, newRow, newDocY)) {
+                        syncActiveSeamBaselineFromController()
+                        editor.invalidate()
+                    }
+                }
+            }
+        }
     }
 
     internal fun completeDeletionVisualTransaction(
@@ -1458,8 +1523,45 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             forceFallbackOnDelayedSettlement = true
             return
         }
+        val preCapture = pendingPreDeleteSeamCapture
+        val viewportBounds = resolveUnobstructedViewportBounds()
+        val visibilityConfidence = evaluateVisibilityConfidence(viewportBounds)
+        val preScrollY = preCapture?.preScrollY ?: (scrollD + editor.offsetY)
+        val viewportWidthPx = width.coerceAtLeast(1).toFloat()
+        val editorHeightPx = if (preCapture != null && preCapture.preEditorHeightPx > 0) preCapture.preEditorHeightPx else editor.height
+
+        val isUpperVisible = if (preCapture != null) {
+            ScribeGapCollapsePolicy.isHandleVisibleInViewport(
+                handleDoc = preCapture.preUpperHandleDoc,
+                preScrollX = preCapture.preScrollX,
+                preScrollY = preScrollY,
+                headerHeight = headerHeight,
+                editorHeightPx = editorHeightPx,
+                viewportWidthPx = viewportWidthPx,
+                viewportBounds = viewportBounds
+            )
+        } else {
+            false
+        }
+        val isLowerVisible = if (preCapture != null) {
+            ScribeGapCollapsePolicy.isHandleVisibleInViewport(
+                handleDoc = preCapture.preLowerHandleDoc,
+                preScrollX = preCapture.preScrollX,
+                preScrollY = preScrollY,
+                headerHeight = headerHeight,
+                editorHeightPx = editorHeightPx,
+                viewportWidthPx = viewportWidthPx,
+                viewportBounds = viewportBounds
+            )
+        } else {
+            false
+        }
+
         if (!forceFallbackOnDelayedSettlement) {
-            initializeActiveSeamBaselineIfEligible(curLay)
+            initializeActiveSeamBaselineIfEligible(
+                curLay = curLay,
+                anchorUpper = isUpperVisible && !isLowerVisible
+            )
         } else {
             resolvedSeamGeometry = null
             clearActiveSeamBaseline()
@@ -1499,11 +1601,15 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             isPostEditCaretAtLogicalTail = isPostEditCaretAtLogicalTail
         )
 
-        val preCapture = pendingPreDeleteSeamCapture
         val seam = resolvedSeamGeometry
+        val isEligibleIntent =
+            intent == ScribeScrollDeletionPolicy.DeletionAnchorIntent.CARET_ANCHOR ||
+                intent == ScribeScrollDeletionPolicy.DeletionAnchorIntent.TAIL_ANCHOR ||
+                intent == ScribeScrollDeletionPolicy.DeletionAnchorIntent.RESET_TO_TOP
         if (forceFallbackOnDelayedSettlement ||
             !snapshot.isSelection ||
-            intent != ScribeScrollDeletionPolicy.DeletionAnchorIntent.CARET_ANCHOR ||
+            isTextEmpty ||
+            !isEligibleIntent ||
             preCapture == null ||
             seam == null ||
             !seam.isEligibleCase
@@ -1512,30 +1618,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             return
         }
 
-        val viewportBounds = resolveUnobstructedViewportBounds()
-        val visibilityConfidence = evaluateVisibilityConfidence(viewportBounds)
-        val preScrollY = preCapture.preScrollY
-        val viewportWidthPx = width.coerceAtLeast(1).toFloat()
-        val editorHeightPx = if (preCapture.preEditorHeightPx > 0) preCapture.preEditorHeightPx else editor.height
-
-        val isUpperVisible = ScribeGapCollapsePolicy.isHandleVisibleInViewport(
-            handleDoc = preCapture.preUpperHandleDoc,
-            preScrollX = preCapture.preScrollX,
-            preScrollY = preScrollY,
-            headerHeight = headerHeight,
-            editorHeightPx = editorHeightPx,
-            viewportWidthPx = viewportWidthPx,
-            viewportBounds = viewportBounds
-        )
-        val isLowerVisible = ScribeGapCollapsePolicy.isHandleVisibleInViewport(
-            handleDoc = preCapture.preLowerHandleDoc,
-            preScrollX = preCapture.preScrollX,
-            preScrollY = preScrollY,
-            headerHeight = headerHeight,
-            editorHeightPx = editorHeightPx,
-            viewportWidthPx = viewportWidthPx,
-            viewportBounds = viewportBounds
-        )
         val isTouchedOnScreen = ScribeGapCollapsePolicy.isSelectionTouchedOnScreen(
             isUpperVisible = isUpperVisible,
             isLowerVisible = isLowerVisible,
@@ -1548,7 +1630,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         val usableMidLocal = (viewportBounds.visibleEditorTop + viewportBounds.visibleEditorBottom) * 0.5f
         val seamDocY = seam.seamFirstLowerRow * rHeight
         val centeredTargetScroll = (headerHeight.toFloat() + seamDocY - usableMidLocal).coerceAtLeast(0f)
-        val anchorDocBottom = maxOf(newCaretDocY, seamDocY)
+        val isTailAnchoredCollapse = intent == ScribeScrollDeletionPolicy.DeletionAnchorIntent.TAIL_ANCHOR
+        val anchorDocBottom = if (isTailAnchoredCollapse) {
+            maxOf(newCaretDocY, seamDocY, newDocHeight)
+        } else {
+            maxOf(newCaretDocY, seamDocY)
+        }
         val safetyBounds = resolveSafetyFloorAndBounds(
             anchorDocBottom = anchorDocBottom,
             viewportBounds = viewportBounds
@@ -1606,6 +1693,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
         if (!tryClaimPendingDeletionSettlement(fromGen)) return
+        isDeletionTailAnchored = isTailAnchoredCollapse
 
         if (plan.requiresSynchronousSnap) {
             val currentActual = scrollD + editor.offsetY
@@ -1629,7 +1717,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             seamFirstLowerRow = activeSeamFirstLowerRow,
             seamDocY = activeSeamDocY,
             rowHeightPx = rHeight,
-            initialPhysicalScrollPx = initialActualScroll
+            initialPhysicalScrollPx = initialActualScroll,
+            seamCol = activeSeamCol
         )
         if (gapCollapseController.shouldApplySplitRender) {
             scribeEditor?.onGapCollapseSplitEntered()

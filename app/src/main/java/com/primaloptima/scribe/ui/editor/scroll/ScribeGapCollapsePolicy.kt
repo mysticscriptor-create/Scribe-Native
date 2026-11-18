@@ -120,7 +120,11 @@ data class PreDeleteSeamCapture(
     val preLowerHandleDoc: PreDeleteHandleDocRect? = null,
     val preSelectedRowSpansDoc: List<Rect> = emptyList(),
     val hasSelectedRowSpans: Boolean = false,
-    val wasCursorAnimationRunningBeforeDelete: Boolean = false
+    val wasCursorAnimationRunningBeforeDelete: Boolean = false,
+    val preUpperPrefixBlank: Boolean = (c1 == 0),
+    val preRowLowerSuffixStart: Int = -1,
+    val preRowLowerEndOfL2: Int = -1,
+    val preRowNextLine: Int = -1
 )
 
 data class ResolvedSeamGeometry(
@@ -263,7 +267,9 @@ object ScribeGapCollapsePolicy {
         )
 
         val isEligible =
-            deletionIntent == ScribeScrollDeletionPolicy.DeletionAnchorIntent.CARET_ANCHOR &&
+            (deletionIntent == ScribeScrollDeletionPolicy.DeletionAnchorIntent.CARET_ANCHOR ||
+                deletionIntent == ScribeScrollDeletionPolicy.DeletionAnchorIntent.TAIL_ANCHOR ||
+                deletionIntent == ScribeScrollDeletionPolicy.DeletionAnchorIntent.RESET_TO_TOP) &&
                 isSelection &&
                 isWordwrap &&
                 isWordwrapReady &&
@@ -272,7 +278,6 @@ object ScribeGapCollapsePolicy {
                 !isCursorAnimationRunning &&
                 !hasRtlOrBidiAtSeam &&
                 !isMergedPartialRowSeam &&
-                hasSurvivingUpper &&
                 hasSurvivingLower &&
                 deltaGapPx.isFinite() &&
                 deltaGapPx > MIN_GAP_COLLAPSE_PX &&
@@ -287,9 +292,6 @@ object ScribeGapCollapsePolicy {
             isUpperVisible && isLowerVisible -> CollapseScenario.C_BOTH_VISIBLE
             isUpperVisible && !isLowerVisible -> CollapseScenario.A_UPPER_ONLY
             !isUpperVisible && !isLowerVisible && isTouchedOnScreen -> {
-                if (deltaGapPx > MAX_SCENARIO_D_GAP_VIEWPORT_MULTIPLIER * viewportBounds.usableHeight) {
-                    return fallbackPlan()
-                }
                 CollapseScenario.D_SELECTION_ONLY_CENTERED
             }
             else -> return fallbackPlan(
@@ -529,12 +531,13 @@ object ScribeGapCollapsePolicy {
         newSeamLine: Int,
         newSeamCol: Int,
         newSeamFirstLowerRow: Int,
-        postSeamDocY: Float
+        postSeamDocY: Float,
+        expectedSeamCol: Int = 0
     ): SeamMappingResult {
         if (!isWordwrapReady || isLayoutBusy) {
             return SeamMappingResult.FallbackRequired("layout_not_ready")
         }
-        if (newSeamCol != 0 ||
+        if (newSeamCol != expectedSeamCol ||
             newSeamLine < 0 ||
             newSeamFirstLowerRow < 0 ||
             !postSeamDocY.isFinite() ||
@@ -710,7 +713,8 @@ object ScribeGapCollapsePolicy {
         preLowerHandleDoc: PreDeleteHandleDocRect? = null,
         preSelectedRowSpansDoc: List<Rect> = emptyList(),
         hasSelectedRowSpans: Boolean = false,
-        wasCursorAnimationRunningBeforeDelete: Boolean = false
+        wasCursorAnimationRunningBeforeDelete: Boolean = false,
+        preUpperPrefixBlank: Boolean = (c1 == 0)
     ): PreDeleteSeamCapture {
         if (!isSelection || preLineCount <= 0 || rowHeightPx <= 0f || !rowHeightPx.isFinite()) {
             return PreDeleteSeamCapture(
@@ -736,41 +740,17 @@ object ScribeGapCollapsePolicy {
                 preLowerHandleDoc = preLowerHandleDoc,
                 preSelectedRowSpansDoc = preSelectedRowSpansDoc,
                 hasSelectedRowSpans = hasSelectedRowSpans,
-                wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete
+                wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete,
+                preUpperPrefixBlank = preUpperPrefixBlank
             )
         }
         val hasSurvivingUpper = l1 > 0 || c1 > 0
+        val preRowNextLine = if (l2 + 1 < preLineCount) rowIndexAt(l2 + 1, 0) else -1
+        val preRowLowerEndOfL2 = rowIndexAt(l2, preLineLenL2)
         if (c2 < preLineLenL2) {
-            // Case I (C2 < preLineLen(L2))
-            if (c1 > 0) {
-                return PreDeleteSeamCapture(
-                    isSelection = true,
-                    l1 = l1,
-                    c1 = c1,
-                    l2 = l2,
-                    c2 = c2,
-                    preLineCount = preLineCount,
-                    preLineLenL2 = preLineLenL2,
-                    preScrollY = preScrollY,
-                    seamCase = DeletionSeamCase.CASE_I_MID_LINE_OR_WHOLE_LINE,
-                    isMergedPartialRowSeam = true,
-                    hasSurvivingUpper = hasSurvivingUpper,
-                    hasSurvivingLower = true,
-                    preFirstLowerRowTopDocY = Float.NaN,
-                    preSelectionTopDocY = preSelectionTopDocY,
-                    preSelectionBottomDocY = preSelectionBottomDocY,
-                    hasRtlOrBidiAtSeam = hasRtlOrBidiAtSeam,
-                    preScrollX = preScrollX,
-                    preEditorHeightPx = preEditorHeightPx,
-                    preUpperHandleDoc = preUpperHandleDoc,
-                    preLowerHandleDoc = preLowerHandleDoc,
-                    preSelectedRowSpansDoc = preSelectedRowSpansDoc,
-                    hasSelectedRowSpans = hasSelectedRowSpans,
-                    wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete
-                )
-            }
-            val preRow = rowIndexAt(l2, c2)
-            val preTopDocY = if (preRow >= 0) preRow * rowHeightPx else Float.NaN
+            // Case I (C2 < preLineLen(L2)), supporting both C1 == 0 and C1 > 0 merged seams
+            val preRowLowerSuffixStart = rowIndexAt(l2, c2)
+            val preTopDocY = if (preRowLowerSuffixStart >= 0) preRowLowerSuffixStart * rowHeightPx else Float.NaN
             return PreDeleteSeamCapture(
                 isSelection = true,
                 l1 = l1,
@@ -794,7 +774,11 @@ object ScribeGapCollapsePolicy {
                 preLowerHandleDoc = preLowerHandleDoc,
                 preSelectedRowSpansDoc = preSelectedRowSpansDoc,
                 hasSelectedRowSpans = hasSelectedRowSpans,
-                wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete
+                wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete,
+                preUpperPrefixBlank = preUpperPrefixBlank,
+                preRowLowerSuffixStart = preRowLowerSuffixStart,
+                preRowLowerEndOfL2 = preRowLowerEndOfL2,
+                preRowNextLine = preRowNextLine
             )
         }
         // Case II (C2 == preLineLen(L2))
@@ -822,11 +806,14 @@ object ScribeGapCollapsePolicy {
                 preLowerHandleDoc = preLowerHandleDoc,
                 preSelectedRowSpansDoc = preSelectedRowSpansDoc,
                 hasSelectedRowSpans = hasSelectedRowSpans,
-                wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete
+                wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete,
+                preUpperPrefixBlank = preUpperPrefixBlank,
+                preRowLowerSuffixStart = -1,
+                preRowLowerEndOfL2 = preRowLowerEndOfL2,
+                preRowNextLine = -1
             )
         }
-        val preRow = rowIndexAt(l2 + 1, 0)
-        val preTopDocY = if (preRow >= 0) preRow * rowHeightPx else Float.NaN
+        val preTopDocY = if (preRowNextLine >= 0) preRowNextLine * rowHeightPx else Float.NaN
         return PreDeleteSeamCapture(
             isSelection = true,
             l1 = l1,
@@ -850,7 +837,11 @@ object ScribeGapCollapsePolicy {
             preLowerHandleDoc = preLowerHandleDoc,
             preSelectedRowSpansDoc = preSelectedRowSpansDoc,
             hasSelectedRowSpans = hasSelectedRowSpans,
-            wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete
+            wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete,
+            preUpperPrefixBlank = preUpperPrefixBlank,
+            preRowLowerSuffixStart = -1,
+            preRowLowerEndOfL2 = preRowLowerEndOfL2,
+            preRowNextLine = preRowNextLine
         )
     }
 
@@ -859,7 +850,12 @@ object ScribeGapCollapsePolicy {
         postStartLine: Int,
         postLineCount: Int,
         rowHeightPx: Float,
-        postRowIndexAt: (line: Int, col: Int) -> Int
+        postRowIndexAt: (line: Int, col: Int) -> Int,
+        postCaretCol: Int = 0,
+        postLineLenAtStart: Int = 0,
+        isTextEmpty: Boolean = false,
+        anchorUpper: Boolean = false,
+        postRowStartCol: (row: Int) -> Int = { _ -> 0 }
     ): ResolvedSeamGeometry {
         fun ineligible(hasLower: Boolean = preCapture.hasSurvivingLower): ResolvedSeamGeometry =
             ResolvedSeamGeometry(
@@ -879,42 +875,123 @@ object ScribeGapCollapsePolicy {
             )
 
         if (!preCapture.isSelection ||
+            isTextEmpty ||
             preCapture.isMergedPartialRowSeam ||
-            !preCapture.hasSurvivingUpper ||
             !preCapture.hasSurvivingLower ||
             preCapture.hasRtlOrBidiAtSeam ||
-            !preCapture.preFirstLowerRowTopDocY.isFinite() ||
+            postStartLine < 0 ||
+            postStartLine >= postLineCount ||
             rowHeightPx <= 0f ||
             !rowHeightPx.isFinite()
         ) {
-            return ineligible()
+            return ineligible(hasLower = if (isTextEmpty) false else preCapture.hasSurvivingLower)
         }
 
-        val seamLine = when (preCapture.seamCase) {
-            DeletionSeamCase.CASE_I_MID_LINE_OR_WHOLE_LINE -> postStartLine
-            DeletionSeamCase.CASE_II_LINE_END -> postStartLine + 1
+        val seamLine: Int
+        val seamCol: Int
+        val seamFirstLowerRow: Int
+        val resolvedPreTopDocY: Float
+
+        when (preCapture.seamCase) {
+            DeletionSeamCase.CASE_I_MID_LINE_OR_WHOLE_LINE -> {
+                if (preCapture.c1 == 0) {
+                    if (!preCapture.preFirstLowerRowTopDocY.isFinite()) {
+                        return ineligible()
+                    }
+                    seamLine = postStartLine
+                    seamCol = 0
+                    seamFirstLowerRow = postRowIndexAt(seamLine, 0)
+                    resolvedPreTopDocY = preCapture.preFirstLowerRowTopDocY
+                } else {
+                    val safeCaretCol = postCaretCol.coerceIn(0, postLineLenAtStart.coerceAtLeast(0))
+                    val postFirstRow = postRowIndexAt(postStartLine, 0)
+                    val postCaretRow = postRowIndexAt(postStartLine, safeCaretCol)
+                    val postLastRow = postRowIndexAt(postStartLine, postLineLenAtStart.coerceAtLeast(0))
+                    if (preCapture.preUpperPrefixBlank && postCaretRow >= 0 && postCaretRow == postFirstRow) {
+                        val preRow = if (preCapture.preRowLowerSuffixStart >= 0) {
+                            preCapture.preRowLowerSuffixStart * rowHeightPx
+                        } else {
+                            preCapture.preFirstLowerRowTopDocY
+                        }
+                        if (!preRow.isFinite()) {
+                            return ineligible()
+                        }
+                        seamLine = postStartLine
+                        seamCol = 0
+                        seamFirstLowerRow = postFirstRow
+                        resolvedPreTopDocY = preRow
+                    } else if (postCaretRow >= 0 && postLastRow > postCaretRow) {
+                        val lowerTailRowsInPostLine = postLastRow - postCaretRow
+                        seamLine = postStartLine
+                        seamFirstLowerRow = postCaretRow + 1
+                        seamCol = maxOf(postRowStartCol(seamFirstLowerRow), safeCaretCol + 1)
+                        resolvedPreTopDocY = when {
+                            preCapture.preRowNextLine >= 0 ->
+                                (preCapture.preRowNextLine - lowerTailRowsInPostLine) * rowHeightPx
+                            preCapture.preRowLowerEndOfL2 >= 0 &&
+                                preCapture.preRowLowerSuffixStart >= 0 &&
+                                preCapture.preRowLowerEndOfL2 > preCapture.preRowLowerSuffixStart ->
+                                (preCapture.preRowLowerEndOfL2 + 1 - lowerTailRowsInPostLine) * rowHeightPx
+                            else -> return ineligible(hasLower = false)
+                        }
+                    } else if (postStartLine + 1 < postLineCount && preCapture.preRowNextLine >= 0) {
+                        seamLine = postStartLine + 1
+                        seamCol = 0
+                        seamFirstLowerRow = postRowIndexAt(seamLine, 0)
+                        resolvedPreTopDocY = preCapture.preRowNextLine * rowHeightPx
+                    } else {
+                        return ineligible(hasLower = false)
+                    }
+                }
+            }
+            DeletionSeamCase.CASE_II_LINE_END -> {
+                if (preCapture.preUpperPrefixBlank && !anchorUpper) {
+                    val startRow = postRowIndexAt(postStartLine, 0)
+                    val nextRow = if (postStartLine + 1 < postLineCount) {
+                        postRowIndexAt(postStartLine + 1, 0)
+                    } else {
+                        -1
+                    }
+                    if (startRow < 0 || nextRow < 0 || preCapture.preRowNextLine < 0) {
+                        return ineligible(hasLower = postStartLine + 1 < postLineCount)
+                    }
+                    val startLineRowSpan = (nextRow - startRow).coerceAtLeast(1)
+                    seamLine = postStartLine
+                    seamCol = 0
+                    seamFirstLowerRow = startRow
+                    resolvedPreTopDocY = (preCapture.preRowNextLine - startLineRowSpan) * rowHeightPx
+                } else {
+                    if (!preCapture.preFirstLowerRowTopDocY.isFinite()) {
+                        return ineligible()
+                    }
+                    seamLine = postStartLine + 1
+                    if (seamLine < 0 || seamLine >= postLineCount) {
+                        return ineligible(hasLower = false)
+                    }
+                    seamCol = 0
+                    seamFirstLowerRow = postRowIndexAt(seamLine, 0)
+                    resolvedPreTopDocY = preCapture.preFirstLowerRowTopDocY
+                }
+            }
             DeletionSeamCase.NONE -> return ineligible()
         }
-        if (seamLine < 0 || seamLine >= postLineCount) {
-            return ineligible(hasLower = false)
-        }
-        val seamFirstLowerRow = postRowIndexAt(seamLine, 0)
-        if (seamFirstLowerRow < 0) {
-            return ineligible()
+
+        if (seamLine < 0 || seamLine >= postLineCount || seamFirstLowerRow < 0 || !resolvedPreTopDocY.isFinite()) {
+            return ineligible(hasLower = seamLine in 0 until postLineCount)
         }
         val activeSeamDocY = seamFirstLowerRow * rowHeightPx
-        val deltaGapPx = preCapture.preFirstLowerRowTopDocY - activeSeamDocY
+        val deltaGapPx = resolvedPreTopDocY - activeSeamDocY
         return ResolvedSeamGeometry(
             isEligibleCase = true,
             isMergedPartialRowSeam = false,
-            hasSurvivingUpper = true,
+            hasSurvivingUpper = preCapture.hasSurvivingUpper,
             hasSurvivingLower = true,
             hasRtlOrBidiAtSeam = false,
             seamLine = seamLine,
-            seamCol = 0,
+            seamCol = seamCol,
             seamFirstLowerRow = seamFirstLowerRow,
             activeSeamDocY = activeSeamDocY,
-            preFirstLowerRowTopDocY = preCapture.preFirstLowerRowTopDocY,
+            preFirstLowerRowTopDocY = resolvedPreTopDocY,
             deltaGapPx = deltaGapPx,
             preSelectionTopDocY = preCapture.preSelectionTopDocY,
             preSelectionBottomDocY = preCapture.preSelectionBottomDocY

@@ -114,7 +114,8 @@ class ScribeGapCollapsePolicyTest {
             deltaGapPx = 3001f,
             viewportBounds = makeValidViewportBounds(top = 0f, bottom = 1000f)
         )
-        assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, dOverCap.scenario)
+        assertEquals(CollapseScenario.D_SELECTION_ONLY_CENTERED, dOverCap.scenario)
+        assertTrue(dOverCap.requiresCenteredCollapse)
 
         val ePlan = planWithDefaults(isUpperVisible = false, isLowerVisible = false, isTouchedOnScreen = false)
         assertEquals(CollapseScenario.E_OFFSCREEN_CARET_FOLLOW, ePlan.scenario)
@@ -125,8 +126,8 @@ class ScribeGapCollapsePolicyTest {
     @Test
     fun testEligibilityGate_RejectsCursorAnimationAndInvalidPreconditions() {
         assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, planWithDefaults(isCursorAnimationRunning = true).scenario)
-        assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, planWithDefaults(deletionIntent = DeletionAnchorIntent.TAIL_ANCHOR).scenario)
-        assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, planWithDefaults(deletionIntent = DeletionAnchorIntent.RESET_TO_TOP).scenario)
+        assertEquals(CollapseScenario.C_BOTH_VISIBLE, planWithDefaults(deletionIntent = DeletionAnchorIntent.TAIL_ANCHOR).scenario)
+        assertEquals(CollapseScenario.C_BOTH_VISIBLE, planWithDefaults(deletionIntent = DeletionAnchorIntent.RESET_TO_TOP).scenario)
         assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, planWithDefaults(isSelection = false).scenario)
         assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, planWithDefaults(isWordwrap = false).scenario)
         assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, planWithDefaults(isWordwrapReady = false).scenario)
@@ -134,7 +135,7 @@ class ScribeGapCollapsePolicyTest {
         assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, planWithDefaults(isComposing = true).scenario)
         assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, planWithDefaults(hasRtlOrBidiAtSeam = true).scenario)
         assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, planWithDefaults(isMergedPartialRowSeam = true).scenario)
-        assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, planWithDefaults(hasSurvivingUpper = false).scenario)
+        assertEquals(CollapseScenario.C_BOTH_VISIBLE, planWithDefaults(hasSurvivingUpper = false).scenario)
         assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, planWithDefaults(hasSurvivingLower = false).scenario)
         assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, planWithDefaults(deltaGapPx = 0.5f).scenario)
         assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, planWithDefaults(visibilityConfidence = VisibilityConfidence.UNRELIABLE).scenario)
@@ -928,7 +929,7 @@ class ScribeGapCollapsePolicyTest {
         assertEquals(5 * rowHeight, caseIC0Post.activeSeamDocY, 0.001f)
         assertEquals(9 * rowHeight, caseIC0Post.deltaGapPx, 0.001f)
 
-        // 2. Case I (C2 < preLineLen(L2)) with C1 > 0 -> V1 partial-line seam fallback (no horizontal split)
+        // 2. Case I (C2 < preLineLen(L2)) with C1 > 0 -> Phase 6 supports merged partial-line seams
         val caseIC1Gt0Pre = ScribeGapCollapsePolicy.classifyPreDeleteSeam(
             isSelection = true,
             l1 = 3,
@@ -939,18 +940,40 @@ class ScribeGapCollapsePolicyTest {
             preLineLenL2 = 12,
             preScrollY = 100,
             rowHeightPx = rowHeight,
-            rowIndexAt = { _, _ -> 14 }
+            rowIndexAt = { line, col ->
+                when {
+                    line == 8 && col == 4 -> 14
+                    line == 8 && col == 12 -> 14
+                    line == 9 && col == 0 -> 15
+                    else -> -1
+                }
+            },
+            preUpperPrefixBlank = false
         )
-        assertTrue(caseIC1Gt0Pre.isMergedPartialRowSeam)
+        assertFalse(caseIC1Gt0Pre.isMergedPartialRowSeam)
         val caseIC1Gt0Post = ScribeGapCollapsePolicy.resolvePostDeleteSeamGeometry(
             preCapture = caseIC1Gt0Pre,
             postStartLine = 3,
             postLineCount = 15,
             rowHeightPx = rowHeight,
-            postRowIndexAt = { _, _ -> 5 }
+            postRowIndexAt = { line, col ->
+                when {
+                    line == 3 && col == 0 -> 5
+                    line == 3 && col == 2 -> 5
+                    line == 3 && col == 10 -> 6
+                    else -> -1
+                }
+            },
+            postCaretCol = 2,
+            postLineLenAtStart = 10,
+            postRowStartCol = { row -> if (row == 6) 6 else 0 }
         )
-        assertFalse(caseIC1Gt0Post.isEligibleCase)
-        assertTrue(caseIC1Gt0Post.isMergedPartialRowSeam)
+        assertTrue(caseIC1Gt0Post.isEligibleCase)
+        assertFalse(caseIC1Gt0Post.isMergedPartialRowSeam)
+        assertEquals(3, caseIC1Gt0Post.seamLine)
+        assertEquals(6, caseIC1Gt0Post.seamCol)
+        assertEquals(6, caseIC1Gt0Post.seamFirstLowerRow)
+        assertEquals(8 * rowHeight, caseIC1Gt0Post.deltaGapPx, 0.001f)
 
         // 3. Case II (C2 == preLineLen(L2)) with surviving L2 + 1 (valid even when C1 > 0)
         val caseIIPre = ScribeGapCollapsePolicy.classifyPreDeleteSeam(
@@ -1376,4 +1399,168 @@ class ScribeGapCollapsePolicyTest {
         assertEquals(CollapseScenario.E_OFFSCREEN_CARET_FOLLOW, planE.scenario)
     }
 
+
+    @Test
+    fun testPhase6_CaseIC1Gt0_BlankPrefixAndSameRowFitAndWrapping() {
+        val rowHeight = 40f
+
+        // A. Blank upper prefix (e.g. leading 4 spaces before c1) keeps postStartLine in Pass 2 (seamCol = 0)
+        val blankPre = ScribeGapCollapsePolicy.classifyPreDeleteSeam(
+            isSelection = true,
+            l1 = 3, c1 = 4, l2 = 6, c2 = 4,
+            preLineCount = 20, preLineLenL2 = 18,
+            preScrollY = 100, rowHeightPx = rowHeight,
+            rowIndexAt = { line, col ->
+                when {
+                    line == 6 && col == 4 -> 11
+                    line == 6 && col == 18 -> 12
+                    line == 7 && col == 0 -> 13
+                    else -> -1
+                }
+            },
+            preUpperPrefixBlank = true
+        )
+        val blankPost = ScribeGapCollapsePolicy.resolvePostDeleteSeamGeometry(
+            preCapture = blankPre,
+            postStartLine = 3,
+            postLineCount = 17,
+            rowHeightPx = rowHeight,
+            postRowIndexAt = { line, _ -> if (line == 3) 4 else -1 },
+            postCaretCol = 4,
+            postLineLenAtStart = 18
+        )
+        assertTrue(blankPost.isEligibleCase)
+        assertEquals(3, blankPost.seamLine)
+        assertEquals(0, blankPost.seamCol)
+        assertEquals(4, blankPost.seamFirstLowerRow)
+        assertEquals(7 * rowHeight, blankPost.deltaGapPx, 0.001f)
+
+        // B. Non-blank upper prefix where merged suffix fits on same postCaretRow -> seamLine = postStartLine + 1
+        val sameRowPre = ScribeGapCollapsePolicy.classifyPreDeleteSeam(
+            isSelection = true,
+            l1 = 3, c1 = 3, l2 = 6, c2 = 10,
+            preLineCount = 20, preLineLenL2 = 14,
+            preScrollY = 100, rowHeightPx = rowHeight,
+            rowIndexAt = { line, col ->
+                when {
+                    line == 6 && col == 10 -> 10
+                    line == 6 && col == 14 -> 10
+                    line == 7 && col == 0 -> 11
+                    else -> -1
+                }
+            },
+            preUpperPrefixBlank = false
+        )
+        val sameRowPost = ScribeGapCollapsePolicy.resolvePostDeleteSeamGeometry(
+            preCapture = sameRowPre,
+            postStartLine = 3,
+            postLineCount = 17,
+            rowHeightPx = rowHeight,
+            postRowIndexAt = { line, _ ->
+                when (line) {
+                    3 -> 4
+                    4 -> 5
+                    else -> -1
+                }
+            },
+            postCaretCol = 3,
+            postLineLenAtStart = 7
+        )
+        assertTrue(sameRowPost.isEligibleCase)
+        assertEquals(4, sameRowPost.seamLine)
+        assertEquals(0, sameRowPost.seamCol)
+        assertEquals(5, sameRowPost.seamFirstLowerRow)
+        assertEquals(6 * rowHeight, sameRowPost.deltaGapPx, 0.001f)
+    }
+
+    @Test
+    fun testPhase6_CaseIIBlankPrefix_KeepsCaretLineStationaryInScenariosBCD_ButNotScenarioA() {
+        val rowHeight = 40f
+        val pre = ScribeGapCollapsePolicy.classifyPreDeleteSeam(
+            isSelection = true,
+            l1 = 15, c1 = 0, l2 = 15, c2 = 30,
+            preLineCount = 25, preLineLenL2 = 30,
+            preScrollY = 200, rowHeightPx = rowHeight,
+            rowIndexAt = { line, col ->
+                when {
+                    line == 15 && col == 30 -> 20
+                    line == 16 && col == 0 -> 21
+                    else -> -1
+                }
+            },
+            preUpperPrefixBlank = true
+        )
+        // Scenarios B/C/D (anchorUpper = false): blank/indent line 15 stays stationary in Pass 2 with line 16
+        val postLowerAnchor = ScribeGapCollapsePolicy.resolvePostDeleteSeamGeometry(
+            preCapture = pre,
+            postStartLine = 15,
+            postLineCount = 25,
+            rowHeightPx = rowHeight,
+            postRowIndexAt = { line, _ ->
+                when (line) {
+                    15 -> 18
+                    16 -> 19
+                    else -> -1
+                }
+            },
+            anchorUpper = false
+        )
+        assertTrue(postLowerAnchor.isEligibleCase)
+        assertEquals(15, postLowerAnchor.seamLine)
+        assertEquals(18, postLowerAnchor.seamFirstLowerRow)
+        assertEquals(2 * rowHeight, postLowerAnchor.deltaGapPx, 0.001f)
+
+        // Scenario A (anchorUpper = true): upper line 15 stays anchored, line 16 is seam
+        val postUpperAnchor = ScribeGapCollapsePolicy.resolvePostDeleteSeamGeometry(
+            preCapture = pre,
+            postStartLine = 15,
+            postLineCount = 25,
+            rowHeightPx = rowHeight,
+            postRowIndexAt = { line, _ ->
+                when (line) {
+                    15 -> 18
+                    16 -> 19
+                    else -> -1
+                }
+            },
+            anchorUpper = true
+        )
+        assertTrue(postUpperAnchor.isEligibleCase)
+        assertEquals(16, postUpperAnchor.seamLine)
+        assertEquals(19, postUpperAnchor.seamFirstLowerRow)
+        assertEquals(2 * rowHeight, postUpperAnchor.deltaGapPx, 0.001f)
+    }
+
+    @Test
+    fun testPhase6_StartOfDocumentSelectionWithSurvivingLower_IsEligible() {
+        val rowHeight = 40f
+        val pre = ScribeGapCollapsePolicy.classifyPreDeleteSeam(
+            isSelection = true,
+            l1 = 0, c1 = 0, l2 = 4, c2 = 0,
+            preLineCount = 20, preLineLenL2 = 25,
+            preScrollY = 0, rowHeightPx = rowHeight,
+            rowIndexAt = { line, col -> if (line == 4 && col == 0) 6 else -1 },
+            preUpperPrefixBlank = true
+        )
+        assertFalse(pre.hasSurvivingUpper)
+        assertTrue(pre.hasSurvivingLower)
+        val post = ScribeGapCollapsePolicy.resolvePostDeleteSeamGeometry(
+            preCapture = pre,
+            postStartLine = 0,
+            postLineCount = 16,
+            rowHeightPx = rowHeight,
+            postRowIndexAt = { line, col -> if (line == 0 && col == 0) 0 else -1 }
+        )
+        assertTrue(post.isEligibleCase)
+        assertEquals(0, post.seamLine)
+        assertEquals(6 * rowHeight, post.deltaGapPx, 0.001f)
+
+        val plan = planWithDefaults(
+            deletionIntent = DeletionAnchorIntent.RESET_TO_TOP,
+            hasSurvivingUpper = post.hasSurvivingUpper,
+            hasSurvivingLower = post.hasSurvivingLower,
+            deltaGapPx = post.deltaGapPx
+        )
+        assertEquals(CollapseScenario.C_BOTH_VISIBLE, plan.scenario)
+    }
 }

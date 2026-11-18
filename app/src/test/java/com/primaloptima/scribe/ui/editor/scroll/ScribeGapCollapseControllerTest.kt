@@ -1345,4 +1345,29 @@ class ScribeGapCollapseControllerTest {
         assertTrue(h2.safety.dispatchedEvals.single().isKeyboardDismissing)
         assertEquals(ScribeDockTransition.IME_DISMISSAL, h2.safety.dispatchedEvals.single().dockTransition)
     }
+
+    @Test
+    fun testActiveSeamColAndUpdateSeamRowBaseline() {
+        val h = ControllerHarness()
+        val plan = makeLowerOnlyPlan(preScrollY = 400, deltaGapPx = 120f, minSafeScroll = 0f)
+        h.controller.beginCollapse(
+            owningGen = 11L,
+            plan = plan,
+            seamLine = 7,
+            seamFirstLowerRow = 12,
+            seamDocY = 480f,
+            rowHeightPx = 40f,
+            initialPhysicalScrollPx = 400f,
+            seamCol = 14
+        )
+        assertEquals(14, h.controller.activeSeamCol)
+        assertEquals(0f, h.controller.getTranslationForPosition(7, 13), 0.001f)
+        assertEquals(120f, h.controller.getTranslationForPosition(7, 14), 0.001f)
+        assertEquals(120f, h.controller.getTranslationForPosition(8, 0), 0.001f)
+
+        assertTrue(h.controller.updateSeamRowBaseline(11L, newSeamFirstLowerRow = 13, newSeamDocY = 520f))
+        assertEquals(13, h.controller.activeSeamFirstLowerRow)
+        assertEquals(520f, h.controller.activeSeamDocY, 0.001f)
+        assertFalse(h.controller.updateSeamRowBaseline(99L, newSeamFirstLowerRow = 14, newSeamDocY = 560f))
+    }
 }

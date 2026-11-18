@@ -1683,9 +1683,19 @@ fun MainEditorScreen(
                                         if (loadedNoteId != activeNote?.id) return@subscribeEvent
                                         editorCurrentText = current
                                         editorVm.onContentChanged(current)
+                                        val scEditor = editor as? com.primaloptima.scribe.ui.components.ScribeCodeEditor
+                                        val inReplace = scEditor?.isDeletionReplaceInProgress == true
+                                        val inFloor = scEditor?.isAutoIndentFloorInProgress == true
+                                        val inCollapse = unifiedCanvasRef?.gapCollapseController?.isTransactionOwned == true
                                         if (current.isEmpty()) {
-                                            unifiedCanvasRef?.resetDocumentToTop(smooth = true)
-                                        } else if (event.action != ContentChangeEvent.ACTION_DELETE) {
+                                            if (!inReplace && unifiedCanvasRef?.isDeletionTransactionActive != true) {
+                                                unifiedCanvasRef?.resetDocumentToTop(smooth = true)
+                                            }
+                                        } else if (event.action != ContentChangeEvent.ACTION_DELETE &&
+                                            !inReplace &&
+                                            !inFloor &&
+                                            !inCollapse
+                                        ) {
                                             unifiedCanvasRef?.ensureCursorVisibleAboveKeyboard()
                                         }
                                     }
@@ -1887,6 +1897,38 @@ fun MainEditorScreen(
                                                 formattedText = res.first
                                                 adjustedCol = res.second
                                                 retries++
+                                            }
+
+                                            // Wait for any active gap collapse or deletion transaction so indent commit never aborts it
+                                            var collapseWait = 0
+                                            while ((parentCanvas.gapCollapseController.isTransactionOwned || parentCanvas.isDeletionTransactionActive) &&
+                                                collapseWait < 30
+                                            ) {
+                                                kotlinx.coroutines.delay(35L)
+                                                collapseWait++
+                                            }
+                                            if (loadedNoteId != targetNoteId) return@launch
+                                            if (scribeEditor.documentVersion != versionAtStart) {
+                                                versionAtStart = scribeEditor.documentVersion
+                                                rawText = scribeEditor.text?.toString() ?: ""
+                                                curLine = scribeEditor.cursor?.leftLine ?: 0
+                                                curCol = scribeEditor.cursor?.leftColumn ?: 0
+                                                scrollX = scribeEditor.offsetX
+                                                scrollY = scribeEditor.offsetY
+                                                canvasScrollD = parentCanvas.scrollD
+                                                val res = withContext(Dispatchers.Default) {
+                                                    val text = ScribeIndentEngine.processDocumentIndent(rawText, oldIndent, newFirstLineIndent)
+                                                    val col = ScribeIndentEngine.calculateAdjustedCursorCol(
+                                                        originalText = rawText,
+                                                        lineIndex = curLine,
+                                                        originalCol = curCol,
+                                                        newIndent = newFirstLineIndent,
+                                                        oldIndent = oldIndent
+                                                    )
+                                                    Pair(text, col)
+                                                }
+                                                formattedText = res.first
+                                                adjustedCol = res.second
                                             }
 
                                             // Discard if user switched notes during background processing

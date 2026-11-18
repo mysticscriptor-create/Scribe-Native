@@ -36,3 +36,10 @@ Every item below is a **non-goal for V1** and MUST NOT be implemented during Pha
 
 - No V1 validation suite tests V2 deferred items.
 - V1 completion requires verifying that `C1 > 0 && C2 < preLineLen(L2)` cleanly delegates to `[Fallback]` (`INELIGIBLE_FALLBACK`) and `io.github.rosemoe:editor` remains pinned at `0.24.6`.
+
+
+---
+
+## User-Authorized Phase 6 Remediation Plan
+
+See [`phase-6-default-gap-collapse-plan.md`](./phase-6-default-gap-collapse-plan.md) for the authorized Category A/B/C remediation plan promoting selection-deletion gap collapse to default behavior while retaining `io.github.rosemoe:editor:0.24.6` (`87055c459e346cac6c619b3350f0bfba076228cc`).

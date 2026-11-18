@@ -96,6 +96,9 @@ class ScribeGapCollapseController(
     var activeSeamLine: Int = -1
         private set
 
+    var activeSeamCol: Int = 0
+        private set
+
     var activeSeamFirstLowerRow: Int = -1
         private set
 
@@ -164,7 +167,7 @@ class ScribeGapCollapseController(
 
     fun getTranslationForPosition(line: Int, col: Int): Float {
         if (!shouldApplySplitRender || line < 0 || col < 0) return 0f
-        return if (line >= activeSeamLine) tauLower else 0f
+        return if (line > activeSeamLine || (line == activeSeamLine && col >= activeSeamCol)) tauLower else 0f
     }
 
     fun getTranslationForRow(rowIndex: Int): Float {
@@ -233,6 +236,7 @@ class ScribeGapCollapseController(
         mode2State = null
         currentPlan = null
         activeSeamLine = -1
+        activeSeamCol = 0
         activeSeamFirstLowerRow = -1
         activeSeamDocY = 0f
         return safetyEpoch
@@ -249,22 +253,41 @@ class ScribeGapCollapseController(
         tauLower = 0f
         mode2State = null
         activeSeamLine = -1
+        activeSeamCol = 0
         activeSeamFirstLowerRow = -1
         activeSeamDocY = 0f
         onInvalidateEditor()
         return safetyEpoch
     }
 
+    fun updateSeamRowBaseline(
+        expectedGen: Long,
+        newSeamFirstLowerRow: Int,
+        newSeamDocY: Float
+    ): Boolean {
+        if (!isTransactionOwned || isTeardownLocked || owningDeletionGen != expectedGen) {
+            return false
+        }
+        if (newSeamFirstLowerRow < 0 || !newSeamDocY.isFinite()) {
+            return false
+        }
+        activeSeamFirstLowerRow = newSeamFirstLowerRow
+        activeSeamDocY = newSeamDocY
+        return true
+    }
+
     fun applyIncrementalSeamPreserve(
         expectedGen: Long,
         newSeamLine: Int,
         newSeamFirstLowerRow: Int,
-        newSeamDocY: Float
+        newSeamDocY: Float,
+        newSeamCol: Int = activeSeamCol
     ): Boolean {
         if (isTeardownLocked || owningDeletionGen != expectedGen || !hasActiveRebasableSeam) {
             return false
         }
         activeSeamLine = newSeamLine
+        activeSeamCol = newSeamCol.coerceAtLeast(0)
         activeSeamFirstLowerRow = newSeamFirstLowerRow
         activeSeamDocY = newSeamDocY
         onInvalidateEditor()
@@ -277,7 +300,8 @@ class ScribeGapCollapseController(
         newSeamFirstLowerRow: Int,
         newSeamDocY: Float,
         residualTauLowerPx: Float,
-        actualPhysicalScrollPx: Float
+        actualPhysicalScrollPx: Float,
+        newSeamCol: Int = activeSeamCol
     ): GapCollapsePhase {
         if (isTeardownLocked || owningDeletionGen != expectedGen || !hasActiveRebasableSeam) {
             return phase
@@ -285,6 +309,7 @@ class ScribeGapCollapseController(
         val previousPhase = phase
         val clampedResidual = residualTauLowerPx.coerceAtLeast(0f)
         activeSeamLine = newSeamLine
+        activeSeamCol = newSeamCol.coerceAtLeast(0)
         activeSeamFirstLowerRow = newSeamFirstLowerRow
         activeSeamDocY = newSeamDocY
         collapseAnimEpoch++
@@ -329,7 +354,8 @@ class ScribeGapCollapseController(
         seamFirstLowerRow: Int,
         seamDocY: Float,
         rowHeightPx: Float,
-        initialPhysicalScrollPx: Float
+        initialPhysicalScrollPx: Float,
+        seamCol: Int = 0
     ): Long {
         cancelMode2Frame()
         pendingPostSafetyKeyboardEval = null
@@ -340,6 +366,7 @@ class ScribeGapCollapseController(
         collapseAnimEpoch++
         currentPlan = plan
         activeSeamLine = seamLine
+        activeSeamCol = seamCol.coerceAtLeast(0)
         activeSeamFirstLowerRow = seamFirstLowerRow
         activeSeamDocY = seamDocY
         this.rowHeightPx = rowHeightPx
@@ -673,6 +700,7 @@ class ScribeGapCollapseController(
         safetyCorrectionAttempted = false
         pendingPostSafetyKeyboardEval = null
         activeSeamLine = -1
+        activeSeamCol = 0
         activeSeamFirstLowerRow = -1
         activeSeamDocY = 0f
         rowHeightPx = 0f

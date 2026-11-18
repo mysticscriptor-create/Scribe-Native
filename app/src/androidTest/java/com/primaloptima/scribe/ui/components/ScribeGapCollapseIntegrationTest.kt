@@ -1445,7 +1445,17 @@ class ScribeGapCollapseIntegrationTest {
                     canvas.scrollCanvasBy(-(canvas.scrollD + ed.offsetY).toFloat())
                     assertEquals(0, canvas.scrollD + ed.offsetY)
 
-                    ed.setSelectionRegion(1, 0, 5, 0, false)
+                    val lay = ed.layout!!
+                    val bounds = canvas.resolveUnobstructedViewportBounds()
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    val lastVisRow = kotlin.math.floor((bounds.visibleEditorBottom - canvas.headerHeight) / rowH).toInt()
+                    var endLine = 2
+                    while (endLine + 1 < 12) {
+                        val candidateRow = lay.getRowIndexForPosition(ed.text.getCharIndex(endLine + 1, 0))
+                        if (candidateRow > lastVisRow - 2) break
+                        endLine++
+                    }
+                    ed.setSelectionRegion(1, 0, endLine, 0, false)
                     ed.deleteText()
 
                     val plan = canvas.gapCollapseController.currentPlan
@@ -1470,7 +1480,8 @@ class ScribeGapCollapseIntegrationTest {
                 // 2. Genuine unrelated running cursor animator before deletion -> INELIGIBLE_FALLBACK
                 instr.runOnMainSync {
                     val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
-                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * 18f) - (canvas.scrollD + ed.offsetY))
+                    val row22 = ed.layout!!.getRowIndexForPosition(ed.text.getCharIndex(22, 0))
+                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * (row22 - 2).coerceAtLeast(0)) - (canvas.scrollD + ed.offsetY))
                     ed.setSelectionRegion(22, 0, 26, 0, false)
                     val anim = ed.cursorAnimator as ScribeCursorAnimator
                     anim.triggerGlide(0f, 0f, rowH, 160f, 360f, rowH)
@@ -1503,7 +1514,7 @@ class ScribeGapCollapseIntegrationTest {
                 if (i == 43) {
                     add("    Second-last paragraph with enough wrapped prose to span multiple rows before deletion happens cleanly.")
                 } else if (i == 44) {
-                    add("    Final one-row paragraph.")
+                    add("    Last line.")
                 } else {
                     add("    Body paragraph $i with ordinary prose.")
                 }
@@ -1632,10 +1643,11 @@ class ScribeGapCollapseIntegrationTest {
                     ed.cursorAnimator.cancel()
                     installDefaultOverlays(canvas, topBarHeightPx = 80f, bottomBarHeightPx = 100f)
                     val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
-                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * 20f) - (canvas.scrollD + ed.offsetY))
+                    val row24 = ed.layout!!.getRowIndexForPosition(ed.text.getCharIndex(24, 0))
+                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * (row24 - 2).coerceAtLeast(0)) - (canvas.scrollD + ed.offsetY))
 
                     // Select visible region then clear focus before deletion -> handles are not drawn by Sora!
-                    ed.setSelectionRegion(24, 0, 28, 0, false)
+                    ed.setSelectionRegion(24, 0, 26, 0, false)
                     ed.clearFocus()
                     assertFalse(ed.isFocused)
 
@@ -1684,10 +1696,11 @@ class ScribeGapCollapseIntegrationTest {
                     ed.cursorAnimator.cancel()
                     installDefaultOverlays(canvas, topBarHeightPx = 80f, bottomBarHeightPx = 100f)
                     val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
-                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * 8f) - (canvas.scrollD + ed.offsetY))
+                    val row15 = ed.layout!!.getRowIndexForPosition(ed.text.getCharIndex(15, 0))
+                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * (row15 - 2).coerceAtLeast(0)) - (canvas.scrollD + ed.offsetY))
 
                     // Delete all characters on line 15 without its trailing newline -> Case II, line 15 becomes "",
-                    // deferred enforceAutoIndentFloor restores "    " at (15, 4) while collapse stays active at seam 16.
+                    // deferred enforceAutoIndentFloor restores "    " at (15, 4) while caret line 15 stays stationary in Pass 2.
                     val len15 = ed.text.getColumnCount(15)
                     ed.setSelectionRegion(15, 0, 15, len15, false)
                     ed.deleteText()
@@ -1696,7 +1709,7 @@ class ScribeGapCollapseIntegrationTest {
                     assertEquals(4, ed.cursor.leftColumn)
                     assertTrue("Gap collapse must enter and stay active after deferred indent floor", canvas.gapCollapseController.isTransactionOwned)
                     assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
-                    assertEquals(16, canvas.gapCollapseController.activeSeamLine)
+                    assertEquals(15, canvas.gapCollapseController.activeSeamLine)
                     assertFalse("Deferred indent floor inside collapse must not trigger cursor animator", ed.cursorAnimator.isRunning)
                     drawEditorIntoBitmap(ed)
                 }
@@ -1714,4 +1727,274 @@ class ScribeGapCollapseIntegrationTest {
         }
     }
 
+
+    @Test
+    fun suiteE_partialMidParagraphSelectionDeletion_c1Gt0_c2LtLen_KeepsLowerContentStationary() {
+        val text = (0 until 70).joinToString("\n") { idx ->
+            if (idx == 22) {
+                "Alpha prefix words before deleted span that goes across multiple paragraphs cleanly."
+            } else if (idx == 24) {
+                "Removed middle portion then surviving lower suffix words that wrap nicely onto the next row of the paragraph."
+            } else {
+                "Paragraph $idx: ordinary body prose with enough words to fill lines cleanly."
+            }
+        }
+        val host = launchCanvasHost(text = text)
+        val instr = InstrumentationRegistry.getInstrumentation()
+        host.scenario.use {
+            val canvas = host.canvas
+            val ed = canvas.editor
+            try {
+                var preScroll = 0
+                var preNextLineScreenTop = 0f
+                var preNextLineRow = -1
+                var deltaGapPx = 0f
+                val l1 = 22
+                val c1 = 13 // non-blank prefix "Alpha prefix "
+                val l2 = 24
+                val c2 = 23 // mid-line before "then surviving lower suffix..."
+
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    ed.isCursorAnimationEnabled = true
+                    ed.cursorAnimator.cancel()
+                    installDefaultOverlays(canvas, topBarHeightPx = 80f, bottomBarHeightPx = 120f)
+                    val lay = ed.layout!!
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    val row22 = lay.getRowIndexForPosition(ed.text.getCharIndex(l1, 0))
+                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * (row22 - 2).coerceAtLeast(0)) - (canvas.scrollD + ed.offsetY))
+                    preScroll = canvas.scrollD + ed.offsetY
+
+                    preNextLineRow = lay.getRowIndexForPosition(ed.text.getCharIndex(l2 + 1, 0))
+                    preNextLineScreenTop = canvas.headerHeight - preScroll + (preNextLineRow * rowH)
+
+                    ed.setSelectionRegion(l1, c1, l2, c2, false)
+                    ed.deleteText()
+
+                    val plan = canvas.gapCollapseController.currentPlan
+                    assertTrue("c1 > 0 && c2 < len deletion must enter gap collapse", canvas.gapCollapseController.isTransactionOwned)
+                    assertEquals(CollapseScenario.C_BOTH_VISIBLE, plan?.scenario)
+                    assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+                    assertFalse("Deletion-induced cursor animation must NOT abort c1>0&&c2<len collapse", ed.cursorAnimator.isRunning)
+                    deltaGapPx = plan?.deltaGapPx ?: 0f
+                    assertTrue(deltaGapPx > 0f)
+
+                    val postNextRow = ed.layout!!.getRowIndexForPosition(ed.text.getCharIndex(l1 + 1, 0))
+                    val frame1NextLineVisualTop = canvas.headerHeight -
+                        (canvas.scrollD + ed.offsetY).toFloat() +
+                        (postNextRow * rowH) +
+                        canvas.gapCollapseController.tauLower
+                    assertEquals(
+                        "Frame 1 visual position of lower paragraph after merged seam must stay stationary",
+                        preNextLineScreenTop,
+                        frame1NextLineVisualTop,
+                        2.0f
+                    )
+                    drawEditorIntoBitmap(ed)
+                }
+
+                waitUntil(failureMsg = "Partial mid-paragraph c1>0&&c2<len collapse must settle to IDLE") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+
+                instr.runOnMainSync {
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    val finalScroll = (canvas.scrollD + ed.offsetY).toFloat()
+                    val postNextRow = ed.layout!!.getRowIndexForPosition(ed.text.getCharIndex(l1 + 1, 0))
+                    val settledNextLineScreenTop = canvas.headerHeight - finalScroll + (postNextRow * rowH)
+                    assertEquals(
+                        "Settled lower paragraph screen position must remain stationary",
+                        preNextLineScreenTop,
+                        settledNextLineScreenTop,
+                        2.0f
+                    )
+                    drawEditorIntoBitmap(ed)
+                }
+            } finally {
+                instr.runOnMainSync {
+                    (ed.cursorAnimator as? ScribeCursorAnimator)?.cancel()
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "suiteE_c1gt0_cleanup")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun suiteE_startOfDocumentAndTailAnchoredSelectionDeletions_EnterGapCollapse() {
+        val host = launchCanvasHost(text = buildIndentedLines(60))
+        val instr = InstrumentationRegistry.getInstrumentation()
+        host.scenario.use {
+            val canvas = host.canvas
+            val ed = canvas.editor
+            try {
+                // 1. Start of document (0, 0) deletion with surviving lower content
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    ed.isCursorAnimationEnabled = false
+                    ed.cursorAnimator.cancel()
+                    installDefaultOverlays(canvas, topBarHeightPx = 80f, bottomBarHeightPx = 100f)
+                    canvas.scrollCanvasBy(-(canvas.scrollD + ed.offsetY).toFloat())
+
+                    val lay = ed.layout!!
+                    val bounds = canvas.resolveUnobstructedViewportBounds()
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    val lastVisRow = kotlin.math.floor((bounds.visibleEditorBottom - canvas.headerHeight) / rowH).toInt()
+                    var endLine = 2
+                    while (endLine + 1 < 12) {
+                        val candidateRow = lay.getRowIndexForPosition(ed.text.getCharIndex(endLine + 1, 0))
+                        if (candidateRow > lastVisRow - 2) break
+                        endLine++
+                    }
+                    ed.setSelectionRegion(0, 0, endLine, 0, false)
+                    ed.deleteText()
+
+                    assertTrue(
+                        "Selection starting at (0, 0) with surviving lower must enter gap collapse",
+                        canvas.gapCollapseController.isTransactionOwned
+                    )
+                    assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+                    drawEditorIntoBitmap(ed)
+                }
+                waitUntil(failureMsg = "(0, 0) start deletion must converge cleanly to IDLE") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+
+                // 2. Tail-anchored deletion near document bottom with surviving lower paragraph
+                instr.runOnMainSync {
+                    val lay = ed.layout!!
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    val totalRows = lay.rowCount
+                    val lastLine = ed.text.lineCount - 1
+                    val endLine = (lastLine - 2).coerceAtLeast(10)
+                    val startLine = (endLine - 3).coerceAtLeast(5)
+                    val desiredScroll = (canvas.headerHeight + totalRows * rowH - canvas.height.toFloat() + canvas.breathingMarginPx).coerceAtLeast(0f)
+                    canvas.scrollCanvasBy(desiredScroll - (canvas.scrollD + ed.offsetY))
+
+                    ed.setSelectionRegion(startLine, 0, endLine, 0, false)
+                    ed.deleteText()
+
+                    assertTrue(
+                        "Selection deletion near document tail with surviving lower must enter gap collapse",
+                        canvas.gapCollapseController.isTransactionOwned
+                    )
+                    drawEditorIntoBitmap(ed)
+                }
+                waitUntil(failureMsg = "Tail-anchored gap collapse must converge cleanly to IDLE") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+            } finally {
+                instr.runOnMainSync {
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "suiteE_start_tail_cleanup")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun suiteE_cutTextWithVisualFirstLineIndent_CopiesIndentedTextAndRunsGapCollapse() {
+        val host = launchCanvasHost(text = buildLines(80))
+        val instr = InstrumentationRegistry.getInstrumentation()
+        host.scenario.use {
+            val canvas = host.canvas
+            val ed = canvas.editor
+            try {
+                var expectedClip = ""
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    ed.setVisualFirstLineIndent(4)
+                    ed.isCursorAnimationEnabled = true
+                    ed.cursorAnimator.cancel()
+                    installDefaultOverlays(canvas, topBarHeightPx = 80f, bottomBarHeightPx = 120f)
+
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    val lay = ed.layout!!
+                    val row20 = lay.getRowIndexForPosition(ed.text.getCharIndex(20, 0))
+                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * (row20 - 2).coerceAtLeast(0)) - (canvas.scrollD + ed.offsetY))
+
+                    val bounds = canvas.resolveUnobstructedViewportBounds()
+                    val lastVisRow = kotlin.math.floor(((canvas.scrollD + ed.offsetY) - canvas.headerHeight + bounds.visibleEditorBottom) / rowH).toInt()
+                    var endLine = 21
+                    while (endLine + 1 < 35) {
+                        val candidateRow = lay.getRowIndexForPosition(ed.text.getCharIndex(endLine + 1, 0))
+                        if (candidateRow > lastVisRow - 2) break
+                        endLine++
+                    }
+                    expectedClip = (20 until endLine).joinToString("\n", postfix = "\n") { l ->
+                        "    " + ed.text.getLineString(l)
+                    }
+                    ed.setSelectionRegion(20, 0, endLine, 0, false)
+                    ed.cutText()
+
+                    assertTrue(
+                        "cutText() with visualFirstLineIndent must enter gap collapse directly",
+                        canvas.gapCollapseController.isTransactionOwned
+                    )
+                    assertEquals(CollapseScenario.C_BOTH_VISIBLE, canvas.gapCollapseController.currentPlan?.scenario)
+                    val cm = ed.context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val actualClip = cm.primaryClip?.getItemAt(0)?.text?.toString()
+                    assertEquals("cutText() must copy 4-space visually indented text", expectedClip, actualClip)
+                    drawEditorIntoBitmap(ed)
+                }
+                waitUntil(failureMsg = "cutText() with visual indent gap collapse must settle cleanly to IDLE") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+            } finally {
+                instr.runOnMainSync {
+                    (ed.cursorAnimator as? ScribeCursorAnimator)?.cancel()
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "suiteE_cut_visual_indent_cleanup")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun suiteE_largeSelectionExceeding3xViewport_RoutesToScenarioD() {
+        val host = launchCanvasHost(text = buildIndentedLines(180))
+        val instr = InstrumentationRegistry.getInstrumentation()
+        host.scenario.use {
+            val canvas = host.canvas
+            val ed = canvas.editor
+            try {
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    ed.isCursorAnimationEnabled = false
+                    ed.cursorAnimator.cancel()
+                    installDefaultOverlays(canvas, topBarHeightPx = 80f, bottomBarHeightPx = 120f)
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    val row80 = ed.layout!!.getRowIndexForPosition(ed.text.getCharIndex(80, 0))
+                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * row80) - (canvas.scrollD + ed.offsetY))
+
+                    // Huge selection (~100 lines, >3x viewport height) spanning above & below viewport
+                    ed.setSelectionRegion(20, 0, 140, 0, false)
+                    ed.deleteText()
+
+                    val plan = canvas.gapCollapseController.currentPlan
+                    assertTrue(
+                        "Large >3x viewport visible selection must collapse via Scenario D",
+                        canvas.gapCollapseController.isTransactionOwned
+                    )
+                    assertEquals(CollapseScenario.D_SELECTION_ONLY_CENTERED, plan?.scenario)
+                    assertTrue(plan?.requiresCenteredCollapse == true)
+                    drawEditorIntoBitmap(ed)
+                }
+                waitUntil(failureMsg = "Large Scenario D collapse must settle cleanly to IDLE") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+            } finally {
+                instr.runOnMainSync {
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "suiteE_large_d_cleanup")
+                }
+            }
+        }
+    }
 }
