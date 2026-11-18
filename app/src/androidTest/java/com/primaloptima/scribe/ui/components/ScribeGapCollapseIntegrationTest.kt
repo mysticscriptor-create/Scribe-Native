@@ -39,7 +39,9 @@ import com.primaloptima.scribe.ui.editor.scroll.SafetyFloorAndBounds
 import com.primaloptima.scribe.ui.editor.scroll.ScribeDockGeometry
 import com.primaloptima.scribe.ui.editor.scroll.ScribeDockMode
 import com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition
+import com.primaloptima.scribe.ui.editor.scroll.PreDeleteHandleCaptureStatus
 import com.primaloptima.scribe.ui.editor.scroll.ScribeGapCollapsePolicy
+import com.primaloptima.scribe.ui.editor.scroll.SelectionDeletionDispatchOutcome
 import com.primaloptima.scribe.ui.editor.scroll.ScribeOverlayBoundsRegistry
 import com.primaloptima.scribe.ui.editor.scroll.VisibilityConfidence
 import com.primaloptima.scribe.ui.editor.scroll.ScribeScrollDeletionPolicy
@@ -884,6 +886,12 @@ class ScribeGapCollapseIntegrationTest {
                     assertFalse(canvas.gapCollapseController.isTransactionOwned)
                     assertFalse("Scenario E must claim and clear deletion transaction", canvas.isDeletionTransactionActive)
                     assertFalse(canvas.hasPendingDeletionSettlement)
+                    assertEquals(
+                        SelectionDeletionDispatchOutcome.GAP_COLLAPSE_SCENARIO_E_CARET_FOLLOW,
+                        canvas.lastSelectionDeletionDiagnostic?.outcome
+                    )
+                    assertEquals(CollapseScenario.E_OFFSCREEN_CARET_FOLLOW, canvas.lastSelectionDeletionDiagnostic?.scenario)
+                    assertEquals(0, canvas.legacySettlementInvocationCount)
                     assertTrue("TextActionWindow must remain enabled (not stranded) in Scenario E", aw.isEnabled)
                 }
 
@@ -1477,7 +1485,7 @@ class ScribeGapCollapseIntegrationTest {
                     drawEditorIntoBitmap(ed)
                 }
 
-                // 2. Genuine unrelated running cursor animator before deletion -> INELIGIBLE_FALLBACK
+                // 2. Unrelated running cursor animator before deletion is cancelled so gap collapse acquires sole ownership
                 instr.runOnMainSync {
                     val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
                     val row22 = ed.layout!!.getRowIndexForPosition(ed.text.getCharIndex(22, 0))
@@ -1489,11 +1497,18 @@ class ScribeGapCollapseIntegrationTest {
 
                     ed.deleteText()
 
-                    assertFalse("Pre-existing running cursor glide must reject gap collapse via INELIGIBLE_FALLBACK", canvas.gapCollapseController.shouldApplySplitRender)
-                    assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+                    assertFalse("Pre-existing running cursor animator must be cancelled for gap collapse", anim.isRunning)
+                    assertTrue("Gap collapse must take sole ownership after cancelling unrelated cursor animator", canvas.gapCollapseController.isTransactionOwned)
+                    assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+                    assertEquals(
+                        SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED,
+                        canvas.lastSelectionDeletionDiagnostic?.outcome
+                    )
+                    assertTrue(canvas.lastSelectionDeletionDiagnostic?.wasCursorAnimatorCancelled == true)
+                    assertEquals(0, canvas.legacySettlementInvocationCount)
                     drawEditorIntoBitmap(ed)
                 }
-                waitUntil(failureMsg = "Pre-existing animator fallback deletion must converge cleanly to IDLE") {
+                waitUntil(failureMsg = "Gap collapse after pre-existing animator cancellation must converge cleanly to IDLE") {
                     !canvas.isGlideRunning &&
                         canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
                         !canvas.isDeletionTransactionActive
@@ -1993,6 +2008,128 @@ class ScribeGapCollapseIntegrationTest {
             } finally {
                 instr.runOnMainSync {
                     canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "suiteE_large_d_cleanup")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun suiteE_isolationDispatchAsyncLayoutCompositionAndUnsupportedContrast() {
+        val host = launchCanvasHost(text = buildLines(140))
+        val instr = InstrumentationRegistry.getInstrumentation()
+        host.scenario.use {
+            val canvas = host.canvas
+            val ed = canvas.editor
+            try {
+                // Case A: Async wordwrap relayout in flight -> never falls back to handleDeletionSettlement()
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    ed.isCursorAnimationEnabled = false
+                    ed.cursorAnimator.cancel()
+                    installDefaultOverlays(canvas, topBarHeightPx = 80f, bottomBarHeightPx = 120f)
+
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    val row40 = ed.layout!!.getRowIndexForPosition(ed.text.getCharIndex(40, 0))
+                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * (row40 - 2)) - (canvas.scrollD + ed.offsetY))
+
+                    ed.horizontalPaddingDp = 12f
+                    ed.setSelectionRegion(40, 0, 44, 0, false)
+                    ed.deleteText()
+
+                    assertEquals(0, canvas.legacySettlementInvocationCount)
+                    val outcome = canvas.lastSelectionDeletionDiagnostic?.outcome
+                    assertTrue(
+                        "Async relayout deletion must either defer as PENDING_LAYOUT or start GAP_COLLAPSE_STARTED (got $outcome)",
+                        outcome == SelectionDeletionDispatchOutcome.GAP_COLLAPSE_PENDING_LAYOUT ||
+                            outcome == SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED
+                    )
+                    drawEditorIntoBitmap(ed)
+                }
+                waitUntil(failureMsg = "Async-relayout selection deletion must finish exclusively via gap collapse") {
+                    ed.isWordwrapReady() &&
+                        !ed.isLayoutBusy &&
+                        canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+                instr.runOnMainSync {
+                    assertEquals(0, canvas.legacySettlementInvocationCount)
+                    assertEquals(
+                        SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED,
+                        canvas.lastSelectionDeletionDiagnostic?.outcome
+                    )
+                }
+
+                // Case B: Active composing region defers and resumes exclusively into gap collapse on finishComposingText()
+                instr.runOnMainSync {
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    val row25 = ed.layout!!.getRowIndexForPosition(ed.text.getCharIndex(25, 0))
+                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * (row25 - 2)) - (canvas.scrollD + ed.offsetY))
+
+                    val ic = ed.onCreateInputConnection(EditorInfo())!!
+                    ed.setSelectionRegion(25, 0, 29, 0, false)
+                    val compStart = ed.text.getCharIndex(30, 0)
+                    assertTrue(ic.setComposingRegion(compStart, compStart + 4))
+                    assertTrue(ed.hasComposingText())
+
+                    ed.deleteText()
+
+                    assertFalse(canvas.gapCollapseController.isTransactionOwned)
+                    assertEquals(
+                        SelectionDeletionDispatchOutcome.GAP_COLLAPSE_PENDING_COMPOSITION,
+                        canvas.lastSelectionDeletionDiagnostic?.outcome
+                    )
+                    assertEquals(0, canvas.legacySettlementInvocationCount)
+
+                    assertTrue(ic.finishComposingText())
+                }
+                waitUntil(failureMsg = "Composition completion must resume gap collapse and settle cleanly to IDLE") {
+                    canvas.lastSelectionDeletionDiagnostic?.outcome == SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED &&
+                        canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+                instr.runOnMainSync {
+                    assertEquals(0, canvas.legacySettlementInvocationCount)
+                    assertFalse(ed.hasComposingText())
+                }
+
+                // Case C: Unsupported EOF selection deletion (!hasSurvivingLower) vs legitimate non-selection deletion
+                instr.runOnMainSync {
+                    canvas.scrollCanvasBy(canvas.maxCanvasScroll.toFloat())
+                    val lastLine = ed.text.lineCount - 1
+                    val lastCol = ed.text.getColumnCount(lastLine)
+                    ed.setSelectionRegion(lastLine - 10, 0, lastLine, lastCol, false)
+                    ed.deleteText()
+
+                    assertFalse(canvas.gapCollapseController.isTransactionOwned)
+                    assertEquals(
+                        SelectionDeletionDispatchOutcome.GAP_COLLAPSE_UNSUPPORTED_GEOMETRY,
+                        canvas.lastSelectionDeletionDiagnostic?.outcome
+                    )
+                    assertEquals("end_of_document_no_surviving_lower", canvas.lastSelectionDeletionDiagnostic?.reason)
+                    assertEquals(PreDeleteHandleCaptureStatus.CAPTURED, canvas.lastSelectionDeletionDiagnostic?.upperHandleStatus)
+                    assertTrue((canvas.scrollD + ed.offsetY) <= canvas.maxCanvasScroll)
+                    assertEquals(0, canvas.legacySettlementInvocationCount)
+
+                    ed.setSelection(12, 4)
+                    ed.deleteText()
+                }
+                waitUntil(failureMsg = "Non-selection deletion must retain ordinary handleDeletionSettlement()") {
+                    canvas.legacySettlementInvocationCount == 1 &&
+                        !canvas.isDeletionTransactionActive &&
+                        !canvas.isGlideRunning
+                }
+                instr.runOnMainSync {
+                    assertEquals(
+                        SelectionDeletionDispatchOutcome.NOT_A_SELECTION_DELETION,
+                        canvas.lastSelectionDeletionDiagnostic?.outcome
+                    )
+                    assertFalse(canvas.lastLegacySettlementWasSelection)
+                }
+            } finally {
+                instr.runOnMainSync {
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "suiteE_iso_cleanup")
                 }
             }
         }

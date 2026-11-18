@@ -17,7 +17,10 @@ import com.primaloptima.scribe.ui.editor.scroll.ScribeScrollInputController
 import com.primaloptima.scribe.ui.editor.scroll.PendingPostSafetyKeyboardEval
 import com.primaloptima.scribe.ui.editor.scroll.ScrollAnimationReason
 import com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition
+import android.view.inputmethod.EditorInfo
+import com.primaloptima.scribe.ui.editor.scroll.PreDeleteHandleCaptureStatus
 import com.primaloptima.scribe.ui.editor.scroll.ScribeGapCollapsePolicy
+import com.primaloptima.scribe.ui.editor.scroll.SelectionDeletionDispatchOutcome
 import io.github.rosemoe.sora.event.LayoutStateChangeEvent
 import io.github.rosemoe.sora.util.IntPair
 import org.junit.Assert.assertEquals
@@ -939,6 +942,16 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             assertTrue(canvas.forceFallbackOnDelayedSettlement || canvas.gapCollapseController.phase != GapCollapsePhase.POINTER_FROZEN)
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             assertFalse("Second deletion must never launch gap collapse", canvas.gapCollapseController.shouldApplySplitRender)
+            assertEquals(
+                "Interrupted second selection deletion must not fall back to legacy handleDeletionSettlement()",
+                0,
+                canvas.legacySettlementInvocationCount
+            )
+            assertEquals(
+                SelectionDeletionDispatchOutcome.GAP_COLLAPSE_UNSUPPORTED_GEOMETRY,
+                canvas.lastSelectionDeletionDiagnostic?.outcome
+            )
+            assertEquals("interrupted_active_collapse", canvas.lastSelectionDeletionDiagnostic?.reason)
             canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "r5")
         }
 
@@ -992,7 +1005,16 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             enterSplitCollapseAt(canvas2, seamLine = 20, tauLowerPx = rowH * 4f, freezeToPointer = true)
             canvas2.editor.text.replace(6, 0, 9, 0, "")
             Shadows.shadowOf(Looper.getMainLooper()).idle()
-            assertFalse("Empty replace interrupting active collapse must settle as fallback without split render", canvas2.gapCollapseController.shouldApplySplitRender)
+            assertFalse("Empty replace interrupting active collapse must settle without split render", canvas2.gapCollapseController.shouldApplySplitRender)
+            assertEquals(
+                "Interrupted empty replace must not fall back to legacy handleDeletionSettlement()",
+                0,
+                canvas2.legacySettlementInvocationCount
+            )
+            assertEquals(
+                SelectionDeletionDispatchOutcome.GAP_COLLAPSE_UNSUPPORTED_GEOMETRY,
+                canvas2.lastSelectionDeletionDiagnostic?.outcome
+            )
             canvas2.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "r7")
         }
 
@@ -1308,4 +1330,179 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
         }
     }
 
+
+    @Test
+    fun testSelectionDeletionIsolation_SoleDispatchPathAndDiagnostics() {
+        // 1. Supported selection deletion acquires gap collapse ownership with zero legacy settlement
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
+            val editor = canvas.editor
+            editor.requestFocus()
+            editor.isCursorAnimationEnabled = false
+            editor.isWordwrap = true
+            awaitWordwrapLayoutReady(editor)
+            canvas.scrollCanvasBy(280f)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            editor.setSelectionRegion(10, 0, 14, 0, false)
+            editor.deleteText()
+
+            assertTrue(canvas.gapCollapseController.isTransactionOwned)
+            assertEquals(
+                SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED,
+                canvas.lastSelectionDeletionDiagnostic?.outcome
+            )
+            assertEquals(0, canvas.legacySettlementInvocationCount)
+            canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "iso_1")
+        }
+
+        // 2. Active composing text defers without legacy fallback and resumes into gap collapse on finishComposingText()
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
+            val editor = canvas.editor
+            editor.requestFocus()
+            editor.isCursorAnimationEnabled = false
+            editor.isWordwrap = true
+            awaitWordwrapLayoutReady(editor)
+            canvas.scrollCanvasBy(280f)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            val ic = editor.onCreateInputConnection(EditorInfo())!!
+            editor.setSelectionRegion(10, 0, 14, 0, false)
+            val compStart = editor.text.getCharIndex(15, 0)
+            assertTrue(ic.setComposingRegion(compStart, compStart + 4))
+            assertTrue(editor.hasComposingText())
+
+            editor.deleteText()
+
+            assertFalse(canvas.gapCollapseController.isTransactionOwned)
+            assertTrue(canvas.hasActiveSelectionDeletionSnapshot)
+            assertEquals(
+                SelectionDeletionDispatchOutcome.GAP_COLLAPSE_PENDING_COMPOSITION,
+                canvas.lastSelectionDeletionDiagnostic?.outcome
+            )
+            assertEquals(0, canvas.legacySettlementInvocationCount)
+
+            assertTrue(ic.finishComposingText())
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            assertTrue(
+                "Ending composition must resume pending selection deletion into gap collapse",
+                canvas.gapCollapseController.isTransactionOwned ||
+                    canvas.lastSelectionDeletionDiagnostic?.outcome == SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED
+            )
+            assertEquals(0, canvas.legacySettlementInvocationCount)
+            canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "iso_2")
+        }
+
+        // 3. Unsupported EOF selection deletion (!hasSurvivingLower) clamps overscroll without legacy settlement
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
+            val editor = canvas.editor
+            editor.requestFocus()
+            editor.isCursorAnimationEnabled = false
+            editor.isWordwrap = true
+            awaitWordwrapLayoutReady(editor)
+            canvas.scrollCanvasBy(canvas.maxCanvasScroll.toFloat())
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            val lastLine = editor.text.lineCount - 1
+            val lastCol = editor.text.getColumnCount(lastLine)
+            editor.setSelectionRegion(lastLine - 15, 0, lastLine, lastCol, false)
+            editor.deleteText()
+
+            assertFalse(canvas.gapCollapseController.isTransactionOwned)
+            assertEquals(
+                SelectionDeletionDispatchOutcome.GAP_COLLAPSE_UNSUPPORTED_GEOMETRY,
+                canvas.lastSelectionDeletionDiagnostic?.outcome
+            )
+            assertEquals("end_of_document_no_surviving_lower", canvas.lastSelectionDeletionDiagnostic?.reason)
+            assertTrue((canvas.scrollD + editor.offsetY) <= canvas.maxCanvasScroll)
+            assertEquals(0, canvas.legacySettlementInvocationCount)
+        }
+
+        // 4. Wordwrap-disabled selection deletion records explicit unsupported diagnostic and zero legacy settlement
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
+            val editor = canvas.editor
+            editor.requestFocus()
+            editor.isCursorAnimationEnabled = false
+            editor.isWordwrap = false
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            editor.setSelectionRegion(8, 0, 12, 0, false)
+            editor.deleteText()
+
+            assertFalse(canvas.gapCollapseController.isTransactionOwned)
+            assertEquals(
+                SelectionDeletionDispatchOutcome.GAP_COLLAPSE_UNSUPPORTED_GEOMETRY,
+                canvas.lastSelectionDeletionDiagnostic?.outcome
+            )
+            assertEquals("wordwrap_disabled", canvas.lastSelectionDeletionDiagnostic?.reason)
+            assertEquals(0, canvas.legacySettlementInvocationCount)
+        }
+
+        // 5. Merged partial-row seam (c1 > 0) while unfocused records NOT_FOCUSED handle status and zero legacy settlement
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
+            val editor = canvas.editor
+            editor.clearFocus()
+            editor.isCursorAnimationEnabled = false
+            editor.isWordwrap = true
+            awaitWordwrapLayoutReady(editor)
+
+            editor.setSelectionRegion(8, 3, 12, 0, false)
+            editor.deleteText()
+
+            assertFalse(canvas.gapCollapseController.isTransactionOwned)
+            assertEquals(
+                SelectionDeletionDispatchOutcome.GAP_COLLAPSE_UNSUPPORTED_GEOMETRY,
+                canvas.lastSelectionDeletionDiagnostic?.outcome
+            )
+            assertEquals("merged_partial_row_seam", canvas.lastSelectionDeletionDiagnostic?.reason)
+            assertEquals(PreDeleteHandleCaptureStatus.NOT_FOCUSED, canvas.lastSelectionDeletionDiagnostic?.upperHandleStatus)
+            assertEquals(0, canvas.legacySettlementInvocationCount)
+        }
+
+        // 6. Empty-document selection deletion retains empty reset without legacy DELETION_ANCHOR
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 20)
+            val editor = canvas.editor
+            editor.requestFocus()
+            editor.isCursorAnimationEnabled = false
+            editor.isWordwrap = true
+            awaitWordwrapLayoutReady(editor)
+
+            editor.selectAll()
+            editor.deleteText()
+
+            assertEquals(
+                SelectionDeletionDispatchOutcome.NO_GAP_TO_COLLAPSE,
+                canvas.lastSelectionDeletionDiagnostic?.outcome
+            )
+            assertEquals("empty_document_reset", canvas.lastSelectionDeletionDiagnostic?.reason)
+            assertEquals(0, canvas.legacySettlementInvocationCount)
+        }
+
+        // 7. Non-selection single-character deletion retains ordinary handleDeletionSettlement()
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
+            val editor = canvas.editor
+            editor.requestFocus()
+            editor.isCursorAnimationEnabled = false
+            editor.isWordwrap = true
+            awaitWordwrapLayoutReady(editor)
+
+            editor.setSelection(10, 4)
+            editor.deleteText()
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            assertEquals(
+                SelectionDeletionDispatchOutcome.NOT_A_SELECTION_DELETION,
+                canvas.lastSelectionDeletionDiagnostic?.outcome
+            )
+            assertEquals(1, canvas.legacySettlementInvocationCount)
+            assertFalse(canvas.lastLegacySettlementWasSelection)
+        }
+    }
 }

@@ -678,8 +678,52 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     var hasPendingDeletionSettlement: Boolean = false
         private set
 
+    var lastSelectionDeletionDiagnostic: SelectionDeletionDiagnostic? = null
+        private set
+
+    var legacySettlementInvocationCount: Int = 0
+        private set
+
+    var lastLegacySettlementGen: Long = -1L
+        private set
+
+    var lastLegacySettlementWasSelection: Boolean = false
+        private set
+
+    val hasActiveSelectionDeletionSnapshot: Boolean
+        get() = activeDeletionSnapshot?.isSelection == true
+
     val currentDeletionTransactionGeneration: Long
         get() = deletionTransactionGeneration
+
+    private fun recordSelectionDeletionDiagnostic(diagnostic: SelectionDeletionDiagnostic) {
+        lastSelectionDeletionDiagnostic = diagnostic
+        ScribeScrollDiagnostics.log(
+            "GapCollapseDispatch",
+            "gen=${diagnostic.transactionGeneration} outcome=${diagnostic.outcome} " +
+                "scenario=${diagnostic.scenario} reason=${diagnostic.reason} " +
+                "upper=${diagnostic.upperHandleStatus}(${diagnostic.isUpperVisible}) " +
+                "lower=${diagnostic.lowerHandleStatus}(${diagnostic.isLowerVisible}) " +
+                "touched=${diagnostic.isTouchedOnScreen} gap=${diagnostic.deltaGapPx} " +
+                "busy=${diagnostic.isLayoutBusy} wwReady=${diagnostic.isWordwrapReady} " +
+                "composing=${diagnostic.isComposing} animCancelled=${diagnostic.wasCursorAnimatorCancelled}"
+        )
+    }
+
+    fun isSelectionDeletionPendingResume(expectedGen: Long = deletionTransactionGeneration): Boolean {
+        if (!canStillSettleGeneration(expectedGen)) return false
+        if (activeDeletionSnapshot?.isSelection != true) return false
+        val outcome = lastSelectionDeletionDiagnostic?.takeIf { it.transactionGeneration == expectedGen }?.outcome
+        return outcome == SelectionDeletionDispatchOutcome.GAP_COLLAPSE_PENDING_LAYOUT ||
+            outcome == SelectionDeletionDispatchOutcome.GAP_COLLAPSE_PENDING_COMPOSITION
+    }
+
+    fun isSelectionDeletionPendingComposition(expectedGen: Long = deletionTransactionGeneration): Boolean {
+        if (!canStillSettleGeneration(expectedGen)) return false
+        if (activeDeletionSnapshot?.isSelection != true) return false
+        val diag = lastSelectionDeletionDiagnostic?.takeIf { it.transactionGeneration == expectedGen } ?: return false
+        return diag.outcome == SelectionDeletionDispatchOutcome.GAP_COLLAPSE_PENDING_COMPOSITION
+    }
 
     val isGapCollapseTransactionOwned: Boolean
         get() = gapCollapseController.isTransactionOwned
@@ -907,7 +951,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     fun notifyContentDeletionStarted() {
-        if (hasPendingDeletionSettlement) return
+        if (hasPendingDeletionSettlement || isDeletionTransactionActive || gapCollapseController.isTransactionOwned) return
         val cur = try { editor.cursor } catch (_: Throwable) { null }
         val lay = try { editor.layout } catch (_: Throwable) { null }
         val content = editor.text
@@ -970,11 +1014,17 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 left: Int, top: Int, right: Int, bottom: Int,
                 oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int
             ) {
-                if ((bottom - top) > 0 && editor.isLaidOut) {
+                val isSelection = activeDeletionSnapshot?.isSelection == true
+                val scribeEditor = editor as? ScribeCodeEditor
+                val editorBusy = scribeEditor?.isLayoutBusy ?: editor.isLayoutComputing
+                val readyForDispatch = (bottom - top) > 0 &&
+                    editor.isLaidOut &&
+                    (!isSelection || (editor.layout != null && editor.isWordwrapReady() && !editorBusy))
+                if (readyForDispatch) {
                     clearPendingDeletionLayoutListener()
                     post {
                         if (canStillSettleGeneration(capturedGen)) {
-                            handleDeletionSettlement(smooth = smooth, expectedGen = capturedGen)
+                            dispatchPendingDeletionAfterLayoutReady(capturedGen, smooth)
                         }
                     }
                 }
@@ -984,6 +1034,55 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         pendingDeletionLayoutListener = layoutListener
         addOnAttachStateChangeListener(attachListener)
         addOnLayoutChangeListener(layoutListener)
+    }
+
+    private fun dispatchPendingDeletionAfterLayoutReady(capturedGen: Long, smooth: Boolean) {
+        if (!canStillSettleGeneration(capturedGen)) return
+        if (activeDeletionSnapshot?.isSelection == true) {
+            val scribeEditor = editor as? ScribeCodeEditor
+            if (scribeEditor != null) {
+                scribeEditor.resumePendingSelectionDeletion(this, capturedGen)
+            } else {
+                prepareGapCollapseFrame1IfReady(fromGen = capturedGen)
+            }
+        } else {
+            handleDeletionSettlement(smooth = smooth, expectedGen = capturedGen)
+        }
+    }
+
+    fun dispatchPendingDeletionIfReady(
+        expectedGen: Long = deletionTransactionGeneration,
+        smooth: Boolean = true
+    ) {
+        if (!canStillSettleGeneration(expectedGen)) return
+        val snapshot = activeDeletionSnapshot ?: return
+        if (!snapshot.isSelection) {
+            recordSelectionDeletionDiagnostic(
+                SelectionDeletionDiagnostic(
+                    transactionGeneration = expectedGen,
+                    outcome = SelectionDeletionDispatchOutcome.NOT_A_SELECTION_DELETION,
+                    reason = "non_selection_deletion"
+                )
+            )
+            handleDeletionSettlement(smooth = smooth, expectedGen = expectedGen)
+            return
+        }
+        prepareGapCollapseFrame1IfReady(fromGen = expectedGen)
+    }
+
+    private fun clampPhysicalOverscrollAfterNonCollapsedSelectionDeletion() {
+        val currentTotal = scrollD + editor.offsetY
+        val maxBound = maxCanvasScroll.coerceAtLeast(0)
+        if (currentTotal > maxBound) {
+            val delta = (maxBound - currentTotal).toFloat()
+            withPhysicalScrollOrigin(PhysicalScrollOrigin.EVENT_B_SAFETY_CORRECTION) {
+                scrollCanvasBy(delta)
+            }
+            outerScrollResidualPx = 0f
+            editorScrollResidualPx = 0f
+            scrollDFloat = scrollD.toFloat()
+            syncActualScrollFromViewport()
+        }
     }
 
     private fun revalidateDeletionSettlementSafety(
@@ -1509,21 +1608,143 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     fun prepareGapCollapseFrame1IfReady(fromGen: Long) {
         if (!canStillSettleGeneration(fromGen)) return
         val snapshot = activeDeletionSnapshot ?: return
+        if (!snapshot.isSelection) {
+            recordSelectionDeletionDiagnostic(
+                SelectionDeletionDiagnostic(
+                    transactionGeneration = fromGen,
+                    outcome = SelectionDeletionDispatchOutcome.NOT_A_SELECTION_DELETION,
+                    reason = "non_selection_deletion"
+                )
+            )
+            handleDeletionSettlement(smooth = true, expectedGen = fromGen)
+            return
+        }
+
+        val preCapture = pendingPreDeleteSeamCapture
+        val upperStatus = preCapture?.upperHandleStatus ?: PreDeleteHandleCaptureStatus.NOT_SELECTION
+        val lowerStatus = preCapture?.lowerHandleStatus ?: PreDeleteHandleCaptureStatus.NOT_SELECTION
+        val content = editor.text
+        val isTextEmpty = content.isEmpty()
+        if (isTextEmpty) {
+            if (!tryClaimPendingDeletionSettlement(fromGen)) return
+            claimAndClearLiveDeletionTransaction(preserveRetractionDebt = false)
+            recordSelectionDeletionDiagnostic(
+                SelectionDeletionDiagnostic(
+                    transactionGeneration = fromGen,
+                    outcome = SelectionDeletionDispatchOutcome.NO_GAP_TO_COLLAPSE,
+                    reason = "empty_document_reset",
+                    upperHandleStatus = upperStatus,
+                    lowerHandleStatus = lowerStatus,
+                    isWordwrapReady = editor.isWordwrapReady()
+                )
+            )
+            resetDocumentToTopFromDeletion(smooth = true)
+            return
+        }
+
         val curLay = editor.layout
         val scribeEditor = editor as? ScribeCodeEditor
         val editorBusy = scribeEditor?.isLayoutBusy ?: editor.isLayoutComputing
-        if (height <= 0 || !isLaidOut || !editor.isLaidOut || curLay == null) {
-            if (!editor.isWordwrapReady()) {
-                forceFallbackOnDelayedSettlement = true
+        val wordwrapReady = editor.isWordwrapReady()
+
+        if (height <= 0 || !isLaidOut || !editor.isLaidOut || curLay == null || !wordwrapReady || editorBusy) {
+            val pendingReason = when {
+                height <= 0 || !isLaidOut || !editor.isLaidOut -> "view_not_laid_out"
+                curLay == null -> "layout_null"
+                editorBusy -> "editor_layout_busy"
+                else -> "wordwrap_not_ready"
             }
+            recordSelectionDeletionDiagnostic(
+                SelectionDeletionDiagnostic(
+                    transactionGeneration = fromGen,
+                    outcome = SelectionDeletionDispatchOutcome.GAP_COLLAPSE_PENDING_LAYOUT,
+                    reason = pendingReason,
+                    upperHandleStatus = upperStatus,
+                    lowerHandleStatus = lowerStatus,
+                    isLayoutBusy = editorBusy,
+                    isWordwrapReady = wordwrapReady
+                )
+            )
             deferDeletionSettlementUntilLayoutReady(fromGen, smooth = true)
             return
         }
-        if (!editor.isWordwrapReady() || editorBusy) {
-            forceFallbackOnDelayedSettlement = true
+
+        if (forceFallbackOnDelayedSettlement) {
+            if (!tryClaimPendingDeletionSettlement(fromGen)) return
+            clampPhysicalOverscrollAfterNonCollapsedSelectionDeletion()
+            claimAndClearLiveDeletionTransaction(preserveRetractionDebt = false)
+            recordSelectionDeletionDiagnostic(
+                SelectionDeletionDiagnostic(
+                    transactionGeneration = fromGen,
+                    outcome = SelectionDeletionDispatchOutcome.GAP_COLLAPSE_UNSUPPORTED_GEOMETRY,
+                    reason = "interrupted_active_collapse",
+                    upperHandleStatus = upperStatus,
+                    lowerHandleStatus = lowerStatus,
+                    isWordwrapReady = true
+                )
+            )
             return
         }
-        val preCapture = pendingPreDeleteSeamCapture
+
+        if (editor.hasComposingText()) {
+            recordSelectionDeletionDiagnostic(
+                SelectionDeletionDiagnostic(
+                    transactionGeneration = fromGen,
+                    outcome = SelectionDeletionDispatchOutcome.GAP_COLLAPSE_PENDING_COMPOSITION,
+                    reason = "active_composing_text",
+                    upperHandleStatus = upperStatus,
+                    lowerHandleStatus = lowerStatus,
+                    isWordwrapReady = true,
+                    isComposing = true
+                )
+            )
+            return
+        }
+
+        if (!editor.isWordwrap) {
+            if (!tryClaimPendingDeletionSettlement(fromGen)) return
+            clampPhysicalOverscrollAfterNonCollapsedSelectionDeletion()
+            claimAndClearLiveDeletionTransaction(preserveRetractionDebt = false)
+            recordSelectionDeletionDiagnostic(
+                SelectionDeletionDiagnostic(
+                    transactionGeneration = fromGen,
+                    outcome = SelectionDeletionDispatchOutcome.GAP_COLLAPSE_UNSUPPORTED_GEOMETRY,
+                    reason = "wordwrap_disabled",
+                    upperHandleStatus = upperStatus,
+                    lowerHandleStatus = lowerStatus,
+                    isWordwrapReady = true
+                )
+            )
+            return
+        }
+
+        var cancelledPreExistingAnimator = preCapture?.wasCursorAnimationRunningBeforeDelete == true
+        if (cancelledPreExistingAnimator || editor.cursorAnimator.isRunning) {
+            (editor.cursorAnimator as? ScribeCursorAnimator)?.let { anim ->
+                anim.deferAutoStartForPendingCollapse = true
+                anim.discardDeferredStart()
+            }
+            editor.cursorAnimator.cancel()
+            cancelledPreExistingAnimator = true
+        }
+        if (editor.cursorAnimator.isRunning) {
+            if (!tryClaimPendingDeletionSettlement(fromGen)) return
+            clampPhysicalOverscrollAfterNonCollapsedSelectionDeletion()
+            claimAndClearLiveDeletionTransaction(preserveRetractionDebt = false)
+            recordSelectionDeletionDiagnostic(
+                SelectionDeletionDiagnostic(
+                    transactionGeneration = fromGen,
+                    outcome = SelectionDeletionDispatchOutcome.GAP_COLLAPSE_UNSUPPORTED_GEOMETRY,
+                    reason = "cursor_animator_running",
+                    upperHandleStatus = upperStatus,
+                    lowerHandleStatus = lowerStatus,
+                    isWordwrapReady = true,
+                    wasCursorAnimatorCancelled = cancelledPreExistingAnimator
+                )
+            )
+            return
+        }
+
         val viewportBounds = resolveUnobstructedViewportBounds()
         val visibilityConfidence = evaluateVisibilityConfidence(viewportBounds)
         val preScrollY = preCapture?.preScrollY ?: (scrollD + editor.offsetY)
@@ -1557,20 +1778,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             false
         }
 
-        if (!forceFallbackOnDelayedSettlement) {
-            initializeActiveSeamBaselineIfEligible(
-                curLay = curLay,
-                anchorUpper = isUpperVisible && !isLowerVisible
-            )
-        } else {
-            resolvedSeamGeometry = null
-            clearActiveSeamBaseline()
-        }
+        initializeActiveSeamBaselineIfEligible(
+            curLay = curLay,
+            anchorUpper = isUpperVisible && !isLowerVisible
+        )
 
-        val content = editor.text
         val newDocLineCount = content.lineCount
         val newDocHeight = curLay.layoutHeight.toFloat()
-        val isTextEmpty = content.isEmpty()
         val cur = try { editor.cursor } catch (_: Throwable) { null }
         val rHeight = editor.rowHeight.toFloat()
         val newCaretDocY = if (cur != null) {
@@ -1578,7 +1792,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         } else {
             0f
         }
-        val isPostEditCaretAtLogicalTail = if (cur != null && !isTextEmpty) {
+        val isPostEditCaretAtLogicalTail = if (cur != null) {
             ScribeScrollDeletionPolicy.isCaretAtLogicalTail(
                 lineCount = newDocLineCount,
                 caretLine = cur.leftLine,
@@ -1597,35 +1811,100 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             newDocHeight = headerHeight + newDocHeight,
             usableViewportHeight = height.toFloat(),
             breathingMarginPx = breathingMarginPx,
-            isTextEmpty = isTextEmpty,
+            isTextEmpty = false,
             isPostEditCaretAtLogicalTail = isPostEditCaretAtLogicalTail
         )
 
         val seam = resolvedSeamGeometry
-        val isEligibleIntent =
-            intent == ScribeScrollDeletionPolicy.DeletionAnchorIntent.CARET_ANCHOR ||
-                intent == ScribeScrollDeletionPolicy.DeletionAnchorIntent.TAIL_ANCHOR ||
-                intent == ScribeScrollDeletionPolicy.DeletionAnchorIntent.RESET_TO_TOP
-        if (forceFallbackOnDelayedSettlement ||
-            !snapshot.isSelection ||
-            isTextEmpty ||
-            !isEligibleIntent ||
-            preCapture == null ||
-            seam == null ||
-            !seam.isEligibleCase
-        ) {
-            handleDeletionSettlement(smooth = true, expectedGen = fromGen)
+        val isTouchedOnScreen = if (preCapture != null) {
+            ScribeGapCollapsePolicy.isSelectionTouchedOnScreen(
+                isUpperVisible = isUpperVisible,
+                isLowerVisible = isLowerVisible,
+                preCapture = preCapture,
+                headerHeight = headerHeight,
+                viewportWidthPx = viewportWidthPx,
+                viewportBounds = viewportBounds
+            )
+        } else {
+            false
+        }
+
+        if (preCapture == null || seam == null || !seam.isEligibleCase) {
+            val unsupportedReason = when {
+                preCapture == null -> "missing_pre_delete_capture"
+                seam != null && !seam.hasSurvivingLower -> "end_of_document_no_surviving_lower"
+                seam?.hasRtlOrBidiAtSeam == true -> "rtl_or_bidi_at_seam"
+                seam?.isMergedPartialRowSeam == true -> "merged_partial_row_seam"
+                else -> "ineligible_seam_geometry"
+            }
+            if (!tryClaimPendingDeletionSettlement(fromGen)) return
+            clampPhysicalOverscrollAfterNonCollapsedSelectionDeletion()
+            claimAndClearLiveDeletionTransaction(preserveRetractionDebt = false)
+            recordSelectionDeletionDiagnostic(
+                SelectionDeletionDiagnostic(
+                    transactionGeneration = fromGen,
+                    outcome = SelectionDeletionDispatchOutcome.GAP_COLLAPSE_UNSUPPORTED_GEOMETRY,
+                    reason = unsupportedReason,
+                    upperHandleStatus = upperStatus,
+                    lowerHandleStatus = lowerStatus,
+                    isUpperVisible = isUpperVisible,
+                    isLowerVisible = isLowerVisible,
+                    isTouchedOnScreen = isTouchedOnScreen,
+                    visibilityConfidence = visibilityConfidence,
+                    deltaGapPx = seam?.deltaGapPx ?: 0f,
+                    isWordwrapReady = true,
+                    wasCursorAnimatorCancelled = cancelledPreExistingAnimator
+                )
+            )
             return
         }
 
-        val isTouchedOnScreen = ScribeGapCollapsePolicy.isSelectionTouchedOnScreen(
-            isUpperVisible = isUpperVisible,
-            isLowerVisible = isLowerVisible,
-            preCapture = preCapture,
-            headerHeight = headerHeight,
-            viewportWidthPx = viewportWidthPx,
-            viewportBounds = viewportBounds
-        )
+        if (visibilityConfidence != VisibilityConfidence.RESOLVED) {
+            val reason = if (viewportBounds.hasModalBlocker) "modal_blocker_active" else "invalid_viewport_bounds"
+            if (!tryClaimPendingDeletionSettlement(fromGen)) return
+            clampPhysicalOverscrollAfterNonCollapsedSelectionDeletion()
+            claimAndClearLiveDeletionTransaction(preserveRetractionDebt = false)
+            recordSelectionDeletionDiagnostic(
+                SelectionDeletionDiagnostic(
+                    transactionGeneration = fromGen,
+                    outcome = SelectionDeletionDispatchOutcome.GAP_COLLAPSE_UNSUPPORTED_GEOMETRY,
+                    reason = reason,
+                    upperHandleStatus = upperStatus,
+                    lowerHandleStatus = lowerStatus,
+                    isUpperVisible = isUpperVisible,
+                    isLowerVisible = isLowerVisible,
+                    isTouchedOnScreen = isTouchedOnScreen,
+                    visibilityConfidence = visibilityConfidence,
+                    deltaGapPx = seam.deltaGapPx,
+                    isWordwrapReady = true,
+                    wasCursorAnimatorCancelled = cancelledPreExistingAnimator
+                )
+            )
+            return
+        }
+
+        if (!seam.deltaGapPx.isFinite() || seam.deltaGapPx <= ScribeGapCollapsePolicy.MIN_GAP_COLLAPSE_PX) {
+            if (!tryClaimPendingDeletionSettlement(fromGen)) return
+            clampPhysicalOverscrollAfterNonCollapsedSelectionDeletion()
+            claimAndClearLiveDeletionTransaction(preserveRetractionDebt = false)
+            recordSelectionDeletionDiagnostic(
+                SelectionDeletionDiagnostic(
+                    transactionGeneration = fromGen,
+                    outcome = SelectionDeletionDispatchOutcome.NO_GAP_TO_COLLAPSE,
+                    reason = "delta_gap_below_threshold",
+                    upperHandleStatus = upperStatus,
+                    lowerHandleStatus = lowerStatus,
+                    isUpperVisible = isUpperVisible,
+                    isLowerVisible = isLowerVisible,
+                    isTouchedOnScreen = isTouchedOnScreen,
+                    visibilityConfidence = visibilityConfidence,
+                    deltaGapPx = seam.deltaGapPx,
+                    isWordwrapReady = true,
+                    wasCursorAnimatorCancelled = cancelledPreExistingAnimator
+                )
+            )
+            return
+        }
 
         val usableMidLocal = (viewportBounds.visibleEditorTop + viewportBounds.visibleEditorBottom) * 0.5f
         val seamDocY = seam.seamFirstLowerRow * rHeight
@@ -1645,10 +1924,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             deletionIntent = intent,
             isSelection = snapshot.isSelection,
             isWordwrap = editor.isWordwrap,
-            isWordwrapReady = editor.isWordwrapReady(),
-            isLayoutBusy = editorBusy,
-            isComposing = editor.hasComposingText(),
-            isCursorAnimationRunning = preCapture.wasCursorAnimationRunningBeforeDelete || editor.cursorAnimator.isRunning,
+            isWordwrapReady = true,
+            isLayoutBusy = false,
+            isComposing = false,
+            isCursorAnimationRunning = false,
             hasRtlOrBidiAtSeam = seam.hasRtlOrBidiAtSeam,
             isMergedPartialRowSeam = seam.isMergedPartialRowSeam,
             hasSurvivingUpper = seam.hasSurvivingUpper,
@@ -1667,6 +1946,23 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (plan.requiresOffscreenCaretFollow) {
             if (!tryClaimPendingDeletionSettlement(fromGen)) return
             claimAndClearLiveDeletionTransaction(preserveRetractionDebt = false)
+            recordSelectionDeletionDiagnostic(
+                SelectionDeletionDiagnostic(
+                    transactionGeneration = fromGen,
+                    outcome = SelectionDeletionDispatchOutcome.GAP_COLLAPSE_SCENARIO_E_CARET_FOLLOW,
+                    reason = "offscreen_selection_caret_follow",
+                    scenario = plan.scenario,
+                    upperHandleStatus = upperStatus,
+                    lowerHandleStatus = lowerStatus,
+                    isUpperVisible = isUpperVisible,
+                    isLowerVisible = isLowerVisible,
+                    isTouchedOnScreen = isTouchedOnScreen,
+                    visibilityConfidence = visibilityConfidence,
+                    deltaGapPx = seam.deltaGapPx,
+                    isWordwrapReady = true,
+                    wasCursorAnimatorCancelled = cancelledPreExistingAnimator
+                )
+            )
             if (!gapCollapseController.isTransactionOwned) {
                 scribeEditor?.restoreTextActionWindowIfFallbackStranded(deletionTransactionGeneration)
             }
@@ -1682,17 +1978,47 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
         if (plan.isFallback) {
-            handleDeletionSettlement(smooth = true, expectedGen = fromGen)
-            if (!isDeletionTransactionActive &&
-                !gapCollapseController.isTransactionOwned &&
-                gapCollapseController.phase == GapCollapsePhase.IDLE
-            ) {
-                scribeEditor?.restoreTextActionWindowIfFallbackStranded(deletionTransactionGeneration)
-            }
+            if (!tryClaimPendingDeletionSettlement(fromGen)) return
+            clampPhysicalOverscrollAfterNonCollapsedSelectionDeletion()
+            claimAndClearLiveDeletionTransaction(preserveRetractionDebt = false)
+            recordSelectionDeletionDiagnostic(
+                SelectionDeletionDiagnostic(
+                    transactionGeneration = fromGen,
+                    outcome = SelectionDeletionDispatchOutcome.GAP_COLLAPSE_UNSUPPORTED_GEOMETRY,
+                    reason = "plan_ineligible",
+                    scenario = plan.scenario,
+                    upperHandleStatus = upperStatus,
+                    lowerHandleStatus = lowerStatus,
+                    isUpperVisible = isUpperVisible,
+                    isLowerVisible = isLowerVisible,
+                    isTouchedOnScreen = isTouchedOnScreen,
+                    visibilityConfidence = visibilityConfidence,
+                    deltaGapPx = seam.deltaGapPx,
+                    isWordwrapReady = true,
+                    wasCursorAnimatorCancelled = cancelledPreExistingAnimator
+                )
+            )
             return
         }
 
         if (!tryClaimPendingDeletionSettlement(fromGen)) return
+        recordSelectionDeletionDiagnostic(
+            SelectionDeletionDiagnostic(
+                transactionGeneration = fromGen,
+                outcome = SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED,
+                reason = "collapse_started",
+                scenario = plan.scenario,
+                upperHandleStatus = upperStatus,
+                lowerHandleStatus = lowerStatus,
+                isUpperVisible = isUpperVisible,
+                isLowerVisible = isLowerVisible,
+                isTouchedOnScreen = isTouchedOnScreen,
+                visibilityConfidence = visibilityConfidence,
+                deltaGapPx = seam.deltaGapPx,
+                isWordwrapReady = true,
+                wasCursorAnimatorCancelled = cancelledPreExistingAnimator
+            )
+        )
         isDeletionTailAnchored = isTailAnchoredCollapse
 
         if (plan.requiresSynchronousSnap) {
@@ -1764,6 +2090,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     ) {
         val snapshot = activeDeletionSnapshot ?: return
         if (!canStillSettleGeneration(expectedGen)) return
+        if (snapshot.isSelection && !editor.text.isEmpty()) {
+            prepareGapCollapseFrame1IfReady(fromGen = expectedGen)
+            return
+        }
         val currentGen = expectedGen
         if (height <= 0 || !isLaidOut || !editor.isLaidOut) {
             if (!editor.isWordwrapReady()) {
@@ -1785,6 +2115,9 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (!tryClaimPendingDeletionSettlement(currentGen)) {
             return
         }
+        legacySettlementInvocationCount++
+        lastLegacySettlementGen = currentGen
+        lastLegacySettlementWasSelection = snapshot.isSelection
 
         val currentScroll = (scrollD + editor.offsetY).toFloat()
         val newDocHeight = curLay?.layoutHeight?.toFloat() ?: 0f
@@ -2095,7 +2428,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (isDeletionTransactionActive) {
             val gen = deletionTransactionGeneration
             if (canStillSettleGeneration(gen)) {
-                handleDeletionSettlement(smooth = smooth, expectedGen = gen)
+                dispatchPendingDeletionIfReady(expectedGen = gen, smooth = smooth)
             }
             return
         }

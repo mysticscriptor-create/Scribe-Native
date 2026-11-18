@@ -1563,4 +1563,41 @@ class ScribeGapCollapsePolicyTest {
         )
         assertEquals(CollapseScenario.C_BOTH_VISIBLE, plan.scenario)
     }
+
+    @Test
+    fun testPhase7_PreDeleteHandleCaptureStatusAndDiagnosticModel() {
+        val rowHeight = 40f
+        val pre = ScribeGapCollapsePolicy.classifyPreDeleteSeam(
+            isSelection = true,
+            l1 = 4, c1 = 0, l2 = 8, c2 = 0,
+            preLineCount = 20, preLineLenL2 = 25,
+            preScrollY = 120, rowHeightPx = rowHeight,
+            rowIndexAt = { line, _ -> line },
+            upperHandleStatus = PreDeleteHandleCaptureStatus.IME_CONSUMING_INPUT,
+            lowerHandleStatus = PreDeleteHandleCaptureStatus.NOT_FOCUSED
+        )
+        assertEquals(PreDeleteHandleCaptureStatus.IME_CONSUMING_INPUT, pre.upperHandleStatus)
+        assertEquals(PreDeleteHandleCaptureStatus.NOT_FOCUSED, pre.lowerHandleStatus)
+
+        val diag = SelectionDeletionDiagnostic(
+            transactionGeneration = 42L,
+            outcome = SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED,
+            reason = "collapse_started",
+            scenario = CollapseScenario.C_BOTH_VISIBLE,
+            upperHandleStatus = PreDeleteHandleCaptureStatus.CAPTURED,
+            lowerHandleStatus = PreDeleteHandleCaptureStatus.CAPTURED,
+            isUpperVisible = true,
+            isLowerVisible = true,
+            isTouchedOnScreen = true,
+            visibilityConfidence = VisibilityConfidence.RESOLVED,
+            deltaGapPx = 160f,
+            isLayoutBusy = false,
+            isWordwrapReady = true,
+            isComposing = false,
+            wasCursorAnimatorCancelled = true
+        )
+        assertEquals(42L, diag.transactionGeneration)
+        assertEquals(SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED, diag.outcome)
+        assertTrue(diag.wasCursorAnimatorCancelled)
+    }
 }

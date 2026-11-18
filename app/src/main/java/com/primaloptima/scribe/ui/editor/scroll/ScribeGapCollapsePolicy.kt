@@ -88,6 +88,45 @@ enum class HandleHorizontalAlignment {
     ALIGN_RIGHT
 }
 
+enum class SelectionDeletionDispatchOutcome {
+    GAP_COLLAPSE_STARTED,
+    GAP_COLLAPSE_SCENARIO_E_CARET_FOLLOW,
+    GAP_COLLAPSE_PENDING_LAYOUT,
+    GAP_COLLAPSE_PENDING_COMPOSITION,
+    GAP_COLLAPSE_UNSUPPORTED_GEOMETRY,
+    NO_GAP_TO_COLLAPSE,
+    NOT_A_SELECTION_DELETION
+}
+
+enum class PreDeleteHandleCaptureStatus {
+    CAPTURED,
+    NOT_SELECTION,
+    LAYOUT_NULL,
+    ROW_HEIGHT_INVALID,
+    NOT_FOCUSED,
+    MOUSE_MODE,
+    IME_CONSUMING_INPUT,
+    POSITION_LOOKUP_FAILED
+}
+
+data class SelectionDeletionDiagnostic(
+    val transactionGeneration: Long,
+    val outcome: SelectionDeletionDispatchOutcome,
+    val reason: String,
+    val scenario: CollapseScenario? = null,
+    val upperHandleStatus: PreDeleteHandleCaptureStatus = PreDeleteHandleCaptureStatus.NOT_SELECTION,
+    val lowerHandleStatus: PreDeleteHandleCaptureStatus = PreDeleteHandleCaptureStatus.NOT_SELECTION,
+    val isUpperVisible: Boolean = false,
+    val isLowerVisible: Boolean = false,
+    val isTouchedOnScreen: Boolean = false,
+    val visibilityConfidence: VisibilityConfidence? = null,
+    val deltaGapPx: Float = 0f,
+    val isLayoutBusy: Boolean = false,
+    val isWordwrapReady: Boolean = false,
+    val isComposing: Boolean = false,
+    val wasCursorAnimatorCancelled: Boolean = false
+)
+
 data class PreDeleteHandleDocRect(
     val leftDocX: Float,
     val topDocY: Float,
@@ -124,7 +163,9 @@ data class PreDeleteSeamCapture(
     val preUpperPrefixBlank: Boolean = (c1 == 0),
     val preRowLowerSuffixStart: Int = -1,
     val preRowLowerEndOfL2: Int = -1,
-    val preRowNextLine: Int = -1
+    val preRowNextLine: Int = -1,
+    val upperHandleStatus: PreDeleteHandleCaptureStatus = PreDeleteHandleCaptureStatus.NOT_SELECTION,
+    val lowerHandleStatus: PreDeleteHandleCaptureStatus = PreDeleteHandleCaptureStatus.NOT_SELECTION
 )
 
 data class ResolvedSeamGeometry(
@@ -714,7 +755,9 @@ object ScribeGapCollapsePolicy {
         preSelectedRowSpansDoc: List<Rect> = emptyList(),
         hasSelectedRowSpans: Boolean = false,
         wasCursorAnimationRunningBeforeDelete: Boolean = false,
-        preUpperPrefixBlank: Boolean = (c1 == 0)
+        preUpperPrefixBlank: Boolean = (c1 == 0),
+        upperHandleStatus: PreDeleteHandleCaptureStatus = PreDeleteHandleCaptureStatus.NOT_SELECTION,
+        lowerHandleStatus: PreDeleteHandleCaptureStatus = PreDeleteHandleCaptureStatus.NOT_SELECTION
     ): PreDeleteSeamCapture {
         if (!isSelection || preLineCount <= 0 || rowHeightPx <= 0f || !rowHeightPx.isFinite()) {
             return PreDeleteSeamCapture(
@@ -741,7 +784,9 @@ object ScribeGapCollapsePolicy {
                 preSelectedRowSpansDoc = preSelectedRowSpansDoc,
                 hasSelectedRowSpans = hasSelectedRowSpans,
                 wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete,
-                preUpperPrefixBlank = preUpperPrefixBlank
+                preUpperPrefixBlank = preUpperPrefixBlank,
+                upperHandleStatus = upperHandleStatus,
+                lowerHandleStatus = lowerHandleStatus
             )
         }
         val hasSurvivingUpper = l1 > 0 || c1 > 0
@@ -778,7 +823,9 @@ object ScribeGapCollapsePolicy {
                 preUpperPrefixBlank = preUpperPrefixBlank,
                 preRowLowerSuffixStart = preRowLowerSuffixStart,
                 preRowLowerEndOfL2 = preRowLowerEndOfL2,
-                preRowNextLine = preRowNextLine
+                preRowNextLine = preRowNextLine,
+                upperHandleStatus = upperHandleStatus,
+                lowerHandleStatus = lowerHandleStatus
             )
         }
         // Case II (C2 == preLineLen(L2))
@@ -810,7 +857,9 @@ object ScribeGapCollapsePolicy {
                 preUpperPrefixBlank = preUpperPrefixBlank,
                 preRowLowerSuffixStart = -1,
                 preRowLowerEndOfL2 = preRowLowerEndOfL2,
-                preRowNextLine = -1
+                preRowNextLine = -1,
+                upperHandleStatus = upperHandleStatus,
+                lowerHandleStatus = lowerHandleStatus
             )
         }
         val preTopDocY = if (preRowNextLine >= 0) preRowNextLine * rowHeightPx else Float.NaN
@@ -841,7 +890,9 @@ object ScribeGapCollapsePolicy {
             preUpperPrefixBlank = preUpperPrefixBlank,
             preRowLowerSuffixStart = -1,
             preRowLowerEndOfL2 = preRowLowerEndOfL2,
-            preRowNextLine = preRowNextLine
+            preRowNextLine = preRowNextLine,
+            upperHandleStatus = upperHandleStatus,
+            lowerHandleStatus = lowerHandleStatus
         )
     }
 
