@@ -742,6 +742,7 @@ object ScribeGapCollapsePolicy {
         val hasNonEmptySpans = preCapture.hasSelectedRowSpans && preCapture.preSelectedRowSpansDoc.isNotEmpty()
         if (hasNonEmptySpans) {
             val scrollXFloat = preCapture.preScrollX.toFloat()
+            var anySpanGeometricallyIntersectsViewport = false
             for (spanDoc in preCapture.preSelectedRowSpansDoc) {
                 if (!spanDoc.left.isFinite() ||
                     !spanDoc.top.isFinite() ||
@@ -759,6 +760,7 @@ object ScribeGapCollapsePolicy {
                 if ((clipRight - clipLeft) < 1f || (clipBottom - clipTop) < 1f) {
                     continue
                 }
+                anySpanGeometricallyIntersectsViewport = true
                 val clippedSpan = Rect(clipLeft, clipTop, clipRight, clipBottom)
                 val whollyCoveredByPill = viewportBounds.floatingPillLocalRects.any { pill ->
                     pill.left <= clippedSpan.left &&
@@ -769,6 +771,11 @@ object ScribeGapCollapsePolicy {
                 if (!whollyCoveredByPill) {
                     return SelectionVisibilityDecision.VISIBLE
                 }
+            }
+            if (anySpanGeometricallyIntersectsViewport) {
+                // Captured selection geometry intersects the viewport but is wholly occluded by
+                // floating pills; treat as UNRESOLVED rather than genuinely OFFSCREEN (Scenario E).
+                return SelectionVisibilityDecision.UNRESOLVED
             }
             if (preCapture.selectedRowSpanCaptureStatus == SelectedRowSpanCaptureStatus.COMPLETE) {
                 return SelectionVisibilityDecision.OFFSCREEN

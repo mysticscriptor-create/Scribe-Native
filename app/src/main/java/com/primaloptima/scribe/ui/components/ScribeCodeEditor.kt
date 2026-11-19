@@ -1230,7 +1230,13 @@ class ScribeCodeEditor @JvmOverloads constructor(
                                     }
                                 } else if (!canvas.isDeletionTransactionActive && !canvas.gapCollapseController.isTransactionOwned) {
                                     val totalScroll = canvas.scrollD + offsetY
-                                    if (totalScroll > canvas.maxCanvasScroll) {
+                                    val maxScroll = canvas.maxCanvasScroll
+                                    val isPreservingInBoundsCaretGlide = !text.isEmpty() &&
+                                        canvas.isGlideRunning &&
+                                        canvas.activeGlideReason == ScrollAnimationReason.CARET_VISIBILITY &&
+                                        canvas.glideTarget.isFinite() &&
+                                        canvas.glideTarget <= maxScroll.toFloat()
+                                    if (totalScroll > maxScroll && !isPreservingInBoundsCaretGlide) {
                                         canvas.clampCanvasScrollToMax(smooth = true)
                                     }
                                 }

@@ -1779,26 +1779,48 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             assertFalse(scribeAnim.isRunning)
             assertFalse(scribeAnim.hasDeferredPendingStart)
             assertTrue(
-                "Scenario E must start authoritative smooth caret-follow scroll",
-                canvas.isGlideRunning || canvas.scrollCoordinator.isAnimationActive
+                "Scenario E must start authoritative smooth caret-follow scroll " +
+                    "(isGlideRunning=${canvas.isGlideRunning}, activeGlideReason=${canvas.activeGlideReason}, " +
+                    "glideTarget=${canvas.glideTarget}, coordActive=${canvas.scrollCoordinator.isAnimationActive})",
+                canvas.isGlideRunning && canvas.scrollCoordinator.isAnimationActive
             )
 
+            val mainLooper = Shadows.shadowOf(Looper.getMainLooper())
+            val framesBefore = canvas.glideProcessedFrameCount
             var steps = 0
-            while ((canvas.isGlideRunning || canvas.scrollCoordinator.isAnimationActive) && steps < 120) {
-                org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(16))
-                Shadows.shadowOf(Looper.getMainLooper()).idle()
+            val maxSteps = 120
+            while ((canvas.isGlideRunning || canvas.scrollCoordinator.isAnimationActive) && steps < maxSteps) {
+                mainLooper.idleFor(java.time.Duration.ofMillis(16))
                 steps++
             }
+            val framesProcessed = canvas.glideProcessedFrameCount - framesBefore
+            val completedWithinBudget = !canvas.isGlideRunning && !canvas.scrollCoordinator.isAnimationActive
 
             val finalPhysical = canvas.scrollD + editor.offsetY
-            assertTrue("Scenario E smooth caret-follow must scroll upward toward caret ($finalPhysical < $preScroll)", finalPhysical < preScroll)
             val layAfter = editor.layout!!
             val curAfter = editor.cursor
             val caretGeomAfter = canvas.getCharGeometry(layAfter, curAfter.leftLine, curAfter.leftColumn, editor.rowHeight.toFloat())
+            val caretScreenTopAfter = canvas.headerHeight + caretGeomAfter.topDocY - finalPhysical
             val caretScreenBottomAfter = canvas.headerHeight + caretGeomAfter.bottomDocY - finalPhysical
             val viewportBoundsAfter = canvas.resolveUnobstructedViewportBounds()
+            val scenarioEDiag = "preScroll=$preScroll, finalPhysical=$finalPhysical, scrollD=${canvas.scrollD}, " +
+                "editorOffsetY=${editor.offsetY}, maxCanvasScroll=${canvas.maxCanvasScroll}, " +
+                "glideTarget=${canvas.glideTarget}, glidePosition=${canvas.glidePosition}, " +
+                "glideVelocity=${canvas.glideVelocity}, activeGlideReason=${canvas.activeGlideReason}, " +
+                "isGlideRunning=${canvas.isGlideRunning}, coordTotalScroll=${canvas.scrollCoordinator.totalScroll}, " +
+                "coordTarget=${canvas.scrollCoordinator.activeTargetTotalScroll}, " +
+                "coordActive=${canvas.scrollCoordinator.isAnimationActive}, " +
+                "framesProcessed=$framesProcessed, steps=$steps/$maxSteps, completedWithinBudget=$completedWithinBudget, " +
+                "caretDoc=[${caretGeomAfter.topDocY}, ${caretGeomAfter.bottomDocY}], " +
+                "caretScreen=[$caretScreenTopAfter, $caretScreenBottomAfter], " +
+                "viewport=[${viewportBoundsAfter.visibleEditorTop}, ${viewportBoundsAfter.visibleEditorBottom}]"
+
+            assertTrue("Scenario E animation must process at least one real frame ($scenarioEDiag)", framesProcessed > 0)
+            assertTrue("Scenario E animation must complete within frame budget ($scenarioEDiag)", completedWithinBudget)
+            assertTrue("Scenario E smooth caret-follow must scroll upward toward caret ($scenarioEDiag)", finalPhysical < preScroll)
             assertTrue(
-                "Resulting caret ($caretScreenBottomAfter) must be brought inside unobstructed viewport [${viewportBoundsAfter.visibleEditorTop}, ${viewportBoundsAfter.visibleEditorBottom}]",
+                "Resulting caret ($caretScreenBottomAfter) must be brought inside unobstructed viewport " +
+                    "[${viewportBoundsAfter.visibleEditorTop}, ${viewportBoundsAfter.visibleEditorBottom}] ($scenarioEDiag)",
                 caretScreenBottomAfter >= viewportBoundsAfter.visibleEditorTop &&
                     caretScreenBottomAfter <= viewportBoundsAfter.visibleEditorBottom
             )

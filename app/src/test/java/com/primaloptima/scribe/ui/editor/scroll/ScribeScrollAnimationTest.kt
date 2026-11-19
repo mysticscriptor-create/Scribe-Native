@@ -1622,4 +1622,69 @@ class ScribeScrollAnimationTest {
         val vSnap = ScribeGapCollapsePolicy.computeMode2HandoffProgressVelocity(snapPlan, false, -300f, 120f, omega2)
         assertEquals(0f, vSnap, 0.0001f)
     }
+
+    @Test
+    fun testGlideAnimator_SingleMonotonicClockAndPhysicalOvershootReconciliation() {
+        // 1. Consistent monotonic clock: start and all frames read the same provider;
+        //    non-advancing or backward reads never corrupt state or switch clock origins.
+        var clockNs = 1_000_000_000L
+        var clockReads = 0
+        var physicalScroll = 3540f
+        val postDeleteMaxScroll = 3400f
+        val coordinator = ScribeScrollCoordinator(totalScroll = physicalScroll).apply {
+            onScrollBy = { delta ->
+                val before = physicalScroll
+                // Simulate post-delete editor.offsetY clamping to the reduced maxScroll on the first upward step.
+                val next = (before + delta).coerceIn(0f, postDeleteMaxScroll)
+                physicalScroll = next
+                delta - (next - before)
+            }
+            wasLastStepClampedByBoundary = { false }
+        }
+        val scheduledRunnables = mutableListOf<Runnable>()
+        val animator = ScribeCanvasGlideAnimator(
+            scrollCoordinator = coordinator,
+            postOnAnimationAction = { r -> scheduledRunnables.add(r) },
+            removeCallbacksAction = { r -> scheduledRunnables.remove(r) },
+            monotonicTimeNanosProvider = {
+                clockReads++
+                clockNs
+            }
+        )
+
+        val started = animator.startAuthoritativeAnimation(
+            currentScroll = physicalScroll,
+            targetTotalScroll = 480f,
+            reason = ScrollAnimationReason.CARET_VISIBILITY,
+            maxCanvasScroll = postDeleteMaxScroll.toInt()
+        )
+        assertTrue("Animation must start", started)
+        assertEquals("Start must read monotonic clock once", 1, clockReads)
+        assertEquals(1, scheduledRunnables.size)
+
+        // Frame 1 with stalled/backward clock read: handled deliberately without source switching,
+        // and physical reconciliation (3540 -> 3400) rebases glidePosition & lastAnimatedScroll together.
+        clockNs -= 5_000_000L
+        scheduledRunnables.removeAt(0).run()
+        assertEquals(2, clockReads)
+        assertEquals(1, animator.processedFrameCount)
+        assertEquals(3400f, physicalScroll, 0.5f)
+        assertEquals(physicalScroll, animator.glidePosition, 0.5f)
+        assertEquals(physicalScroll, coordinator.totalScroll, 0.5f)
+        assertEquals(physicalScroll, coordinator.lastAnimatedScroll, 0.5f)
+
+        // Advance with steady 16ms frames until settled.
+        var ticks = 0
+        while (animator.isGlideRunning && scheduledRunnables.isNotEmpty() && ticks < 120) {
+            clockNs += 16_000_000L
+            scheduledRunnables.removeAt(0).run()
+            ticks++
+        }
+
+        assertFalse("Glide must settle within 120 frames", animator.isGlideRunning)
+        assertFalse("Coordinator must finish when glide settles", coordinator.isAnimationActive)
+        assertTrue("Multiple frames must be processed", animator.processedFrameCount > 10)
+        assertEquals("Physical scroll must converge to target 480f without overshoot drift", 480f, physicalScroll, 1f)
+        assertEquals("Coordinator totalScroll must match actual physical scroll", physicalScroll, coordinator.totalScroll, 0.5f)
+    }
 }

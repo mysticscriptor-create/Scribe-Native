@@ -1867,5 +1867,28 @@ class ScribeGapCollapsePolicyTest {
                 isWordwrap = true
             )
         )
+
+        // 7. Complete spans intersecting the viewport but wholly covered by floating pills -> UNRESOLVED (never OFFSCREEN).
+        val pill = Rect(left = 10f, top = 150f, right = 400f, bottom = 260f)
+        val boundsWithPill = makeValidViewportBounds(top = 0f, bottom = 1200f, floatingPills = listOf(pill))
+        val occludedByPillCapture = baseCapture.copy(
+            preScrollY = 600, // headerRemaining = -400; span doc y 580..620 -> local y 180..220 (inside pill 150..260)
+            preScrollX = 0,
+            preSelectedRowSpansDoc = listOf(Rect(20f, 580f, 320f, 620f)),
+            hasSelectedRowSpans = true,
+            selectedRowSpanCaptureStatus = SelectedRowSpanCaptureStatus.COMPLETE
+        )
+        assertEquals(
+            SelectionVisibilityDecision.UNRESOLVED,
+            ScribeGapCollapsePolicy.resolveSelectionVisibilityDecision(
+                isUpperVisible = false,
+                isLowerVisible = false,
+                preCapture = occludedByPillCapture,
+                headerHeight = 200,
+                viewportWidthPx = 800f,
+                viewportBounds = boundsWithPill,
+                isWordwrap = true
+            )
+        )
     }
 }

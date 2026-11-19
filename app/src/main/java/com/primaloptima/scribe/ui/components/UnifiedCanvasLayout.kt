@@ -554,6 +554,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         get() = canvasAnimator.glideVelocity
     val activeGlideReason: ScrollAnimationReason?
         get() = canvasAnimator.activeGlideReason
+    val glideProcessedFrameCount: Int
+        get() = canvasAnimator.processedFrameCount
     val isRestorationActive: Boolean
         get() = scrollCoordinator.isAnimationActive && scrollCoordinator.activeReason == ScrollAnimationReason.CONTRACTION_RESTORATION
     val activeRestorationTargetScroll: Float?
@@ -2464,6 +2466,15 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             if (canStillSettleGeneration(gen)) {
                 dispatchPendingDeletionIfReady(expectedGen = gen, smooth = smooth)
             }
+            return
+        }
+        if (smooth &&
+            !editor.text.isEmpty() &&
+            isGlideRunning &&
+            activeGlideReason == ScrollAnimationReason.CARET_VISIBILITY &&
+            glideTarget.isFinite() &&
+            glideTarget <= maxCanvasScroll.toFloat()
+        ) {
             return
         }
         val deltaY = ScribeScrollDeletionPolicy.calculateDeletionAnchorDelta(

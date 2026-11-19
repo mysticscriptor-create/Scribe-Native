@@ -26,16 +26,24 @@ class ScribeCanvasGlideAnimator(
     var isDeletionSafetyActiveProvider: (() -> Boolean)? = null,
     var onCancelledCallback: ((reason: String?, wasDeletionSafetyActive: Boolean) -> Unit)? = null,
     var onFrameCommitted: ((result: ScrollStepResult, reason: ScrollAnimationReason?, physicalScroll: Float) -> Unit)? = null,
-    private val monotonicTimeNanosProvider: () -> Long = { defaultMonotonicTimeNanos() }
+    private val monotonicTimeNanosProvider: (() -> Long)? = null
 ) {
     companion object {
-        private fun defaultMonotonicTimeNanos(): Long {
+        /**
+         * Selects one monotonic clock source for the complete lifetime of an animation so
+         * start and subsequent frame reads can never mix different clock origins.
+         */
+        internal fun resolveDefaultMonotonicClock(): () -> Long {
             val elapsed = try {
                 android.os.SystemClock.elapsedRealtimeNanos()
             } catch (_: Throwable) {
-                0L
+                -1L
             }
-            return if (elapsed > 0L) elapsed else System.nanoTime()
+            return if (elapsed > 0L) {
+                { android.os.SystemClock.elapsedRealtimeNanos() }
+            } else {
+                { System.nanoTime() }
+            }
         }
     }
     var activeCanvasAnimator: ValueAnimator? = null
@@ -48,6 +56,9 @@ class ScribeCanvasGlideAnimator(
     var glideTarget: Float = 0f
         private set
     private var glideLastTimeNs: Long = 0L
+    private var activeGlideClock: () -> Long = monotonicTimeNanosProvider ?: resolveDefaultMonotonicClock()
+    var processedFrameCount: Int = 0
+        private set
     var activeGlideReason: ScrollAnimationReason? = null
         private set
     private var activeGlideOnEnd: (() -> Unit)? = null
@@ -57,15 +68,22 @@ class ScribeCanvasGlideAnimator(
     val glideFrameRunnable: Runnable = object : Runnable {
         override fun run() {
             if (!isGlideRunning) return
-            val nowNs = monotonicTimeNanosProvider()
-            val dtSec = ((nowNs - glideLastTimeNs) / 1_000_000_000f).coerceIn(0.001f, 0.032f)
-            glideLastTimeNs = nowNs
+            val nowNs = activeGlideClock()
+            val deltaNs = nowNs - glideLastTimeNs
+            val dtSec = if (deltaNs <= 0L) {
+                // Deliberate minimal step on non-advancing/invalid clock read without switching sources.
+                0.001f
+            } else {
+                glideLastTimeNs = nowNs
+                (deltaNs / 1_000_000_000f).coerceIn(0.001f, 0.032f)
+            }
             advanceFrame(dtSec)
         }
     }
 
     internal fun advanceFrame(dtSec: Float) {
         if (!isGlideRunning) return
+        processedFrameCount++
         val opId = activeGlideOpId
         if (opId != scrollCoordinator.activeOperationId || !scrollCoordinator.isAnimationActive) {
             isGlideRunning = false
@@ -115,9 +133,11 @@ class ScribeCanvasGlideAnimator(
         if (result.boundaryHit || (!result.isOperationFinished && scrollCoordinator.didLastStepClampAtBoundary)) {
             glidePosition = result.actualTotalScroll
             val clampedDelta = scrollCoordinator.lastClampedDelta
+            val movedPastTarget = (glideTarget - glidePosition) * glideVelocity < 0f
             if ((clampedDelta > 0f && glideVelocity > 0f) ||
                 (clampedDelta < 0f && glideVelocity < 0f) ||
-                result.boundaryHit
+                result.boundaryHit ||
+                movedPastTarget
             ) {
                 glideVelocity = 0f
             }
@@ -230,10 +250,12 @@ class ScribeCanvasGlideAnimator(
         }
 
         isGlideRunning = true
+        processedFrameCount = 0
         glidePosition = currentScroll
         glideVelocity = 0f
         glideTarget = target
-        glideLastTimeNs = monotonicTimeNanosProvider()
+        activeGlideClock = monotonicTimeNanosProvider ?: resolveDefaultMonotonicClock()
+        glideLastTimeNs = activeGlideClock()
         activeGlideReason = reason
         activeGlideOnEnd = onEnd
         activeGlideOpId = opId

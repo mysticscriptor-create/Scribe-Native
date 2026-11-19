@@ -262,7 +262,9 @@ class ScribeScrollCoordinator(
         val clampedByBoundary = wasLastStepClampedByBoundary?.invoke() ?: true
         val hasSignificantUnconsumed = (stepDelta > 0.05f && unconsumed > 0.05f) ||
             (stepDelta < -0.05f && unconsumed < -0.05f)
-        if (clampedByBoundary && hasSignificantUnconsumed) {
+        val hasPhysicalOvershootDivergence = abs(totalScroll - lastAnimatedScroll) > 1.5f &&
+            ((stepDelta < -0.05f && unconsumed > 0.05f) || (stepDelta > 0.05f && unconsumed < -0.05f))
+        if ((clampedByBoundary && hasSignificantUnconsumed) || hasPhysicalOvershootDivergence) {
             didLastStepClampAtBoundary = true
             lastClampedDelta = unconsumed
             lastAnimatedScroll = totalScroll
