@@ -550,9 +550,9 @@ class ScribeGapCollapseIntegrationTest {
                     canvas.isKeyboardVisible = true
                     canvas.measure(
                         View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.EXACTLY),
-                        View.MeasureSpec.makeMeasureSpec(640, View.MeasureSpec.EXACTLY)
+                        View.MeasureSpec.makeMeasureSpec(500, View.MeasureSpec.EXACTLY)
                     )
-                    canvas.layout(0, 0, 720, 640)
+                    canvas.layout(0, 0, 720, 500)
                     assertFalse(canvas.gapCollapseController.shouldApplySplitRender)
                     assertEquals(0f, canvas.gapCollapseController.tauLower, 0.001f)
                     assertEquals(
@@ -565,8 +565,42 @@ class ScribeGapCollapseIntegrationTest {
                     canvas.gapCollapseController.phase == GapCollapsePhase.IDLE
                 }
 
-                // dh < 0 (viewport expanding while dock remains active -> contraction follow serialized cleanly)
+                // Micro IME strip height change (< 120dp without dismissal) must NOT abort split render or launch height follow
                 instr.runOnMainSync {
+                    canvas.measure(
+                        View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(960, View.MeasureSpec.EXACTLY)
+                    )
+                    canvas.layout(0, 0, 720, 960)
+                    val rowH = canvas.editor.rowHeight.toFloat().coerceAtLeast(20f)
+                    startCollapseTransaction(canvas, seamLine = 25, tauLowerPx = rowH * 3f, requiresMode1 = false)
+                    canvas.isKeyboardVisible = true
+                    canvas.isKeyboardDismissing = false
+                    canvas.measure(
+                        View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(880, View.MeasureSpec.EXACTLY)
+                    )
+                    canvas.layout(0, 0, 720, 880)
+                    assertTrue(
+                        "Micro IME resize (< 120dp) must preserve active split collapse",
+                        canvas.gapCollapseController.shouldApplySplitRender
+                    )
+                    assertFalse(
+                        "Micro IME resize (< 120dp) must NOT start competing height-follow glide",
+                        canvas.isGlideRunning
+                    )
+                }
+                waitUntil(failureMsg = "Micro-resized split collapse must finish cleanly to IDLE") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE
+                }
+
+                // Major dh < 0 (>= 120dp viewport expanding while dock remains active -> contraction follow serialized cleanly)
+                instr.runOnMainSync {
+                    canvas.measure(
+                        View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(500, View.MeasureSpec.EXACTLY)
+                    )
+                    canvas.layout(0, 0, 720, 500)
                     canvas.applyDockGeometry(
                         ScribeDockGeometry(
                             dockMode = ScribeDockMode.IME,
@@ -585,9 +619,9 @@ class ScribeGapCollapseIntegrationTest {
                     startCollapseTransaction(canvas, seamLine = 25, tauLowerPx = rowH * 3f, requiresMode1 = false)
                     canvas.measure(
                         View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.EXACTLY),
-                        View.MeasureSpec.makeMeasureSpec(880, View.MeasureSpec.EXACTLY)
+                        View.MeasureSpec.makeMeasureSpec(960, View.MeasureSpec.EXACTLY)
                     )
-                    canvas.layout(0, 0, 720, 880)
+                    canvas.layout(0, 0, 720, 960)
                     assertFalse(canvas.gapCollapseController.shouldApplySplitRender)
                 }
                 waitUntil(failureMsg = "Serialized dh < 0 resize must finish Event B to IDLE") {
@@ -1676,8 +1710,8 @@ class ScribeGapCollapseIntegrationTest {
                     ed.deleteText()
 
                     val plan = canvas.gapCollapseController.currentPlan
-                    assertTrue("Visible selection with suppressed handles must still collapse via Scenario D", canvas.gapCollapseController.isTransactionOwned)
-                    assertEquals(CollapseScenario.D_SELECTION_ONLY_CENTERED, plan?.scenario)
+                    assertTrue("Unfocused visible selection must keep handle geometry and collapse via Scenario C", canvas.gapCollapseController.isTransactionOwned)
+                    assertEquals(CollapseScenario.C_BOTH_VISIBLE, plan?.scenario)
                     drawEditorIntoBitmap(ed)
                 }
                 waitUntil(failureMsg = "Suppressed-handle Scenario D collapse must settle to IDLE") {
@@ -1699,7 +1733,7 @@ class ScribeGapCollapseIntegrationTest {
         val lines = buildList {
             for (i in 0 until 45) {
                 if (i == 15) {
-                    add("    " + "Wrapped line content slated for full line deletion without newline ".repeat(6).trimEnd())
+                    add("    " + "Wrapped line content slated for full line deletion without newline ".repeat(2).trimEnd())
                 } else {
                     add("    Body paragraph $i with ordinary prose.")
                 }
@@ -1723,6 +1757,7 @@ class ScribeGapCollapseIntegrationTest {
 
                     // Delete all characters on line 15 without its trailing newline -> Case II, line 15 becomes "",
                     // deferred enforceAutoIndentFloor restores "    " at (15, 4) while caret line 15 stays stationary in Pass 2.
+                    assertTrue("Line 15 must be wrapped across multiple visual rows", ed.layout!!.getRowCountForLine(15) >= 2)
                     val len15 = ed.text.getColumnCount(15)
                     ed.setSelectionRegion(15, 0, 15, len15, false)
                     ed.deleteText()
@@ -2144,7 +2179,8 @@ class ScribeGapCollapseIntegrationTest {
 
     @Test
     fun suiteF_stage1RealBottomSelectionGboardBackspaceAndShortfall() {
-        val host = launchCanvasHost(text = buildLines(105))
+        val shortBottomDoc = (0 until 105).joinToString("\n") { idx -> "Short line $idx." }
+        val host = launchCanvasHost(text = shortBottomDoc)
         val instr = InstrumentationRegistry.getInstrumentation()
         host.scenario.use {
             val canvas = host.canvas
@@ -2171,7 +2207,7 @@ class ScribeGapCollapseIntegrationTest {
                         val screenBottom = canvas.headerHeight + topDoc + rowH - preScroll
                         if (screenBottom <= bounds.visibleEditorBottom - 4f) {
                             targetLowerLine = candidate
-                        } else {
+                        } else if (targetLowerLine >= 0) {
                             break
                         }
                     }
@@ -2241,6 +2277,59 @@ class ScribeGapCollapseIntegrationTest {
                     )
                 }
                 waitUntil(failureMsg = "Gboard backspace selection collapse must settle cleanly to IDLE") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+
+                // 2b. Gboard deleteSurroundingTextInCodePoints(1, 0) on active selection triggers clean gap collapse
+                instr.runOnMainSync {
+                    ed.setText(shortBottomDoc)
+                }
+                waitUntil(failureMsg = "Doc ready for deleteSurroundingTextInCodePoints") {
+                    ed.layout != null && ed.isWordwrapReady() && !ed.isLayoutBusy
+                }
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    canvas.scrollCanvasBy((canvas.headerHeight + ed.rowHeight * 20f) - (canvas.scrollD + ed.offsetY))
+                    val keepLower = ed.text.getLineString(29)
+                    val ic = ed.onCreateInputConnection(EditorInfo())!!
+                    ed.setSelectionRegion(25, 0, 29, 0, false)
+                    assertTrue(ic.deleteSurroundingTextInCodePoints(1, 0))
+                    assertEquals(keepLower, ed.text.getLineString(25))
+                    assertTrue(canvas.gapCollapseController.isTransactionOwned)
+                    assertEquals(
+                        SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED,
+                        canvas.lastSelectionDeletionDiagnostic?.outcome
+                    )
+                }
+                waitUntil(failureMsg = "deleteSurroundingTextInCodePoints selection collapse must settle cleanly to IDLE") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+
+                // 2c. Gboard setComposingText("word", 1) replaces selection atomically & setComposingText("", 1) deletes via gap collapse
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    val ic = ed.onCreateInputConnection(EditorInfo())!!
+                    ed.setSelectionRegion(20, 0, 22, 0, false)
+                    assertTrue(ic.setComposingText("word", 1))
+                    assertTrue("Replaced selection must enter composing state", ed.hasComposingText())
+                    assertTrue(ed.text.getLineString(20).startsWith("word"))
+                    assertFalse("Non-empty setComposingText replacement must not start split collapse", canvas.gapCollapseController.shouldApplySplitRender)
+                    assertTrue(ic.finishComposingText())
+                    assertFalse(ed.hasComposingText())
+
+                    ed.setSelectionRegion(22, 0, 25, 0, false)
+                    assertTrue(ic.setComposingText("", 1))
+                    assertTrue("Empty setComposingText on selection must trigger gap collapse", canvas.gapCollapseController.isTransactionOwned)
+                    assertEquals(
+                        SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED,
+                        canvas.lastSelectionDeletionDiagnostic?.outcome
+                    )
+                }
+                waitUntil(failureMsg = "Empty setComposingText selection collapse must settle cleanly to IDLE") {
                     canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
                         !canvas.isGlideRunning &&
                         !canvas.isDeletionTransactionActive

@@ -3352,6 +3352,19 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 return result
             }
 
+            override fun deleteSurroundingTextInCodePoints(beforeLength: Int, afterLength: Int): Boolean {
+                if (beforeLength == 1 && afterLength == 0 && cursor.isSelected && isEditable) {
+                    return deleteSurroundingText(1, 0)
+                }
+                val result = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                    super.deleteSurroundingTextInCodePoints(beforeLength, afterLength)
+                } else {
+                    false
+                }
+                maybeResumePendingSelectionDeletionAfterCompositionChange()
+                return result
+            }
+
             override fun finishComposingText(): Boolean {
                 val result = super.finishComposingText()
                 maybeResumePendingSelectionDeletionAfterCompositionChange()
@@ -3365,6 +3378,38 @@ class ScribeCodeEditor @JvmOverloads constructor(
             }
 
             override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                val cur = try { cursor } catch (_: Throwable) { null }
+                if (cur != null &&
+                    cur.isSelected &&
+                    !hasComposingText() &&
+                    isEditable &&
+                    acceptsComposingText() &&
+                    !props.disallowSuggestions
+                ) {
+                    if (text.isNullOrEmpty()) {
+                        if (deleteSurroundingText(1, 0)) {
+                            return true
+                        }
+                    } else if (android.text.TextUtils.indexOf(text, '\n') == -1 &&
+                        super.setSelection(cur.left, cur.right)
+                    ) {
+                        this@ScribeCodeEditor.text.replace(
+                            cur.leftLine,
+                            cur.leftColumn,
+                            cur.rightLine,
+                            cur.rightColumn,
+                            text
+                        )
+                        val compEnd = try { cursor.left } catch (_: Throwable) { -1 }
+                        val compStart = (compEnd - text.length).coerceAtLeast(0)
+                        if (compStart < compEnd) {
+                            super.setComposingRegion(compStart, compEnd)
+                        }
+                        updateCursor()
+                        maybeResumePendingSelectionDeletionAfterCompositionChange()
+                        return true
+                    }
+                }
                 val result = super.setComposingText(text, newCursorPosition)
                 maybeResumePendingSelectionDeletionAfterCompositionChange()
                 return result

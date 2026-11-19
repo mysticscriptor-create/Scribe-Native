@@ -11,7 +11,9 @@ import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.View
+import android.view.inputmethod.EditorInfo
 import android.widget.FrameLayout
+import androidx.compose.ui.geometry.Rect as ComposeRect
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -20,8 +22,11 @@ import com.primaloptima.scribe.R
 import com.primaloptima.scribe.ui.editor.scroll.CollapsePlan
 import com.primaloptima.scribe.ui.editor.scroll.CollapseScenario
 import com.primaloptima.scribe.ui.editor.scroll.GapCollapsePhase
+import com.primaloptima.scribe.ui.editor.scroll.OverlayOcclusionRole
 import com.primaloptima.scribe.ui.editor.scroll.SafetyFloorAndBounds
 import com.primaloptima.scribe.ui.editor.scroll.ScribeGapCollapseController
+import com.primaloptima.scribe.ui.editor.scroll.ScribeOverlayBoundsRegistry
+import com.primaloptima.scribe.ui.editor.scroll.SelectionDeletionDispatchOutcome
 import io.github.rosemoe.sora.event.LayoutStateChangeEvent
 import io.github.rosemoe.sora.lang.EmptyLanguage
 import io.github.rosemoe.sora.lang.analysis.AnalyzeManager
@@ -1245,8 +1250,9 @@ class ScribeGapCollapseRendererTest {
 
                 // Settle collapse to FINAL_SAFETY_PENDING -> IDLE while a simulated cursorAnimator is held running
                 simulateAnimatorRunning = true
-                val se = canvas.gapCollapseController.restartFinalSafetyClaim(10L)!!
-                canvas.completeDeletionVisualTransaction(10L, se)
+                val activeGen = canvas.currentDeletionTransactionGeneration
+                val se = canvas.gapCollapseController.restartFinalSafetyClaim(activeGen)!!
+                canvas.completeDeletionVisualTransaction(activeGen, se)
                 assertFalse("aw.isEnabled must stay false prior to post-IDLE unsplit draw", aw.isEnabled)
 
                 // Draw while cursorAnimator is STILL running -> didRefreshCursorDescriptorsOnLastDraw == false
@@ -1403,8 +1409,9 @@ class ScribeGapCollapseRendererTest {
                 canvas.measure(zeroSpec, zeroHSpec)
                 canvas.layout(0, 0, 720, 0)
 
-                val se2 = canvas.gapCollapseController.restartFinalSafetyClaim(50L)!!
-                canvas.completeDeletionVisualTransaction(50L, se2)
+                val activeGen2 = canvas.currentDeletionTransactionGeneration
+                val se2 = canvas.gapCollapseController.restartFinalSafetyClaim(activeGen2)!!
+                canvas.completeDeletionVisualTransaction(activeGen2, se2)
                 assertEquals(
                     "DEFERRED_UNTIL_LAYOUT_READY must keep FINAL_SAFETY_PENDING",
                     GapCollapsePhase.FINAL_SAFETY_PENDING,
@@ -1693,6 +1700,415 @@ class ScribeGapCollapseRendererTest {
                     assertFalse("Case 7: originally disabled aw.isEnabled must stay false after IDLE + unsplit draw", aw.isEnabled)
                     assertFalse("Case 7: originally disabled aw must never show", aw.isShowing)
                     aw.isEnabled = true
+                }
+            }
+        }
+    }
+
+    private fun installRendererOverlays(
+        canvas: UnifiedCanvasLayout,
+        topBarHeightPx: Float = 220f,
+        bottomBarHeightPx: Float = 160f
+    ): ScribeOverlayBoundsRegistry {
+        val registry = ScribeOverlayBoundsRegistry()
+        val loc = IntArray(2)
+        canvas.getLocationInWindow(loc)
+        val left = loc[0].toFloat()
+        val top = loc[1].toFloat()
+        val right = left + canvas.width.toFloat()
+        val bottom = top + canvas.height.toFloat()
+        registry.update(
+            "top_bar",
+            OverlayOcclusionRole.TOP_BAR,
+            ComposeRect(left, top, right, top + topBarHeightPx)
+        )
+        registry.update(
+            "bottom_bar",
+            OverlayOcclusionRole.BOTTOM_BAR,
+            ComposeRect(left, bottom - bottomBarHeightPx, right, bottom)
+        )
+        // Floating HUD pills (including WordCountPill overlapping lower handle region) must NOT veto collapse scenarios.
+        registry.update(
+            "word_count_pill",
+            OverlayOcclusionRole.FLOATING_PILL,
+            ComposeRect(left + 16f, 450f, left + 280f, 560f)
+        )
+        registry.update(
+            "top_pill_search",
+            OverlayOcclusionRole.FLOATING_PILL,
+            ComposeRect(left + 16f, top + 12f, left + 100f, top + 64f)
+        )
+        canvas.overlayBoundsRegistry = registry
+        return registry
+    }
+
+    private fun findDrawnTokenCanvasY(
+        ed: ScribeCodeEditor,
+        rec: RecordingCanvas,
+        token: String
+    ): Float? {
+        val divLeft = dividerLeftX(ed)
+        val op = rec.textOps.firstOrNull { it.screenX >= divLeft && it.text.contains("$token ") } ?: return null
+        return ed.top.toFloat() + ed.translationY + op.screenY
+    }
+
+    @Test
+    fun testRealInput_PerFrameScreenYInvariants_ScenariosC_A_B_D_E() {
+        val shortDoc = (0 until 100).joinToString("\n") { idx ->
+            "K${idx.toString().padStart(3, '0')} item"
+        }
+        val host = launchHost(
+            text = shortDoc,
+            wordwrap = true,
+            lineNumbers = true,
+            headerHeightPx = 80,
+            viewportWidthPx = 720,
+            viewportHeightPx = 960
+        )
+        host.scenario.use {
+            val instr = InstrumentationRegistry.getInstrumentation()
+            val canvas = host.canvas
+            val ed = canvas.editor
+            try {
+                // 1. Scenario C (both handles visible, overlapping FLOATING_PILL, real ic.deleteSurroundingText)
+                run {
+                    var preUpperY = 0f
+                    var preLowerY = 0f
+                    var startLine = -1
+                    var endLine = -1
+                    var upperToken = ""
+                    var lowerToken = ""
+                    var rowH = 0f
+                    instr.runOnMainSync {
+                        ed.setText(shortDoc)
+                    }
+                    waitUntil(failureMsg = "Doc ready for Scenario C per-frame test") {
+                        ed.layout != null && ed.isWordwrapReady() && !ed.isLayoutBusy
+                    }
+                    instr.runOnMainSync {
+                        ed.requestFocus()
+                        ed.isCursorAnimationEnabled = false
+                        installRendererOverlays(canvas, topBarHeightPx = 220f, bottomBarHeightPx = 160f)
+                        rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                        scrollCanvasTo(canvas, canvas.headerHeight + rowH * 25f)
+                        val preScroll = (canvas.scrollD + ed.offsetY).toFloat()
+                        val lay = ed.layout!!
+                        startLine = (0 until ed.text.lineCount).first { line ->
+                            val y = canvas.headerHeight + lay.getRowIndexForPosition(ed.text.getCharIndex(line, 0)) * rowH - preScroll
+                            y >= 260f
+                        }
+                        endLine = startLine + 5
+                        upperToken = "K${(startLine - 1).toString().padStart(3, '0')}"
+                        lowerToken = "K${endLine.toString().padStart(3, '0')}"
+
+                        val rec0 = drawEditorInViewSpace(ed)
+                        preUpperY = findDrawnTokenCanvasY(ed, rec0, upperToken)!!
+                        preLowerY = findDrawnTokenCanvasY(ed, rec0, lowerToken)!!
+
+                        val ic = ed.onCreateInputConnection(EditorInfo())!!
+                        ed.setSelectionRegion(startLine, 0, endLine, 0, false)
+                        assertTrue(ic.deleteSurroundingText(1, 0))
+
+                        assertEquals(CollapseScenario.C_BOTH_VISIBLE, canvas.gapCollapseController.currentPlan?.scenario)
+                        assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+
+                        // Frame 1 (p = 0) before any Choreographer frame: zero jump on both upper and lower
+                        val rec1 = drawEditorInViewSpace(ed)
+                        val f1Upper = findDrawnTokenCanvasY(ed, rec1, upperToken)!!
+                        val f1Lower = findDrawnTokenCanvasY(ed, rec1, lowerToken)!!
+                        assertTrue("Scenario C Frame 1 lower must stay stationary ($f1Lower vs $preLowerY)", kotlin.math.abs(f1Lower - preLowerY) <= 1.0f)
+                        assertTrue("Scenario C Frame 1 upper must not jump ($f1Upper vs $preUpperY)", kotlin.math.abs(f1Upper - preUpperY) <= 1.0f)
+                    }
+                    var lastUpper = preUpperY
+                    var sawMidFrame = false
+                    val deadline = SystemClock.uptimeMillis() + 2_500L
+                    while (SystemClock.uptimeMillis() < deadline) {
+                        var done = false
+                        instr.runOnMainSync {
+                            if (canvas.gapCollapseController.shouldApplySplitRender) {
+                                val recMid = drawEditorInViewSpace(ed)
+                                val midUpper = findDrawnTokenCanvasY(ed, recMid, upperToken)!!
+                                val midLower = findDrawnTokenCanvasY(ed, recMid, lowerToken)!!
+                                assertTrue(
+                                    "Scenario C mid-frame lower must stay stationary ($midLower vs $preLowerY)",
+                                    kotlin.math.abs(midLower - preLowerY) <= 1.0f
+                                )
+                                assertTrue(
+                                    "Scenario C mid-frame upper must glide downward ($midUpper vs $lastUpper)",
+                                    midUpper >= lastUpper - 0.5f
+                                )
+                                if (midUpper > preUpperY + 1f) {
+                                    sawMidFrame = true
+                                }
+                                lastUpper = midUpper
+                            }
+                            done = canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                                !canvas.isGlideRunning &&
+                                !canvas.isDeletionTransactionActive
+                        }
+                        if (done) break
+                        SystemClock.sleep(16L)
+                    }
+                    instr.runOnMainSync {
+                        assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+                        assertTrue("Scenario C must capture intermediate split collapse frames", sawMidFrame)
+                        val recEnd = drawEditorInViewSpace(ed)
+                        val endUpper = findDrawnTokenCanvasY(ed, recEnd, upperToken)!!
+                        val endLower = findDrawnTokenCanvasY(ed, recEnd, lowerToken)!!
+                        assertTrue("Scenario C final lower must match preLowerY ($endLower vs $preLowerY)", kotlin.math.abs(endLower - preLowerY) <= 1.5f)
+                        assertTrue("Scenario C final upper must meet lower ($endUpper vs $preUpperY)", endUpper > preUpperY + rowH * 2f)
+                    }
+                }
+
+                // 2. Scenario B (only lower handle visible -> lower stationary, upper glides down)
+                run {
+                    var preUpperY = 0f
+                    var preLowerY = 0f
+                    var upperToken = ""
+                    var lowerToken = ""
+                    var rowH = 0f
+                    instr.runOnMainSync { ed.setText(shortDoc) }
+                    waitUntil(failureMsg = "Doc ready for Scenario B per-frame test") {
+                        ed.layout != null && ed.isWordwrapReady() && !ed.isLayoutBusy
+                    }
+                    instr.runOnMainSync {
+                        ed.requestFocus()
+                        installRendererOverlays(canvas, topBarHeightPx = 220f, bottomBarHeightPx = 160f)
+                        rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                        scrollCanvasTo(canvas, canvas.headerHeight + rowH * 25f)
+                        val preScroll = (canvas.scrollD + ed.offsetY).toFloat()
+                        val lay = ed.layout!!
+                        val startLine = (0 until ed.text.lineCount).first { line ->
+                            val y = canvas.headerHeight + lay.getRowIndexForPosition(ed.text.getCharIndex(line, 0)) * rowH - preScroll
+                            y >= 65f
+                        }
+                        val endLine = startLine + 8
+                        upperToken = "K${(startLine - 1).toString().padStart(3, '0')}"
+                        lowerToken = "K${endLine.toString().padStart(3, '0')}"
+
+                        val rec0 = drawEditorInViewSpace(ed)
+                        preUpperY = findDrawnTokenCanvasY(ed, rec0, upperToken)!!
+                        preLowerY = findDrawnTokenCanvasY(ed, rec0, lowerToken)!!
+
+                        ed.setSelectionRegion(startLine, 0, endLine, 0, false)
+                        ed.deleteText()
+
+                        assertEquals(CollapseScenario.B_LOWER_ONLY, canvas.gapCollapseController.currentPlan?.scenario)
+                        assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+                        val rec1 = drawEditorInViewSpace(ed)
+                        assertTrue(kotlin.math.abs(findDrawnTokenCanvasY(ed, rec1, lowerToken)!! - preLowerY) <= 1.0f)
+                    }
+                    var lastUpper = preUpperY
+                    val deadline = SystemClock.uptimeMillis() + 2_500L
+                    while (SystemClock.uptimeMillis() < deadline) {
+                        var done = false
+                        instr.runOnMainSync {
+                            if (canvas.gapCollapseController.shouldApplySplitRender) {
+                                val recMid = drawEditorInViewSpace(ed)
+                                val midUpper = findDrawnTokenCanvasY(ed, recMid, upperToken)!!
+                                val midLower = findDrawnTokenCanvasY(ed, recMid, lowerToken)!!
+                                assertTrue("Scenario B mid lower must stay stationary ($midLower vs $preLowerY)", kotlin.math.abs(midLower - preLowerY) <= 1.0f)
+                                assertTrue("Scenario B mid upper must glide downward ($midUpper vs $lastUpper)", midUpper >= lastUpper - 0.5f)
+                                lastUpper = midUpper
+                            }
+                            done = canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                                !canvas.isGlideRunning &&
+                                !canvas.isDeletionTransactionActive
+                        }
+                        if (done) break
+                        SystemClock.sleep(16L)
+                    }
+                    instr.runOnMainSync {
+                        assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+                        val recEnd = drawEditorInViewSpace(ed)
+                        val endUpper = findDrawnTokenCanvasY(ed, recEnd, upperToken)!!
+                        val endLower = findDrawnTokenCanvasY(ed, recEnd, lowerToken)!!
+                        assertTrue(kotlin.math.abs(endLower - preLowerY) <= 1.5f)
+                        assertTrue(endUpper > preUpperY + rowH * 4f)
+                    }
+                }
+
+                // 3. Scenario A (only upper handle visible -> upper stationary, lower glides up)
+                run {
+                    var preUpperY = 0f
+                    var preLowerY = 0f
+                    var upperToken = ""
+                    var lowerToken = ""
+                    var rowH = 0f
+                    instr.runOnMainSync { ed.setText(shortDoc) }
+                    waitUntil(failureMsg = "Doc ready for Scenario A per-frame test") {
+                        ed.layout != null && ed.isWordwrapReady() && !ed.isLayoutBusy
+                    }
+                    instr.runOnMainSync {
+                        ed.requestFocus()
+                        installRendererOverlays(canvas, topBarHeightPx = 220f, bottomBarHeightPx = 160f)
+                        rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                        scrollCanvasTo(canvas, canvas.headerHeight + rowH * 25f)
+                        val preScroll = (canvas.scrollD + ed.offsetY).toFloat()
+                        val lay = ed.layout!!
+                        val startLine = (0 until ed.text.lineCount).first { line ->
+                            val y = canvas.headerHeight + lay.getRowIndexForPosition(ed.text.getCharIndex(line, 0)) * rowH - preScroll
+                            y >= 340f
+                        }
+                        val endLine = (startLine until ed.text.lineCount).first { line ->
+                            val y = canvas.headerHeight + lay.getRowIndexForPosition(ed.text.getCharIndex(line, 0)) * rowH - preScroll
+                            y >= 830f
+                        }
+                        upperToken = "K${(startLine - 1).toString().padStart(3, '0')}"
+                        lowerToken = "K${endLine.toString().padStart(3, '0')}"
+
+                        val rec0 = drawEditorInViewSpace(ed)
+                        preUpperY = findDrawnTokenCanvasY(ed, rec0, upperToken)!!
+                        preLowerY = findDrawnTokenCanvasY(ed, rec0, lowerToken)!!
+
+                        ed.setSelectionRegion(startLine, 0, endLine, 0, false)
+                        ed.deleteText()
+
+                        assertEquals(CollapseScenario.A_UPPER_ONLY, canvas.gapCollapseController.currentPlan?.scenario)
+                        assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+                        val rec1 = drawEditorInViewSpace(ed)
+                        assertTrue(kotlin.math.abs(findDrawnTokenCanvasY(ed, rec1, upperToken)!! - preUpperY) <= 1.0f)
+                    }
+                    var lastLower = preLowerY
+                    var sawMidUpward = false
+                    val deadline = SystemClock.uptimeMillis() + 2_500L
+                    while (SystemClock.uptimeMillis() < deadline) {
+                        var done = false
+                        instr.runOnMainSync {
+                            if (canvas.gapCollapseController.shouldApplySplitRender) {
+                                val recMid = drawEditorInViewSpace(ed)
+                                val midUpper = findDrawnTokenCanvasY(ed, recMid, upperToken)!!
+                                val midLower = findDrawnTokenCanvasY(ed, recMid, lowerToken)!!
+                                assertTrue("Scenario A mid upper must stay stationary ($midUpper vs $preUpperY)", kotlin.math.abs(midUpper - preUpperY) <= 1.0f)
+                                assertTrue("Scenario A mid lower must glide upward ($midLower vs $lastLower)", midLower <= lastLower + 0.5f)
+                                if (midLower < preLowerY - 1f) {
+                                    sawMidUpward = true
+                                }
+                                lastLower = midLower
+                            }
+                            done = canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                                !canvas.isGlideRunning &&
+                                !canvas.isDeletionTransactionActive
+                        }
+                        if (done) break
+                        SystemClock.sleep(16L)
+                    }
+                    instr.runOnMainSync {
+                        assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+                        assertTrue("Scenario A must capture intermediate upward lower frames", sawMidUpward)
+                        val recEnd = drawEditorInViewSpace(ed)
+                        val endUpper = findDrawnTokenCanvasY(ed, recEnd, upperToken)!!
+                        val endLower = findDrawnTokenCanvasY(ed, recEnd, lowerToken)!!
+                        assertTrue(kotlin.math.abs(endUpper - preUpperY) <= 1.5f)
+                        assertTrue(endLower < preLowerY - rowH * 4f)
+                    }
+                }
+
+                // 4. Scenario D (neither handle visible, selection spans viewport -> upper glides down AND lower glides up to center)
+                run {
+                    var preUpperY = 0f
+                    var preLowerY = 0f
+                    var upperToken = ""
+                    var lowerToken = ""
+                    instr.runOnMainSync { ed.setText(shortDoc) }
+                    waitUntil(failureMsg = "Doc ready for Scenario D per-frame test") {
+                        ed.layout != null && ed.isWordwrapReady() && !ed.isLayoutBusy
+                    }
+                    instr.runOnMainSync {
+                        ed.requestFocus()
+                        installRendererOverlays(canvas, topBarHeightPx = 220f, bottomBarHeightPx = 160f)
+                        val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                        scrollCanvasTo(canvas, canvas.headerHeight + rowH * 25f)
+                        val preScroll = (canvas.scrollD + ed.offsetY).toFloat()
+                        val lay = ed.layout!!
+                        val startLine = (0 until ed.text.lineCount).first { line ->
+                            val y = canvas.headerHeight + lay.getRowIndexForPosition(ed.text.getCharIndex(line, 0)) * rowH - preScroll
+                            y >= 65f
+                        }
+                        val endLine = (startLine until ed.text.lineCount).first { line ->
+                            val y = canvas.headerHeight + lay.getRowIndexForPosition(ed.text.getCharIndex(line, 0)) * rowH - preScroll
+                            y >= 830f
+                        }
+                        upperToken = "K${(startLine - 1).toString().padStart(3, '0')}"
+                        lowerToken = "K${endLine.toString().padStart(3, '0')}"
+
+                        val rec0 = drawEditorInViewSpace(ed)
+                        preUpperY = findDrawnTokenCanvasY(ed, rec0, upperToken)!!
+                        preLowerY = findDrawnTokenCanvasY(ed, rec0, lowerToken)!!
+
+                        ed.setSelectionRegion(startLine, 0, endLine, 0, false)
+                        ed.deleteText()
+
+                        assertEquals(CollapseScenario.D_SELECTION_ONLY_CENTERED, canvas.gapCollapseController.currentPlan?.scenario)
+                        assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+                    }
+                    val deadline = SystemClock.uptimeMillis() + 2_500L
+                    while (SystemClock.uptimeMillis() < deadline) {
+                        var done = false
+                        instr.runOnMainSync {
+                            if (canvas.gapCollapseController.shouldApplySplitRender) {
+                                val recMid = drawEditorInViewSpace(ed)
+                                val midUpper = findDrawnTokenCanvasY(ed, recMid, upperToken)!!
+                                val midLower = findDrawnTokenCanvasY(ed, recMid, lowerToken)!!
+                                assertTrue("Scenario D mid upper must move down or hold ($midUpper vs $preUpperY)", midUpper >= preUpperY - 0.5f)
+                                assertTrue("Scenario D mid lower must move up or hold ($midLower vs $preLowerY)", midLower <= preLowerY + 0.5f)
+                            }
+                            done = canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                                !canvas.isGlideRunning &&
+                                !canvas.isDeletionTransactionActive
+                        }
+                        if (done) break
+                        SystemClock.sleep(16L)
+                    }
+                    instr.runOnMainSync {
+                        assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+                        val recEnd = drawEditorInViewSpace(ed)
+                        val endUpper = findDrawnTokenCanvasY(ed, recEnd, upperToken)!!
+                        val endLower = findDrawnTokenCanvasY(ed, recEnd, lowerToken)!!
+                        assertTrue("Scenario D end upper must move down ($endUpper vs $preUpperY)", endUpper > preUpperY + 50f)
+                        assertTrue("Scenario D end lower must move up ($endLower vs $preLowerY)", endLower < preLowerY - 50f)
+                    }
+                }
+
+                // 5. Scenario E (neither handles nor selection visible -> no split render, caret-follow glide)
+                run {
+                    var preScroll = 0
+                    instr.runOnMainSync { ed.setText(shortDoc) }
+                    waitUntil(failureMsg = "Doc ready for Scenario E per-frame test") {
+                        ed.layout != null && ed.isWordwrapReady() && !ed.isLayoutBusy
+                    }
+                    instr.runOnMainSync {
+                        ed.requestFocus()
+                        installRendererOverlays(canvas, topBarHeightPx = 220f, bottomBarHeightPx = 160f)
+                        val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                        scrollCanvasTo(canvas, canvas.headerHeight + rowH * 45f)
+                        preScroll = canvas.scrollD + ed.offsetY
+
+                        ed.setSelectionRegion(4, 0, 8, 0, false)
+                        ed.deleteText()
+
+                        assertFalse("Scenario E must NOT enable split rendering", canvas.gapCollapseController.shouldApplySplitRender)
+                        assertEquals(
+                            SelectionDeletionDispatchOutcome.GAP_COLLAPSE_SCENARIO_E_CARET_FOLLOW,
+                            canvas.lastSelectionDeletionDiagnostic?.outcome
+                        )
+                    }
+                    waitUntil(failureMsg = "Scenario E caret-follow glide must reveal caret and settle") {
+                        canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                            !canvas.isGlideRunning &&
+                            !canvas.isDeletionTransactionActive
+                    }
+                    instr.runOnMainSync {
+                        val afterScroll = canvas.scrollD + ed.offsetY
+                        assertTrue("Scenario E must glide viewport toward offscreen caret ($afterScroll < $preScroll)", afterScroll < preScroll - 100)
+                        val recEnd = drawEditorInViewSpace(ed)
+                        val caretLineY = findDrawnTokenCanvasY(ed, recEnd, "K008")
+                        assertNotNull("Scenario E caret destination line must be drawn on screen", caretLineY)
+                    }
+                }
+            } finally {
+                instr.runOnMainSync {
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "renderer_scenarios_cleanup")
                 }
             }
         }

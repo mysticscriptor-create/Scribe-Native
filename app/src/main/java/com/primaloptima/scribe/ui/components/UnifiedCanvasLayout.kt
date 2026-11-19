@@ -3387,9 +3387,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             val heightDeltaPx = kotlin.math.abs(dh)
             val majorImeThresholdPx = 120f * resources.displayMetrics.density
             val isDismissingResize = isKeyboardDismissing || dockTransition == ScribeDockTransition.IME_DISMISSAL
-            if (w == oldw && gapCollapseController.isTransactionOwned &&
-                (heightDeltaPx >= majorImeThresholdPx || isDismissingResize)
-            ) {
+            if (w == oldw && gapCollapseController.isTransactionOwned) {
+                if (!isDismissingResize && heightDeltaPx < majorImeThresholdPx) {
+                    return
+                }
                 val g = gapCollapseController.owningDeletionGen
                 clearPendingDeletionLayoutListener()
                 canvasAnimator.cancelPreservingTransaction("height_resize_serialize")

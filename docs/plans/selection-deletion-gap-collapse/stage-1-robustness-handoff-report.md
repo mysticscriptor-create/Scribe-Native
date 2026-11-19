@@ -52,6 +52,7 @@
 - `app/src/test/java/com/primaloptima/scribe/ui/editor/scroll/ScribeGapCollapseControllerTest.kt`
 - `app/src/test/java/com/primaloptima/scribe/ui/components/UnifiedCanvasPointerAndOriginIntegrationTest.kt`
 - `app/src/androidTest/java/com/primaloptima/scribe/ui/components/ScribeGapCollapseIntegrationTest.kt`
+- `app/src/androidTest/java/com/primaloptima/scribe/ui/components/ScribeGapCollapseRendererTest.kt`
 
 ---
 
@@ -59,3 +60,19 @@
 
 - Changes have been inspected via `git diff` across all modified production, test, and documentation files.
 - **Unverified Locally:** Per project workflow constraints, Gradle compilation, JVM tests, instrumentation tests, and lint were **not** executed locally and await verification via GitHub Actions CI after push to `origin/main`.
+
+---
+
+## 4. Post-CI Run `44572669861` Follow-Up Fixes
+
+1. **`UnifiedCanvasLayout.onSizeChanged` Micro-Resize Isolation (`UnifiedCanvasLayout.kt`)**
+   - Guarded the entire `w == oldw && gapCollapseController.isTransactionOwned` branch so non-dismissing IME height changes `< 120dp` return early instead of falling through to `evaluateHeightShrinkCursorFollow` or `scheduleHeightExpandContractionRestoration`.
+2. **Remaining Gboard `InputConnection` Selection Paths (`ScribeCodeEditor.kt`)**
+   - Added `deleteSurroundingTextInCodePoints(1, 0)` forwarding to `deleteSurroundingText(1, 0)` when `cursor.isSelected && isEditable` (guarded by API `>= N` for `super`).
+   - Intercepted `setComposingText(text, newCursorPosition)` when `cursor.isSelected && !hasComposingText() && isEditable && acceptsComposingText() && !props.disallowSuggestions`:
+     - Empty `text` delegates to `deleteSurroundingText(1, 0)` to run clean gap collapse without a trailing empty `commitText`.
+     - Single-line non-empty `text` replaces atomically via `Content.replace(...)` (inside `beforeReplace`/`afterInsert`), restores composing region via `setComposingRegion`, and calls `updateCursor()`.
+3. **Instrumentation Test Remediation & Per-Frame `RecordingCanvas` Verification (`ScribeGapCollapseRendererTest.kt`, `ScribeGapCollapseIntegrationTest.kt`)**
+   - Fixed stale hardcoded generation arguments (`10L` / `50L`) in `ScribeGapCollapseRendererTest` to use `canvas.currentDeletionTransactionGeneration`.
+   - Updated `ScribeGapCollapseIntegrationTest` (`suiteD_serializedHeightResizeAndScrollDFloatInvariant`, `suiteE_unfocusedHandleSuppressionRoutesVisibleSelectionToScenarioD`, `suiteE_realWrappedLineDeletionLeavingEmptyLineTriggersDeferredIndentFloorInsideCollapse`, and `suiteF_stage1RealBottomSelectionGboardBackspaceAndShortfall`) for Stage 1 behavior and emulator density bounds, plus added `deleteSurroundingTextInCodePoints` and `setComposingText` selection cases to `suiteF`.
+   - Added `testRealInput_PerFrameScreenYInvariants_ScenariosC_A_B_D_E` in `ScribeGapCollapseRendererTest` verifying real `RecordingCanvas` drawn text screen-Y invariants across Frame 0, Frame 1, intermediate frames, and settled `IDLE` for Scenarios C, B, A, D, and E.
