@@ -780,7 +780,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     return 0 // Strict 1-DOF invariant: inner editor cannot scroll while title header is visible
                 }
                 val normalMaxY = (pCanvas.maxCanvasScroll - pCanvas.headerHeight).coerceAtLeast(0)
-                if (isSuppressingDeletionSizeClamp && pCanvas.isDeletionRetractionInProgress) {
+                if (pCanvas.height <= 0 || (isSuppressingDeletionSizeClamp && pCanvas.isDeletionRetractionInProgress)) {
                     return maxOf(normalMaxY, offsetY)
                 }
                 return normalMaxY

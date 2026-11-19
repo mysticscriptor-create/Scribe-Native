@@ -1702,13 +1702,22 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             }
             Shadows.shadowOf(Looper.getMainLooper()).idle()
 
+            val diag = canvas.lastSelectionDeletionDiagnostic
             assertTrue(
                 "Layout becoming ready must resume pending selection deletion through gap collapse " +
-                    "(outcome=${canvas.lastSelectionDeletionDiagnostic?.outcome}, " +
-                    "reason=${canvas.lastSelectionDeletionDiagnostic?.reason}, " +
-                    "owned=${canvas.gapCollapseController.isTransactionOwned})",
+                    "(outcome=${diag?.outcome}, " +
+                    "reason=${diag?.reason}, " +
+                    "owned=${canvas.gapCollapseController.isTransactionOwned}, " +
+                    "upperHandleStatus=${diag?.upperHandleStatus}, " +
+                    "lowerHandleStatus=${diag?.lowerHandleStatus}, " +
+                    "isUpperVisible=${diag?.isUpperVisible}, " +
+                    "isLowerVisible=${diag?.isLowerVisible}, " +
+                    "isTouchedOnScreen=${diag?.isTouchedOnScreen}, " +
+                    "visibilityConfidence=${diag?.visibilityConfidence}, " +
+                    "scenario=${diag?.scenario}, " +
+                    "deltaGapPx=${diag?.deltaGapPx})",
                 canvas.gapCollapseController.isTransactionOwned ||
-                    canvas.lastSelectionDeletionDiagnostic?.outcome == SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED
+                    diag?.outcome == SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED
             )
             assertEquals(0, canvas.legacySettlementInvocationCount)
             assertEquals(prePendingStarts, scribeAnim.startedAnimationCount)
