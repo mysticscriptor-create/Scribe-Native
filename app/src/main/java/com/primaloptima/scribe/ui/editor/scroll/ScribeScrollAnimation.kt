@@ -25,8 +25,19 @@ class ScribeCanvasGlideAnimator(
     var onSettledCallback: ((reason: ScrollAnimationReason?) -> Unit)? = null,
     var isDeletionSafetyActiveProvider: (() -> Boolean)? = null,
     var onCancelledCallback: ((reason: String?, wasDeletionSafetyActive: Boolean) -> Unit)? = null,
-    var onFrameCommitted: ((result: ScrollStepResult, reason: ScrollAnimationReason?, physicalScroll: Float) -> Unit)? = null
+    var onFrameCommitted: ((result: ScrollStepResult, reason: ScrollAnimationReason?, physicalScroll: Float) -> Unit)? = null,
+    private val monotonicTimeNanosProvider: () -> Long = { defaultMonotonicTimeNanos() }
 ) {
+    companion object {
+        private fun defaultMonotonicTimeNanos(): Long {
+            val elapsed = try {
+                android.os.SystemClock.elapsedRealtimeNanos()
+            } catch (_: Throwable) {
+                0L
+            }
+            return if (elapsed > 0L) elapsed else System.nanoTime()
+        }
+    }
     var activeCanvasAnimator: ValueAnimator? = null
     var isGlideRunning: Boolean = false
         private set
@@ -46,7 +57,7 @@ class ScribeCanvasGlideAnimator(
     val glideFrameRunnable: Runnable = object : Runnable {
         override fun run() {
             if (!isGlideRunning) return
-            val nowNs = System.nanoTime()
+            val nowNs = monotonicTimeNanosProvider()
             val dtSec = ((nowNs - glideLastTimeNs) / 1_000_000_000f).coerceIn(0.001f, 0.032f)
             glideLastTimeNs = nowNs
             advanceFrame(dtSec)
@@ -222,7 +233,7 @@ class ScribeCanvasGlideAnimator(
         glidePosition = currentScroll
         glideVelocity = 0f
         glideTarget = target
-        glideLastTimeNs = System.nanoTime()
+        glideLastTimeNs = monotonicTimeNanosProvider()
         activeGlideReason = reason
         activeGlideOnEnd = onEnd
         activeGlideOpId = opId

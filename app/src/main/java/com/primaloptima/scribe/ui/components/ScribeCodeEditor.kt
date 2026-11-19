@@ -637,12 +637,14 @@ class ScribeCodeEditor @JvmOverloads constructor(
         preScrollY: Int,
         headerHeight: Int,
         editorHeightPx: Int
-    ): List<ComposeRect> {
+    ): Pair<List<ComposeRect>, SelectedRowSpanCaptureStatus> {
         if (lay == null || content.lineCount <= 0 || rowHeight <= 0 || l1 > l2) {
-            return emptyList()
+            return emptyList<ComposeRect>() to SelectedRowSpanCaptureStatus.UNAVAILABLE
         }
         val rowCount = lay.rowCount
-        if (rowCount <= 0) return emptyList()
+        if (rowCount <= 0) {
+            return emptyList<ComposeRect>() to SelectedRowSpanCaptureStatus.UNAVAILABLE
+        }
         val maxRow = rowCount - 1
         val preEditorOffsetY = (preScrollY - headerHeight).coerceAtLeast(0)
         val firstVisRow = (preEditorOffsetY / rowHeight).coerceIn(0, maxRow)
@@ -651,42 +653,70 @@ class ScribeCodeEditor @JvmOverloads constructor(
         } else {
             maxRow
         }
-        val selFirstRow = try {
+        val selFirstRowRaw = try {
             lay.getRowIndexForPosition(content.indexer.getCharIndex(l1, c1))
         } catch (_: Throwable) {
-            0
-        }.coerceIn(0, maxRow)
-        val selLastRow = try {
+            -1
+        }
+        val selLastRowRaw = try {
             lay.getRowIndexForPosition(content.indexer.getCharIndex(l2, c2))
         } catch (_: Throwable) {
-            maxRow
-        }.coerceIn(selFirstRow, maxRow)
+            -1
+        }
+        if (selFirstRowRaw < 0 || selLastRowRaw < 0) {
+            return emptyList<ComposeRect>() to SelectedRowSpanCaptureStatus.UNAVAILABLE
+        }
+        val selFirstRow = selFirstRowRaw.coerceIn(0, maxRow)
+        val selLastRow = selLastRowRaw.coerceIn(selFirstRow, maxRow)
 
         val scanStart = maxOf(firstVisRow, selFirstRow)
         val scanEnd = minOf(lastVisRow, selLastRow)
-        if (scanStart > scanEnd) return emptyList()
+        if (scanStart > scanEnd) {
+            val status = if (editorHeightPx > 0 || selLastRow < firstVisRow) {
+                SelectedRowSpanCaptureStatus.EMPTY_OUTSIDE_VIEWPORT
+            } else {
+                SelectedRowSpanCaptureStatus.UNAVAILABLE
+            }
+            return emptyList<ComposeRect>() to status
+        }
 
         val spans = ArrayList<ComposeRect>((scanEnd - scanStart + 1).coerceAtLeast(1))
         val textOffsetDoc = measureTextRegionOffset()
         val drawSoftWrap = (nonPrintablePaintingFlags and FLAG_DRAW_SOFT_WRAP) != 0
         val emptyLineW = scribeEditorRenderer?.emptyLineSelectionWidthPx() ?: (textPaint.measureText(" ") * 2f)
+        var hadIncompleteRow = false
 
         for (r in scanStart..scanEnd) {
-            val rowInf = try { lay.getRowAt(r) } catch (_: Throwable) { null } ?: continue
+            val rowInf = try { lay.getRowAt(r) } catch (_: Throwable) { null }
+            if (rowInf == null) {
+                hadIncompleteRow = true
+                continue
+            }
             val line = rowInf.lineIndex
             if (line !in l1..l2) continue
-            val colCount = try { content.getColumnCount(line) } catch (_: Throwable) { 0 }
+            val colCount = try { content.getColumnCount(line) } catch (_: Throwable) {
+                hadIncompleteRow = true
+                continue
+            }
             val topDocY = scribeEditorRenderer?.rowTopForBackgroundDocY(r) ?: getRowTop(r).toFloat()
             val bottomDocY = scribeEditorRenderer?.rowBottomForBackgroundDocY(r) ?: getRowBottom(r).toFloat()
+            if (!topDocY.isFinite() || !bottomDocY.isFinite() || bottomDocY <= topDocY) {
+                hadIncompleteRow = true
+                continue
+            }
             if (colCount == 0 && line != l2) {
-                spans.add(
-                    ComposeRect(
-                        left = textOffsetDoc,
-                        top = topDocY,
-                        right = textOffsetDoc + emptyLineW,
-                        bottom = bottomDocY
+                if (emptyLineW.isFinite() && emptyLineW > 0f) {
+                    spans.add(
+                        ComposeRect(
+                            left = textOffsetDoc,
+                            top = topDocY,
+                            right = textOffsetDoc + emptyLineW,
+                            bottom = bottomDocY
+                        )
                     )
-                )
+                } else {
+                    hadIncompleteRow = true
+                }
                 continue
             }
             val lineSelStart = if (line == l1) c1 else 0
@@ -699,12 +729,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     rowOffsetDoc += (scribeEditorRenderer?.softWrapMiniGraphWidthPx() ?: 0f)
                 }
                 val tr = try { renderer.createTextRow(r) } catch (_: Throwable) { null }
-                var addedFromTextRow = false
+                var addedForRow = false
                 if (tr != null) {
                     tr.iterateBackgroundRegions(rowSelStart, rowSelEnd, false, false) { left, right ->
                         val lDoc = rowOffsetDoc + left
                         val rDoc = rowOffsetDoc + right
-                        if (rDoc > lDoc) {
+                        if (lDoc.isFinite() && rDoc.isFinite() && rDoc > lDoc) {
                             spans.add(
                                 ComposeRect(
                                     left = minOf(lDoc, rDoc),
@@ -713,25 +743,35 @@ class ScribeCodeEditor @JvmOverloads constructor(
                                     bottom = bottomDocY
                                 )
                             )
-                            addedFromTextRow = true
+                            addedForRow = true
                         }
                         true
                     }
                 }
-                if (!addedFromTextRow) {
+                if (!addedForRow) {
                     val startOff = try { lay.getCharLayoutOffset(line, rowSelStart) } catch (_: Throwable) { null }
                     val endOff = try { lay.getCharLayoutOffset(line, rowSelEnd) } catch (_: Throwable) { null }
                     if (startOff != null && endOff != null) {
                         val lDoc = textOffsetDoc + minOf(startOff[1], endOff[1])
                         val rDoc = textOffsetDoc + maxOf(startOff[1], endOff[1])
-                        if (rDoc > lDoc) {
+                        if (lDoc.isFinite() && rDoc.isFinite() && rDoc > lDoc) {
                             spans.add(ComposeRect(lDoc, topDocY, rDoc, bottomDocY))
+                            addedForRow = true
                         }
                     }
                 }
+                if (!addedForRow) {
+                    hadIncompleteRow = true
+                }
             }
         }
-        return spans
+        val status = when {
+            hadIncompleteRow && spans.isNotEmpty() -> SelectedRowSpanCaptureStatus.PARTIAL
+            hadIncompleteRow -> SelectedRowSpanCaptureStatus.UNAVAILABLE
+            spans.isNotEmpty() -> SelectedRowSpanCaptureStatus.COMPLETE
+            else -> SelectedRowSpanCaptureStatus.UNAVAILABLE
+        }
+        return spans to status
     }
 
     internal fun clearTextActionAndReplaceTokensOnReset() {
@@ -1877,7 +1917,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 } else {
                     null to PreDeleteHandleCaptureStatus.NOT_SELECTION
                 }
-                val preSelectedRowSpans = if (isSel) {
+                val (preSelectedRowSpans, selectedRowSpanCaptureStatus) = if (isSel) {
                     capturePreDeleteSelectedRowSpansDoc(
                         content = content,
                         lay = lay,
@@ -1890,7 +1930,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                         editorHeightPx = height
                     )
                 } else {
-                    emptyList()
+                    emptyList<ComposeRect>() to SelectedRowSpanCaptureStatus.UNAVAILABLE
                 }
                 val preUpperPrefixBlank = c1 == 0 || try {
                     val line1 = content.getLine(l1)
@@ -1930,6 +1970,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     preLowerHandleDoc = preLowerHandle,
                     preSelectedRowSpansDoc = preSelectedRowSpans,
                     hasSelectedRowSpans = preSelectedRowSpans.isNotEmpty(),
+                    selectedRowSpanCaptureStatus = selectedRowSpanCaptureStatus,
                     wasCursorAnimationRunningBeforeDelete = wasCursorAnimatorRunningBeforeCurrentModification,
                     preUpperPrefixBlank = preUpperPrefixBlank,
                     upperHandleStatus = upperHandleStatus,
@@ -2931,7 +2972,17 @@ class ScribeCodeEditor @JvmOverloads constructor(
                                 }
                             }
                         } else if (!isInContentReplace && (totalScroll > maxScroll || text.isEmpty())) {
-                            pCanvas.clampCanvasScrollToMax(smooth = true)
+                            // Do not let a delayed LayoutStateChangeEvent clamp hijack an active
+                            // CARET_VISIBILITY smooth glide (e.g., Scenario E offscreen caret-follow)
+                            // whose target is already within the post-delete scroll range.
+                            val isPreservingInBoundsCaretGlide = !text.isEmpty() &&
+                                pCanvas.isGlideRunning &&
+                                pCanvas.activeGlideReason == ScrollAnimationReason.CARET_VISIBILITY &&
+                                pCanvas.glideTarget.isFinite() &&
+                                pCanvas.glideTarget <= maxScroll.toFloat()
+                            if (!isPreservingInBoundsCaretGlide) {
+                                pCanvas.clampCanvasScrollToMax(smooth = true)
+                            }
                         } else if (!isInContentReplace && isFocused) {
                             pCanvas.ensureCursorVisibleAboveKeyboard(smooth = true, force = false)
                         }

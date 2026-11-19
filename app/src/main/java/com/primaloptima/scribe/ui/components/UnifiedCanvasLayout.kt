@@ -1836,18 +1836,20 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         )
 
         val seam = resolvedSeamGeometry
-        val isTouchedOnScreen = if (preCapture != null) {
-            ScribeGapCollapsePolicy.isSelectionTouchedOnScreen(
+        val visibilityDecision = if (preCapture != null) {
+            ScribeGapCollapsePolicy.resolveSelectionVisibilityDecision(
                 isUpperVisible = isUpperVisible,
                 isLowerVisible = isLowerVisible,
                 preCapture = preCapture,
                 headerHeight = headerHeight,
                 viewportWidthPx = viewportWidthPx,
-                viewportBounds = viewportBounds
+                viewportBounds = viewportBounds,
+                isWordwrap = editor.isWordwrap
             )
         } else {
-            false
+            SelectionVisibilityDecision.UNRESOLVED
         }
+        val isTouchedOnScreen = visibilityDecision == SelectionVisibilityDecision.VISIBLE
 
         if (preCapture == null || seam == null || !seam.isEligibleCase) {
             val unsupportedReason = when {
@@ -1879,12 +1881,10 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             return
         }
 
-        val hasReliableSelectionVisibility = ScribeGapCollapsePolicy.hasReliableSelectionVisibilityGeometry(
-            isUpperVisible = isUpperVisible,
-            isLowerVisible = isLowerVisible,
-            preCapture = preCapture
-        )
-        val effectiveVisibilityConfidence = if (visibilityConfidence == VisibilityConfidence.RESOLVED && !hasReliableSelectionVisibility) {
+        val effectiveVisibilityConfidence = if (
+            visibilityConfidence == VisibilityConfidence.RESOLVED &&
+            visibilityDecision == SelectionVisibilityDecision.UNRESOLVED
+        ) {
             VisibilityConfidence.UNRELIABLE
         } else {
             visibilityConfidence

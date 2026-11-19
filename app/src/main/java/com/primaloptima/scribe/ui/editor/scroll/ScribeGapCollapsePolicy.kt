@@ -109,6 +109,19 @@ enum class PreDeleteHandleCaptureStatus {
     POSITION_LOOKUP_FAILED
 }
 
+enum class SelectedRowSpanCaptureStatus {
+    UNAVAILABLE,
+    EMPTY_OUTSIDE_VIEWPORT,
+    COMPLETE,
+    PARTIAL
+}
+
+enum class SelectionVisibilityDecision {
+    VISIBLE,
+    OFFSCREEN,
+    UNRESOLVED
+}
+
 data class SelectionDeletionDiagnostic(
     val transactionGeneration: Long,
     val outcome: SelectionDeletionDispatchOutcome,
@@ -159,6 +172,7 @@ data class PreDeleteSeamCapture(
     val preLowerHandleDoc: PreDeleteHandleDocRect? = null,
     val preSelectedRowSpansDoc: List<Rect> = emptyList(),
     val hasSelectedRowSpans: Boolean = false,
+    val selectedRowSpanCaptureStatus: SelectedRowSpanCaptureStatus = SelectedRowSpanCaptureStatus.UNAVAILABLE,
     val wasCursorAnimationRunningBeforeDelete: Boolean = false,
     val preUpperPrefixBlank: Boolean = (c1 == 0),
     val preRowLowerSuffixStart: Int = -1,
@@ -690,24 +704,54 @@ object ScribeGapCollapsePolicy {
         return viewportBounds.isRectUnobstructedByFloatingPills(clippedRect)
     }
 
-    fun isSelectionTouchedOnScreen(
+    /**
+     * Conservative 3-state visibility classification for a pre-delete selection.
+     *
+     * Rules:
+     * 1. Either handle visible in the unobstructed viewport -> VISIBLE.
+     * 2. Invalid viewport bounds or non-positive/non-finite viewport width -> UNRESOLVED.
+     * 3. Any finite, ordered captured selected-row span intersecting the unobstructed viewport -> VISIBLE
+     *    (even when span capture is PARTIAL). Only a COMPLETE non-empty span capture with zero
+     *    unobstructed intersections proves OFFSCREEN from spans alone.
+     * 4. Validated finite, ordered vertical bounds (bottom > top):
+     *    - Strictly above or below the unobstructed vertical viewport -> OFFSCREEN.
+     *    - Overlapping vertically without proving span visibility -> VISIBLE only when wordwrap is
+     *      active, preScrollX == 0, and span capture is not PARTIAL; otherwise UNRESOLVED.
+     * 5. EMPTY_OUTSIDE_VIEWPORT span capture with no valid vertical bounds -> OFFSCREEN.
+     * 6. Everything else -> UNRESOLVED (never silently classified as Scenario E).
+     *
+     * Note: Having both handles CAPTURED but invisible does NOT prove the selection between them is
+     * offscreen (e.g., upper handle above viewport and lower handle below viewport).
+     */
+    fun resolveSelectionVisibilityDecision(
         isUpperVisible: Boolean,
         isLowerVisible: Boolean,
         preCapture: PreDeleteSeamCapture,
         headerHeight: Int,
         viewportWidthPx: Float,
-        viewportBounds: UnobstructedViewportBounds
-    ): Boolean {
+        viewportBounds: UnobstructedViewportBounds,
+        isWordwrap: Boolean = true
+    ): SelectionVisibilityDecision {
         if (isUpperVisible || isLowerVisible) {
-            return true
+            return SelectionVisibilityDecision.VISIBLE
         }
-        if (!viewportBounds.isValid || viewportWidthPx <= 0f) {
-            return false
+        if (!viewportBounds.isValid || !viewportWidthPx.isFinite() || viewportWidthPx <= 0f) {
+            return SelectionVisibilityDecision.UNRESOLVED
         }
         val headerRemainingPre = (headerHeight - preCapture.preScrollY).toFloat()
-        if (preCapture.hasSelectedRowSpans && preCapture.preSelectedRowSpansDoc.isNotEmpty()) {
+        val hasNonEmptySpans = preCapture.hasSelectedRowSpans && preCapture.preSelectedRowSpansDoc.isNotEmpty()
+        if (hasNonEmptySpans) {
             val scrollXFloat = preCapture.preScrollX.toFloat()
             for (spanDoc in preCapture.preSelectedRowSpansDoc) {
+                if (!spanDoc.left.isFinite() ||
+                    !spanDoc.top.isFinite() ||
+                    !spanDoc.right.isFinite() ||
+                    !spanDoc.bottom.isFinite() ||
+                    spanDoc.right <= spanDoc.left ||
+                    spanDoc.bottom <= spanDoc.top
+                ) {
+                    continue
+                }
                 val clipLeft = maxOf(0f, spanDoc.left - scrollXFloat)
                 val clipRight = minOf(viewportWidthPx, spanDoc.right - scrollXFloat)
                 val clipTop = maxOf(viewportBounds.visibleEditorTop, headerRemainingPre + spanDoc.top)
@@ -723,25 +767,62 @@ object ScribeGapCollapsePolicy {
                         pill.bottom >= clippedSpan.bottom
                 }
                 if (!whollyCoveredByPill) {
-                    return true
+                    return SelectionVisibilityDecision.VISIBLE
                 }
             }
-            return false
+            if (preCapture.selectedRowSpanCaptureStatus == SelectedRowSpanCaptureStatus.COMPLETE) {
+                return SelectionVisibilityDecision.OFFSCREEN
+            }
         }
-        if (preCapture.preSelectionBottomDocY <= preCapture.preSelectionTopDocY) {
-            return false
+
+        val hasValidVerticalBounds = preCapture.preSelectionTopDocY.isFinite() &&
+            preCapture.preSelectionBottomDocY.isFinite() &&
+            preCapture.preSelectionBottomDocY > preCapture.preSelectionTopDocY
+        if (hasValidVerticalBounds) {
+            val selTopScreen = headerRemainingPre + preCapture.preSelectionTopDocY
+            val selBottomScreen = headerRemainingPre + preCapture.preSelectionBottomDocY
+            if (selBottomScreen <= viewportBounds.visibleEditorTop ||
+                selTopScreen >= viewportBounds.visibleEditorBottom
+            ) {
+                return SelectionVisibilityDecision.OFFSCREEN
+            }
+            if (preCapture.selectedRowSpanCaptureStatus != SelectedRowSpanCaptureStatus.PARTIAL &&
+                isWordwrap &&
+                preCapture.preScrollX == 0
+            ) {
+                return SelectionVisibilityDecision.VISIBLE
+            }
+            return SelectionVisibilityDecision.UNRESOLVED
         }
-        val selTopScreen = headerRemainingPre + preCapture.preSelectionTopDocY
-        val selBottomScreen = headerRemainingPre + preCapture.preSelectionBottomDocY
-        return selBottomScreen > viewportBounds.visibleEditorTop &&
-            selTopScreen < viewportBounds.visibleEditorBottom
+
+        if (preCapture.selectedRowSpanCaptureStatus == SelectedRowSpanCaptureStatus.EMPTY_OUTSIDE_VIEWPORT) {
+            return SelectionVisibilityDecision.OFFSCREEN
+        }
+        return SelectionVisibilityDecision.UNRESOLVED
     }
+
+    fun isSelectionTouchedOnScreen(
+        isUpperVisible: Boolean,
+        isLowerVisible: Boolean,
+        preCapture: PreDeleteSeamCapture,
+        headerHeight: Int,
+        viewportWidthPx: Float,
+        viewportBounds: UnobstructedViewportBounds,
+        isWordwrap: Boolean = true
+    ): Boolean = resolveSelectionVisibilityDecision(
+        isUpperVisible = isUpperVisible,
+        isLowerVisible = isLowerVisible,
+        preCapture = preCapture,
+        headerHeight = headerHeight,
+        viewportWidthPx = viewportWidthPx,
+        viewportBounds = viewportBounds,
+        isWordwrap = isWordwrap
+    ) == SelectionVisibilityDecision.VISIBLE
 
     /**
      * Returns true only when positive geometry evidence exists to distinguish a visible selection
-     * from a genuinely offscreen selection (Scenario E). Missing handle geometry combined with an
-     * empty span list and invalid selection bounds must be treated as unresolved rather than
-     * manufactured into an offscreen classification.
+     * from a genuinely offscreen selection (Scenario E). Captured-but-invisible handles alone do NOT
+     * prove the selection between them is offscreen.
      */
     fun hasReliableSelectionVisibilityGeometry(
         isUpperVisible: Boolean,
@@ -751,15 +832,18 @@ object ScribeGapCollapsePolicy {
         if (isUpperVisible || isLowerVisible) {
             return true
         }
-        if (preCapture.upperHandleStatus == PreDeleteHandleCaptureStatus.CAPTURED &&
-            preCapture.lowerHandleStatus == PreDeleteHandleCaptureStatus.CAPTURED
+        if (preCapture.hasSelectedRowSpans &&
+            preCapture.preSelectedRowSpansDoc.isNotEmpty() &&
+            preCapture.selectedRowSpanCaptureStatus == SelectedRowSpanCaptureStatus.COMPLETE
         ) {
             return true
         }
-        if (preCapture.hasSelectedRowSpans && preCapture.preSelectedRowSpansDoc.isNotEmpty()) {
+        if (preCapture.selectedRowSpanCaptureStatus == SelectedRowSpanCaptureStatus.EMPTY_OUTSIDE_VIEWPORT) {
             return true
         }
-        return preCapture.preSelectionBottomDocY > preCapture.preSelectionTopDocY
+        return preCapture.preSelectionTopDocY.isFinite() &&
+            preCapture.preSelectionBottomDocY.isFinite() &&
+            preCapture.preSelectionBottomDocY > preCapture.preSelectionTopDocY
     }
 
     fun classifyPreDeleteSeam(
@@ -782,6 +866,12 @@ object ScribeGapCollapsePolicy {
         preLowerHandleDoc: PreDeleteHandleDocRect? = null,
         preSelectedRowSpansDoc: List<Rect> = emptyList(),
         hasSelectedRowSpans: Boolean = false,
+        selectedRowSpanCaptureStatus: SelectedRowSpanCaptureStatus =
+            if (hasSelectedRowSpans && preSelectedRowSpansDoc.isNotEmpty()) {
+                SelectedRowSpanCaptureStatus.COMPLETE
+            } else {
+                SelectedRowSpanCaptureStatus.UNAVAILABLE
+            },
         wasCursorAnimationRunningBeforeDelete: Boolean = false,
         preUpperPrefixBlank: Boolean = (c1 == 0),
         upperHandleStatus: PreDeleteHandleCaptureStatus = PreDeleteHandleCaptureStatus.NOT_SELECTION,
@@ -811,6 +901,7 @@ object ScribeGapCollapsePolicy {
                 preLowerHandleDoc = preLowerHandleDoc,
                 preSelectedRowSpansDoc = preSelectedRowSpansDoc,
                 hasSelectedRowSpans = hasSelectedRowSpans,
+                selectedRowSpanCaptureStatus = selectedRowSpanCaptureStatus,
                 wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete,
                 preUpperPrefixBlank = preUpperPrefixBlank,
                 upperHandleStatus = upperHandleStatus,
@@ -847,6 +938,7 @@ object ScribeGapCollapsePolicy {
                 preLowerHandleDoc = preLowerHandleDoc,
                 preSelectedRowSpansDoc = preSelectedRowSpansDoc,
                 hasSelectedRowSpans = hasSelectedRowSpans,
+                selectedRowSpanCaptureStatus = selectedRowSpanCaptureStatus,
                 wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete,
                 preUpperPrefixBlank = preUpperPrefixBlank,
                 preRowLowerSuffixStart = preRowLowerSuffixStart,
@@ -881,6 +973,7 @@ object ScribeGapCollapsePolicy {
                 preLowerHandleDoc = preLowerHandleDoc,
                 preSelectedRowSpansDoc = preSelectedRowSpansDoc,
                 hasSelectedRowSpans = hasSelectedRowSpans,
+                selectedRowSpanCaptureStatus = selectedRowSpanCaptureStatus,
                 wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete,
                 preUpperPrefixBlank = preUpperPrefixBlank,
                 preRowLowerSuffixStart = -1,
@@ -914,6 +1007,7 @@ object ScribeGapCollapsePolicy {
             preLowerHandleDoc = preLowerHandleDoc,
             preSelectedRowSpansDoc = preSelectedRowSpansDoc,
             hasSelectedRowSpans = hasSelectedRowSpans,
+            selectedRowSpanCaptureStatus = selectedRowSpanCaptureStatus,
             wasCursorAnimationRunningBeforeDelete = wasCursorAnimationRunningBeforeDelete,
             preUpperPrefixBlank = preUpperPrefixBlank,
             preRowLowerSuffixStart = -1,

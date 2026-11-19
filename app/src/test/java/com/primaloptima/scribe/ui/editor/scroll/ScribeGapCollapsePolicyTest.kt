@@ -1698,4 +1698,174 @@ class ScribeGapCollapsePolicyTest {
         assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, planUnresolved.scenario)
         assertFalse(planUnresolved.requiresOffscreenCaretFollow)
     }
+
+    @Test
+    fun testThreeStateVisibilityClassification_PartialSpansCapturedHandlesHorizontalAndBounds() {
+        val bounds = makeValidViewportBounds(top = 0f, bottom = 1200f)
+        val baseCapture = ScribeGapCollapsePolicy.classifyPreDeleteSeam(
+            isSelection = true,
+            l1 = 5, c1 = 0, l2 = 40, c2 = 0,
+            preLineCount = 120, preLineLenL2 = 20,
+            preScrollY = 600, rowHeightPx = 35f,
+            rowIndexAt = { line, _ -> line },
+            preSelectionTopDocY = 175f,
+            preSelectionBottomDocY = 1400f,
+            preScrollX = 0,
+            preEditorHeightPx = 1200,
+            upperHandleStatus = PreDeleteHandleCaptureStatus.NOT_FOCUSED,
+            lowerHandleStatus = PreDeleteHandleCaptureStatus.NOT_FOCUSED
+        )
+
+        // 1. Visible span proves VISIBLE even when span capture is PARTIAL.
+        val partialWithVisibleSpan = baseCapture.copy(
+            preSelectedRowSpansDoc = listOf(Rect(20f, 600f, 320f, 635f)),
+            hasSelectedRowSpans = true,
+            selectedRowSpanCaptureStatus = SelectedRowSpanCaptureStatus.PARTIAL
+        )
+        assertEquals(
+            SelectionVisibilityDecision.VISIBLE,
+            ScribeGapCollapsePolicy.resolveSelectionVisibilityDecision(
+                isUpperVisible = false,
+                isLowerVisible = false,
+                preCapture = partialWithVisibleSpan,
+                headerHeight = 200,
+                viewportWidthPx = 800f,
+                viewportBounds = bounds,
+                isWordwrap = true
+            )
+        )
+
+        // 2. Partial span capture with only offscreen span + vertically overlapping bounds -> UNRESOLVED (never OFFSCREEN).
+        val partialWithOffscreenSpan = baseCapture.copy(
+            preScrollX = 500,
+            preSelectedRowSpansDoc = listOf(Rect(20f, 600f, 200f, 635f)),
+            hasSelectedRowSpans = true,
+            selectedRowSpanCaptureStatus = SelectedRowSpanCaptureStatus.PARTIAL
+        )
+        assertEquals(
+            SelectionVisibilityDecision.UNRESOLVED,
+            ScribeGapCollapsePolicy.resolveSelectionVisibilityDecision(
+                isUpperVisible = false,
+                isLowerVisible = false,
+                preCapture = partialWithOffscreenSpan,
+                headerHeight = 200,
+                viewportWidthPx = 800f,
+                viewportBounds = bounds,
+                isWordwrap = false
+            )
+        )
+
+        // 3. Both handles CAPTURED but invisible (upper above viewport, lower below viewport) while selection
+        //    crosses the viewport and spans are unavailable -> NOT OFFSCREEN!
+        val capturedHandlesSpanningViewport = baseCapture.copy(
+            upperHandleStatus = PreDeleteHandleCaptureStatus.CAPTURED,
+            lowerHandleStatus = PreDeleteHandleCaptureStatus.CAPTURED,
+            preSelectedRowSpansDoc = emptyList(),
+            hasSelectedRowSpans = false,
+            selectedRowSpanCaptureStatus = SelectedRowSpanCaptureStatus.UNAVAILABLE,
+            preSelectionTopDocY = 0f,
+            preSelectionBottomDocY = 0f
+        )
+        assertFalse(
+            ScribeGapCollapsePolicy.hasReliableSelectionVisibilityGeometry(
+                isUpperVisible = false,
+                isLowerVisible = false,
+                preCapture = capturedHandlesSpanningViewport
+            )
+        )
+        assertEquals(
+            SelectionVisibilityDecision.UNRESOLVED,
+            ScribeGapCollapsePolicy.resolveSelectionVisibilityDecision(
+                isUpperVisible = false,
+                isLowerVisible = false,
+                preCapture = capturedHandlesSpanningViewport,
+                headerHeight = 200,
+                viewportWidthPx = 800f,
+                viewportBounds = bounds,
+                isWordwrap = true
+            )
+        )
+
+        // 4. Validated vertical bounds strictly above or below the viewport prove OFFSCREEN even without spans.
+        val strictlyAboveViewport = baseCapture.copy(
+            preScrollY = 2500,
+            preSelectionTopDocY = 175f,
+            preSelectionBottomDocY = 420f,
+            preSelectedRowSpansDoc = emptyList(),
+            hasSelectedRowSpans = false,
+            selectedRowSpanCaptureStatus = SelectedRowSpanCaptureStatus.UNAVAILABLE
+        )
+        assertEquals(
+            SelectionVisibilityDecision.OFFSCREEN,
+            ScribeGapCollapsePolicy.resolveSelectionVisibilityDecision(
+                isUpperVisible = false,
+                isLowerVisible = false,
+                preCapture = strictlyAboveViewport,
+                headerHeight = 200,
+                viewportWidthPx = 800f,
+                viewportBounds = bounds,
+                isWordwrap = false
+            )
+        )
+
+        // 5. Vertical overlap with unavailable horizontal geometry (!isWordwrap or preScrollX != 0) -> UNRESOLVED.
+        val nonWordwrapVerticalOverlap = baseCapture.copy(
+            preScrollY = 600,
+            preScrollX = 400,
+            preSelectionTopDocY = 500f,
+            preSelectionBottomDocY = 800f,
+            preSelectedRowSpansDoc = emptyList(),
+            hasSelectedRowSpans = false,
+            selectedRowSpanCaptureStatus = SelectedRowSpanCaptureStatus.UNAVAILABLE
+        )
+        assertEquals(
+            SelectionVisibilityDecision.UNRESOLVED,
+            ScribeGapCollapsePolicy.resolveSelectionVisibilityDecision(
+                isUpperVisible = false,
+                isLowerVisible = false,
+                preCapture = nonWordwrapVerticalOverlap,
+                headerHeight = 200,
+                viewportWidthPx = 800f,
+                viewportBounds = bounds,
+                isWordwrap = false
+            )
+        )
+
+        // 6. Non-finite or inverted selection bounds with unavailable spans -> UNRESOLVED (never OFFSCREEN).
+        val nonFiniteBounds = baseCapture.copy(
+            preSelectionTopDocY = Float.NaN,
+            preSelectionBottomDocY = 500f,
+            preSelectedRowSpansDoc = emptyList(),
+            hasSelectedRowSpans = false,
+            selectedRowSpanCaptureStatus = SelectedRowSpanCaptureStatus.UNAVAILABLE
+        )
+        assertEquals(
+            SelectionVisibilityDecision.UNRESOLVED,
+            ScribeGapCollapsePolicy.resolveSelectionVisibilityDecision(
+                isUpperVisible = false,
+                isLowerVisible = false,
+                preCapture = nonFiniteBounds,
+                headerHeight = 200,
+                viewportWidthPx = 800f,
+                viewportBounds = bounds,
+                isWordwrap = true
+            )
+        )
+        val invertedBounds = nonFiniteBounds.copy(
+            preSelectionTopDocY = 700f,
+            preSelectionBottomDocY = 400f
+        )
+        assertEquals(
+            SelectionVisibilityDecision.UNRESOLVED,
+            ScribeGapCollapsePolicy.resolveSelectionVisibilityDecision(
+                isUpperVisible = false,
+                isLowerVisible = false,
+                preCapture = invertedBounds,
+                headerHeight = 200,
+                viewportWidthPx = 800f,
+                viewportBounds = bounds,
+                isWordwrap = true
+            )
+        )
+    }
 }
