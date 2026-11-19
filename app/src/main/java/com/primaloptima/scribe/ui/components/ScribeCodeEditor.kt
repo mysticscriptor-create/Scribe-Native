@@ -412,8 +412,17 @@ class ScribeCodeEditor @JvmOverloads constructor(
         hasPendingVisualIndentRefresh = false
     }
 
+    internal val isSelectionDeletionOrCollapseDeferringEffects: Boolean
+        get() {
+            val pCanvas = parentCanvas
+            return isDeferringSelectionDeletionEffects ||
+                pCanvas?.gapCollapseController?.isTransactionOwned == true ||
+                pCanvas?.isDeletionTransactionActive == true ||
+                pCanvas?.hasPendingDeletionSettlement == true
+        }
+
     internal fun flushDeferredHintsAndDiagnosticsAfterCollapse() {
-        if (parentCanvas?.gapCollapseController?.isTransactionOwned == true) return
+        if (isSelectionDeletionOrCollapseDeferringEffects) return
         val flushVisualIndent = hasPendingVisualIndentRefresh
         val flushHints = hasPendingDeferredBaseInlayHints
         val hints = pendingDeferredBaseInlayHints
@@ -542,6 +551,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 scribeAnimator?.flushDeferredStartIfNeeded()
             }
         }
+        if (!isSelectionDeletionOrCollapseDeferringEffects) {
+            flushDeferredHintsAndDiagnosticsAfterCollapse()
+        }
     }
 
     private fun capturePreDeleteHandleWithStatus(
@@ -553,11 +565,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
     ): Pair<PreDeleteHandleDocRect?, PreDeleteHandleCaptureStatus> {
         if (lay == null) return null to PreDeleteHandleCaptureStatus.LAYOUT_NULL
         if (rowHeight <= 0) return null to PreDeleteHandleCaptureStatus.ROW_HEIGHT_INVALID
-        if (!isFocused) return null to PreDeleteHandleCaptureStatus.NOT_FOCUSED
-        if (isInMouseMode) return null to PreDeleteHandleCaptureStatus.MOUSE_MODE
-        if (ScribeDrawCursorTaskAccessor.isImeConsumingInput(this)) {
-            return null to PreDeleteHandleCaptureStatus.IME_CONSUMING_INPUT
-        }
         val row = try {
             lay.getRowIndexForPosition(content.indexer.getCharIndex(line, col))
         } catch (_: Throwable) {
@@ -678,6 +685,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 SelectedRowSpanCaptureStatus.UNAVAILABLE
             }
             return emptyList<ComposeRect>() to status
+        }
+        if (isWordwrap) {
+            return emptyList<ComposeRect>() to SelectedRowSpanCaptureStatus.UNAVAILABLE
         }
 
         val spans = ArrayList<ComposeRect>((scanEnd - scanStart + 1).coerceAtLeast(1))
@@ -935,7 +945,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         if (visualFirstLineIndentSpaces <= 0) {
             baseInlayHints = hints
         }
-        if (parentCanvas?.gapCollapseController?.isTransactionOwned == true) {
+        if (isSelectionDeletionOrCollapseDeferringEffects) {
             pendingDeferredBaseInlayHints = hints
             hasPendingDeferredBaseInlayHints = true
             return
@@ -944,7 +954,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
     }
 
     override fun setDiagnostics(diagnostics: DiagnosticsContainer?) {
-        if (parentCanvas?.gapCollapseController?.isTransactionOwned == true) {
+        if (isSelectionDeletionOrCollapseDeferringEffects) {
             pendingDeferredDiagnostics = diagnostics
             hasPendingDeferredDiagnostics = true
             return
@@ -2355,7 +2365,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val content = text ?: return
         val count = content.lineCount
         if (count == 0) return
-        if (parentCanvas?.gapCollapseController?.isTransactionOwned == true) {
+        if (isSelectionDeletionOrCollapseDeferringEffects) {
             hasPendingVisualIndentRefresh = true
             return
         }
@@ -3333,6 +3343,15 @@ class ScribeCodeEditor @JvmOverloads constructor(
             InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
         val connection = super.onCreateInputConnection(outAttrs) ?: return null
         return object : InputConnectionWrapper(connection, false) {
+            override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+                if (beforeLength == 1 && afterLength == 0 && cursor.isSelected && hasComposingText()) {
+                    super.finishComposingText()
+                }
+                val result = super.deleteSurroundingText(beforeLength, afterLength)
+                maybeResumePendingSelectionDeletionAfterCompositionChange()
+                return result
+            }
+
             override fun finishComposingText(): Boolean {
                 val result = super.finishComposingText()
                 maybeResumePendingSelectionDeletionAfterCompositionChange()

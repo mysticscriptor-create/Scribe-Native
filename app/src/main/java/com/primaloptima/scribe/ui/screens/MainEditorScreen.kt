@@ -719,8 +719,12 @@ fun MainEditorScreen(
                 available: Offset,
                 source: NestedScrollSource
             ): Offset {
-                // Gate scroll-driven pill callbacks until document is loaded and layout ready
-                if (loadState !is DocumentLoadState.Loaded || !isEditorLayoutReady) {
+                // Gate scroll-driven pill callbacks until document is loaded and layout ready,
+                // and suppress pill visibility flips triggered by gap-collapse scrolling.
+                if (loadState !is DocumentLoadState.Loaded ||
+                    !isEditorLayoutReady ||
+                    unifiedCanvasRef?.isGapCollapseOrSelectionDeletionActive == true
+                ) {
                     return Offset.Zero
                 }
                 val dy = available.y
@@ -1543,23 +1547,25 @@ fun MainEditorScreen(
                                     }
                                 }
                                 onScrollDelta = { dy ->
-                                    if (dy > 2f) {
-                                        if (lastScrollDirection != 1) {
-                                            lastScrollDirection = 1
-                                            scrollDistanceSinceDirectionChange = 0f
-                                        }
-                                        scrollDistanceSinceDirectionChange += dy
-                                        if (scrollDistanceSinceDirectionChange > 60f && floatingPillsVisible) {
-                                            floatingPillsVisible = false
-                                        }
-                                    } else if (dy < -2f) {
-                                        if (lastScrollDirection != -1) {
-                                            lastScrollDirection = -1
-                                            scrollDistanceSinceDirectionChange = 0f
-                                        }
-                                        scrollDistanceSinceDirectionChange += (-dy)
-                                        if (!floatingPillsVisible) {
-                                            floatingPillsVisible = true
+                                    if (unifiedCanvasRef?.isGapCollapseOrSelectionDeletionActive != true) {
+                                        if (dy > 2f) {
+                                            if (lastScrollDirection != 1) {
+                                                lastScrollDirection = 1
+                                                scrollDistanceSinceDirectionChange = 0f
+                                            }
+                                            scrollDistanceSinceDirectionChange += dy
+                                            if (scrollDistanceSinceDirectionChange > 60f && floatingPillsVisible) {
+                                                floatingPillsVisible = false
+                                            }
+                                        } else if (dy < -2f) {
+                                            if (lastScrollDirection != -1) {
+                                                lastScrollDirection = -1
+                                                scrollDistanceSinceDirectionChange = 0f
+                                            }
+                                            scrollDistanceSinceDirectionChange += (-dy)
+                                            if (!floatingPillsVisible) {
+                                                floatingPillsVisible = true
+                                            }
                                         }
                                     }
                                 }
@@ -1589,7 +1595,10 @@ fun MainEditorScreen(
                                             activeHintScrollAnchor = -1
                                         }
                                     }
-                                    if (scrollD <= 5 && editor.offsetY <= 10) {
+                                    if (unifiedCanvasRef?.isGapCollapseOrSelectionDeletionActive != true &&
+                                        scrollD <= 5 &&
+                                        editor.offsetY <= 10
+                                    ) {
                                         floatingPillsVisible = true
                                     }
                                     val isRestoring = (unifiedCanvasRef?.isRestoringViewport == true) ||
@@ -1712,6 +1721,9 @@ fun MainEditorScreen(
                                     }
                                     try {
                                         setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
+                                            if (unifiedCanvasRef?.isGapCollapseOrSelectionDeletionActive == true) {
+                                                return@setOnScrollChangeListener
+                                            }
                                             val dy = scrollY - oldScrollY
                                             if (scrollY <= 10 && scrollD == 0) {
                                                 floatingPillsVisible = true

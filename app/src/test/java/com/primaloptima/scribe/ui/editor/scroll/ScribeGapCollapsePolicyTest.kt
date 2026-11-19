@@ -2,6 +2,8 @@ package com.primaloptima.scribe.ui.editor.scroll
 
 import androidx.compose.ui.geometry.Rect
 import com.primaloptima.scribe.ui.editor.scroll.ScribeScrollDeletionPolicy.DeletionAnchorIntent
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -1173,7 +1175,7 @@ class ScribeGapCollapsePolicyTest {
             )
         )
 
-        // Occluded by tight FLOATING_PILL in top-right corner, whereas mid-row handle is unobstructed
+        // FLOATING_PILL HUD overlays (word count, quick action pills) must NOT veto handle visibility
         val underRightPill = ScribeGapCollapsePolicy.computeHandleRectDoc(
             anchorXDoc = 560f,
             anchorYDoc = 380f,
@@ -1183,8 +1185,8 @@ class ScribeGapCollapsePolicyTest {
             handleHeightPx = 44f,
             alignment = HandleHorizontalAlignment.ALIGN_RIGHT
         )
-        // local rect: left = 560, right = 604, top = -240 + 380 = 140, bottom = 184 -> inside pill [540..700, 120..200]
-        assertFalse(
+        // local rect: left = 560, right = 604, top = -240 + 380 = 140, bottom = 184 -> overlaps pill [540..700, 120..200]
+        assertTrue(
             ScribeGapCollapsePolicy.isHandleVisibleInViewport(
                 handleDoc = underRightPill,
                 preScrollX = 0,
@@ -1289,12 +1291,12 @@ class ScribeGapCollapsePolicyTest {
             )
         )
 
-        // 2. Selected span wholly covered by floating pill (local y: 370-240=130 .. 400-240=160, x: 40..150) -> false
+        // 2. Selected span overlapping a floating pill (local y: 130..160, x: 40..150) still counts as visible -> true
         val coveredByPillCapture = offscreenXCapture.copy(
             preScrollX = 0,
             preSelectedRowSpansDoc = listOf(Rect(40f, 370f, 150f, 400f))
         )
-        assertFalse(
+        assertTrue(
             ScribeGapCollapsePolicy.isSelectionTouchedOnScreen(
                 isUpperVisible = false,
                 isLowerVisible = false,
@@ -1868,7 +1870,7 @@ class ScribeGapCollapsePolicyTest {
             )
         )
 
-        // 7. Complete spans intersecting the viewport but wholly covered by floating pills -> UNRESOLVED (never OFFSCREEN).
+        // 7. Complete spans intersecting the viewport under floating pills -> VISIBLE (floating pills never veto).
         val pill = Rect(left = 10f, top = 150f, right = 400f, bottom = 260f)
         val boundsWithPill = makeValidViewportBounds(top = 0f, bottom = 1200f, floatingPills = listOf(pill))
         val occludedByPillCapture = baseCapture.copy(
@@ -1879,7 +1881,7 @@ class ScribeGapCollapsePolicyTest {
             selectedRowSpanCaptureStatus = SelectedRowSpanCaptureStatus.COMPLETE
         )
         assertEquals(
-            SelectionVisibilityDecision.UNRESOLVED,
+            SelectionVisibilityDecision.VISIBLE,
             ScribeGapCollapsePolicy.resolveSelectionVisibilityDecision(
                 isUpperVisible = false,
                 isLowerVisible = false,
@@ -1890,5 +1892,147 @@ class ScribeGapCollapsePolicyTest {
                 isWordwrap = true
             )
         )
+
+        // 8. Wordwrap O(1) fast path: valid vertical overlap resolves to VISIBLE even with PARTIAL/UNAVAILABLE spans
+        // and non-zero preScrollX.
+        val wordwrapOverlapUnavailable = nonWordwrapVerticalOverlap.copy(
+            selectedRowSpanCaptureStatus = SelectedRowSpanCaptureStatus.UNAVAILABLE
+        )
+        assertEquals(
+            SelectionVisibilityDecision.VISIBLE,
+            ScribeGapCollapsePolicy.resolveSelectionVisibilityDecision(
+                isUpperVisible = false,
+                isLowerVisible = false,
+                preCapture = wordwrapOverlapUnavailable,
+                headerHeight = 200,
+                viewportWidthPx = 800f,
+                viewportBounds = bounds,
+                isWordwrap = true
+            )
+        )
+    }
+
+    @Test
+    fun testEvaluateFastOutSlowIn_MonotonicBoundaryAndCurve() {
+        assertEquals(0f, ScribeGapCollapsePolicy.evaluateFastOutSlowIn(Float.NaN), 0.0001f)
+        assertEquals(0f, ScribeGapCollapsePolicy.evaluateFastOutSlowIn(-0.5f), 0.0001f)
+        assertEquals(0f, ScribeGapCollapsePolicy.evaluateFastOutSlowIn(0f), 0.0001f)
+        assertEquals(1f, ScribeGapCollapsePolicy.evaluateFastOutSlowIn(1f), 0.0001f)
+        assertEquals(1f, ScribeGapCollapsePolicy.evaluateFastOutSlowIn(1.5f), 0.0001f)
+
+        var prev = -1f
+        for (step in 0..40) {
+            val t = step / 40f
+            val y = ScribeGapCollapsePolicy.evaluateFastOutSlowIn(t)
+            assertTrue("FastOutSlowIn must be in [0, 1] at t=$t (got $y)", y in 0f..1f)
+            assertTrue("FastOutSlowIn must be monotonically non-decreasing at t=$t", y >= prev)
+            prev = y
+        }
+        assertTrue(ScribeGapCollapsePolicy.evaluateFastOutSlowIn(0.5f) > 0.7f)
+    }
+
+    @Test
+    fun testUnifiedProgressInterpolation_AllScenariosShortfallAndQuantization() {
+        val headerH = 200f
+        val samples = listOf(0f, 0.1f, 0.25f, 0.5f, 0.75f, 0.9f, 1f)
+
+        // 1. Scenario C normal (S_pre >= deltaGapPx) with Int scroll rounding:
+        //    Lower screen Y must remain 0.000px invariant at every progress sample!
+        val cPlan = planWithDefaults(
+            isUpperVisible = true,
+            isLowerVisible = true,
+            isTouchedOnScreen = true,
+            preScrollY = 500,
+            deltaGapPx = 180.5f
+        )
+        val cPreLowerDocY = 820f
+        val cPostSeamDocY = cPreLowerDocY - cPlan.deltaGapPx
+        val cExpectedLowerScreenY = headerH + cPreLowerDocY - cPlan.preScrollY
+        for (p in samples) {
+            val desired = ScribeGapCollapsePolicy.evaluateUnifiedProgressDesiredScroll(cPlan, p)
+            val actualInt = desired.roundToInt().toFloat()
+            val tau = ScribeGapCollapsePolicy.computeUnifiedProgressTauLower(
+                plan = cPlan,
+                progress = p,
+                desiredScrollPx = desired,
+                actualScrollPx = actualInt
+            )
+            if (p < 1f) {
+                val actualLowerScreenY = headerH - actualInt + cPostSeamDocY + tau
+                assertEquals(
+                    "Scenario C lower screen Y must stay stationary under Int scroll rounding at p=$p",
+                    cExpectedLowerScreenY,
+                    actualLowerScreenY,
+                    0.01f
+                )
+            } else {
+                assertEquals(cPlan.effectiveTargetScroll, desired, 0.001f)
+                assertEquals(0f, tau, 0.001f)
+            }
+        }
+
+        // 2. Scenario B/C top-of-document shortfall (0 < S_pre < deltaGapPx):
+        //    Upper glides 100 -> 0 while lower stays 100% stationary, then remaining 200 closes via tauLower.
+        val shortfallPlan = planWithDefaults(
+            isUpperVisible = false,
+            isLowerVisible = true,
+            isTouchedOnScreen = true,
+            preScrollY = 100,
+            deltaGapPx = 300f
+        )
+        assertEquals(0f, shortfallPlan.effectiveTargetScroll, 0.001f)
+        val sPreLowerDocY = 600f
+        val sExpectedLowerScreenY = headerH + sPreLowerDocY - 100f
+        for (p in samples) {
+            val desired = ScribeGapCollapsePolicy.evaluateUnifiedProgressDesiredScroll(shortfallPlan, p)
+            val tau = ScribeGapCollapsePolicy.computeUnifiedProgressTauLower(
+                plan = shortfallPlan,
+                progress = p,
+                desiredScrollPx = desired,
+                actualScrollPx = desired
+            )
+            if (p * 300f <= 100f) {
+                assertEquals(100f - p * 300f, desired, 0.01f)
+                val lowerScreen = headerH - desired + (sPreLowerDocY - 300f) + tau
+                assertEquals(sExpectedLowerScreenY, lowerScreen, 0.01f)
+            } else {
+                assertEquals(0f, desired, 0.01f)
+                assertEquals(300f * (1f - p), tau, 0.01f)
+            }
+        }
+
+        // 3. Scenario A (upper stationary): scroll remains constant at preScrollY while tauLower closes 220 -> 0
+        val aPlan = planWithDefaults(
+            isUpperVisible = true,
+            isLowerVisible = false,
+            isTouchedOnScreen = true,
+            preScrollY = 420,
+            deltaGapPx = 220f
+        )
+        var prevTauA = Float.MAX_VALUE
+        for (p in samples) {
+            val desired = ScribeGapCollapsePolicy.evaluateUnifiedProgressDesiredScroll(aPlan, p)
+            val tau = ScribeGapCollapsePolicy.computeUnifiedProgressTauLower(aPlan, p, desired, desired)
+            assertEquals(420f, desired, 0.001f)
+            assertTrue(tau <= prevTauA + 0.001f)
+            prevTauA = tau
+        }
+        assertEquals(0f, prevTauA, 0.001f)
+
+        // 4. Scenario D with < 1px scroll delta still preserves monotonic closure
+        val dTinyScrollPlan = planWithDefaults(
+            isUpperVisible = false,
+            isLowerVisible = false,
+            isTouchedOnScreen = true,
+            preScrollY = 500,
+            centeredTargetScroll = 500.4f,
+            deltaGapPx = 400f
+        )
+        for (p in samples) {
+            val desired = ScribeGapCollapsePolicy.evaluateUnifiedProgressDesiredScroll(dTinyScrollPlan, p)
+            val tau = ScribeGapCollapsePolicy.computeUnifiedProgressTauLower(dTinyScrollPlan, p, desired, desired)
+            assertTrue(desired >= 500f && desired <= 500.401f)
+            assertEquals(400f * (1f - p), tau, 0.01f)
+        }
     }
 }

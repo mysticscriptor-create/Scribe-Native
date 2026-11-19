@@ -2067,7 +2067,7 @@ class ScribeGapCollapseIntegrationTest {
                     )
                 }
 
-                // Case B: Active composing region defers and resumes exclusively into gap collapse on finishComposingText()
+                // Case B: Active composing region does NOT stall or veto selection-deletion gap collapse
                 instr.runOnMainSync {
                     val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
                     val row25 = ed.layout!!.getRowIndexForPosition(ed.text.getCharIndex(25, 0))
@@ -2081,16 +2081,17 @@ class ScribeGapCollapseIntegrationTest {
 
                     ed.deleteText()
 
-                    assertFalse(canvas.gapCollapseController.isTransactionOwned)
+                    assertTrue(
+                        "Selection deletion must enter gap collapse immediately despite active composing region",
+                        canvas.gapCollapseController.isTransactionOwned
+                    )
                     assertEquals(
-                        SelectionDeletionDispatchOutcome.GAP_COLLAPSE_PENDING_COMPOSITION,
+                        SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED,
                         canvas.lastSelectionDeletionDiagnostic?.outcome
                     )
                     assertEquals(0, canvas.legacySettlementInvocationCount)
-
-                    assertTrue(ic.finishComposingText())
                 }
-                waitUntil(failureMsg = "Composition completion must resume gap collapse and settle cleanly to IDLE") {
+                waitUntil(failureMsg = "Gap collapse with active composing region must settle cleanly to IDLE") {
                     canvas.lastSelectionDeletionDiagnostic?.outcome == SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED &&
                         canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
                         !canvas.isGlideRunning &&
@@ -2098,7 +2099,6 @@ class ScribeGapCollapseIntegrationTest {
                 }
                 instr.runOnMainSync {
                     assertEquals(0, canvas.legacySettlementInvocationCount)
-                    assertFalse(ed.hasComposingText())
                 }
 
                 // Case C: Unsupported EOF selection deletion (!hasSurvivingLower) vs legitimate non-selection deletion
@@ -2137,6 +2137,151 @@ class ScribeGapCollapseIntegrationTest {
             } finally {
                 instr.runOnMainSync {
                     canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "suiteE_iso_cleanup")
+                }
+            }
+        }
+    }
+
+    @Test
+    fun suiteF_stage1RealBottomSelectionGboardBackspaceAndShortfall() {
+        val host = launchCanvasHost(text = buildLines(105))
+        val instr = InstrumentationRegistry.getInstrumentation()
+        host.scenario.use {
+            val canvas = host.canvas
+            val ed = canvas.editor
+            try {
+                // 1. Bottom-of-viewport paragraph selection (lower handle within 24dp breathing margin above bottom bar)
+                //    with floating pills registered must stay visually stationary without a 24dp post-collapse jump.
+                var preLowerScreenY = 0f
+                var targetLowerLine = 0
+                var targetStartLine = 0
+                var targetLowerText = ""
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    ed.isCursorAnimationEnabled = false
+                    installDefaultOverlays(canvas, topBarHeightPx = 80f, bottomBarHeightPx = 120f)
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    canvas.scrollCanvasBy((canvas.headerHeight + rowH * 25f) - (canvas.scrollD + ed.offsetY))
+                    val preScroll = canvas.scrollD + ed.offsetY
+                    val bounds = canvas.resolveUnobstructedViewportBounds()
+                    val lay = ed.layout!!
+                    targetLowerLine = -1
+                    for (candidate in 10 until (ed.text.lineCount - 5)) {
+                        val topDoc = canvas.getCharGeometry(lay, candidate, 0, rowH).topDocY
+                        val screenBottom = canvas.headerHeight + topDoc + rowH - preScroll
+                        if (screenBottom <= bounds.visibleEditorBottom - 4f) {
+                            targetLowerLine = candidate
+                        } else {
+                            break
+                        }
+                    }
+                    assertTrue("Expected a visible bottom endLine (got $targetLowerLine)", targetLowerLine > 15)
+                    targetStartLine = (targetLowerLine - 4).coerceAtLeast(1)
+                    targetLowerText = ed.text.getLineString(targetLowerLine)
+                    val preLowerDoc = canvas.getCharGeometry(lay, targetLowerLine, 0, rowH).topDocY
+                    preLowerScreenY = canvas.headerHeight + preLowerDoc - preScroll
+
+                    ed.setSelectionRegion(targetStartLine, 0, targetLowerLine, 0, false)
+                    ed.deleteText()
+
+                    assertTrue(canvas.gapCollapseController.isTransactionOwned)
+                    val diag = canvas.lastSelectionDeletionDiagnostic!!
+                    assertEquals(SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED, diag.outcome)
+                    assertTrue(
+                        "Expected Scenario B or C (got ${diag.scenario})",
+                        diag.scenario == CollapseScenario.B_LOWER_ONLY || diag.scenario == CollapseScenario.C_BOTH_VISIBLE
+                    )
+                }
+                waitUntil(failureMsg = "Bottom-of-viewport collapse must settle cleanly to IDLE") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+                instr.runOnMainSync {
+                    assertEquals(0, canvas.legacySettlementInvocationCount)
+                    assertEquals(targetLowerText, ed.text.getLineString(targetStartLine))
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    val finalScroll = (canvas.scrollD + ed.offsetY).toFloat()
+                    val finalLowerDoc = canvas.getCharGeometry(ed.layout!!, targetStartLine, 0, rowH).topDocY
+                    val finalLowerScreenY = canvas.headerHeight + finalLowerDoc - finalScroll
+                    assertTrue(
+                        "Lower surviving line must stay stationary without post-collapse 24dp jump " +
+                            "(pre=$preLowerScreenY, final=$finalLowerScreenY)",
+                        kotlin.math.abs(finalLowerScreenY - preLowerScreenY) <= 2f
+                    )
+                }
+
+                // 2. Real Gboard Backspace ic.deleteSurroundingText(1, 0) while composing text is active
+                instr.runOnMainSync {
+                    ed.setText(buildLines(90))
+                }
+                waitUntil(failureMsg = "Document reload ready for Gboard deleteSurroundingText") {
+                    ed.layout != null && ed.isWordwrapReady() && !ed.isLayoutBusy
+                }
+                var gboardKeepUpper = ""
+                var gboardKeepLower = ""
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    canvas.scrollCanvasBy((canvas.headerHeight + ed.rowHeight * 12f) - (canvas.scrollD + ed.offsetY))
+                    gboardKeepUpper = ed.text.getLineString(11)
+                    gboardKeepLower = ed.text.getLineString(16)
+                    val ic = ed.onCreateInputConnection(EditorInfo())!!
+                    ed.setSelectionRegion(12, 0, 16, 0, false)
+                    val compStart = ed.text.getCharIndex(17, 0)
+                    assertTrue(ic.setComposingRegion(compStart, compStart + 5))
+                    assertTrue(ed.hasComposingText())
+
+                    assertTrue(ic.deleteSurroundingText(1, 0))
+                    assertEquals(gboardKeepUpper, ed.text.getLineString(11))
+                    assertEquals(gboardKeepLower, ed.text.getLineString(12))
+                    assertTrue(canvas.gapCollapseController.isTransactionOwned)
+                    assertEquals(
+                        SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED,
+                        canvas.lastSelectionDeletionDiagnostic?.outcome
+                    )
+                }
+                waitUntil(failureMsg = "Gboard backspace selection collapse must settle cleanly to IDLE") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+
+                // 3. Top-of-document partial shortfall (0 < S_pre < deltaGapPx) closes smoothly to scroll == 0
+                instr.runOnMainSync {
+                    ed.setText(buildLines(90))
+                }
+                waitUntil(failureMsg = "Document reload ready for top-shortfall test") {
+                    ed.layout != null && ed.isWordwrapReady() && !ed.isLayoutBusy
+                }
+                instr.runOnMainSync {
+                    ed.requestFocus()
+                    val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
+                    val smallPreScroll = (rowH * 2.5f)
+                    canvas.scrollCanvasBy(smallPreScroll - (canvas.scrollD + ed.offsetY))
+                    val startRow = 3
+                    val endRow = 10
+                    assertTrue((endRow - startRow) * rowH > (canvas.scrollD + ed.offsetY))
+                    ed.setSelectionRegion(startRow, 0, endRow, 0, false)
+                    ed.deleteText()
+
+                    assertTrue(canvas.gapCollapseController.isTransactionOwned)
+                    assertEquals(
+                        SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED,
+                        canvas.lastSelectionDeletionDiagnostic?.outcome
+                    )
+                }
+                waitUntil(failureMsg = "Top shortfall collapse must settle smoothly at scroll 0") {
+                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE &&
+                        !canvas.isGlideRunning &&
+                        !canvas.isDeletionTransactionActive
+                }
+                instr.runOnMainSync {
+                    assertEquals(0, canvas.scrollD + ed.offsetY)
+                    assertEquals(0, canvas.legacySettlementInvocationCount)
+                }
+            } finally {
+                instr.runOnMainSync {
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "suiteF_cleanup")
                 }
             }
         }

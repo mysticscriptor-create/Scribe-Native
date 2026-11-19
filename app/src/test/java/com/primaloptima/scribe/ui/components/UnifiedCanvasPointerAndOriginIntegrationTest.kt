@@ -18,7 +18,12 @@ import com.primaloptima.scribe.ui.editor.scroll.PendingPostSafetyKeyboardEval
 import com.primaloptima.scribe.ui.editor.scroll.ScrollAnimationReason
 import com.primaloptima.scribe.ui.editor.scroll.ScribeDockTransition
 import android.view.inputmethod.EditorInfo
+import androidx.compose.ui.geometry.Rect
+import com.primaloptima.scribe.ui.editor.scroll.OverlayOcclusionRole
 import com.primaloptima.scribe.ui.editor.scroll.PreDeleteHandleCaptureStatus
+import com.primaloptima.scribe.ui.editor.scroll.ScribeOverlayBoundsRegistry
+import io.github.rosemoe.sora.lang.diagnostic.DiagnosticsContainer
+import io.github.rosemoe.sora.lang.styling.inlayHint.InlayHintsContainer
 import com.primaloptima.scribe.ui.editor.scroll.ScribeGapCollapsePolicy
 import com.primaloptima.scribe.ui.editor.scroll.SelectionDeletionDispatchOutcome
 import io.github.rosemoe.sora.event.LayoutStateChangeEvent
@@ -1402,7 +1407,7 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "iso_1")
         }
 
-        // 2. Active composing text defers without legacy fallback and resumes into gap collapse on finishComposingText()
+        // 2. Active composing text does NOT stall or veto selection-deletion gap collapse
         run {
             val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
             val editor = canvas.editor
@@ -1421,19 +1426,8 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
 
             editor.deleteText()
 
-            assertFalse(canvas.gapCollapseController.isTransactionOwned)
-            assertTrue(canvas.hasActiveSelectionDeletionSnapshot)
-            assertEquals(
-                SelectionDeletionDispatchOutcome.GAP_COLLAPSE_PENDING_COMPOSITION,
-                canvas.lastSelectionDeletionDiagnostic?.outcome
-            )
-            assertEquals(0, canvas.legacySettlementInvocationCount)
-
-            assertTrue(ic.finishComposingText())
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
-
             assertTrue(
-                "Ending composition must resume pending selection deletion into gap collapse",
+                "Selection deletion with active composing text must start gap collapse immediately without stalling",
                 canvas.gapCollapseController.isTransactionOwned ||
                     canvas.lastSelectionDeletionDiagnostic?.outcome == SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED
             )
@@ -1488,8 +1482,8 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             assertEquals(0, canvas.legacySettlementInvocationCount)
         }
 
-        // 5. RTL/Bidi seam while genuinely unfocused records rtl_or_bidi_at_seam + NOT_FOCUSED handle status,
-        // zero legacy settlement, and discards any deferred ScribeCursorAnimator
+        // 5. RTL/Bidi seam while genuinely unfocused captures handle layout geometry cleanly,
+        // records rtl_or_bidi_at_seam, zero legacy settlement, and discards any deferred ScribeCursorAnimator
         run {
             val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
             val editor = canvas.editor
@@ -1521,7 +1515,7 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
                 canvas.lastSelectionDeletionDiagnostic?.outcome
             )
             assertEquals("rtl_or_bidi_at_seam", canvas.lastSelectionDeletionDiagnostic?.reason)
-            assertEquals(PreDeleteHandleCaptureStatus.NOT_FOCUSED, canvas.lastSelectionDeletionDiagnostic?.upperHandleStatus)
+            assertEquals(PreDeleteHandleCaptureStatus.CAPTURED, canvas.lastSelectionDeletionDiagnostic?.upperHandleStatus)
             assertEquals(0, canvas.legacySettlementInvocationCount)
             assertEquals(
                 "Unsupported RTL/Bidi selection deletion must discard (never flush) deferred cursor animator",
@@ -1876,5 +1870,167 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             assertFalse(scribeAnim.isRunning)
             assertFalse(scribeAnim.hasDeferredPendingStart)
         }
+    }
+
+    @Test
+    fun testStage1_BottomOfViewportSelectionWithFloatingPills_NoSafetyJumpOrLowerDrift() {
+        val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 120)
+        val editor = canvas.editor
+        editor.requestFocus()
+        editor.isCursorAnimationEnabled = false
+        editor.isWordwrap = true
+        awaitWordwrapLayoutReady(editor)
+
+        val registry = ScribeOverlayBoundsRegistry().apply {
+            update("top_bar", OverlayOcclusionRole.TOP_BAR, Rect(0f, 0f, 800f, 96f))
+            update("bottom_bar", OverlayOcclusionRole.BOTTOM_BAR, Rect(0f, 1080f, 800f, 1200f))
+            update("top_word_count_pill", OverlayOcclusionRole.FLOATING_PILL, Rect(24f, 96f, 260f, 160f))
+            update("top_menu_pill", OverlayOcclusionRole.FLOATING_PILL, Rect(640f, 96f, 780f, 160f))
+        }
+        canvas.overlayBoundsRegistry = registry
+
+        val rowH = editor.rowHeight.toFloat().coerceAtLeast(20f)
+        canvas.scrollCanvasBy((canvas.headerHeight + rowH * 28f) - (canvas.scrollD + editor.offsetY))
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+        val preScroll = canvas.scrollD + editor.offsetY
+        val bounds = canvas.resolveUnobstructedViewportBounds()
+        // Pick an endLine whose screen bottom sits right inside the 24dp bottom breathing margin above bottom_bar!
+        val lay = editor.layout!!
+        var endLine = -1
+        for (candidate in 10 until (editor.text.lineCount - 5)) {
+            val topDoc = canvas.getCharGeometry(lay, candidate, 0, rowH).topDocY
+            val screenBottom = canvas.headerHeight + topDoc + rowH - preScroll
+            if (screenBottom <= bounds.visibleEditorBottom - 4f) {
+                endLine = candidate
+            } else {
+                break
+            }
+        }
+        assertTrue("Expected an endLine near visibleEditorBottom (got $endLine)", endLine > 15)
+        val startLine = (endLine - 4).coerceAtLeast(1)
+        val lowerLineText = editor.text.getLineString(endLine)
+        val preLowerTopDoc = canvas.getCharGeometry(lay, endLine, 0, rowH).topDocY
+        val preLowerScreenY = canvas.headerHeight + preLowerTopDoc - preScroll
+
+        editor.setSelectionRegion(startLine, 0, endLine, 0, false)
+        editor.deleteText()
+
+        assertTrue(
+            "Selection deletion near bottom edge with floating pills must enter gap collapse (diag=${canvas.lastSelectionDeletionDiagnostic})",
+            canvas.gapCollapseController.isTransactionOwned
+        )
+        assertTrue(canvas.isGapCollapseOrSelectionDeletionActive)
+        val diag = canvas.lastSelectionDeletionDiagnostic!!
+        assertEquals(SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED, diag.outcome)
+        assertTrue(
+            "Expected Scenario B or C (got ${diag.scenario})",
+            diag.scenario == CollapseScenario.B_LOWER_ONLY || diag.scenario == CollapseScenario.C_BOTH_VISIBLE
+        )
+        assertEquals(lowerLineText, editor.text.getLineString(canvas.gapCollapseController.activeSeamLine))
+
+        val mainLooper = Shadows.shadowOf(Looper.getMainLooper())
+        var steps = 0
+        while ((canvas.gapCollapseController.phase != GapCollapsePhase.IDLE || canvas.isDeletionTransactionActive) && steps < 80) {
+            mainLooper.idleFor(java.time.Duration.ofMillis(16))
+            steps++
+            if (canvas.gapCollapseController.shouldApplySplitRender) {
+                val curScroll = (canvas.scrollD + editor.offsetY).toFloat()
+                val curLowerScreen = canvas.headerHeight - curScroll + canvas.gapCollapseController.activeSeamDocY +
+                    canvas.gapCollapseController.tauLower
+                assertEquals(
+                    "Lower surviving content must remain visually stationary on frame $steps",
+                    preLowerScreenY,
+                    curLowerScreen,
+                    1.0f
+                )
+            }
+        }
+
+        assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+        assertFalse(canvas.isDeletionTransactionActive)
+        assertFalse(canvas.isGapCollapseOrSelectionDeletionActive)
+        assertEquals(0, canvas.legacySettlementInvocationCount)
+        assertNotEquals(ScrollAnimationReason.SAFE_BOUNDARY_CORRECTION, canvas.activeGlideReason)
+
+        val finalScroll = (canvas.scrollD + editor.offsetY).toFloat()
+        val finalLay = editor.layout!!
+        val finalLowerDoc = canvas.getCharGeometry(finalLay, startLine, 0, rowH).topDocY
+        val finalLowerScreenY = canvas.headerHeight + finalLowerDoc - finalScroll
+        assertEquals(
+            "Settled lower content must not suffer a post-collapse 24dp safety jump",
+            preLowerScreenY,
+            finalLowerScreenY,
+            1.5f
+        )
+    }
+
+    @Test
+    fun testStage1_GboardBackspaceDeleteSurroundingTextWithComposing_TriggersGapCollapse() {
+        val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
+        val editor = canvas.editor
+        editor.requestFocus()
+        editor.isCursorAnimationEnabled = false
+        editor.isWordwrap = true
+        awaitWordwrapLayoutReady(editor)
+        canvas.scrollCanvasBy(320f)
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+        val upperKeep = editor.text.getLineString(9)
+        val lowerKeep = editor.text.getLineString(14)
+
+        val ic = editor.onCreateInputConnection(EditorInfo())!!
+        editor.setSelectionRegion(10, 0, 14, 0, false)
+        val compStart = editor.text.getCharIndex(15, 0)
+        assertTrue(ic.setComposingRegion(compStart, compStart + 5))
+        assertTrue(editor.hasComposingText())
+
+        assertTrue(ic.deleteSurroundingText(1, 0))
+        assertEquals(upperKeep, editor.text.getLineString(9))
+        assertEquals(lowerKeep, editor.text.getLineString(10))
+        assertTrue(canvas.gapCollapseController.isTransactionOwned)
+        assertEquals(
+            SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED,
+            canvas.lastSelectionDeletionDiagnostic?.outcome
+        )
+        assertEquals(0, canvas.legacySettlementInvocationCount)
+        canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "gboard_bs_cleanup")
+    }
+
+    @Test
+    fun testStage1_DelayedHintsAndDiagnostics_DeferredDuringCollapseAndFlushedAfter() {
+        val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
+        val editor = canvas.editor
+        editor.requestFocus()
+        editor.isCursorAnimationEnabled = false
+        editor.isWordwrap = true
+        awaitWordwrapLayoutReady(editor)
+        canvas.scrollCanvasBy(280f)
+        Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+        editor.setSelectionRegion(10, 0, 14, 0, false)
+        editor.deleteText()
+        assertTrue(canvas.isGapCollapseOrSelectionDeletionActive)
+
+        val deferredHints = InlayHintsContainer()
+        val deferredDiags = DiagnosticsContainer()
+        editor.setInlayHints(deferredHints)
+        editor.setDiagnostics(deferredDiags)
+
+        assertFalse("Hints must stay deferred during active collapse", editor.inlayHints === deferredHints)
+        assertFalse("Diagnostics must stay deferred during active collapse", editor.diagnostics === deferredDiags)
+
+        val mainLooper = Shadows.shadowOf(Looper.getMainLooper())
+        var steps = 0
+        while ((canvas.gapCollapseController.phase != GapCollapsePhase.IDLE || canvas.isDeletionTransactionActive) && steps < 80) {
+            mainLooper.idleFor(java.time.Duration.ofMillis(16))
+            steps++
+        }
+        mainLooper.idle()
+
+        assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+        assertFalse(canvas.isGapCollapseOrSelectionDeletionActive)
+        assertTrue("Deferred hints must flush after collapse settles", editor.inlayHints === deferredHints)
+        assertTrue("Deferred diagnostics must flush after collapse settles", editor.diagnostics === deferredDiags)
     }
 }

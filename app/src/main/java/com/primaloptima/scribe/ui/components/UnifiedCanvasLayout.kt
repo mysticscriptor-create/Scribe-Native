@@ -154,11 +154,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     fun resolveSafetyFloorAndBounds(
         anchorDocBottom: Float,
         maxCanvasScrollPost: Int = maxCanvasScroll,
-        viewportBounds: UnobstructedViewportBounds = resolveUnobstructedViewportBounds()
+        viewportBounds: UnobstructedViewportBounds = resolveUnobstructedViewportBounds(),
+        breathingMarginOverridePx: Float = breathingMarginPx
     ): SafetyFloorAndBounds = ScribeGapCollapsePolicy.resolveSafetyFloorAndBounds(
         headerHeight = headerHeight,
         anchorDocBottom = anchorDocBottom,
-        breathingMarginPx = breathingMarginPx,
+        breathingMarginPx = breathingMarginOverridePx,
         usableBottomForSafety = viewportBounds.visibleEditorBottom,
         maxCanvasScrollPost = maxCanvasScrollPost,
         scrollD = scrollD,
@@ -475,7 +476,19 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         onFreezeMode1Animator = {
             canvasAnimator.cancelPreservingTransaction("pointer_freeze")
             scrollCoordinator.syncActualScroll((scrollD + editor.offsetY).toFloat())
-        }
+        },
+        onApplyUnifiedScrollTo = { desiredScrollPx ->
+            val currentLogicalFloat = scrollD.toFloat() + outerScrollResidualPx +
+                editor.offsetY.toFloat() + editorScrollResidualPx
+            val delta = desiredScrollPx - currentLogicalFloat
+            if (abs(delta) > 0.001f || abs(desiredScrollPx - (scrollD + editor.offsetY).toFloat()) >= 0.5f) {
+                withPhysicalScrollOrigin(PhysicalScrollOrigin.GAP_COLLAPSE_MODE_1) {
+                    scrollCanvasBy(delta)
+                }
+                scrollCoordinator.syncActualScroll((scrollD + editor.offsetY).toFloat())
+            }
+        },
+        currentActualScrollProvider = { (scrollD + editor.offsetY).toFloat() }
     )
 
     private val canvasAnimator: ScribeCanvasGlideAnimator = ScribeCanvasGlideAnimator(
@@ -734,6 +747,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     val isDeletionTransactionActive: Boolean
         get() = activeDeletionSnapshot != null
 
+    val isGapCollapseOrSelectionDeletionActive: Boolean
+        get() = gapCollapseController.isTransactionOwned ||
+            hasPendingDeletionSettlement ||
+            (activeDeletionSnapshot?.isSelection == true)
+
     private fun clearActiveSeamBaseline() {
         activeSeamLine = -1
         activeSeamCol = 0
@@ -870,6 +888,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             (editor as? ScribeCodeEditor)?.restoreTextActionWindowIfFallbackStranded(
                 deletionTransactionGeneration
             )
+            (editor as? ScribeCodeEditor)?.flushDeferredHintsAndDiagnosticsAfterCollapse()
         }
         return true
     }
@@ -1351,6 +1370,15 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
         val caretGeom = getCharGeometry(lay, cur.leftLine, cur.leftColumn, editor.rowHeight.toFloat())
+        val activePlan = gapCollapseController.currentPlan
+        val safetyBreathingMarginPx = if (activePlan != null &&
+            !activePlan.isFallback &&
+            !activePlan.requiresOffscreenCaretFollow
+        ) {
+            0f
+        } else {
+            breathingMarginPx
+        }
         val anchorDocBottom = if (isDeletionTailAnchored) {
             maxOf(lay.layoutHeight.toFloat(), caretGeom.bottomDocY)
         } else {
@@ -1358,7 +1386,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
         val safetyBounds = resolveSafetyFloorAndBounds(
             anchorDocBottom = anchorDocBottom,
-            viewportBounds = viewportBounds
+            viewportBounds = viewportBounds,
+            breathingMarginOverridePx = safetyBreathingMarginPx
         )
         if (safetyBounds.safeMinPhysical > safetyBounds.safeMax) {
             finalizeUnresolvedGapCollapseTransaction(
@@ -1392,7 +1421,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             scrollCoordinator.syncActualScroll(afterScroll)
             val afterBounds = resolveSafetyFloorAndBounds(
                 anchorDocBottom = anchorDocBottom,
-                viewportBounds = resolveUnobstructedViewportBounds()
+                viewportBounds = resolveUnobstructedViewportBounds(),
+                breathingMarginOverridePx = safetyBreathingMarginPx
             )
             return if (afterBounds.isPhysicalScrollSafe()) {
                 finalizeCompletedGapCollapseTransaction(capturedGen, capturedSafetyEpoch)
@@ -1440,7 +1470,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             synchronousOnEndResult ?: run {
                 val afterBounds = resolveSafetyFloorAndBounds(
                     anchorDocBottom = anchorDocBottom,
-                    viewportBounds = resolveUnobstructedViewportBounds()
+                    viewportBounds = resolveUnobstructedViewportBounds(),
+                    breathingMarginOverridePx = safetyBreathingMarginPx
                 )
                 if (afterBounds.isPhysicalScrollSafe()) {
                     finalizeCompletedGapCollapseTransaction(capturedGen, capturedSafetyEpoch)
@@ -1707,22 +1738,6 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             return
         }
 
-        if (editor.hasComposingText()) {
-            clearPendingDeletionLayoutListener()
-            recordSelectionDeletionDiagnostic(
-                SelectionDeletionDiagnostic(
-                    transactionGeneration = fromGen,
-                    outcome = SelectionDeletionDispatchOutcome.GAP_COLLAPSE_PENDING_COMPOSITION,
-                    reason = "active_composing_text",
-                    upperHandleStatus = upperStatus,
-                    lowerHandleStatus = lowerStatus,
-                    isWordwrapReady = true,
-                    isComposing = true
-                )
-            )
-            return
-        }
-
         if (!editor.isWordwrap) {
             if (!tryClaimPendingDeletionSettlement(fromGen)) return
             clampPhysicalOverscrollAfterNonCollapsedSelectionDeletion()
@@ -1953,7 +1968,8 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
         val safetyBounds = resolveSafetyFloorAndBounds(
             anchorDocBottom = anchorDocBottom,
-            viewportBounds = viewportBounds
+            viewportBounds = viewportBounds,
+            breathingMarginOverridePx = 0f
         )
 
         val plan = ScribeGapCollapsePolicy.planCollapse(
@@ -2071,8 +2087,13 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             scrollCoordinator.syncActualScroll((scrollD + editor.offsetY).toFloat())
         }
 
+        canvasAnimator.cancelPreservingTransaction("begin_unified_gap_collapse")
+        outerScrollResidualPx = 0f
+        editorScrollResidualPx = 0f
+        scrollDFloat = scrollD.toFloat()
         val initialActualScroll = (scrollD + editor.offsetY).toFloat()
-        val collapseEpoch = gapCollapseController.beginCollapse(
+        scrollCoordinator.syncActualScroll(initialActualScroll)
+        gapCollapseController.beginUnifiedCollapse(
             owningGen = fromGen,
             plan = plan,
             seamLine = activeSeamLine,
@@ -2085,37 +2106,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         if (gapCollapseController.shouldApplySplitRender) {
             scribeEditor?.onGapCollapseSplitEntered()
         }
-
-        if (plan.requiresMode1) {
-            canvasAnimator.cancelPreservingTransaction("begin_mode1_gap_collapse")
-            gapCollapseController.markMode1Started(
-                expectedGen = fromGen,
-                expectedCollapseEpoch = collapseEpoch,
-                actualStartPhysicalScrollPx = (scrollD + editor.offsetY).toFloat()
-            )
-            startAuthoritativeScrollAnimation(
-                targetTotalScroll = plan.effectiveTargetScroll,
-                reason = ScrollAnimationReason.DELETION_ANCHOR,
-                durationMs = ScribeScrollDeletionPolicy.DURATION_DELETION_ANCHOR_MS,
-                forceRetarget = true,
-                onEnd = {
-                    if (gapCollapseController.matchesCollapseEpoch(fromGen, collapseEpoch) &&
-                        gapCollapseController.phase == GapCollapsePhase.MODE_1_PHYSICAL_COUPLED
-                    ) {
-                        val finalActualScroll = (scrollD + editor.offsetY).toFloat()
-                        val nextPhase = gapCollapseController.onMode1SettledOrHandoff(
-                            expectedGen = fromGen,
-                            expectedCollapseEpoch = collapseEpoch,
-                            actualFinalPhysicalScrollPx = finalActualScroll
-                        )
-                        if (nextPhase == GapCollapsePhase.FINAL_SAFETY_PENDING) {
-                            val se = gapCollapseController.safetyEpoch
-                            completeDeletionVisualTransaction(fromGen, se)
-                        }
-                    }
-                }
-            )
-        } else if (gapCollapseController.phase == GapCollapsePhase.FINAL_SAFETY_PENDING) {
+        if (gapCollapseController.phase == GapCollapsePhase.FINAL_SAFETY_PENDING) {
             completeDeletionVisualTransaction(fromGen, gapCollapseController.safetyEpoch)
         }
     }
@@ -3393,7 +3384,12 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
         if (oldh > 0 && kotlin.math.abs(h - oldh) > 2) {
             val dh = oldh - h
-            if (w == oldw && gapCollapseController.isTransactionOwned) {
+            val heightDeltaPx = kotlin.math.abs(dh)
+            val majorImeThresholdPx = 120f * resources.displayMetrics.density
+            val isDismissingResize = isKeyboardDismissing || dockTransition == ScribeDockTransition.IME_DISMISSAL
+            if (w == oldw && gapCollapseController.isTransactionOwned &&
+                (heightDeltaPx >= majorImeThresholdPx || isDismissingResize)
+            ) {
                 val g = gapCollapseController.owningDeletionGen
                 clearPendingDeletionLayoutListener()
                 canvasAnimator.cancelPreservingTransaction("height_resize_serialize")

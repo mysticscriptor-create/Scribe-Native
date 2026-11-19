@@ -232,6 +232,76 @@ object ScribeGapCollapsePolicy {
     const val PHYSICAL_VELOCITY_EMA_ALPHA = 0.65f
     const val MIN_GAP_COLLAPSE_PX = 0.5f
     const val MAX_SCENARIO_D_GAP_VIEWPORT_MULTIPLIER = 3f
+    const val UNIFIED_COLLAPSE_DURATION_MS = 240L
+
+    /**
+     * Pure-Kotlin Material FastOutSlowIn cubic-bezier(0.4, 0.0, 0.2, 1.0) evaluator
+     * so Choreographer-driven collapse works identically in JVM tests and Android runtime.
+     */
+    fun evaluateFastOutSlowIn(t: Float): Float {
+        if (!t.isFinite() || t <= 0f) return 0f
+        if (t >= 1f) return 1f
+        var lo = 0f
+        var hi = 1f
+        for (i in 0 until 20) {
+            val u = (lo + hi) * 0.5f
+            val omt = 1f - u
+            // x(u) = 3*(1-u)^2*u*0.4 + 3*(1-u)*u^2*0.2 + u^3
+            val x = 3f * omt * omt * u * 0.4f + 3f * omt * u * u * 0.2f + u * u * u
+            if (x < t) lo = u else hi = u
+        }
+        val u = (lo + hi) * 0.5f
+        // With P1.y = 0, P2.y = 1: y(u) = 3*(1-u)*u^2 + u^3 = u^2 * (3 - 2u)
+        return (u * u * (3f - 2f * u)).coerceIn(0f, 1f)
+    }
+
+    fun evaluateUnifiedProgressDesiredScroll(
+        plan: CollapsePlan,
+        progress: Float
+    ): Float {
+        if (plan.isFallback || plan.scenario == CollapseScenario.E_OFFSCREEN_CARET_FOLLOW) {
+            return plan.preScrollY.toFloat()
+        }
+        if (plan.requiresSynchronousSnap) {
+            return plan.synchronousSnapTarget.toFloat()
+        }
+        val p = progress.coerceIn(0f, 1f)
+        val preScroll = plan.preScrollY.toFloat()
+        val target = plan.effectiveTargetScroll
+        val deltaGap = plan.deltaGapPx.coerceAtLeast(0f)
+        return when (plan.scenario) {
+            CollapseScenario.B_LOWER_ONLY,
+            CollapseScenario.C_BOTH_VISIBLE -> {
+                if (target <= preScroll) {
+                    (preScroll - p * deltaGap).coerceIn(target, preScroll)
+                } else {
+                    preScroll + p * (target - preScroll)
+                }
+            }
+            CollapseScenario.A_UPPER_ONLY,
+            CollapseScenario.D_SELECTION_ONLY_CENTERED ->
+                preScroll + p * (target - preScroll)
+            CollapseScenario.INELIGIBLE_FALLBACK,
+            CollapseScenario.E_OFFSCREEN_CARET_FOLLOW ->
+                preScroll
+        }
+    }
+
+    fun computeUnifiedProgressTauLower(
+        plan: CollapsePlan,
+        progress: Float,
+        desiredScrollPx: Float,
+        actualScrollPx: Float
+    ): Float {
+        if (plan.isFallback || plan.scenario == CollapseScenario.E_OFFSCREEN_CARET_FOLLOW) {
+            return 0f
+        }
+        val p = progress.coerceIn(0f, 1f)
+        if (p >= 1f) return 0f
+        val baseTau = plan.initialTauLowerPx.coerceAtLeast(0f) * (1f - p)
+        val scrollErrorCompensation = actualScrollPx - desiredScrollPx
+        return maxOf(0f, baseTau + scrollErrorCompensation)
+    }
 
     fun evaluateVisibilityConfidence(
         isCanvasLaidOut: Boolean,
@@ -700,8 +770,7 @@ object ScribeGapCollapsePolicy {
         if ((clipRight - clipLeft) < 1f || (clipBottom - clipTop) < 1f) {
             return false
         }
-        val clippedRect = Rect(clipLeft, clipTop, clipRight, clipBottom)
-        return viewportBounds.isRectUnobstructedByFloatingPills(clippedRect)
+        return true
     }
 
     /**
@@ -761,23 +830,11 @@ object ScribeGapCollapsePolicy {
                     continue
                 }
                 anySpanGeometricallyIntersectsViewport = true
-                val clippedSpan = Rect(clipLeft, clipTop, clipRight, clipBottom)
-                val whollyCoveredByPill = viewportBounds.floatingPillLocalRects.any { pill ->
-                    pill.left <= clippedSpan.left &&
-                        pill.top <= clippedSpan.top &&
-                        pill.right >= clippedSpan.right &&
-                        pill.bottom >= clippedSpan.bottom
-                }
-                if (!whollyCoveredByPill) {
-                    return SelectionVisibilityDecision.VISIBLE
-                }
+                return SelectionVisibilityDecision.VISIBLE
             }
-            if (anySpanGeometricallyIntersectsViewport) {
-                // Captured selection geometry intersects the viewport but is wholly occluded by
-                // floating pills; treat as UNRESOLVED rather than genuinely OFFSCREEN (Scenario E).
-                return SelectionVisibilityDecision.UNRESOLVED
-            }
-            if (preCapture.selectedRowSpanCaptureStatus == SelectedRowSpanCaptureStatus.COMPLETE) {
+            if (preCapture.selectedRowSpanCaptureStatus == SelectedRowSpanCaptureStatus.COMPLETE &&
+                !anySpanGeometricallyIntersectsViewport
+            ) {
                 return SelectionVisibilityDecision.OFFSCREEN
             }
         }
@@ -793,10 +850,7 @@ object ScribeGapCollapsePolicy {
             ) {
                 return SelectionVisibilityDecision.OFFSCREEN
             }
-            if (preCapture.selectedRowSpanCaptureStatus != SelectedRowSpanCaptureStatus.PARTIAL &&
-                isWordwrap &&
-                preCapture.preScrollX == 0
-            ) {
+            if (isWordwrap) {
                 return SelectionVisibilityDecision.VISIBLE
             }
             return SelectionVisibilityDecision.UNRESOLVED

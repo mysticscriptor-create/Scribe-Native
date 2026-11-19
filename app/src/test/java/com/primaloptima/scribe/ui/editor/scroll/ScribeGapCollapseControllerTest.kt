@@ -18,14 +18,19 @@ import org.junit.Test
  */
 class ScribeGapCollapseControllerTest {
 
-    private class ControllerHarness {
+    private class ControllerHarness(
+        private val quantizeScrollToInt: Boolean = false,
+        initialScrollPx: Float = 0f
+    ) {
         var scheduledFrameCallback: ((Long) -> Unit)? = null
         var cancelFrameCount = 0
         var invalidateCount = 0
         var refreshRateHz = 60f
         var nanoTime = 1_000_000_000L
+        var simulatedScrollPx = initialScrollPx
         val mode2SettledEvents = mutableListOf<Pair<Long, Long>>()
         val externalDriftEvents = mutableListOf<Pair<Long, Long>>()
+        val appliedUnifiedScrolls = mutableListOf<Float>()
 
         val controller: ScribeGapCollapseController = ScribeGapCollapseController(
             scheduleFrame = { cb -> scheduledFrameCallback = cb },
@@ -37,7 +42,16 @@ class ScribeGapCollapseControllerTest {
             nanoTimeProvider = { nanoTime },
             onInvalidateEditor = { invalidateCount++ },
             onMode2SettledToSafety = { gen, epoch -> mode2SettledEvents.add(gen to epoch) },
-            onExternalDriftAbortToSafety = { gen, epoch -> externalDriftEvents.add(gen to epoch) }
+            onExternalDriftAbortToSafety = { gen, epoch -> externalDriftEvents.add(gen to epoch) },
+            onApplyUnifiedScrollTo = { desired ->
+                appliedUnifiedScrolls.add(desired)
+                simulatedScrollPx = if (quantizeScrollToInt) {
+                    kotlin.math.round(desired)
+                } else {
+                    desired
+                }
+            },
+            currentActualScrollProvider = { simulatedScrollPx }
         )
 
         fun pumpMode2Frame(frameTimeNs: Long) {
@@ -1369,5 +1383,165 @@ class ScribeGapCollapseControllerTest {
         assertEquals(13, h.controller.activeSeamFirstLowerRow)
         assertEquals(520f, h.controller.activeSeamDocY, 0.001f)
         assertFalse(h.controller.updateSeamRowBaseline(99L, newSeamFirstLowerRow = 14, newSeamDocY = 560f))
+    }
+
+    @Test
+    fun testUnifiedCollapse_ScenarioBC_DrivesPhysicalScrollAndTauLowerToFinalSafety() {
+        val h = ControllerHarness(quantizeScrollToInt = true, initialScrollPx = 500f)
+        val plan = makeLowerOnlyPlan(preScrollY = 500, deltaGapPx = 180.5f, minSafeScroll = 0f)
+        val seamDocY = 640f
+        val headerH = 200f
+        val expectedLowerScreenY = headerH + (seamDocY + plan.deltaGapPx) - 500f
+
+        h.controller.beginUnifiedCollapse(
+            owningGen = 21L,
+            plan = plan,
+            seamLine = 14,
+            seamFirstLowerRow = 16,
+            seamDocY = seamDocY,
+            rowHeightPx = 40f,
+            initialPhysicalScrollPx = 500f
+        )
+        assertTrue(h.controller.isUnifiedCollapseActive)
+        assertEquals(GapCollapsePhase.MODE_1_PHYSICAL_COUPLED, h.controller.phase)
+        assertNotNull(h.scheduledFrameCallback)
+
+        var frameNs = 2_000_000_000L
+        var frames = 0
+        while (h.scheduledFrameCallback != null && frames < 40) {
+            h.pumpMode2Frame(frameNs)
+            frameNs += 16_000_000L
+            frames++
+            if (h.controller.phase != GapCollapsePhase.FINAL_SAFETY_PENDING) {
+                val screenLower = headerH - h.simulatedScrollPx + seamDocY + h.controller.tauLower
+                assertEquals(
+                    "Frame $frames lower screen Y must stay stationary under Int scroll rounding",
+                    expectedLowerScreenY,
+                    screenLower,
+                    0.05f
+                )
+            }
+        }
+        assertEquals(GapCollapsePhase.FINAL_SAFETY_PENDING, h.controller.phase)
+        assertFalse(h.controller.isUnifiedCollapseActive)
+        assertEquals(0f, h.controller.tauLower, 0.001f)
+        assertEquals(plan.effectiveTargetScroll, h.simulatedScrollPx, 0.51f)
+        assertEquals(listOf(21L), h.mode2SettledEvents.map { it.first })
+    }
+
+    @Test
+    fun testUnifiedCollapse_ScenarioD_SubPixelScrollStillAnimatesSmoothly() {
+        val h = ControllerHarness(quantizeScrollToInt = false, initialScrollPx = 600f)
+        val bounds = makeViewportBounds(top = 0f, bottom = 900f)
+        val safety = SafetyFloorAndBounds(
+            safeMax = 2000,
+            minSafeScroll = 0f,
+            safeMinPhysical = 0,
+            actualPhysicalScroll = 600
+        )
+        val plan = ScribeGapCollapsePolicy.planCollapse(
+            deletionIntent = ScribeScrollDeletionPolicy.DeletionAnchorIntent.CARET_ANCHOR,
+            isSelection = true,
+            isWordwrap = true,
+            isWordwrapReady = true,
+            isLayoutBusy = false,
+            isComposing = false,
+            isCursorAnimationRunning = false,
+            hasRtlOrBidiAtSeam = false,
+            isMergedPartialRowSeam = false,
+            hasSurvivingUpper = true,
+            hasSurvivingLower = true,
+            deltaGapPx = 360f,
+            visibilityConfidence = VisibilityConfidence.RESOLVED,
+            isUpperVisible = false,
+            isLowerVisible = false,
+            isTouchedOnScreen = true,
+            preScrollY = 600,
+            centeredTargetScroll = 600f, // exact zero physical delta; previously risked no-op or kink
+            viewportBounds = bounds,
+            safetyBounds = safety
+        )
+        assertEquals(CollapseScenario.D_SELECTION_ONLY_CENTERED, plan.scenario)
+
+        h.controller.beginUnifiedCollapse(
+            owningGen = 31L,
+            plan = plan,
+            seamLine = 18,
+            seamFirstLowerRow = 20,
+            seamDocY = 800f,
+            rowHeightPx = 40f,
+            initialPhysicalScrollPx = 600f
+        )
+        assertTrue(h.controller.isUnifiedCollapseActive)
+        assertTrue(h.controller.shouldApplySplitRender)
+        assertEquals(GapCollapsePhase.MODE_2_VISUAL_SETTLING, h.controller.phase)
+
+        var frameNs = 3_000_000_000L
+        var frames = 0
+        var lastTau = h.controller.tauLower
+        while (h.scheduledFrameCallback != null && frames < 40) {
+            h.pumpMode2Frame(frameNs)
+            frameNs += 16_000_000L
+            frames++
+            assertTrue(h.controller.tauLower <= lastTau + 0.001f)
+            lastTau = h.controller.tauLower
+        }
+        assertEquals(GapCollapsePhase.FINAL_SAFETY_PENDING, h.controller.phase)
+        assertEquals(0f, h.controller.tauLower, 0.001f)
+        assertEquals(1, h.mode2SettledEvents.size)
+    }
+
+    @Test
+    fun testUnifiedCollapse_PointerFreezeAndExternalDriftAbort() {
+        // 1. Pointer freeze mid-unified-collapse preserves remaining tauLower & resumes smoothly
+        val h1 = ControllerHarness(quantizeScrollToInt = false, initialScrollPx = 500f)
+        val plan = makeLowerOnlyPlan(preScrollY = 500, deltaGapPx = 200f, minSafeScroll = 0f)
+        h1.controller.beginUnifiedCollapse(
+            owningGen = 41L,
+            plan = plan,
+            seamLine = 10,
+            seamFirstLowerRow = 12,
+            seamDocY = 480f,
+            rowHeightPx = 40f,
+            initialPhysicalScrollPx = 500f
+        )
+        h1.pumpMode2Frame(4_000_000_000L)
+        h1.pumpMode2Frame(4_064_000_000L)
+        val frozenTau = h1.controller.tauLower
+        assertTrue(frozenTau > 1f && frozenTau < 200f)
+
+        assertTrue(h1.controller.freezeForPointer(41L))
+        assertFalse(h1.controller.isUnifiedCollapseActive)
+        assertEquals(GapCollapsePhase.POINTER_FROZEN, h1.controller.phase)
+        assertNull(h1.scheduledFrameCallback)
+        assertEquals(frozenTau, h1.controller.tauLower, 0.001f)
+
+        assertEquals(
+            GapCollapsePhase.MODE_2_VISUAL_SETTLING,
+            h1.controller.resumeFromPointerFrozen(41L, h1.simulatedScrollPx)
+        )
+        assertNotNull(h1.scheduledFrameCallback)
+
+        // 2. External physical drift during unified collapse aborts safely into FINAL_SAFETY_PENDING
+        val h2 = ControllerHarness(quantizeScrollToInt = false, initialScrollPx = 500f)
+        h2.controller.beginUnifiedCollapse(
+            owningGen = 42L,
+            plan = plan,
+            seamLine = 10,
+            seamFirstLowerRow = 12,
+            seamDocY = 480f,
+            rowHeightPx = 40f,
+            initialPhysicalScrollPx = 500f
+        )
+        h2.pumpMode2Frame(5_000_000_000L)
+        val aborted = h2.controller.onViewportPhysicalScrollChanged(
+            origin = PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC,
+            actualPhysicalScroll = h2.simulatedScrollPx + 12f
+        )
+        assertTrue(aborted)
+        assertFalse(h2.controller.isUnifiedCollapseActive)
+        assertEquals(GapCollapsePhase.FINAL_SAFETY_PENDING, h2.controller.phase)
+        assertEquals(0f, h2.controller.tauLower, 0.001f)
+        assertEquals(listOf(42L), h2.externalDriftEvents.map { it.first })
     }
 }

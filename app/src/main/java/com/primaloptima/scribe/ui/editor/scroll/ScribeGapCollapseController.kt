@@ -67,7 +67,9 @@ class ScribeGapCollapseController(
     private val onInvalidateEditor: () -> Unit = {},
     private val onMode2SettledToSafety: (owningGen: Long, collapseEpoch: Long) -> Unit = { _, _ -> },
     private val onExternalDriftAbortToSafety: (owningGen: Long, collapseEpoch: Long) -> Unit = { _, _ -> },
-    private val onFreezeMode1Animator: () -> Unit = {}
+    private val onFreezeMode1Animator: () -> Unit = {},
+    private val onApplyUnifiedScrollTo: ((desiredScrollPx: Float) -> Unit)? = null,
+    private val currentActualScrollProvider: (() -> Float)? = null
 ) {
     var phase: GapCollapsePhase = GapCollapsePhase.IDLE
         private set
@@ -136,6 +138,17 @@ class ScribeGapCollapseController(
         private set
 
     private var mode2FramePending: Boolean = false
+
+    var isUnifiedCollapseActive: Boolean = false
+        private set
+
+    var unifiedProgress: Float = 0f
+        private set
+
+    private var unifiedElapsedSec: Float = 0f
+    private var unifiedDurationSec: Float = ScribeGapCollapsePolicy.UNIFIED_COLLAPSE_DURATION_MS / 1000f
+    private var unifiedLastFrameTimeNs: Long = 0L
+    private var isInsideUnifiedScrollStep: Boolean = false
 
     val isTransactionOwned: Boolean
         get() = phase != GapCollapsePhase.IDLE
@@ -320,8 +333,10 @@ class ScribeGapCollapseController(
             return GapCollapsePhase.POINTER_FROZEN
         }
 
+        val wasUnified = isUnifiedCollapseActive
+        isUnifiedCollapseActive = false
         cancelMode2Frame()
-        if (previousPhase == GapCollapsePhase.MODE_1_PHYSICAL_COUPLED) {
+        if (!wasUnified && previousPhase == GapCollapsePhase.MODE_1_PHYSICAL_COUPLED) {
             onFreezeMode1Animator()
         }
 
@@ -358,6 +373,7 @@ class ScribeGapCollapseController(
         seamCol: Int = 0
     ): Long {
         cancelMode2Frame()
+        resetUnifiedState()
         pendingPostSafetyKeyboardEval = null
         isTeardownLocked = false
         safetyRetryAttempted = false
@@ -391,6 +407,146 @@ class ScribeGapCollapseController(
             onInvalidateEditor()
         }
         return collapseAnimEpoch
+    }
+
+    private fun resetUnifiedState() {
+        isUnifiedCollapseActive = false
+        unifiedProgress = 0f
+        unifiedElapsedSec = 0f
+        unifiedLastFrameTimeNs = 0L
+        isInsideUnifiedScrollStep = false
+    }
+
+    fun beginUnifiedCollapse(
+        owningGen: Long,
+        plan: CollapsePlan,
+        seamLine: Int,
+        seamFirstLowerRow: Int,
+        seamDocY: Float,
+        rowHeightPx: Float,
+        initialPhysicalScrollPx: Float,
+        seamCol: Int = 0,
+        durationMs: Long = ScribeGapCollapsePolicy.UNIFIED_COLLAPSE_DURATION_MS
+    ): Long {
+        cancelMode2Frame()
+        resetUnifiedState()
+        pendingPostSafetyKeyboardEval = null
+        isTeardownLocked = false
+        safetyRetryAttempted = false
+        safetyCorrectionAttempted = false
+        owningDeletionGen = owningGen
+        collapseAnimEpoch++
+        currentPlan = plan
+        activeSeamLine = seamLine
+        activeSeamCol = seamCol.coerceAtLeast(0)
+        activeSeamFirstLowerRow = seamFirstLowerRow
+        activeSeamDocY = seamDocY
+        this.rowHeightPx = rowHeightPx
+        tauLower = plan.initialTauLowerPx.coerceAtLeast(0f)
+        observedPhysicalVelocityEmaPxPerSec = null
+        lastPhysicalScrollPx = initialPhysicalScrollPx
+        lastMode2KnownPhysicalScroll = initialPhysicalScrollPx
+        lastMode1FrameTimeNs = 0L
+        mode1EverStarted = false
+        mode2State = null
+        phaseBeforeFreeze = GapCollapsePhase.IDLE
+
+        val physicalSpan = abs(plan.effectiveTargetScroll - plan.preScrollY.toFloat())
+        val needsAnimation = !plan.isFallback &&
+            plan.scenario != CollapseScenario.E_OFFSCREEN_CARET_FOLLOW &&
+            (tauLower > ScribeGapCollapsePolicy.MODE2_SETTLE_THRESHOLD_PX || physicalSpan >= 1f)
+
+        if (needsAnimation) {
+            isUnifiedCollapseActive = true
+            unifiedElapsedSec = 0f
+            unifiedDurationSec = (durationMs.coerceAtLeast(16L)) / 1000f
+            unifiedProgress = 0f
+            unifiedLastFrameTimeNs = 0L
+            phase = if (physicalSpan >= 1f) {
+                GapCollapsePhase.MODE_1_PHYSICAL_COUPLED
+            } else {
+                GapCollapsePhase.MODE_2_VISUAL_SETTLING
+            }
+            onInvalidateEditor()
+            scheduleUnifiedNextFrame()
+        } else {
+            phase = GapCollapsePhase.FINAL_SAFETY_PENDING
+            tauLower = 0f
+            safetyEpoch++
+            onInvalidateEditor()
+        }
+        return collapseAnimEpoch
+    }
+
+    private fun scheduleUnifiedNextFrame() {
+        if (mode2FramePending) return
+        val capturedGen = owningDeletionGen
+        val capturedEpoch = collapseAnimEpoch
+        mode2FramePending = true
+        scheduleFrame { frameTimeNs ->
+            onUnifiedFrame(capturedGen, capturedEpoch, frameTimeNs)
+        }
+    }
+
+    fun onUnifiedFrame(expectedGen: Long, expectedCollapseEpoch: Long, frameTimeNanos: Long) {
+        mode2FramePending = false
+        if (!matchesCollapseEpoch(expectedGen, expectedCollapseEpoch) ||
+            !isUnifiedCollapseActive ||
+            (phase != GapCollapsePhase.MODE_1_PHYSICAL_COUPLED &&
+                phase != GapCollapsePhase.MODE_2_VISUAL_SETTLING)
+        ) {
+            return
+        }
+        val plan = currentPlan ?: return
+        val dtSec = ScribeGapCollapsePolicy.computeFrameDtSec(
+            frameTimeNanos = frameTimeNanos,
+            lastFrameTimeNs = unifiedLastFrameTimeNs,
+            refreshRateHz = refreshRateHzProvider()
+        )
+        unifiedLastFrameTimeNs = frameTimeNanos
+        unifiedElapsedSec += dtSec
+        val rawT = (unifiedElapsedSec / unifiedDurationSec).coerceIn(0f, 1f)
+        val p = if (rawT >= 1f) 1f else ScribeGapCollapsePolicy.evaluateFastOutSlowIn(rawT)
+        unifiedProgress = p
+
+        val desiredScroll = if (p >= 1f) {
+            plan.effectiveTargetScroll
+        } else {
+            ScribeGapCollapsePolicy.evaluateUnifiedProgressDesiredScroll(plan, p)
+        }
+
+        if (onApplyUnifiedScrollTo != null) {
+            isInsideUnifiedScrollStep = true
+            try {
+                onApplyUnifiedScrollTo.invoke(desiredScroll)
+            } finally {
+                isInsideUnifiedScrollStep = false
+            }
+        }
+        val actualScroll = currentActualScrollProvider?.invoke() ?: desiredScroll
+        lastPhysicalScrollPx = actualScroll
+        lastMode2KnownPhysicalScroll = actualScroll
+
+        if (rawT >= 1f) {
+            isUnifiedCollapseActive = false
+            phase = GapCollapsePhase.FINAL_SAFETY_PENDING
+            tauLower = 0f
+            mode2State = null
+            safetyEpoch++
+            safetyRetryAttempted = false
+            safetyCorrectionAttempted = false
+            onInvalidateEditor()
+            onMode2SettledToSafety(expectedGen, expectedCollapseEpoch)
+        } else {
+            tauLower = ScribeGapCollapsePolicy.computeUnifiedProgressTauLower(
+                plan = plan,
+                progress = p,
+                desiredScrollPx = desiredScroll,
+                actualScrollPx = actualScroll
+            )
+            onInvalidateEditor()
+            scheduleUnifiedNextFrame()
+        }
     }
 
     fun markMode1Started(
@@ -562,12 +718,14 @@ class ScribeGapCollapseController(
             return false
         }
         val previousPhase = phase
+        val wasUnified = isUnifiedCollapseActive
+        isUnifiedCollapseActive = false
         cancelMode2Frame()
         phaseBeforeFreeze = previousPhase
         phase = GapCollapsePhase.POINTER_FROZEN
         mode2State = null
         collapseAnimEpoch++
-        if (previousPhase == GapCollapsePhase.MODE_1_PHYSICAL_COUPLED) {
+        if (!wasUnified && previousPhase == GapCollapsePhase.MODE_1_PHYSICAL_COUPLED) {
             onFreezeMode1Animator()
         }
         return true
@@ -606,6 +764,43 @@ class ScribeGapCollapseController(
     ): Boolean {
         if (isTeardownLocked) return false
         when (phase) {
+            GapCollapsePhase.MODE_1_PHYSICAL_COUPLED -> {
+                if (!isUnifiedCollapseActive) return false
+                when (origin) {
+                    PhysicalScrollOrigin.GAP_COLLAPSE_MODE_1,
+                    PhysicalScrollOrigin.USER_CANVAS_DRAG,
+                    PhysicalScrollOrigin.USER_CANVAS_FLING,
+                    PhysicalScrollOrigin.USER_EDITOR_DRAG_OR_FLING,
+                    PhysicalScrollOrigin.USER_HANDLE_AUTOSCROLL,
+                    PhysicalScrollOrigin.EVENT_B_SAFETY_CORRECTION -> {
+                        lastPhysicalScrollPx = actualPhysicalScroll
+                        lastMode2KnownPhysicalScroll = actualPhysicalScroll
+                        return false
+                    }
+                    PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC,
+                    PhysicalScrollOrigin.NONE -> {
+                        if (!isInsideUnifiedScrollStep &&
+                            abs(actualPhysicalScroll - lastMode2KnownPhysicalScroll) > 0.5f
+                        ) {
+                            isUnifiedCollapseActive = false
+                            cancelMode2Frame()
+                            phase = GapCollapsePhase.FINAL_SAFETY_PENDING
+                            tauLower = 0f
+                            mode2State = null
+                            collapseAnimEpoch++
+                            safetyEpoch++
+                            safetyRetryAttempted = false
+                            safetyCorrectionAttempted = false
+                            val g = owningDeletionGen
+                            val ce = collapseAnimEpoch
+                            onInvalidateEditor()
+                            onExternalDriftAbortToSafety(g, ce)
+                            return true
+                        }
+                        return false
+                    }
+                }
+            }
             GapCollapsePhase.MODE_2_VISUAL_SETTLING -> {
                 when (origin) {
                     PhysicalScrollOrigin.USER_CANVAS_DRAG,
@@ -619,7 +814,10 @@ class ScribeGapCollapseController(
                     }
                     PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC,
                     PhysicalScrollOrigin.NONE -> {
-                        if (abs(actualPhysicalScroll - lastMode2KnownPhysicalScroll) > 0.5f) {
+                        if (!isInsideUnifiedScrollStep &&
+                            abs(actualPhysicalScroll - lastMode2KnownPhysicalScroll) > 0.5f
+                        ) {
+                            isUnifiedCollapseActive = false
                             cancelMode2Frame()
                             phase = GapCollapsePhase.FINAL_SAFETY_PENDING
                             tauLower = 0f
@@ -658,6 +856,7 @@ class ScribeGapCollapseController(
             return false
         }
         isTeardownLocked = true
+        isUnifiedCollapseActive = false
         cancelMode2Frame()
         collapseAnimEpoch++
         safetyEpoch++
@@ -683,6 +882,7 @@ class ScribeGapCollapseController(
             return null
         }
         isTeardownLocked = true
+        isUnifiedCollapseActive = false
         cancelMode2Frame()
         collapseAnimEpoch++
         safetyEpoch++
@@ -692,6 +892,7 @@ class ScribeGapCollapseController(
     }
 
     fun commitIdle() {
+        resetUnifiedState()
         cancelMode2Frame()
         phase = GapCollapsePhase.IDLE
         owningDeletionGen = -1L
