@@ -699,6 +699,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     rowOffsetDoc += (scribeEditorRenderer?.softWrapMiniGraphWidthPx() ?: 0f)
                 }
                 val tr = try { renderer.createTextRow(r) } catch (_: Throwable) { null }
+                var addedFromTextRow = false
                 if (tr != null) {
                     tr.iterateBackgroundRegions(rowSelStart, rowSelEnd, false, false) { left, right ->
                         val lDoc = rowOffsetDoc + left
@@ -712,10 +713,12 @@ class ScribeCodeEditor @JvmOverloads constructor(
                                     bottom = bottomDocY
                                 )
                             )
+                            addedFromTextRow = true
                         }
                         true
                     }
-                } else {
+                }
+                if (!addedFromTextRow) {
                     val startOff = try { lay.getCharLayoutOffset(line, rowSelStart) } catch (_: Throwable) { null }
                     val endOff = try { lay.getCharLayoutOffset(line, rowSelEnd) } catch (_: Throwable) { null }
                     if (startOff != null && endOff != null) {
@@ -1926,7 +1929,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     preUpperHandleDoc = preUpperHandle,
                     preLowerHandleDoc = preLowerHandle,
                     preSelectedRowSpansDoc = preSelectedRowSpans,
-                    hasSelectedRowSpans = isSel && lay != null,
+                    hasSelectedRowSpans = preSelectedRowSpans.isNotEmpty(),
                     wasCursorAnimationRunningBeforeDelete = wasCursorAnimatorRunningBeforeCurrentModification,
                     preUpperPrefixBlank = preUpperPrefixBlank,
                     upperHandleStatus = upperHandleStatus,

@@ -1879,8 +1879,22 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             return
         }
 
-        if (visibilityConfidence != VisibilityConfidence.RESOLVED) {
-            val reason = if (viewportBounds.hasModalBlocker) "modal_blocker_active" else "invalid_viewport_bounds"
+        val hasReliableSelectionVisibility = ScribeGapCollapsePolicy.hasReliableSelectionVisibilityGeometry(
+            isUpperVisible = isUpperVisible,
+            isLowerVisible = isLowerVisible,
+            preCapture = preCapture
+        )
+        val effectiveVisibilityConfidence = if (visibilityConfidence == VisibilityConfidence.RESOLVED && !hasReliableSelectionVisibility) {
+            VisibilityConfidence.UNRELIABLE
+        } else {
+            visibilityConfidence
+        }
+        if (effectiveVisibilityConfidence != VisibilityConfidence.RESOLVED) {
+            val reason = when {
+                viewportBounds.hasModalBlocker -> "modal_blocker_active"
+                visibilityConfidence != VisibilityConfidence.RESOLVED -> "invalid_viewport_bounds"
+                else -> "unresolved_selection_visibility"
+            }
             if (!tryClaimPendingDeletionSettlement(fromGen)) return
             clampPhysicalOverscrollAfterNonCollapsedSelectionDeletion()
             claimAndClearLiveDeletionTransaction(preserveRetractionDebt = false)
@@ -1894,7 +1908,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     isUpperVisible = isUpperVisible,
                     isLowerVisible = isLowerVisible,
                     isTouchedOnScreen = isTouchedOnScreen,
-                    visibilityConfidence = visibilityConfidence,
+                    visibilityConfidence = effectiveVisibilityConfidence,
                     deltaGapPx = seam.deltaGapPx,
                     isWordwrapReady = true,
                     wasCursorAnimatorCancelled = cancelledPreExistingAnimator

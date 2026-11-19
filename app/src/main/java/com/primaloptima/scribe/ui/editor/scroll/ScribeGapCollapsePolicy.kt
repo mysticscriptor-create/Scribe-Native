@@ -705,7 +705,7 @@ object ScribeGapCollapsePolicy {
             return false
         }
         val headerRemainingPre = (headerHeight - preCapture.preScrollY).toFloat()
-        if (preCapture.hasSelectedRowSpans) {
+        if (preCapture.hasSelectedRowSpans && preCapture.preSelectedRowSpansDoc.isNotEmpty()) {
             val scrollXFloat = preCapture.preScrollX.toFloat()
             for (spanDoc in preCapture.preSelectedRowSpansDoc) {
                 val clipLeft = maxOf(0f, spanDoc.left - scrollXFloat)
@@ -728,10 +728,38 @@ object ScribeGapCollapsePolicy {
             }
             return false
         }
+        if (preCapture.preSelectionBottomDocY <= preCapture.preSelectionTopDocY) {
+            return false
+        }
         val selTopScreen = headerRemainingPre + preCapture.preSelectionTopDocY
         val selBottomScreen = headerRemainingPre + preCapture.preSelectionBottomDocY
         return selBottomScreen > viewportBounds.visibleEditorTop &&
             selTopScreen < viewportBounds.visibleEditorBottom
+    }
+
+    /**
+     * Returns true only when positive geometry evidence exists to distinguish a visible selection
+     * from a genuinely offscreen selection (Scenario E). Missing handle geometry combined with an
+     * empty span list and invalid selection bounds must be treated as unresolved rather than
+     * manufactured into an offscreen classification.
+     */
+    fun hasReliableSelectionVisibilityGeometry(
+        isUpperVisible: Boolean,
+        isLowerVisible: Boolean,
+        preCapture: PreDeleteSeamCapture
+    ): Boolean {
+        if (isUpperVisible || isLowerVisible) {
+            return true
+        }
+        if (preCapture.upperHandleStatus == PreDeleteHandleCaptureStatus.CAPTURED &&
+            preCapture.lowerHandleStatus == PreDeleteHandleCaptureStatus.CAPTURED
+        ) {
+            return true
+        }
+        if (preCapture.hasSelectedRowSpans && preCapture.preSelectedRowSpansDoc.isNotEmpty()) {
+            return true
+        }
+        return preCapture.preSelectionBottomDocY > preCapture.preSelectionTopDocY
     }
 
     fun classifyPreDeleteSeam(

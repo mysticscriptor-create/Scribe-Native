@@ -1600,4 +1600,102 @@ class ScribeGapCollapsePolicyTest {
         assertEquals(SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED, diag.outcome)
         assertTrue(diag.wasCursorAnimatorCancelled)
     }
+
+    @Test
+    fun testEmptySpanCapture_DoesNotMisclassifyVisibleOrUnresolvedSelectionAsScenarioE() {
+        val bounds = makeValidViewportBounds(top = 0f, bottom = 1200f)
+
+        // 1. Empty span list (even if hasSelectedRowSpans is mistakenly true) + NOT_FOCUSED handles
+        //    + visible validated selection bounds -> must classify as touched on screen (Scenario D, not E).
+        val visibleEmptySpans = ScribeGapCollapsePolicy.classifyPreDeleteSeam(
+            isSelection = true,
+            l1 = 10, c1 = 0, l2 = 14, c2 = 0,
+            preLineCount = 90, preLineLenL2 = 20,
+            preScrollY = 280, rowHeightPx = 35f,
+            rowIndexAt = { line, _ -> line },
+            preSelectionTopDocY = 350f,
+            preSelectionBottomDocY = 525f,
+            preUpperHandleDoc = null,
+            preLowerHandleDoc = null,
+            preSelectedRowSpansDoc = emptyList(),
+            hasSelectedRowSpans = true,
+            upperHandleStatus = PreDeleteHandleCaptureStatus.NOT_FOCUSED,
+            lowerHandleStatus = PreDeleteHandleCaptureStatus.NOT_FOCUSED
+        )
+        assertTrue(
+            ScribeGapCollapsePolicy.hasReliableSelectionVisibilityGeometry(
+                isUpperVisible = false,
+                isLowerVisible = false,
+                preCapture = visibleEmptySpans
+            )
+        )
+        val touchedVisible = ScribeGapCollapsePolicy.isSelectionTouchedOnScreen(
+            isUpperVisible = false,
+            isLowerVisible = false,
+            preCapture = visibleEmptySpans,
+            headerHeight = 200,
+            viewportWidthPx = 800f,
+            viewportBounds = bounds
+        )
+        assertTrue(touchedVisible)
+        val planD = planWithDefaults(
+            isUpperVisible = false,
+            isLowerVisible = false,
+            isTouchedOnScreen = touchedVisible,
+            viewportBounds = bounds
+        )
+        assertEquals(CollapseScenario.D_SELECTION_ONLY_CENTERED, planD.scenario)
+
+        // 2. Empty span list + genuinely offscreen validated selection bounds -> reliable offscreen (Scenario E).
+        val offscreenBoundsOnly = visibleEmptySpans.copy(
+            preScrollY = 2500,
+            preSelectionTopDocY = 280f,
+            preSelectionBottomDocY = 420f
+        )
+        assertTrue(
+            ScribeGapCollapsePolicy.hasReliableSelectionVisibilityGeometry(
+                isUpperVisible = false,
+                isLowerVisible = false,
+                preCapture = offscreenBoundsOnly
+            )
+        )
+        val touchedOffscreen = ScribeGapCollapsePolicy.isSelectionTouchedOnScreen(
+            isUpperVisible = false,
+            isLowerVisible = false,
+            preCapture = offscreenBoundsOnly,
+            headerHeight = 200,
+            viewportWidthPx = 800f,
+            viewportBounds = bounds
+        )
+        assertFalse(touchedOffscreen)
+        val planE = planWithDefaults(
+            isUpperVisible = false,
+            isLowerVisible = false,
+            isTouchedOnScreen = touchedOffscreen,
+            viewportBounds = bounds
+        )
+        assertEquals(CollapseScenario.E_OFFSCREEN_CARET_FOLLOW, planE.scenario)
+
+        // 3. Empty span list + uncaptured handles + invalid selection bounds -> UNRELIABLE (never Scenario E).
+        val unresolvedCapture = visibleEmptySpans.copy(
+            preSelectionTopDocY = 0f,
+            preSelectionBottomDocY = 0f
+        )
+        assertFalse(
+            ScribeGapCollapsePolicy.hasReliableSelectionVisibilityGeometry(
+                isUpperVisible = false,
+                isLowerVisible = false,
+                preCapture = unresolvedCapture
+            )
+        )
+        val planUnresolved = planWithDefaults(
+            visibilityConfidence = VisibilityConfidence.UNRELIABLE,
+            isUpperVisible = false,
+            isLowerVisible = false,
+            isTouchedOnScreen = false,
+            viewportBounds = bounds
+        )
+        assertEquals(CollapseScenario.INELIGIBLE_FALLBACK, planUnresolved.scenario)
+        assertFalse(planUnresolved.requiresOffscreenCaretFollow)
+    }
 }

@@ -1668,6 +1668,17 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
 
             val scribeAnim = editor.cursorAnimator as ScribeCursorAnimator
             editor.setSelectionRegion(10, 0, 14, 0, false)
+            val preBounds10 = canvas.resolveUnobstructedViewportBounds()
+            val preSelGeom10 = canvas.getSelectionGeometry(editor.cursor, editor.layout!!)!!
+            val preScroll10 = canvas.scrollD + editor.offsetY
+            val preSelTopScreen10 = canvas.headerHeight + preSelGeom10.topDocY - preScroll10
+            val preSelBottomScreen10 = canvas.headerHeight + preSelGeom10.bottomDocY - preScroll10
+            assertTrue(
+                "Fixture precondition: selection must intersect unobstructed viewport " +
+                    "([$preSelTopScreen10, $preSelBottomScreen10] vs [${preBounds10.visibleEditorTop}, ${preBounds10.visibleEditorBottom}])",
+                preSelBottomScreen10 > preBounds10.visibleEditorTop &&
+                    preSelTopScreen10 < preBounds10.visibleEditorBottom
+            )
             // Collapse canvas height to 0 temporarily to simulate layout-not-ready at deleteText() time
             val zeroW = View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY)
             val zeroH = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.EXACTLY)
