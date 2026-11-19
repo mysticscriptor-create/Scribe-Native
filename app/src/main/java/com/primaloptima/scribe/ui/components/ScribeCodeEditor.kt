@@ -389,8 +389,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
         pendingReplaceWatchdog = null
     }
 
+    private var deferredSelectionDeletionGen: Long = -1L
+
     internal fun clearSelectionDeletionDeferral(discardPreparedAnimator: Boolean = true) {
         isDeferringSelectionDeletionEffects = false
+        deferredSelectionDeletionGen = -1L
         hasPendingDeferredAutoIndentFloor = false
         wasCursorAnimatorRunningBeforeCurrentModification = false
         val scribeAnimator = cursorAnimator as? ScribeCursorAnimator
@@ -481,14 +484,20 @@ class ScribeCodeEditor @JvmOverloads constructor(
             return
         }
         val scribeAnimator = cursorAnimator as? ScribeCursorAnimator
-        val dispatchOutcome = pCanvas?.lastSelectionDeletionDiagnostic?.outcome
-        val collapseStarted = pCanvas?.gapCollapseController?.isTransactionOwned == true ||
+        val expectedGen = deferredSelectionDeletionGen
+        val matchingDiagnostic = pCanvas?.lastSelectionDeletionDiagnostic?.takeIf { diag ->
+            expectedGen >= 0L && diag.transactionGeneration == expectedGen
+        }
+        val dispatchOutcome = matchingDiagnostic?.outcome
+        val collapseStarted = (pCanvas?.gapCollapseController?.isTransactionOwned == true &&
+            (expectedGen < 0L || pCanvas.gapCollapseController.owningDeletionGen == expectedGen)) ||
             dispatchOutcome == com.primaloptima.scribe.ui.editor.scroll.SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED
         val isExplicitNonSelection =
             dispatchOutcome == com.primaloptima.scribe.ui.editor.scroll.SelectionDeletionDispatchOutcome.NOT_A_SELECTION_DELETION
         val needIndentFloor = hasPendingDeferredAutoIndentFloor
         val appliedBefore = didApplyAutoIndentFloorBeforeCollapse
         isDeferringSelectionDeletionEffects = false
+        deferredSelectionDeletionGen = -1L
         hasPendingDeferredAutoIndentFloor = false
         didApplyAutoIndentFloorBeforeCollapse = false
         scribeAnimator?.deferAutoStartForPendingCollapse = false
@@ -2046,6 +2055,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
                 cursorAnimator.cancel()
             }
             isDeferringSelectionDeletionEffects = true
+            deferredSelectionDeletionGen = txGen
             hasPendingDeferredAutoIndentFloor = false
             didApplyAutoIndentFloorBeforeCollapse = false
             scribeAnimator?.deferAutoStartForPendingCollapse = true
@@ -2879,6 +2889,9 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     if (isLayoutComputing || isLayoutBusyState) {
                         return@post
                     }
+                    if ((layout == null || !isWordwrapReady()) && !isLayoutComputing && !isLayoutBusyState && width > 0) {
+                        ensureWordwrapLayoutConsistentBeforeRender()
+                    }
                     val curLay = layout
                     // Ensure Sora layout is non-null and wordwrap calculation is completely ready before settling deletion
                     if (curLay == null || !isWordwrapReady()) {
@@ -2954,6 +2967,32 @@ class ScribeCodeEditor @JvmOverloads constructor(
             if (!isActuallyBusy) {
                 isLayoutBusyState = false
                 reevaluatePendingTextActionRefreshIfNeeded()
+                schedulePendingDeletionWakeupIfLayoutReady()
+            }
+        }
+    }
+
+    private fun schedulePendingDeletionWakeupIfLayoutReady() {
+        val pCanvas = parentCanvas ?: return
+        if (isInContentReplace || isLayoutComputing || isLayoutBusyState) return
+        if (!pCanvas.isDeletionTransactionActive || !pCanvas.hasPendingDeletionSettlement) return
+        val txGen = pCanvas.currentDeletionTransactionGeneration
+        if (!pCanvas.canStillSettleGeneration(txGen)) return
+        post {
+            val canvas = parentCanvas ?: return@post
+            if (!isAttachedToWindow || isInContentReplace || isLayoutComputing || isLayoutBusyState) return@post
+            if (canvas.canStillSettleGeneration(txGen) &&
+                canvas.isLaidOut &&
+                canvas.height > 0 &&
+                isLaidOut &&
+                layout != null &&
+                isWordwrapReady()
+            ) {
+                if (canvas.hasActiveSelectionDeletionSnapshot) {
+                    resumePendingSelectionDeletion(canvas, txGen)
+                } else {
+                    canvas.handleDeletionSettlement(smooth = true, expectedGen = txGen)
+                }
             }
         }
     }

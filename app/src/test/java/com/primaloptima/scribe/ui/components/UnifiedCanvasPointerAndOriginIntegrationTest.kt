@@ -604,16 +604,23 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
                 assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
                 assertEquals(300f, canvas.gapCollapseController.tauLower, 0.01f)
 
-                // Stationary ACTION_UP triggers Sora onSingleTapUp -> setSelection -> ScribeCursorAnimator.start()
+                val scribeAnim = canvas.editor.cursorAnimator as ScribeCursorAnimator
+                val preTapAnimStarts = scribeAnim.startedAnimationCount
+                val preTapLegacyCount = canvas.legacySettlementInvocationCount
+
+                // Stationary ACTION_UP triggers Sora onSingleTapUp -> setSelection -> ScribeCursorAnimator.start(),
+                // which must be suppressed/cancelled without aborting the active gap collapse.
                 canvas.dispatchTouchEvent(upEv)
-                assertFalse("Split rendering must disable immediately on Option-B fallback", canvas.gapCollapseController.shouldApplySplitRender)
-                assertEquals(0f, canvas.gapCollapseController.tauLower, 0.001f)
-                assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
-                assertFalse(canvas.gapCollapseController.isTransactionOwned)
-                assertFalse(canvas.isDeletionTransactionActive)
-                assertEquals(gen + 1L, canvas.currentDeletionTransactionGeneration)
-                assertFalse("No Mode-1/Mode-2 animation may run after Option-B fallback", canvas.isGlideRunning)
-                assertFalse(canvas.scrollCoordinator.isAnimationActive)
+                assertFalse("Mid-collapse cursor animator must not run", scribeAnim.isRunning)
+                assertEquals("No cursor-glide animation may start during active collapse", preTapAnimStarts, scribeAnim.startedAnimationCount)
+                assertTrue("Split rendering must remain active after stationary tap", canvas.gapCollapseController.shouldApplySplitRender)
+                assertEquals(300f, canvas.gapCollapseController.tauLower, 0.01f)
+                assertEquals(GapCollapsePhase.MODE_2_VISUAL_SETTLING, canvas.gapCollapseController.phase)
+                assertTrue(canvas.gapCollapseController.isTransactionOwned)
+                assertEquals(gen, canvas.gapCollapseController.owningDeletionGen)
+                assertTrue(canvas.isDeletionTransactionActive)
+                assertEquals(gen, canvas.currentDeletionTransactionGeneration)
+                assertEquals(preTapLegacyCount, canvas.legacySettlementInvocationCount)
             } finally {
                 downEv.recycle()
                 upEv.recycle()
@@ -684,21 +691,30 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
                 assertTrue(canvas.gapCollapseController.isTransactionOwned)
                 assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
 
-                // Invoke real ScribeCursorAnimator while POINTER_FROZEN & physically below dynamic safeMinPhysical
+                // Invoke real ScribeCursorAnimator while POINTER_FROZEN: must cancel/suppress animator
+                // without resetting tauLower or relinquishing ownership.
                 val animator = canvas.editor.cursorAnimator as ScribeCursorAnimator
+                val preTriggerStarts = animator.startedAnimationCount
                 animator.triggerGlide(0f, 0f, 40f, 120f, 160f, 40f)
 
-                // Option B must disable split rendering immediately and hold FINAL_SAFETY_PENDING during CORRECTION_STARTED
-                assertFalse(canvas.gapCollapseController.shouldApplySplitRender)
-                assertEquals(0f, canvas.gapCollapseController.tauLower, 0.001f)
-                assertEquals(GapCollapsePhase.FINAL_SAFETY_PENDING, canvas.gapCollapseController.phase)
+                assertFalse("Cursor animator must not remain running during collapse", animator.isRunning)
+                assertEquals(preTriggerStarts, animator.startedAnimationCount)
+                assertEquals(GapCollapsePhase.POINTER_FROZEN, canvas.gapCollapseController.phase)
+                assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+                assertEquals(220f, canvas.gapCollapseController.tauLower, 0.001f)
                 assertTrue(canvas.gapCollapseController.isTransactionOwned)
                 assertEquals(gen, canvas.gapCollapseController.owningDeletionGen)
-                assertTrue("Event-B SAFE_BOUNDARY_CORRECTION must run asynchronously", canvas.isGlideRunning)
 
-                // Drive Choreographer frames until spring safety correction finishes
+                // Release pointer independently of cursor animator -> Mode 2 settles -> Event-B safety correction
+                canvas.dispatchTouchEvent(cancelEv)
+                assertEquals(GapCollapsePhase.MODE_2_VISUAL_SETTLING, canvas.gapCollapseController.phase)
+
+                // Drive Choreographer frames through Mode-2 settle and Event-B spring safety correction
                 var steps = 0
-                while (canvas.gapCollapseController.phase == GapCollapsePhase.FINAL_SAFETY_PENDING && steps < 120) {
+                while ((canvas.gapCollapseController.phase == GapCollapsePhase.MODE_2_VISUAL_SETTLING ||
+                        canvas.gapCollapseController.phase == GapCollapsePhase.FINAL_SAFETY_PENDING ||
+                        canvas.isGlideRunning) && steps < 180
+                ) {
                     org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(32))
                     Shadows.shadowOf(Looper.getMainLooper()).idle()
                     steps++
@@ -716,9 +732,7 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
                 )
                 assertFalse("No Mode-1 or Mode-2 animation may remain active after Event B settles", canvas.isGlideRunning)
                 assertFalse(canvas.scrollCoordinator.isAnimationActive)
-
-                canvas.dispatchTouchEvent(cancelEv)
-                assertEquals(GapCollapsePhase.IDLE, canvas.gapCollapseController.phase)
+                assertEquals(0, canvas.legacySettlementInvocationCount)
             } finally {
                 downEv.recycle()
                 cancelEv.recycle()
@@ -1672,11 +1686,20 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             assertEquals(0, canvas.legacySettlementInvocationCount)
             assertEquals(prePendingStarts, scribeAnim.startedAnimationCount)
 
-            // Restore valid layout bounds -> OnLayoutChangeListener resumes pending selection deletion into gap collapse
+            // Restore valid layout bounds -> await asynchronous wordwrap completion and pending deletion wakeup
             val wSpec = View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY)
             val hSpec = View.MeasureSpec.makeMeasureSpec(1200, View.MeasureSpec.EXACTLY)
             canvas.measure(wSpec, hSpec)
             canvas.layout(0, 0, 800, 1200)
+            awaitWordwrapLayoutReady(editor)
+            val resumeDeadline = System.currentTimeMillis() + 5000L
+            while (System.currentTimeMillis() < resumeDeadline &&
+                !canvas.gapCollapseController.isTransactionOwned &&
+                canvas.lastSelectionDeletionDiagnostic?.outcome == SelectionDeletionDispatchOutcome.GAP_COLLAPSE_PENDING_LAYOUT
+            ) {
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                Thread.sleep(5L)
+            }
             Shadows.shadowOf(Looper.getMainLooper()).idle()
 
             assertTrue(
@@ -1686,10 +1709,13 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             )
             assertEquals(0, canvas.legacySettlementInvocationCount)
             assertEquals(prePendingStarts, scribeAnim.startedAnimationCount)
+            assertFalse(scribeAnim.isRunning)
+            assertFalse(scribeAnim.hasDeferredPendingStart)
             canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "iso_10")
         }
 
-        // 11. Scenario E (fully offscreen selection) uses smooth caret-follow without legacy handleDeletionSettlement or ScribeCursorAnimator
+        // 11. Scenario E (fully offscreen selection) preserves smooth caret-follow and converges to visible caret
+        // without split collapse, legacy handleDeletionSettlement, or ScribeCursorAnimator
         run {
             val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 120)
             val editor = canvas.editor
@@ -1703,10 +1729,20 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             canvas.scrollCanvasBy(canvas.maxCanvasScroll.toFloat())
             Shadows.shadowOf(Looper.getMainLooper()).idle()
 
+            val preScroll = canvas.scrollD + editor.offsetY
+            val viewportBoundsBefore = canvas.resolveUnobstructedViewportBounds()
+            val preSelGeom = canvas.getSelectionGeometry(editor.cursor, editor.layout!!)!!
+            val preSelBottomScreen = canvas.headerHeight + preSelGeom.bottomDocY - preScroll
+            assertTrue(
+                "Fixture precondition: selection must be completely offscreen above viewport ($preSelBottomScreen < ${viewportBoundsBefore.visibleEditorTop})",
+                preSelBottomScreen < viewportBoundsBefore.visibleEditorTop
+            )
+
             val preScenarioEStarts = scribeAnim.startedAnimationCount
             editor.deleteText()
 
             assertFalse(canvas.gapCollapseController.shouldApplySplitRender)
+            assertFalse(canvas.gapCollapseController.isTransactionOwned)
             assertEquals(
                 SelectionDeletionDispatchOutcome.GAP_COLLAPSE_SCENARIO_E_CARET_FOLLOW,
                 canvas.lastSelectionDeletionDiagnostic?.outcome
@@ -1719,7 +1755,81 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             )
             assertFalse(scribeAnim.isRunning)
             assertFalse(scribeAnim.hasDeferredPendingStart)
+            assertTrue(
+                "Scenario E must start authoritative smooth caret-follow scroll",
+                canvas.isGlideRunning || canvas.scrollCoordinator.isAnimationActive
+            )
+
+            var steps = 0
+            while ((canvas.isGlideRunning || canvas.scrollCoordinator.isAnimationActive) && steps < 120) {
+                org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(16))
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                steps++
+            }
+
+            val finalPhysical = canvas.scrollD + editor.offsetY
+            assertTrue("Scenario E smooth caret-follow must scroll upward toward caret ($finalPhysical < $preScroll)", finalPhysical < preScroll)
+            val layAfter = editor.layout!!
+            val curAfter = editor.cursor
+            val caretGeomAfter = canvas.getCharGeometry(layAfter, curAfter.leftLine, curAfter.leftColumn, editor.rowHeight.toFloat())
+            val caretScreenBottomAfter = canvas.headerHeight + caretGeomAfter.bottomDocY - finalPhysical
+            val viewportBoundsAfter = canvas.resolveUnobstructedViewportBounds()
+            assertTrue(
+                "Resulting caret ($caretScreenBottomAfter) must be brought inside unobstructed viewport [${viewportBoundsAfter.visibleEditorTop}, ${viewportBoundsAfter.visibleEditorBottom}]",
+                caretScreenBottomAfter >= viewportBoundsAfter.visibleEditorTop &&
+                    caretScreenBottomAfter <= viewportBoundsAfter.visibleEditorBottom
+            )
+            assertEquals(0, canvas.legacySettlementInvocationCount)
+            assertEquals(preScenarioEStarts, scribeAnim.startedAnimationCount)
             canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "iso_11")
+        }
+
+        // 12. Prior NOT_A_SELECTION_DELETION diagnostic on an earlier generation cannot leak into a subsequent selection deletion
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
+            val editor = canvas.editor
+            editor.requestFocus()
+            editor.isCursorAnimationEnabled = true
+            editor.isWordwrap = true
+            awaitWordwrapLayoutReady(editor)
+
+            // Prior generation records NOT_A_SELECTION_DELETION
+            editor.setSelection(10, 4)
+            editor.deleteText()
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(
+                SelectionDeletionDispatchOutcome.NOT_A_SELECTION_DELETION,
+                canvas.lastSelectionDeletionDiagnostic?.outcome
+            )
+            val staleGen = canvas.lastSelectionDeletionDiagnostic!!.transactionGeneration
+
+            // Next generation is a selection deletion whose layout is not ready (height == 0), then cancelled before resuming
+            val scribeAnim = editor.cursorAnimator as ScribeCursorAnimator
+            val rowH = editor.rowHeight.toFloat().coerceAtLeast(20f)
+            editor.setSelectionRegion(8, 0, 12, 0, false)
+            val zeroW = View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY)
+            val zeroH = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.EXACTLY)
+            canvas.measure(zeroW, zeroH)
+            canvas.layout(0, 0, 800, 0)
+
+            val preStarts = scribeAnim.startedAnimationCount
+            scribeAnim.armGlide(0f, rowH * 8f, rowH, fallbackTargetY = rowH * 8f)
+            editor.deleteText()
+            assertNotEquals(staleGen, canvas.currentDeletionTransactionGeneration)
+            assertEquals(
+                SelectionDeletionDispatchOutcome.GAP_COLLAPSE_PENDING_LAYOUT,
+                canvas.lastSelectionDeletionDiagnostic?.outcome
+            )
+
+            canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "iso_12_abort")
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(
+                "Cancelling pending selection deletion must discard deferred cursor animation even if an older tx recorded NOT_A_SELECTION_DELETION",
+                preStarts,
+                scribeAnim.startedAnimationCount
+            )
+            assertFalse(scribeAnim.isRunning)
+            assertFalse(scribeAnim.hasDeferredPendingStart)
         }
     }
 }

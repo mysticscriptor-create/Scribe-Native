@@ -101,6 +101,13 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
     ) {
         if (!editor.isCursorAnimationEnabled) return
 
+        val pCanvas = (editor as? ScribeCodeEditor)?.parentCanvas
+        if (pCanvas != null && pCanvas.gapCollapseController.isTransactionOwned) {
+            discardDeferredStart()
+            pCanvas.handleCursorAnimatorActivatedDuringCollapse()
+            return
+        }
+
         if (kotlin.math.abs(fromX - toX) < 1f && kotlin.math.abs(fromY - toY) < 1f) {
             cancel()
             currentVisualX = toX
@@ -239,6 +246,12 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
         if (!editor.isCursorAnimationEnabled || !isAnimationReady) return
         if (deferAutoStartForPendingCollapse) {
             hasDeferredPendingStart = true
+            return
+        }
+        val pCanvas = (editor as? ScribeCodeEditor)?.parentCanvas
+        if (pCanvas != null && pCanvas.gapCollapseController.isTransactionOwned) {
+            discardDeferredStart()
+            pCanvas.handleCursorAnimatorActivatedDuringCollapse()
             return
         }
         hasDeferredPendingStart = false

@@ -1680,6 +1680,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
 
         if (editor.hasComposingText()) {
+            clearPendingDeletionLayoutListener()
             recordSelectionDeletionDiagnostic(
                 SelectionDeletionDiagnostic(
                     transactionGeneration = fromGen,
