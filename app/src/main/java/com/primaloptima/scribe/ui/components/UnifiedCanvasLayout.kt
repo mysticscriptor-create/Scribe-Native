@@ -1488,19 +1488,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         ) {
             return
         }
-        if (controller.phase == GapCollapsePhase.FINAL_SAFETY_PENDING) {
-            editor.invalidate()
-            return
+        (editor.cursorAnimator as? ScribeCursorAnimator)?.discardDeferredStart()
+        if (editor.cursorAnimator.isRunning) {
+            editor.cursorAnimator.cancel()
         }
-        canvasAnimator.cancelPreservingTransaction("cursor_animator_active")
-        cancelRestoration()
-        outerScrollResidualPx = 0f
-        editorScrollResidualPx = 0f
-        scrollDFloat = scrollD.toFloat()
-        scrollCoordinator.syncActualScroll((scrollD + editor.offsetY).toFloat())
-        val nextSafetyEpoch = controller.restartFinalSafetyClaim(capturedGen) ?: return
         editor.invalidate()
-        completeDeletionVisualTransaction(capturedGen, nextSafetyEpoch)
     }
 
     private fun commitGapCollapseIdle() {
@@ -1559,6 +1551,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
             stopLegacyAnimators(preserveRetractionDebt = preserveRetractionDebt)
             editor.invalidate()
         } else if (!gapCollapseController.isTransactionOwned) {
+            (editor as? ScribeCodeEditor)?.clearSelectionDeletionDeferral(discardPreparedAnimator = true)
             stopLegacyAnimators(preserveRetractionDebt = preserveRetractionDebt)
             claimAndClearLiveDeletionTransaction(preserveRetractionDebt = preserveRetractionDebt)
         }

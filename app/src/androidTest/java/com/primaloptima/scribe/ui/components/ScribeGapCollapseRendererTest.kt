@@ -1233,11 +1233,20 @@ class ScribeGapCollapseRendererTest {
                 assertTrue(renderer.lastSplitFrameWasActive)
                 assertFalse(aw.isEnabled)
 
-                // Start cursorAnimator mid-collapse -> real onAnimatorStarted invokes handleCursorAnimatorActivatedDuringCollapse()
-                simulateAnimatorRunning = true
+                // Start cursorAnimator mid-collapse -> handleCursorAnimatorActivatedDuringCollapse() cancels cursorAnimator
+                // while preserving split collapse ownership and tauLower
+                val preTau = canvas.gapCollapseController.tauLower
                 realAnimator.triggerGlide(0f, 0f, 120f, 40f, 20f, 20f)
-                assertFalse("Split rendering must disable immediately when cursorAnimator starts", canvas.gapCollapseController.shouldApplySplitRender)
-                assertEquals(0f, canvas.gapCollapseController.tauLower, 0.001f)
+                assertFalse("Mid-collapse cursorAnimator must be cancelled immediately", realAnimator.isRunning())
+                assertTrue("Split rendering must stay active when cursorAnimator is cancelled mid-collapse", canvas.gapCollapseController.shouldApplySplitRender)
+                assertEquals(preTau, canvas.gapCollapseController.tauLower, 0.001f)
+                assertTrue(canvas.gapCollapseController.isTransactionOwned)
+                assertFalse("aw.isEnabled must stay false during split collapse", aw.isEnabled)
+
+                // Settle collapse to FINAL_SAFETY_PENDING -> IDLE while a simulated cursorAnimator is held running
+                simulateAnimatorRunning = true
+                val se = canvas.gapCollapseController.restartFinalSafetyClaim(10L)!!
+                canvas.completeDeletionVisualTransaction(10L, se)
                 assertFalse("aw.isEnabled must stay false prior to post-IDLE unsplit draw", aw.isEnabled)
 
                 // Draw while cursorAnimator is STILL running -> didRefreshCursorDescriptorsOnLastDraw == false
@@ -1337,8 +1346,9 @@ class ScribeGapCollapseRendererTest {
                 ed.onGapCollapseSplitEntered()
                 assertFalse(aw.isEnabled)
 
-                // Trigger real CursorAnimator Option-B interruption while physically below safeMinPhysical
-                realAnimator.triggerGlide(0f, 0f, 120f, 40f, 20f, 20f)
+                // Transition to Event-B safety validation while physically below safeMinPhysical
+                val se = canvas.gapCollapseController.restartFinalSafetyClaim(canvas.currentDeletionTransactionGeneration)!!
+                canvas.completeDeletionVisualTransaction(canvas.currentDeletionTransactionGeneration, se)
                 assertFalse("Split rendering must disable immediately on Event B", canvas.gapCollapseController.shouldApplySplitRender)
                 assertEquals(0f, canvas.gapCollapseController.tauLower, 0.001f)
                 assertEquals(
@@ -1393,7 +1403,8 @@ class ScribeGapCollapseRendererTest {
                 canvas.measure(zeroSpec, zeroHSpec)
                 canvas.layout(0, 0, 720, 0)
 
-                realAnimator.triggerGlide(0f, 0f, 120f, 40f, 20f, 20f)
+                val se2 = canvas.gapCollapseController.restartFinalSafetyClaim(50L)!!
+                canvas.completeDeletionVisualTransaction(50L, se2)
                 assertEquals(
                     "DEFERRED_UNTIL_LAYOUT_READY must keep FINAL_SAFETY_PENDING",
                     GapCollapsePhase.FINAL_SAFETY_PENDING,

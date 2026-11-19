@@ -51,6 +51,8 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
     internal var deferAutoStartForPendingCollapse: Boolean = false
     internal var hasDeferredPendingStart: Boolean = false
         private set
+    internal var startedAnimationCount: Int = 0
+        private set
 
     /**
      * Option-B Phase 4 callback invoked synchronously on the UI thread immediately
@@ -134,6 +136,7 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
         hasDeferredPendingStart = false
         lastAnimateTimestamp = System.currentTimeMillis()
         isAnimationReady = false
+        startedAnimationCount++
         ax.start()
         ay.start()
         ah.start()
@@ -241,6 +244,9 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
         hasDeferredPendingStart = false
         isAnimationReady = false
         lastAnimateTimestamp = System.currentTimeMillis()
+        if (animatorX != null || animatorY != null || animatorHeight != null) {
+            startedAnimationCount++
+        }
         animatorX?.start()
         animatorY?.start()
         animatorHeight?.start()
@@ -251,6 +257,10 @@ class ScribeCursorAnimator(private val editor: CodeEditor) : CursorAnimator, Val
 
     internal fun discardDeferredStart() {
         hasDeferredPendingStart = false
+        isGlideArmed = false
+        armedTargetLine = null
+        armedTargetCol = null
+        armedFallbackTargetY = null
         cancel()
     }
 

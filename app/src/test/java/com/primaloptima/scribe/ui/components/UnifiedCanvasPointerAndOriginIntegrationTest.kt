@@ -997,24 +997,25 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             assertFalse(editor.isInContentReplace)
         }
 
-        // Row 7: Empty replacement ("") interrupts active collapse without triggering a nested collapse
+        // Row 7: Non-selection programmatic empty replacement ("") interrupts active collapse and routes as NOT_A_SELECTION_DELETION
         run {
             val canvas2 = createLaidOutCanvas(headerHeightPx = 200, lineCount = 80)
             canvas2.editor.isCursorAnimationEnabled = false
             canvas2.scrollCanvasBy(350f)
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             enterSplitCollapseAt(canvas2, seamLine = 20, tauLowerPx = rowH * 4f, freezeToPointer = true)
+            assertFalse("Precondition: programmatic Content.replace without selection has cursor.isSelected == false", canvas2.editor.cursor.isSelected)
             canvas2.editor.text.replace(6, 0, 9, 0, "")
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             assertFalse("Empty replace interrupting active collapse must settle without split render", canvas2.gapCollapseController.shouldApplySplitRender)
             assertEquals(
-                "Interrupted empty replace must not fall back to legacy handleDeletionSettlement()",
-                0,
-                canvas2.legacySettlementInvocationCount
-            )
-            assertEquals(
-                SelectionDeletionDispatchOutcome.GAP_COLLAPSE_UNSUPPORTED_GEOMETRY,
+                SelectionDeletionDispatchOutcome.NOT_A_SELECTION_DELETION,
                 canvas2.lastSelectionDeletionDiagnostic?.outcome
+            )
+            assertEquals(1, canvas2.legacySettlementInvocationCount)
+            assertFalse(
+                "Non-selection programmatic replace must record lastLegacySettlementWasSelection == false",
+                canvas2.lastLegacySettlementWasSelection
             )
             canvas2.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "r7")
         }
@@ -1297,7 +1298,8 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "partA_cleanup")
         }
 
-        // Part B: Non-collapse fallback deletion where enforceAutoIndentFloor is a no-op preserves deferred cursor animator
+        // Part B: Unsupported selection deletion discards (never flushes) deferred cursor animator,
+        // while ordinary non-selection deletion continues to allow cursor animation.
         run {
             val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
             val editor = canvas.editor
@@ -1307,12 +1309,10 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             editor.text.replace(4, 0, 4, editor.text.getColumnCount(4), "    Surviving indented line")
             Shadows.shadowOf(Looper.getMainLooper()).idle()
 
-            // Pre-arm a real deferred cursor animation transition (from (4, 16) -> (4, 4)) that will be
-            // deferred during deleteText() on a merged partial-row seam (c1 = 4 -> INELIGIBLE_FALLBACK).
-            // Because line 4 already starts with "    " and caret is at col 4, enforceAutoIndentFloor() is a no-op!
             val scribeAnim = editor.cursorAnimator as ScribeCursorAnimator
             val rowH = editor.rowHeight.toFloat().coerceAtLeast(20f)
             editor.setSelectionRegion(4, 4, 6, 0, false)
+            val preSelStarts = scribeAnim.startedAnimationCount
             scribeAnim.armGlide(
                 startX = 240f,
                 startY = rowH * 4f,
@@ -1321,11 +1321,33 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             )
             editor.deleteText()
 
-            assertFalse("c1 > 0 merged seam falls back to non-collapse", canvas.gapCollapseController.shouldApplySplitRender)
+            assertFalse(canvas.gapCollapseController.shouldApplySplitRender)
             assertEquals(4, editor.cursor.leftColumn)
+            assertEquals(
+                SelectionDeletionDispatchOutcome.GAP_COLLAPSE_UNSUPPORTED_GEOMETRY,
+                canvas.lastSelectionDeletionDiagnostic?.outcome
+            )
+            assertEquals(
+                "Unsupported selection deletion must discard (not flush) deferred cursor animation",
+                preSelStarts,
+                scribeAnim.startedAnimationCount
+            )
+            assertFalse(scribeAnim.isRunning)
+            assertFalse(scribeAnim.hasDeferredPendingStart)
+
+            // Ordinary non-selection deletion still runs cursor animation normally
+            editor.setSelection(10, 6)
+            val preNonSelStarts = scribeAnim.startedAnimationCount
+            scribeAnim.armGlide(
+                startX = 240f,
+                startY = rowH * 10f,
+                startHeight = rowH,
+                fallbackTargetY = rowH * 10f
+            )
+            editor.deleteText()
             assertTrue(
-                "No-op enforceAutoIndentFloor must flush (not discard) deferred cursor animation",
-                scribeAnim.isRunning
+                "Ordinary non-selection deletion must still permit ScribeCursorAnimator",
+                scribeAnim.startedAnimationCount > preNonSelStarts
             )
             scribeAnim.cancel()
         }
@@ -1334,18 +1356,20 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
 
     @Test
     fun testSelectionDeletionIsolation_SoleDispatchPathAndDiagnostics() {
-        // 1. Supported selection deletion acquires gap collapse ownership with zero legacy settlement
+        // 1. Supported selection deletion acquires gap collapse ownership with zero legacy settlement and no cursor-glide start
         run {
             val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
             val editor = canvas.editor
             editor.requestFocus()
-            editor.isCursorAnimationEnabled = false
+            editor.isCursorAnimationEnabled = true
             editor.isWordwrap = true
             awaitWordwrapLayoutReady(editor)
             canvas.scrollCanvasBy(280f)
             Shadows.shadowOf(Looper.getMainLooper()).idle()
 
+            val scribeAnim = editor.cursorAnimator as ScribeCursorAnimator
             editor.setSelectionRegion(10, 0, 14, 0, false)
+            val preAnimStarts = scribeAnim.startedAnimationCount
             editor.deleteText()
 
             assertTrue(canvas.gapCollapseController.isTransactionOwned)
@@ -1354,6 +1378,13 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
                 canvas.lastSelectionDeletionDiagnostic?.outcome
             )
             assertEquals(0, canvas.legacySettlementInvocationCount)
+            assertEquals(
+                "Supported selection deletion entering gap collapse must not start ScribeCursorAnimator",
+                preAnimStarts,
+                scribeAnim.startedAnimationCount
+            )
+            assertFalse(scribeAnim.isRunning)
+            assertFalse(scribeAnim.hasDeferredPendingStart)
             canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "iso_1")
         }
 
@@ -1443,17 +1474,31 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             assertEquals(0, canvas.legacySettlementInvocationCount)
         }
 
-        // 5. RTL/Bidi seam while unfocused records rtl_or_bidi_at_seam + NOT_FOCUSED handle status and zero legacy settlement
+        // 5. RTL/Bidi seam while genuinely unfocused records rtl_or_bidi_at_seam + NOT_FOCUSED handle status,
+        // zero legacy settlement, and discards any deferred ScribeCursorAnimator
         run {
             val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
             val editor = canvas.editor
             editor.text.insert(8, 0, "مرحبا ")
+            // Prevent sole-focusable-child auto-refocus in Robolectric non-touch mode
+            editor.isFocusable = false
+            editor.isFocusableInTouchMode = false
             editor.clearFocus()
-            editor.isCursorAnimationEnabled = false
+            assertFalse("Fixture precondition: editor must genuinely be unfocused", editor.isFocused)
+            editor.isCursorAnimationEnabled = true
             editor.isWordwrap = true
             awaitWordwrapLayoutReady(editor)
 
+            val scribeAnim = editor.cursorAnimator as ScribeCursorAnimator
+            val rowH = editor.rowHeight.toFloat().coerceAtLeast(20f)
             editor.setSelectionRegion(8, 0, 12, 0, false)
+            val preAnimStarts = scribeAnim.startedAnimationCount
+            scribeAnim.armGlide(
+                startX = 160f,
+                startY = rowH * 8f,
+                startHeight = rowH,
+                fallbackTargetY = rowH * 8f
+            )
             editor.deleteText()
 
             assertFalse(canvas.gapCollapseController.isTransactionOwned)
@@ -1464,6 +1509,13 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             assertEquals("rtl_or_bidi_at_seam", canvas.lastSelectionDeletionDiagnostic?.reason)
             assertEquals(PreDeleteHandleCaptureStatus.NOT_FOCUSED, canvas.lastSelectionDeletionDiagnostic?.upperHandleStatus)
             assertEquals(0, canvas.legacySettlementInvocationCount)
+            assertEquals(
+                "Unsupported RTL/Bidi selection deletion must discard (never flush) deferred cursor animator",
+                preAnimStarts,
+                scribeAnim.startedAnimationCount
+            )
+            assertFalse(scribeAnim.isRunning)
+            assertFalse(scribeAnim.hasDeferredPendingStart)
         }
 
         // 6. Empty-document selection deletion retains empty reset without legacy DELETION_ANCHOR
@@ -1505,6 +1557,169 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             )
             assertEquals(1, canvas.legacySettlementInvocationCount)
             assertFalse(canvas.lastLegacySettlementWasSelection)
+        }
+
+        // 8. Pre-existing cursor animator is cancelled before gap collapse acquires ownership,
+        // and mid-collapse cursor animator activation cancels the animator without resetting tauLower
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
+            val editor = canvas.editor
+            editor.requestFocus()
+            editor.isCursorAnimationEnabled = true
+            editor.isWordwrap = true
+            awaitWordwrapLayoutReady(editor)
+            canvas.scrollCanvasBy(280f)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            val scribeAnim = editor.cursorAnimator as ScribeCursorAnimator
+            val rowH = editor.rowHeight.toFloat().coerceAtLeast(20f)
+            editor.setSelectionRegion(10, 0, 14, 0, false)
+            scribeAnim.triggerGlide(0f, 0f, rowH, 120f, rowH * 4f, rowH)
+            assertTrue("Precondition: pre-existing cursor animator is running before deleteText()", scribeAnim.isRunning)
+            val preDeleteStarts = scribeAnim.startedAnimationCount
+            editor.deleteText()
+
+            assertTrue(canvas.gapCollapseController.isTransactionOwned)
+            assertEquals(
+                SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED,
+                canvas.lastSelectionDeletionDiagnostic?.outcome
+            )
+            assertEquals(true, canvas.lastSelectionDeletionDiagnostic?.wasCursorAnimatorCancelled)
+            assertEquals(preDeleteStarts, scribeAnim.startedAnimationCount)
+            assertFalse(scribeAnim.isRunning)
+            assertEquals(0, canvas.legacySettlementInvocationCount)
+
+            val tauBefore = canvas.gapCollapseController.tauLower
+            assertTrue(tauBefore > 1f)
+            val ownedGen = canvas.gapCollapseController.owningDeletionGen
+
+            // Triggering ScribeCursorAnimator mid-collapse must cancel the cursor animator without aborting collapse
+            scribeAnim.triggerGlide(0f, 0f, rowH, 80f, rowH * 3f, rowH)
+            assertFalse("Mid-collapse cursor animator must be cancelled immediately", scribeAnim.isRunning)
+            assertTrue("Controller must retain ownership on mid-collapse animator trigger", canvas.gapCollapseController.isTransactionOwned)
+            assertEquals(ownedGen, canvas.gapCollapseController.owningDeletionGen)
+            assertEquals("tauLower must not reset to zero", tauBefore, canvas.gapCollapseController.tauLower, 0.001f)
+            assertTrue(canvas.gapCollapseController.shouldApplySplitRender)
+
+            canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "iso_8")
+        }
+
+        // 9. Interrupted second selection deletion cancels active collapse and starts neither legacy settlement nor cursor animator
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
+            val editor = canvas.editor
+            editor.requestFocus()
+            editor.isCursorAnimationEnabled = true
+            editor.isWordwrap = true
+            awaitWordwrapLayoutReady(editor)
+            canvas.scrollCanvasBy(280f)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            val scribeAnim = editor.cursorAnimator as ScribeCursorAnimator
+            val rowH = editor.rowHeight.toFloat().coerceAtLeast(20f)
+            enterSplitCollapseAt(canvas, seamLine = 20, tauLowerPx = rowH * 4f, freezeToPointer = true)
+
+            editor.setSelectionRegion(8, 0, 11, 0, false)
+            val preInterruptStarts = scribeAnim.startedAnimationCount
+            editor.deleteText()
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            assertFalse(canvas.gapCollapseController.shouldApplySplitRender)
+            assertEquals(
+                SelectionDeletionDispatchOutcome.GAP_COLLAPSE_UNSUPPORTED_GEOMETRY,
+                canvas.lastSelectionDeletionDiagnostic?.outcome
+            )
+            assertEquals("interrupted_active_collapse", canvas.lastSelectionDeletionDiagnostic?.reason)
+            assertEquals(0, canvas.legacySettlementInvocationCount)
+            assertEquals(
+                "Interrupted second selection deletion must not start ScribeCursorAnimator",
+                preInterruptStarts,
+                scribeAnim.startedAnimationCount
+            )
+            assertFalse(scribeAnim.isRunning)
+            assertFalse(scribeAnim.hasDeferredPendingStart)
+            canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "iso_9")
+        }
+
+        // 10. Pending-layout selection deletion stays suppressed without legacy fallback, then resumes through gap collapse
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 90)
+            val editor = canvas.editor
+            editor.requestFocus()
+            editor.isCursorAnimationEnabled = true
+            editor.isWordwrap = true
+            awaitWordwrapLayoutReady(editor)
+            canvas.scrollCanvasBy(280f)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            val scribeAnim = editor.cursorAnimator as ScribeCursorAnimator
+            editor.setSelectionRegion(10, 0, 14, 0, false)
+            // Collapse canvas height to 0 temporarily to simulate layout-not-ready at deleteText() time
+            val zeroW = View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY)
+            val zeroH = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.EXACTLY)
+            canvas.measure(zeroW, zeroH)
+            canvas.layout(0, 0, 800, 0)
+
+            val prePendingStarts = scribeAnim.startedAnimationCount
+            editor.deleteText()
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            assertFalse(canvas.gapCollapseController.isTransactionOwned)
+            assertEquals(
+                SelectionDeletionDispatchOutcome.GAP_COLLAPSE_PENDING_LAYOUT,
+                canvas.lastSelectionDeletionDiagnostic?.outcome
+            )
+            assertEquals(0, canvas.legacySettlementInvocationCount)
+            assertEquals(prePendingStarts, scribeAnim.startedAnimationCount)
+
+            // Restore valid layout bounds -> OnLayoutChangeListener resumes pending selection deletion into gap collapse
+            val wSpec = View.MeasureSpec.makeMeasureSpec(800, View.MeasureSpec.EXACTLY)
+            val hSpec = View.MeasureSpec.makeMeasureSpec(1200, View.MeasureSpec.EXACTLY)
+            canvas.measure(wSpec, hSpec)
+            canvas.layout(0, 0, 800, 1200)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            assertTrue(
+                "Layout becoming ready must resume pending selection deletion through gap collapse",
+                canvas.gapCollapseController.isTransactionOwned ||
+                    canvas.lastSelectionDeletionDiagnostic?.outcome == SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED
+            )
+            assertEquals(0, canvas.legacySettlementInvocationCount)
+            assertEquals(prePendingStarts, scribeAnim.startedAnimationCount)
+            canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "iso_10")
+        }
+
+        // 11. Scenario E (fully offscreen selection) uses smooth caret-follow without legacy handleDeletionSettlement or ScribeCursorAnimator
+        run {
+            val canvas = createLaidOutCanvas(headerHeightPx = 200, lineCount = 120)
+            val editor = canvas.editor
+            editor.requestFocus()
+            editor.isCursorAnimationEnabled = true
+            editor.isWordwrap = true
+            awaitWordwrapLayoutReady(editor)
+
+            val scribeAnim = editor.cursorAnimator as ScribeCursorAnimator
+            editor.setSelectionRegion(8, 0, 12, 0, false)
+            canvas.scrollCanvasBy(canvas.maxCanvasScroll.toFloat())
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+
+            val preScenarioEStarts = scribeAnim.startedAnimationCount
+            editor.deleteText()
+
+            assertFalse(canvas.gapCollapseController.shouldApplySplitRender)
+            assertEquals(
+                SelectionDeletionDispatchOutcome.GAP_COLLAPSE_SCENARIO_E_CARET_FOLLOW,
+                canvas.lastSelectionDeletionDiagnostic?.outcome
+            )
+            assertEquals(0, canvas.legacySettlementInvocationCount)
+            assertEquals(
+                "Scenario E selection deletion must not flush ScribeCursorAnimator",
+                preScenarioEStarts,
+                scribeAnim.startedAnimationCount
+            )
+            assertFalse(scribeAnim.isRunning)
+            assertFalse(scribeAnim.hasDeferredPendingStart)
+            canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "iso_11")
         }
     }
 }

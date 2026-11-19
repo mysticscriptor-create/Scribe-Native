@@ -854,7 +854,7 @@ class ScribeGapCollapseControllerTest {
     }
 
     /**
-     * Option-B harness mirroring UnifiedCanvasLayout.handleCursorAnimatorActivatedDuringCollapse(),
+     * Event-B safety harness exercising ScribeGapCollapseController.restartFinalSafetyClaim(),
      * routing every outcome through EventBSafetyHarness.runEventB() and tracking
      * EditorTextActionWindow eligibility across FINAL_SAFETY_PENDING -> IDLE -> unsplit draw.
      */

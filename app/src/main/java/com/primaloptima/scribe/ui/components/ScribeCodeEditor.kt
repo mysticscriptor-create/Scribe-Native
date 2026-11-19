@@ -481,7 +481,11 @@ class ScribeCodeEditor @JvmOverloads constructor(
             return
         }
         val scribeAnimator = cursorAnimator as? ScribeCursorAnimator
-        val collapseStarted = pCanvas?.gapCollapseController?.isTransactionOwned == true
+        val dispatchOutcome = pCanvas?.lastSelectionDeletionDiagnostic?.outcome
+        val collapseStarted = pCanvas?.gapCollapseController?.isTransactionOwned == true ||
+            dispatchOutcome == com.primaloptima.scribe.ui.editor.scroll.SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED
+        val isExplicitNonSelection =
+            dispatchOutcome == com.primaloptima.scribe.ui.editor.scroll.SelectionDeletionDispatchOutcome.NOT_A_SELECTION_DELETION
         val needIndentFloor = hasPendingDeferredAutoIndentFloor
         val appliedBefore = didApplyAutoIndentFloorBeforeCollapse
         isDeferringSelectionDeletionEffects = false
@@ -495,6 +499,20 @@ class ScribeCodeEditor @JvmOverloads constructor(
                     suppressCursorAnimator = true,
                     makeSelectionVisible = false,
                     preserveSeamColZeroOnFloor = true
+                )
+            }
+        } else if (!isExplicitNonSelection) {
+            // Selection deletions that are unsupported, have no gap, were interrupted, or used
+            // Scenario E must never flush the legacy ScribeCursorAnimator fallback.
+            scribeAnimator?.discardDeferredStart()
+            if (cursorAnimator.isRunning) {
+                cursorAnimator.cancel()
+            }
+            if (needIndentFloor) {
+                enforceAutoIndentFloor(
+                    suppressCursorAnimator = true,
+                    makeSelectionVisible = false,
+                    preserveSeamColZeroOnFloor = false
                 )
             }
         } else {
@@ -706,7 +724,7 @@ class ScribeCodeEditor @JvmOverloads constructor(
 
     internal fun clearTextActionAndReplaceTokensOnReset() {
         cancelPendingReplaceWatchdog()
-        clearSelectionDeletionDeferral(discardPreparedAnimator = false)
+        clearSelectionDeletionDeferral(discardPreparedAnimator = isDeferringSelectionDeletionEffects)
         clearDeferredHintsAndDiagnosticsState()
         val wasOriginallyEnabled = savedTextActionWindowEnabled
         cancelPendingTextActionRefresh(clearSavedState = true)
@@ -2022,7 +2040,6 @@ class ScribeCodeEditor @JvmOverloads constructor(
         val scribeAnimator = cursorAnimator as? ScribeCursorAnimator
         val shouldDeferForPendingCollapse = canMutateCanvas &&
             pCanvas != null &&
-            !forceIneligibleRow5Fallback &&
             seamCapture?.isSelection == true
         if (shouldDeferForPendingCollapse) {
             if (seamCapture?.wasCursorAnimationRunningBeforeDelete == true || cursorAnimator.isRunning) {

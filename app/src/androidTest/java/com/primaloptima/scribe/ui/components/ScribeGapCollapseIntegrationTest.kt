@@ -1074,17 +1074,20 @@ class ScribeGapCollapseIntegrationTest {
                     anim.cancel()
                 }
 
-                // D) CursorAnimator Case 3 & Case 4: Starting during Mode 1 and during Mode 2 triggers Option B
+                // D) CursorAnimator Case 3 & Case 4: Starting during Mode 1 and during Mode 2 cancels cursorAnimator
+                // without resetting tauLower or relinquishing gap-collapse controller ownership
                 instr.runOnMainSync {
                     val rowH = ed.rowHeight.toFloat().coerceAtLeast(20f)
-                    startCollapseTransaction(canvas, seamLine = 20, tauLowerPx = rowH * 3f, requiresMode1 = true)
+                    val (gen3, _) = startCollapseTransaction(canvas, seamLine = 20, tauLowerPx = rowH * 3f, requiresMode1 = true)
                     assertEquals(GapCollapsePhase.MODE_1_PHYSICAL_COUPLED, canvas.gapCollapseController.phase)
+                    val tauBefore = canvas.gapCollapseController.tauLower
                     (ed.cursorAnimator as ScribeCursorAnimator).triggerGlide(0f, 0f, 36f, 80f, 160f, 36f)
-                    assertFalse("Option B during Mode 1 must disable split rendering", canvas.gapCollapseController.shouldApplySplitRender)
-                    assertEquals(0f, canvas.gapCollapseController.tauLower, 0.001f)
-                }
-                waitUntil(failureMsg = "Mode 1 Option-B abort must release safely to IDLE") {
-                    canvas.gapCollapseController.phase == GapCollapsePhase.IDLE
+                    assertFalse("Mid-collapse cursorAnimator in Mode 1 must be cancelled", ed.cursorAnimator.isRunning)
+                    assertTrue("Mode 1 collapse must retain ownership", canvas.gapCollapseController.isTransactionOwned)
+                    assertEquals(gen3, canvas.gapCollapseController.owningDeletionGen)
+                    assertTrue("Mode 1 split rendering must stay active", canvas.gapCollapseController.shouldApplySplitRender)
+                    assertEquals(tauBefore, canvas.gapCollapseController.tauLower, 0.001f)
+                    canvas.cancelGapCollapseAndDeletionTransaction(preserveRetractionDebt = false, reason = "case3_cleanup")
                 }
 
                 instr.runOnMainSync {
@@ -1092,11 +1095,15 @@ class ScribeGapCollapseIntegrationTest {
                     val (gen4, epoch4) = startCollapseTransaction(canvas, seamLine = 20, tauLowerPx = rowH * 3f, requiresMode1 = true)
                     canvas.gapCollapseController.onMode1SettledOrHandoff(gen4, epoch4, (canvas.scrollD + ed.offsetY).toFloat())
                     assertEquals(GapCollapsePhase.MODE_2_VISUAL_SETTLING, canvas.gapCollapseController.phase)
+                    val tauBeforeMode2 = canvas.gapCollapseController.tauLower
                     (ed.cursorAnimator as ScribeCursorAnimator).triggerGlide(0f, 0f, 36f, 80f, 160f, 36f)
-                    assertFalse("Option B during Mode 2 must zero visual gap immediately", canvas.gapCollapseController.shouldApplySplitRender)
-                    assertEquals(0f, canvas.gapCollapseController.tauLower, 0.001f)
+                    assertFalse("Mid-collapse cursorAnimator in Mode 2 must be cancelled", ed.cursorAnimator.isRunning)
+                    assertTrue("Mode 2 collapse must retain ownership", canvas.gapCollapseController.isTransactionOwned)
+                    assertEquals(gen4, canvas.gapCollapseController.owningDeletionGen)
+                    assertTrue("Mode 2 split rendering must stay active", canvas.gapCollapseController.shouldApplySplitRender)
+                    assertEquals(tauBeforeMode2, canvas.gapCollapseController.tauLower, 0.001f)
                 }
-                waitUntil(failureMsg = "Mode 2 Option-B abort must release safely to IDLE before unsplit render") {
+                waitUntil(failureMsg = "Mode 2 collapse must settle normally to IDLE after cancelling cursorAnimator") {
                     canvas.gapCollapseController.phase == GapCollapsePhase.IDLE
                 }
             } finally {
