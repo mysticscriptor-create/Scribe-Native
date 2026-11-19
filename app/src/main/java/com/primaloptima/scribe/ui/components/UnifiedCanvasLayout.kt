@@ -674,6 +674,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     private var isOuterRetractionDebtActive: Boolean = false
     private var pendingDeletionLayoutListener: View.OnLayoutChangeListener? = null
     private var pendingDeletionAttachListener: View.OnAttachStateChangeListener? = null
+    private var pendingDeletionLayoutListenerGen: Long = -1L
 
     var hasPendingDeletionSettlement: Boolean = false
         private set
@@ -805,6 +806,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         pendingDeletionLayoutListener = null
         pendingDeletionAttachListener?.let { removeOnAttachStateChangeListener(it) }
         pendingDeletionAttachListener = null
+        pendingDeletionLayoutListenerGen = -1L
     }
 
     private fun clearDeletionResetRetraction() {
@@ -1001,7 +1003,23 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
     }
 
     private fun deferDeletionSettlementUntilLayoutReady(capturedGen: Long, smooth: Boolean) {
-        if (pendingDeletionLayoutListener != null || !isAttachedToWindow) return
+        if (!isAttachedToWindow || !canStillSettleGeneration(capturedGen)) return
+        if (pendingDeletionLayoutListener != null) {
+            if (pendingDeletionLayoutListenerGen == capturedGen) return
+            clearPendingDeletionLayoutListener()
+        }
+        fun isReadyForPendingDispatch(viewHeight: Int): Boolean {
+            if (viewHeight <= 0 || !isLaidOut || !editor.isLaidOut) return false
+            val isSelection = activeDeletionSnapshot?.isSelection == true
+            if (!isSelection) return true
+            val scribeEditor = editor as? ScribeCodeEditor
+            var editorBusy = scribeEditor?.isLayoutBusy ?: editor.isLayoutComputing
+            if (!editorBusy && (editor.layout == null || !editor.isWordwrapReady()) && editor.width > 0) {
+                scribeEditor?.ensureWordwrapLayoutConsistentBeforeRender()
+                editorBusy = scribeEditor?.isLayoutBusy ?: editor.isLayoutComputing
+            }
+            return editor.layout != null && editor.isWordwrapReady() && !editorBusy
+        }
         val attachListener = object : View.OnAttachStateChangeListener {
             override fun onViewAttachedToWindow(v: View) {}
             override fun onViewDetachedFromWindow(v: View) {
@@ -1014,13 +1032,11 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                 left: Int, top: Int, right: Int, bottom: Int,
                 oldLeft: Int, oldTop: Int, oldRight: Int, oldBottom: Int
             ) {
-                val isSelection = activeDeletionSnapshot?.isSelection == true
-                val scribeEditor = editor as? ScribeCodeEditor
-                val editorBusy = scribeEditor?.isLayoutBusy ?: editor.isLayoutComputing
-                val readyForDispatch = (bottom - top) > 0 &&
-                    editor.isLaidOut &&
-                    (!isSelection || (editor.layout != null && editor.isWordwrapReady() && !editorBusy))
-                if (readyForDispatch) {
+                if (!canStillSettleGeneration(capturedGen)) {
+                    clearPendingDeletionLayoutListener()
+                    return
+                }
+                if (isReadyForPendingDispatch(bottom - top)) {
                     clearPendingDeletionLayoutListener()
                     post {
                         if (canStillSettleGeneration(capturedGen)) {
@@ -1032,8 +1048,18 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         }
         pendingDeletionAttachListener = attachListener
         pendingDeletionLayoutListener = layoutListener
+        pendingDeletionLayoutListenerGen = capturedGen
         addOnAttachStateChangeListener(attachListener)
         addOnLayoutChangeListener(layoutListener)
+        // Re-check readiness after listener registration to prevent lost-wakeup races.
+        if (isReadyForPendingDispatch(height)) {
+            clearPendingDeletionLayoutListener()
+            post {
+                if (canStillSettleGeneration(capturedGen)) {
+                    dispatchPendingDeletionAfterLayoutReady(capturedGen, smooth)
+                }
+            }
+        }
     }
 
     private fun dispatchPendingDeletionAfterLayoutReady(capturedGen: Long, smooth: Boolean) {
@@ -3089,7 +3115,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
         // during an active deletion transaction, touch retraction debt, or smooth RESET_TOP glide.
         val deferLayoutReconcile = isDeletionRetractionInProgress ||
             (isGlideRunning && activeGlideReason == ScrollAnimationReason.RESET_TOP)
-        if (!deferLayoutReconcile && headerHeight > 0 && editor.isWordwrapReady() && editor.layout != null) {
+        if (!deferLayoutReconcile && viewportHeight > 0 && height > 0 && headerHeight > 0 && editor.isWordwrapReady() && editor.layout != null) {
             val reconciled = ScribeScrollPolicy.reconcileScrollState(
                 headerHeight = headerHeight,
                 scrollD = scrollD,
@@ -3138,7 +3164,7 @@ class UnifiedCanvasLayout @JvmOverloads constructor(
                     onUnifiedScrollChanged?.invoke(scrollD, headerHeight)
                     notifyViewportScrollChanged(PhysicalScrollOrigin.EXTERNAL_PROGRAMMATIC)
                 }
-            } else if (editor.isWordwrapReady() && editor.layout != null) {
+            } else if (viewportHeight > 0 && editor.isWordwrapReady() && editor.layout != null) {
                 val reconciled = ScribeScrollPolicy.reconcileScrollState(
                     headerHeight = headerHeight,
                     scrollD = scrollD,

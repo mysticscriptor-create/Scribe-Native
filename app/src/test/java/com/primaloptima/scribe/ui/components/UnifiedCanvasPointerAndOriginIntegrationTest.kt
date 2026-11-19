@@ -1703,7 +1703,10 @@ class UnifiedCanvasPointerAndOriginIntegrationTest {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
 
             assertTrue(
-                "Layout becoming ready must resume pending selection deletion through gap collapse",
+                "Layout becoming ready must resume pending selection deletion through gap collapse " +
+                    "(outcome=${canvas.lastSelectionDeletionDiagnostic?.outcome}, " +
+                    "reason=${canvas.lastSelectionDeletionDiagnostic?.reason}, " +
+                    "owned=${canvas.gapCollapseController.isTransactionOwned})",
                 canvas.gapCollapseController.isTransactionOwned ||
                     canvas.lastSelectionDeletionDiagnostic?.outcome == SelectionDeletionDispatchOutcome.GAP_COLLAPSE_STARTED
             )
